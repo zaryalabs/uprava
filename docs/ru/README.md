@@ -17,3 +17,4 @@
 - [`tech-stack.md`](tech-stack.md) - предварительный технический стек.
 - [`product-stages.md`](product-stages.md) - стадии развития продукта.
 - [`feature-inventory.md`](feature-inventory.md) - инвентарь придуманных фич и направлений.
+- [`design/`](design/) - карта дизайн-направлений и будущие глубокие design docs.
