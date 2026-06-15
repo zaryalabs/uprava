@@ -1,56 +1,94 @@
-# Readme
+# Cortex
 
-Сделать WorkOS общего назначения для агентов. Начать с применения разработке, потом расширить на аналитику, ресерч и финансы (возможно потом сделать какое-то ответвление, чтобы делать еще личные задачи).
+Cortex is a Distributed Agent OS for large-scale work with AI agents.
 
-## Проблемы которые нужно решить
+The product starts with software development workflows and can later expand into analytics, research, finance, documents, and broader knowledge work. The first practical direction is a developer-focused workbench for persistent agent sessions running on nodes.
 
-1. Невозможность работать с телефона нормально (это есть в кодексе, но только UI и работает криво, также можно использовать tmux на сервере, но это тоже не оч изящно)
-2. Невозможность/слишком большая сложность ставить большие задачи на полную реализацию (сделал задачу размером с фичу и ушел)
-3. Отсутствие флоу с концом а виде МР
-4. Невозможность удобно ревьюить с телефона
-5. Отсутствие хотя бы визуализации юмл (а лучше еще и редактора)
-6. Недостаточная интеграция со стеком, как минимум в визуальном плане (ты можешь подключить MCP, но максимум что ты можешь получить в результате действия агента это текст "я сделал x" или текстовую ссылку)
+## Product Thesis
 
-## Потребности
+Most agent tools are still shaped like chat. They can run an agent and show the result, but they do not provide enough visibility into files, terminal, workspace state, changes, checks, trace, visual artifacts, or review flow.
 
-1. Больше мобильности (возможность переключаться с компьютера на телефон)
-2. Больше гибкости относительно агентов (возможность работать с разными агентами на разных машинах (свой комп, сервер))
-3. Больше визуализаций (плагины, графики), интерфейс за рамками текстового чата (иногда хочется каку-то форму, а не текст)
-4. Больше прозрачности (возможность посмотреть весь проект, а не только измененные файлы как в кодексе, посмотреть дифф)
-5. Возможность организовать процесс так, чтобы задачи агентов могли быть на часы (это явно не только затрагивает сам инструмент, но круто, если инструмент будет помогать)
-6. Максимальная масштабируемость (возможность добавлять новые инструменты, новые визуализации, новые агенты, новые интеграции)
-7. Максимальная естественность (так, чтобы инструмент был удобен для человека и агента)
+Cortex should be a control plane and work surface for agent workloads:
 
-## Подходы
+- **Core Backend** as the control plane.
+- **Node Daemon** as the data plane running on local machines, servers, devboxes, sandboxes, or cloud nodes.
+- **Web Control Panel** as the first client.
+- **Persistent agent sessions** as the first execution mode.
+- **Task-based sandbox runs** as a later execution mode.
+- **Tool Registry and Plugin Registry** as the foundation for modularity.
+- **Visual artifacts and traceability** as first-class product principles.
 
-_В скобках затрагиваемые потребности._
+## Current Stage
 
-- Сделать отдельное приложение демона, которое можно запускать на нодах и оно будет запускать агентов и давать доступ к файлам и состоянию системы (1, 2, 4)
-- Агент внутри самого IU (причем first-class citizen), для работы над самим кортексом (отдельный агент который работает внутри самого приложения, возможно он же может оркестировать агенты на нодах) (7)
-- Ноушн-подобный UI, чтобы можно было интегрировать различные блоки (3)
-- Динамический блок, чтобы агент мог выдать тебе форму, график или целый дешборд  (3)
-- Двойной UI (7)
-  - Все элементы интерфейса имеют два отображения (одно визуальное для человека, другое для агента)
-  - Долгое нажатие открывает чат с внутренним агентом и можно более гибко взаимодействовать с UI
-- Возможность упомянуть файл, инструмент, агента итп (через `@`), чтобы агенту было более понятно о чем речь
-- Система интеграций через плагины (подключить ноушн, гитлаб, лайниар, графану, докер, млфлоу итп.) (6)
-  - CLI с доступом к инструментам которые подключены на уровне системы
-  - Визуальные плагины, чтобы в интерфейсе можно было действия отображать
-- Харнес и ворфлоу для долгих задач (5)
-  - Библиотека гайдов, чтобы можно было агентом настраивать (например "сетап для питон проекта" и агент сам все настраивает)
-  - Библиотека гайдлайнов (по кодстайлу, по архитектуре, по тестам, по ревью (тут прям важно развивать с учетом частых косяков агентов))
-  - Поддержка пайплайнов, чтобы можно было делать полудетерминированные флоу (реализация, ревью, исправление, причем в реализации агент тоже может делать для себя ревью и тесты, просто мы делаем отельный блок с ревью, чтобы еще уменьшить проблемы)
-  - Скилы, тулы и пайплайны из коробки, чтобы не нужно было каждый раз заново настраивать
+The current repository stage is product and architecture design.
 
-## Соглашения
+Canonical English docs:
 
-- В качестве агента по дефолту делаем codex
-- Пока не занимаемся созданием своей памяти или таск-трекера, а берем готовые
-- По максимуму берем готовые элементы вместо создания своих
-- Таск-трекер - linear
+- [Vision](docs/en/vision.md)
+- [Architecture](docs/en/architecture.md)
+- [Product Stages](docs/en/product-stages.md)
+- [Tech Stack](docs/en/tech-stack.md)
+- [Feature Inventory](docs/en/feature-inventory.md)
 
-## Дополнительный контекст
+Russian drafts and source notes:
 
-Супераддитивная работа - Методология работы с ИИ когда человек не деградирует, а развивается вместе с системой и они оба становятся сильнее чем поразнь. Совмещение, сохранение и развитие мыслительных способностей человека и способности ИИ. А `Cortex` - WorkOS для работы вместе с агентами. Построена с учетом практик harness engineering и Superadditivity Theory. 
+- [Russian docs](docs/ru)
 
-В проекте есть ссылка на пособие по супераддитивности.
+## First Product Direction
+
+Stage 1 is **Developer Node Workbench**:
+
+- Rust Core Backend;
+- Rust Node Daemon;
+- web control panel;
+- persistent Codex session on a node;
+- project/workspace binding;
+- chat/session view;
+- terminal/output view;
+- file browser;
+- basic diff view;
+- basic trace and event log;
+- minimal Tool Registry, Plugin Registry, and visual block/artifact contract.
+
+Task-based sandbox mode, durable workflow engine, and full MR/PR flow are intentionally deferred.
+
+## Preliminary Tech Stack
+
+```text
+Rust workspace
+Axum Core Backend
+Rust Node Daemon
+SQLite
+HTTP + WebSocket/SSE
+React 19 + TypeScript + Vite
+Tailwind CSS v4
+shadcn/ui conventions
+lucide-react
+TanStack Query
+TanStack Table
+React Hook Form + Zod
+Vitest
+Rust tooling: cargo, rust-analyzer, rustfmt, clippy, bacon, nextest, audit, deny, taplo
+```
+
+Next.js is not the required Stage 1 runtime. It remains a deferred option for future cloud/web frontend, BFF, SSR, public pages, or SaaS needs.
+
+## Documentation Workflow
+
+The repository's primary language is English.
+
+Documentation is split by language:
+
+- [`docs/en`](docs/en) - canonical English documentation. After a document is translated here, this version becomes the source of truth.
+- [`docs/ru`](docs/ru) - Russian drafts, notes, and intermediate documents. Use this folder when it is easier to shape product or architecture ideas in Russian first.
+
+Default flow:
+
+1. Draft and discuss in Russian under `docs/ru` when needed.
+2. Stabilize the idea and translate it to `docs/en`.
+3. Continue further work in English in `docs/en`.
+4. Keep the Russian version as a draft/archive unless a new Russian discussion starts.
+
+## Background
+
+Cortex is built around practices from harness engineering and Superadditivity Theory: the goal is not maximum AI autonomy at any cost, but a human-agent system where speed, quality, understanding, traceability, review capacity, and safe delegation improve together.
