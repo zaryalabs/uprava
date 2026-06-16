@@ -2,7 +2,7 @@
 
 Cortex is a Distributed Agent OS for large-scale work with AI agents.
 
-The product starts with software development workflows and can later expand into analytics, research, finance, documents, and broader knowledge work. The first practical direction is a developer-focused workbench for persistent agent sessions running on nodes.
+The product starts with software development workflows and can later expand into analytics, research, finance, documents, and broader knowledge work. The first practical direction is a developer-focused workbench for live agent work running on nodes through a managed-lifetime Persistent Runtime run mode.
 
 ## Product Thesis
 
@@ -13,8 +13,7 @@ Cortex should be a control plane and work surface for agent workloads:
 - **Core Backend** as the control plane.
 - **Node Daemon** as the data plane running on local machines, servers, devboxes, sandboxes, or cloud nodes.
 - **Web Control Panel** as the first client.
-- **Persistent agent sessions** as the first execution mode.
-- **Task-based sandbox runs** as a later execution mode.
+- **Run Mode** as the execution abstraction, starting with managed-lifetime Persistent Runtime for live agent work and leaving room for stateless or sandboxed runs later.
 - **Tool Registry and Plugin Registry** as the foundation for modularity.
 - **Visual artifacts and traceability** as first-class product principles.
 
@@ -41,7 +40,7 @@ Stage 1 is **Developer Node Workbench**:
 - Rust Core Backend;
 - Rust Node Daemon;
 - web control panel;
-- persistent Codex session on a node;
+- managed-lifetime Persistent Runtime as the first run mode for Codex on a node;
 - project/workspace binding;
 - chat/session view;
 - terminal/output view;
@@ -50,7 +49,7 @@ Stage 1 is **Developer Node Workbench**:
 - basic trace and event log;
 - minimal Tool Registry, Plugin Registry, and visual block/artifact contract.
 
-Task-based sandbox mode, durable workflow engine, and full MR/PR flow are intentionally deferred.
+Stateless/sandboxed run strategies, durable workflow engine, and full MR/PR flow are intentionally deferred.
 
 ## Preliminary Tech Stack
 
