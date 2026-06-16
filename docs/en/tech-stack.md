@@ -81,12 +81,41 @@ Preliminary choice:
 - local workspace management;
 - PTY/terminal support;
 - process lifecycle management;
+- agent provider adapter lifecycle;
 - file operations;
 - persistent agent sessions;
+- Codex provider adapter as the first implementation;
+- normalized agent runtime events;
 - output/event streaming;
 - local tool execution.
 
 Node Daemon should be portable. Stage 1 targets desktop/server nodes, but the architecture should not block future cloud nodes, sandboxes, and microVM hosts.
+
+### Agent Provider Adapters
+
+Stage 1 can be Codex-first, but the launch boundary should be provider-shaped.
+
+Provider adapters translate concrete agent behavior into Cortex runtime
+contracts:
+
+- capability discovery;
+- runtime start/resume in a workspace;
+- user turn or task input submission;
+- provider output streaming;
+- approval/user-input request mapping;
+- interrupt and stop;
+- provider session id / resume cursor extraction;
+- normalized lifecycle and trace events.
+
+Codex-specific protocol code should live in the Codex adapter or Node-local
+runtime layer. Core-facing types should use provider-neutral concepts:
+`provider_id`, `runtime_session_id`, `session_thread_id`, `turn_id`,
+`runtime_strategy`, `work_contract`, `status`, `event`, `approval`, `trace`,
+`artifact`, and opaque `provider_resume_ref` where needed.
+
+Future adapters for OpenCode, Claude Code, or other agents should be able to
+reuse the same minimal contract. They do not need to reach feature parity with
+Codex in Stage 1.
 
 ### CLI
 
@@ -276,8 +305,9 @@ Preliminary structure:
 ```text
 crates/
   cortex-core/        shared domain model and contracts
+  cortex-agents/      agent provider and runtime contracts
   cortex-server/      Core Backend
-  cortex-node/        Node Daemon
+  cortex-node/        Node Daemon and provider adapter host
   cortex-client/      Rust API client
   cortex-tools/       tool/plugin contracts
   cortex-events/      event and trace contracts

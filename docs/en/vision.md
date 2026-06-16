@@ -56,11 +56,12 @@ Base Cortex model:
 
 - **Core / Control Plane** - central layer for projects, nodes, agents, tasks, workflows, artifacts, permissions, and state.
 - **Node** - registered compute environment where work can run: local computer, server, devbox, microVM, cloud workspace, or sandbox.
-- **Node Daemon** - system daemon on a node that registers the node in Core, launches agents, manages workspaces, and exposes files, terminal, processes, logs, and state.
+- **Node Daemon** - system daemon on a node that registers the node in Core, launches agent runtimes through provider adapters, manages workspaces, and exposes files, terminal, processes, logs, and state.
 - **Project** - work context: repository, documents, settings, agents, integrations, history, workflows, artifacts.
 - **Workspace** - concrete execution environment: checkout, branch, sandbox, mounted files, env, running tools.
 - **Agent Session** - live agent process or connection to an external agent that supports attach/detach, continued dialogue, state inspection, and environment control.
 - **Agent Run** - bounded episode of agent work with goal, scope, context, events, logs, changes, checks, and result.
+- **Agent Provider Adapter** - boundary that translates a concrete provider such as Codex, future OpenCode, or future Claude Code into Cortex launch, resume, stream, interrupt, stop, approval, and trace events.
 - **Execution Mode** - how agent work runs: persistent session, task-based run, or hybrid mode.
 - **Workflow** - durable work state that can survive agent, container, or node restarts.
 - **Artifact** - output of agent work: text, diff, file, dashboard, UML, form, report, chart, embedded tool, or custom UI block.
@@ -232,7 +233,7 @@ First usable product for developer workflow:
 
 - Core Backend and Web Control Panel;
 - one or more nodes with Node Daemon;
-- persistent Codex session on a node;
+- persistent Codex-backed session on a node through an Agent Provider Adapter;
 - project/workspace binding;
 - chat/session view;
 - terminal/output view;
@@ -362,6 +363,6 @@ Early Cortex should not:
 
 Strongest starting formulation:
 
-Cortex is a control plane and work surface for agent workloads. It starts with software development because files, git, tests, diff, review, and MR/PR flow are clear there. But its base abstractions are broader than software development: node, node daemon, workspace, agent session, agent run, workflow, artifact, tool registry, plugin, and trace.
+Cortex is a control plane and work surface for agent workloads. It starts with software development because files, git, tests, diff, review, and MR/PR flow are clear there. But its base abstractions are broader than software development: node, node daemon, workspace, agent provider adapter, agent session, agent run, workflow, artifact, tool registry, plugin, and trace.
 
 If this foundation is designed well, Cortex can grow into a modular operating system for human-agent work instead of another agent chat.

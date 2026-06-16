@@ -20,11 +20,11 @@ API, web control panel, auth, discovery, registry, workflows, events, artifacts
         |
         v
 Node Daemons / Data Plane
-files, terminal, processes, sandboxes, agent lifecycle, local capabilities
+files, terminal, processes, sandboxes, agent runtime lifecycle, provider adapters
         |
         v
-AI Agents / Tools / Workspaces
-persistent sessions, task runs, hybrid flows
+Agent Provider Runtimes / Tools / Workspaces
+Codex first, future providers, persistent sessions, task runs, hybrid flows
 ```
 
 ## Terms
@@ -33,7 +33,9 @@ persistent sessions, task runs, hybrid flows
 
 Central backend and control plane for Cortex.
 
-Core owns the global system model: projects, users, permissions, nodes, capabilities, agent sessions, agent runs, workflows, artifacts, event log, trace, tool registry, routing, and web control panel.
+Core owns the global system model: projects, users, permissions, nodes,
+capabilities, agent providers, agent sessions, agent runs, workflows, artifacts,
+event log, trace, tool registry, routing, and web control panel.
 
 Core should not become a process that directly works with every machine's filesystem. Concrete environment work should remain on the Node Daemon side.
 
@@ -80,7 +82,7 @@ This is not an AI agent. Node Daemon is infrastructure. It:
 
 - registers Node in Core;
 - reports capabilities;
-- starts and stops AI agents;
+- starts and stops AI-agent runtimes through provider adapters;
 - manages persistent agent sessions;
 - runs task-based work in sandbox/workspace;
 - exposes files;
@@ -101,6 +103,75 @@ AI Agent can work in different execution modes:
 - persistent agent session;
 - task-based sandbox run;
 - hybrid managed session.
+
+### Agent Provider
+
+Concrete agent implementation that can perform AI work.
+
+Codex is the first provider Cortex should support in Stage 1. Future provider
+adapters should be possible for OpenCode, Claude Code, and other coding or
+domain agents without changing the Core product model.
+
+Provider-specific behavior includes:
+
+- launch command or protocol;
+- session or conversation identity;
+- resume mechanism;
+- output/event format;
+- approval and user-input requests;
+- interrupt/stop semantics;
+- tool and filesystem permission model;
+- provider-specific local state.
+
+Provider-specific details should stay at the adapter edge unless they are
+normalized into Cortex concepts such as session, turn, runtime status, event,
+approval, artifact, trace entry, diff, or check result.
+
+### Agent Runtime
+
+Live or recoverable execution instance of an Agent Provider.
+
+Depending on provider and execution mode, an Agent Runtime can be:
+
+- a long-lived CLI or local process;
+- a CLI process resumed by provider-native session id;
+- a connection to an external provider service;
+- a sandboxed process inside a task workspace;
+- a future managed runtime slot.
+
+An Agent Runtime is not the durable product object. The durable objects are
+session thread, workspace binding, run/workflow state, event log, artifacts,
+trace metadata, and provider resume reference when available.
+
+### Agent Provider Adapter
+
+Boundary owned by Node Daemon or an external provider integration that translates
+provider-specific behavior into Cortex lifecycle commands and events.
+
+The adapter should provide a minimal contract:
+
+```text
+discover capabilities
+start runtime in workspace
+resume runtime from provider resume reference when possible
+submit user turn or task input
+stream provider output as normalized Cortex events
+map provider approval/user-input requests to Cortex requests
+interrupt runtime
+stop runtime
+report runtime status and exit reason
+extract provider session id / resume cursor when available
+```
+
+Stage 1 can have one production adapter for Codex and may still be optimized
+around Codex behavior. The architectural rule is that Core, UI, trace, and
+workflow state should not be named or shaped as if Codex is the only possible
+agent. Codex-specific protocol fields can exist in adapter-local state or in an
+opaque provider reference, not as the general Cortex runtime contract.
+
+The first provider-neutral surface should stay intentionally small. Cortex does
+not need universal feature parity across every CLI agent before it has one good
+Codex-backed persistent runtime.
 
 ## Why Core Backend Is Needed
 
@@ -287,6 +358,7 @@ This makes integrations first-class parts of the system instead of hidden API ca
 - Node registry and discovery;
 - Node capabilities;
 - agent session/run registry;
+- agent provider capability metadata;
 - workflow state;
 - event log;
 - trace metadata;
@@ -308,6 +380,7 @@ This makes integrations first-class parts of the system instead of hidden API ca
 - file access;
 - terminal/PTY;
 - process lifecycle;
+- agent provider adapter lifecycle;
 - persistent agent sessions;
 - task-based sandbox runs;
 - sandbox/microVM integration;
@@ -404,6 +477,9 @@ Good for a commercial/team product.
 - Which integrations should use MCP, and which need native adapters?
 - How does versioning tools/plugins affect trace reproducibility?
 - Should Core execute lightweight tools itself, or should every execution go through Node/Provider?
+- What is the minimal Agent Provider Adapter contract needed for the Codex-first MVP?
+- Which provider-specific resume/session fields can Core persist, and which must stay Node-local or opaque?
+- When should OpenCode and Claude Code adapters become product requirements rather than compatibility tests?
 - What minimal Core <-> Node Daemon protocol is needed for MVP?
 - Which transport comes first: HTTP polling, WebSocket, gRPC, message queue?
 - How do we isolate terminal/filesystem commands in persistent session mode?
@@ -417,6 +493,8 @@ Current strongest architecture position:
 - `Web Control Panel` can be deployed with Core.
 - `Node Daemon` is the system daemon on a node and the main data plane.
 - `AI Agents` are workloads, not infrastructure daemons.
+- `Agent Provider Adapter` is the boundary between Cortex runtime contracts and provider-specific launch/resume protocols.
+- Codex is the first provider implementation, but Core concepts should remain provider-neutral.
 - `Tool Registry` lives in Core.
 - `Plugin Registry` lives in Core next to Tool Registry.
 - External integrations connect through adapters: MCP, native API, Node-local, external provider, or hybrid.

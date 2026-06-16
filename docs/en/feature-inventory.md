@@ -39,7 +39,7 @@ Purpose: capture the product features and directions already discussed in `READM
 
 | ID | Feature / Direction | Meaning |
 | --- | --- | --- |
-| F-020 | Codex as default agent | Default AI agent for the first developer-focused product. |
+| F-020 | Codex as default provider adapter | Default AI-agent provider adapter for the first developer-focused product. |
 | F-021 | Agent orchestrator | Agent that coordinates multiple agents or delegated work. |
 | F-022 | Internal Cortex agent | First-class assistant inside Cortex UI for working with Cortex and helping the user. |
 | F-023 | Internal agent orchestrates node agents | Internal Cortex agent can coordinate agents running on nodes. |
@@ -57,6 +57,8 @@ Purpose: capture the product features and directions already discussed in `READM
 | F-035 | Attach/detach to live agent | User can connect to and disconnect from a live agent without losing state. |
 | F-036 | Task-based agent server mode | Agent called as bounded executor with tools, context package, sandbox, and result contract. |
 | F-037 | Agent control-plane-like connection | Ability to connect to an agent as a manageable process/control surface, not only launch a task. |
+| F-038 | Agent Provider Adapter | Minimal provider boundary for launching, resuming, streaming, interrupting, stopping, and normalizing provider-specific agent runtimes. |
+| F-039 | Provider resume reference | Opaque provider session id or resume cursor that allows a runtime to be restored without making provider internals part of the Core contract. |
 
 ## 3. Tasks, Workflows, Harness
 
@@ -211,7 +213,8 @@ Most coherent first layer:
 - Core/control plane.
 - Node Daemon.
 - Project + workspace.
-- Codex as default agent.
+- Minimal Agent Provider Adapter boundary.
+- Codex as default provider adapter.
 - Persistent agent session.
 - Chat plus non-chat views.
 - File browser.

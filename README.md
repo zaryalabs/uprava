@@ -13,7 +13,7 @@ Cortex should be a control plane and work surface for agent workloads:
 - **Core Backend** as the control plane.
 - **Node Daemon** as the data plane running on local machines, servers, devboxes, sandboxes, or cloud nodes.
 - **Web Control Panel** as the first client.
-- **Run Mode** as the execution abstraction, starting with managed-lifetime Persistent Runtime for live agent work and leaving room for stateless or sandboxed runs later.
+- **Run Mode and Agent Provider Adapter** as the execution abstractions, starting with managed-lifetime Persistent Runtime for live agent work and Codex as the first provider.
 - **Tool Registry and Plugin Registry** as the foundation for modularity.
 - **Visual artifacts and traceability** as first-class product principles.
 
@@ -40,7 +40,7 @@ Stage 1 is **Developer Node Workbench**:
 - Rust Core Backend;
 - Rust Node Daemon;
 - web control panel;
-- managed-lifetime Persistent Runtime as the first run mode for Codex on a node;
+- managed-lifetime Persistent Runtime as the first run mode, with Codex through a provider adapter;
 - project/workspace binding;
 - chat/session view;
 - terminal/output view;

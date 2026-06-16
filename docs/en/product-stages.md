@@ -11,6 +11,8 @@ This document describes product development stages. The key idea: each stage sho
 - First-stage architecture must leave room for registry, plugins, visual blocks, integrations, and task-based mode.
 - First product focus is developer workflow.
 - First execution mode is persistent agent session on nodes.
+- Codex is the first agent provider implementation, not the long-term product boundary.
+- Stage 1 should include a minimal Agent Provider Adapter boundary even if the first adapter is Codex-optimized.
 - Task-based sandbox mode is important, but not needed in the first version.
 - A small coherent working system is better than a full cloud-agent runtime built too early.
 
@@ -36,7 +38,8 @@ Persistent agent session + Node Daemon + Core Backend already provide more contr
 - Project registry.
 - Project/workspace binding on node.
 - Persistent agent session mode.
-- Codex as default AI agent.
+- Minimal Agent Provider Adapter contract.
+- Codex provider adapter as default AI agent runtime.
 - Attach/detach to agent session.
 - Chat/session view.
 - Terminal/output view.
@@ -57,10 +60,17 @@ Persistent agent session + Node Daemon + Core Backend already provide more contr
 - Full plugin marketplace.
 - Complex RBAC/team model.
 - Managed cloud nodes.
+- Production support for additional providers such as OpenCode or Claude Code.
+- Full provider-neutral feature parity across CLI agents.
 
 ### Why This
 
 Persistent mode is simpler and closer to the first developer use case: run an agent on your node, attach to it, inspect its environment, and control work. It validates the base Cortex value faster: control plane + node daemon + transparent UI.
+
+The first implementation may overfit to Codex where that is pragmatic, but the
+launch/resume/control boundary should still be expressed as an Agent Provider
+Adapter. Core and UI should talk about providers, runtimes, sessions, turns,
+events, approvals, files, diffs, and trace, not Codex-specific process details.
 
 Task-based mode needs more infrastructure: sandbox lifecycle, workflow state, queues, review contracts, artifact packaging, retries, webhook wakeups. It should come after the base model of nodes, sessions, files, terminal, diff, and trace works.
 
@@ -71,7 +81,7 @@ The user can:
 1. Start Core and Web Control Panel.
 2. Connect local or remote Node.
 3. Open a project on Node.
-4. Start persistent Codex session.
+4. Start persistent Codex-backed session through the Agent Provider Adapter.
 5. Inspect chat, terminal output, files, diff, and trace.
 6. Stop/continue work and return to the session later.
 
@@ -92,6 +102,7 @@ Cortex modularity must be a system capability, not a future promise.
 - Integration adapter model.
 - First-class MCP adapter support.
 - Native adapter path for integrations where MCP is not enough.
+- First extension path for additional agent provider adapters when a concrete provider is selected.
 - Git provider integration.
 - Linear integration as first task tracker.
 - Basic plugin configuration UI.
