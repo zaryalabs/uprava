@@ -2,82 +2,79 @@
 
 Статус: `draft`
 
-Этот раздел нужен для глубокой проработки **подходов** к ключевым направлениям Cortex.
+Этот раздел нужен для глубокой проработки **ключевых механик** Cortex.
 
 Здесь дизайн означает не список внутренних модулей, таблиц и API, а иерархическую работу над большими продуктово-архитектурными решениями:
 
-1. Сначала понять, какой подход вообще выбираем для направления.
-2. Затем раскрыть концептуальную модель: какие роли, границы, сценарии и компромиссы появляются.
-3. После этого довести направление до технического дизайна: контракты, состояния, протоколы, хранение, UI, MVP cut.
+1. Сначала сформулировать vision ключевой механики: суть идеи, продуктовую логику и почему это важно для Cortex.
+2. Затем развернуть vision в architecture: сущности, границы, сценарии, lifecycle, контракты, artifacts/events, хранение, permissions, UI consequences и проверку качества.
 
-Один и тот же design doc может начинаться как approach note, а затем постепенно становиться полным дизайном направления.
+Один и тот же design doc начинается с корневого vision-блока, а затем постепенно разворачивается в architecture-блок. Внутри architecture глубина может расти от концептуальной модели до технических контрактов.
 
-## Что такое направление дизайна
+## Что такое ключевая механика
 
-Направление дизайна - это крупная область продукта, где нужно выбрать принцип реализации, а не просто описать очередной модуль кода.
+Ключевая механика - это крупный продуктово-архитектурный механизм Cortex, который задает модель работы пользователя, агента, UI и backend-системы.
 
-Примеры таких направлений:
+Это не отдельный модуль кода, не частная feature и не пользовательский flow. Внутри ключевой механики может быть много модулей, сценариев, UI-состояний, событий и технических решений, но сама механика описывает, **как работает важная часть системы**.
+
+Примеры ключевых механик:
 
 - distributed architecture: как Cortex реализует Core / Node Daemon / clients модель;
 - modular UI: как устроена модульная рабочая поверхность, блоки, панели и расширяемость интерфейса;
 - plugins and Tool Registry: как подключаются tools, plugins, integrations, MCP, native adapters and visual blocks;
 - dynamic UI: как агент может вернуть форму, dashboard, graph, embedded view или другой интерактивный блок;
 - visualization system: какие визуализации нужны продукту и как они становятся first-class artifacts;
-- trace and review: как делать работу агента проверяемой, а не просто логировать все подряд;
-- execution modes: как соотносятся persistent session, task-based run and hybrid workflow.
+- go to cause / causality navigation: как пользователь переходит от результата, diff, ошибки или artifact к причине;
+- session execution mode: как устроена живая persistent agent session с attach/detach, workspace state and human handoff;
+- task execution mode: как устроен bounded task run с sandbox, context package, result contract and review gate;
+- human-agent dual interface: как человек и агент работают с одной видимой моделью, где agent является first-class citizen.
 
-Внутри каждого направления может быть много технических решений, но сначала нужно выбрать саму модель.
+Внутри каждой ключевой механики может быть много технических решений, но сначала нужно выбрать саму модель.
 
 ## Как писать design docs
 
-Файлы в этой директории лучше именовать по направлению:
+Файлы в этой директории лучше именовать по ключевой механике:
 
 ```text
 docs/ru/design/001-distributed-architecture.md
-docs/ru/design/002-modular-ui.md
-docs/ru/design/003-plugins-tool-registry.md
-docs/ru/design/004-dynamic-ui.md
+docs/ru/design/002-session-execution-mode.md
+docs/ru/design/003-task-execution-mode.md
+docs/ru/design/004-modular-ui-work-surface.md
 ```
 
 Рекомендуемая структура документа:
 
 ```text
-# Название направления
+# Название ключевой механики
 
 Статус: draft / working-position / accepted / superseded
 
-## Зачем это нужно
-## Что именно проектируем
-## Что не проектируем сейчас
-## Продуктовые сценарии
-## Вдохновение и аналоги
-## Варианты подхода
-## Сравнение подходов
-## Рабочая позиция
-## Последствия для архитектуры
-## Последствия для UI
-## Последствия для агентов
-## Последствия для plugins/tools/integrations
-## MVP cut
-## Later
-## Открытые вопросы
+## Vision
+
+### Какую проблему решает механика
+### Концептуально как реализуем
+### Пользовательские сценарии
+### Agent-facing сценарии
+### First release vs later
+
+## Architecture
+
+### Основные сущности
+### Границы ответственности
+### UI consequences
+### Detailed lifecycle and state machines
+### API/protocol contracts
+### Artifact/event formats
+### Storage implications
+### Permissions and failure modes
+### Tests/evals/checklist
 ```
 
-Когда подход становится понятным, в этот же документ можно добавлять более низкий слой:
-
-- термины и сущности;
-- lifecycle and state machines;
-- C4 / activity / sequence diagrams;
-- контракты между Core, Node, UI, agent and plugin;
-- формат artifacts, events, commands and permissions;
-- storage and migration implications;
-- failure modes and security boundaries.
-
-Главное правило: сначала фиксируем **почему и какой подход**, потом **как именно это будет собрано технически**.
+Главное правило: сначала фиксируем **vision и суть механики**, потом разворачиваем это в **architecture**. Сценарии и UI появляются уже в `Vision`, но детальные состояния, контракты, storage and permissions живут в `Architecture`.
 
 ## Сквозные принципы
 
-Эти принципы должны проходить через все направления:
+Эти принципы должны проходить через все ключевые механики:
 
 - Cortex - Distributed Agent OS, а не agent chat with panels.
 - Agent output не равен accepted work.
@@ -89,87 +86,43 @@ docs/ru/design/004-dynamic-ui.md
 - Human UI и agent-readable UI должны развиваться вместе.
 - Stage 1 должен быть маленьким, но не должен закрывать путь к plugins, visual blocks, task-based runtime, mobile and team/cloud.
 
-## Карта направлений
+## Карта ключевых механик
 
-| ID | Направление | Главные вопросы подхода | Ожидаемый результат |
+| ID | Механика | Ключевые вопросы механики | Ожидаемый результат |
 | --- | --- | --- | --- |
 | A-001 | Distributed architecture | Как именно реализуем distributed модель? Что является Core/control plane, что остается за Node Daemon/data plane, как клиенты работают через Core, где проходят границы host/node/workspace/session? | Рабочая позиция по Core / Node Daemon / clients модели, deployment profiles and responsibility boundaries. |
-| A-002 | Execution modes | Как связать persistent session, task-based sandbox run and hybrid managed session? Что общее в модели, а что различается в lifecycle, context, isolation and review contract? | Единая концепция execution modes, чтобы Stage 1 persistent workbench не заблокировал будущий task runtime. |
-| A-003 | Modular UI and work surface | Что значит модульный UI для Cortex? Это Notion-like blocks, IDE/workbench panels, Obsidian-like navigation, plugin-rendered surfaces или гибрид? Какой стек и composition model подходят для web UI? | Подход к рабочей поверхности: layout, blocks, panels, navigation, extension points and constraints for React/Vite UI. |
-| A-004 | Dynamic UI from agents | Как агент должен возвращать форму, dashboard, chart, graph, embedded tool или custom block? Это schema-driven UI, prebuilt block types, sandboxed components, generated code or plugin-owned renderer? | Концепция dynamic UI: что агент может породить сам, что должно быть заранее зарегистрировано, где граница безопасности. |
-| A-005 | Visualization and artifacts | Какие визуализации нужны Cortex: diff, terminal replay, trace timeline, test report, UML, charts, dashboards, dependency graphs, forms? Как они соотносятся с artifacts, blocks and plugins? | Продуктовая и техническая карта visual artifacts, включая first release vs later. |
-| A-006 | Plugins, Tool Registry and MCP strategy | Где живет Tool Registry? Нужен ли Core-level MCP gateway/proxy? Или MCP должен быть на уровне Node Daemon, agent process, plugin adapter, external provider? Как сравнить MCP, native adapters and hybrid adapters? | Выбранный подход к tools/plugins/integrations: registry, execution location, routing, permissions, trace and visual output. |
-| A-007 | Integration UX | Как интеграции вроде GitHub, GitLab, Linear, Notion, Grafana, Docker, observability providers появляются в UI? Это tools, pages, artifacts, blocks, workflow hooks или все сразу? | Подход, при котором интеграции становятся first-class user experience, а не только tool calls. |
-| A-008 | Developer workbench | Как должен ощущаться первый developer workflow: project, session, chat, terminal, files, diff, trace, checks, review? Что является главным UX-объектом: project work surface, session, task or node? | Концепция Stage 1 Developer Node Workbench и его минимальной рабочей поверхности. |
-| A-009 | Trace, review and provenance | Какой trace помогает принять работу, а какой превращается в логовый шум? Как связать events, decisions, changed files, commands, checks, artifacts and risks? | Подход к review-friendly trace, audit trail and accepted-work lifecycle. |
-| A-010 | Workflow and harness | Как проектировать длинные агентские задачи: durable workflow state, event-driven state machine, semi-deterministic pipelines, wakeups, CI loops, review debt? | Концепция harness/runtime для долгой работы, сначала как future constraint, позже как отдельный design. |
-| A-011 | Human-agent dual interface | Как сделать UI понятным агенту? Что такое machine-readable UI state, context entry points, internal Cortex agent, long-press/chat over UI element? | Подход к dual interface, где человек и агент работают с одной видимой моделью. |
-| A-012 | Security, permissions and trust | Как задавать границы для terminal, files, tools, credentials, local Node secrets, external integrations and generated UI? Как показывать risk to user? | Принципы security model, которые потом разложатся на permissions, audit and sandbox boundaries. |
-| A-013 | Mobile continuity | Какой мобильный сценарий нужен первым: monitoring, unblock, review, stop/continue, answer blocking questions? Достаточно ли responsive web? | Реалистичный подход к mobile continuity без попытки сразу сделать полный mobile IDE. |
-| A-014 | Metrics, observability and evals | Что измеряем: speed, review cost, iterations to merge, accepted work quality, attention/token economics, autonomous progress? Нужен ли LLM proxy? | Подход к AgentOps metrics and evals, привязанный к качеству принятой работы. |
-| A-015 | Deployment and bootstrap | Как запускать Cortex: local single-user, personal distributed, team/cloud? Нужен ли compose generator/CLI bootstrap? Как это влияет на продуктовую модель? | Подход к deployment profiles and developer setup, без преждевременного усложнения. |
-| A-016 | Beyond software development | Как модель переносится на analytics, research, documents, finance and knowledge workflows? Что должно быть общим, а что domain-specific? | Ограниченная стратегия расширения, чтобы не распылить Stage 1, но сохранить широту Agent OS. |
+| A-002 | Session execution mode | Что такое persistent agent session как самостоятельный режим работы? Как устроены attach/detach, chat, PTY/output, files, diff, workspace state, checkpoints, artifacts, handoff and return? Где границы между project, workspace, node, session and agent process? | Концепция session runtime для Stage 1: lifecycle, state, visible surface, review points and constraints for future task mode. |
+| A-003 | Task execution mode | Что такое bounded task run как самостоятельный режим работы? Как задаются goal, scope, context package, sandbox, tool permissions, lifecycle, result contract, review gate and retry/follow-up? Как task может рождаться из session или возвращаться в session? | Концепция task runtime: contract, isolation, lifecycle, result model and compatibility with session execution. |
+| A-004 | Modular UI and work surface | Что значит модульный UI для Cortex? Это Notion-like blocks, IDE/workbench panels, Obsidian-like navigation, plugin-rendered surfaces или гибрид? Где проходят границы pages, panels, blocks, artifacts, integration surfaces and extension points? | Модель рабочей поверхности: layout, blocks, panels, navigation, plugin surfaces and constraints for React/Vite UI. |
+| A-005 | Dynamic UI from agents | Как агент должен возвращать форму, dashboard, chart, graph, embedded tool или custom block? Это schema-driven UI, prebuilt block types, sandboxed components, generated code or plugin-owned renderer? | Концепция dynamic UI: что агент может породить сам, что должно быть заранее зарегистрировано, где граница безопасности. |
+| A-006 | Visualization and artifacts | Какие визуализации нужны Cortex: diff, terminal replay, causality map, test report, UML, charts, dashboards, dependency graphs, forms? Как они соотносятся с artifacts, blocks and plugins? | Продуктовая и техническая карта visual artifacts, включая first release vs later. |
+| A-007 | Plugins, Tool Registry and MCP strategy | Где живет Tool Registry? Нужен ли Core-level MCP gateway/proxy? Или MCP должен быть на уровне Node Daemon, agent process, plugin adapter, external provider? Как сравнить MCP, native adapters and hybrid adapters? | Модель tools/plugins/integrations: registry, execution location, routing, permissions, events and visual output. |
+| A-008 | Go to cause and causality UX | Как сделать аналог go to definition, но для причинности работы агента? Как из diff line, failed check, artifact, decision, status или UI block перейти к породившему prompt/context/tool call/command/event/file change? Что является cause graph, а что просто log noise? | Модель UIUX причинности: навигация от результата к причине, минимальная модель cause links and evidence without dumping raw trace. |
+| A-009 | Human-agent dual interface and Agent as First-Class Citizen | Как сделать UI понятным и человеку, и агенту? Что такое machine-readable UI state, context entry points, internal Cortex agent, chat over UI element, agent identity, capabilities, status, memory, permissions and ownership? | Модель dual interface, где agent является видимым участником системы, а не скрытым процессом за текстовым чатом. |
 
-## Первый проход
+Не все важные темы являются отдельными ключевыми механиками. Некоторые стоит держать как пользовательские сценарии или срезы внутри design docs:
 
-Ближайшие design docs лучше делать в таком порядке:
+- Developer workbench - главный Stage 1 сценарий для `A-002 Session execution mode`, `A-004 Modular UI and work surface` and `A-008 Go to cause and causality UX`.
+- Workflow and harness - сценарный срез для длинной работы, который проверяет `A-002 Session execution mode` and `A-003 Task execution mode`, но не заменяет их.
+- Integration UX - частный случай модульности, plugins/tools and visual blocks; его нужно раскрывать внутри `A-004`, `A-005`, `A-006` and `A-007`.
+- Security, permissions and trust - обязательный architecture-срез для execution modes, plugins/tools, dynamic UI and agent identity, но не отдельная ключевая механика карты.
+- Metrics, observability and evals - quality/feedback-срез для проверки механик, а не самостоятельная ключевая механика.
+- Mobile continuity, deployment/bootstrap and beyond software development - важные constraints/product horizons, но не ключевые механики текущей design-фазы.
 
-1. `A-001 Distributed architecture`
-2. `A-003 Modular UI and work surface`
-3. `A-006 Plugins, Tool Registry and MCP strategy`
-4. `A-004 Dynamic UI from agents`
-5. `A-005 Visualization and artifacts`
-6. `A-008 Developer workbench`
-7. `A-009 Trace, review and provenance`
-8. `A-002 Execution modes`
+## Глубина проработки
 
-Причина порядка: distributed architecture уже во многом сформулирована и может стать примером формата. Затем нужно разобраться с тем, что делает Cortex не просто backend+chat: модульный UI, plugins/tools, dynamic UI and visual artifacts. После этого можно точнее спроектировать первый developer workbench and trace/review loop.
+Для каждой ключевой механики сначала нужен `Vision`. Это не summary, а корневой смысловой блок: какую проблему решаем, какую модель предлагаем, какие человеческие и agent-facing сценарии считаем ключевыми, что попадает в first release and later.
 
-## Уровни глубины
-
-Для каждого направления фиксируем глубину явно.
-
-### Level 1. Approach
-
-Документ отвечает:
-
-- какую проблему направления решаем;
-- какие варианты подхода существуют;
-- какие аналоги изучаем;
-- какие trade-offs видим;
-- какая рабочая позиция сейчас выглядит сильнее.
-
-### Level 2. Conceptual design
-
-Документ добавляет:
-
-- основные сущности;
-- границы ответственности;
-- пользовательские сценарии;
-- agent-facing сценарии;
-- UI consequences;
-- first release vs later.
-
-### Level 3. Technical design
-
-Документ доводит направление до реализации:
-
-- lifecycle and state machines;
-- API/protocol contracts;
-- artifact/event formats;
-- storage implications;
-- permissions and failure modes;
-- tests/evals/checklist.
-
-Не каждое направление сразу должно доходить до Level 3. На текущем этапе важнее получить Level 1 по всем крупным направлениям и Level 2/3 по тем, которые критичны для Stage 1.
+`Architecture` можно заполнять постепенно. Не каждая ключевая механика сразу должна доходить до подробных state machines, API contracts, storage implications or tests/evals. На текущем этапе важно создать design doc по каждой механике из карты, зафиксировать в каждом `Vision`, а затем углублять `Architecture` там, где решение критично для Stage 1 или блокирует соседние механики.
 
 ## Что считать готовым результатом этой фазы
 
 Дизайн-фаза будет полезной, если после нее будет понятно:
 
-- какие подходы Cortex выбирает для distributed architecture, modular UI, plugins/tools, dynamic UI and visual artifacts;
+- по каждой ключевой механике из карты есть design doc с корневым `Vision` и заготовкой `Architecture`;
+- как устроены ключевые механики Cortex: distributed architecture, session execution, task execution, modular UI, plugins/tools, dynamic UI and visual artifacts;
 - какие решения обязательны для Stage 1, а какие только накладывают constraints на архитектуру;
-- какие идеи из Notion/Obsidian/IDE/Grafana/MCP/AgentOps мы берем, а какие не берем;
+- какие идеи из Notion/Obsidian/IDE/Grafana/MCP мы берем, а какие не берем;
 - где проходит граница между product concept, architecture and implementation detail;
 - какие документы нужно переводить в `docs/en`, когда позиция стабилизируется.
 
@@ -181,4 +134,7 @@ docs/ru/design/004-dynamic-ui.md
 - Где граница между plugin, integration, tool, block and artifact?
 - Как изучить Notion-like modularity practically: как data model, как UI composition, как plugin model или как interaction pattern?
 - Какие visualizations являются must-have для Stage 1, а какие только демонстрируют будущую силу платформы?
+- Какой минимальный cause graph нужен для go to cause, чтобы помогать review, но не превращаться в шумный trace log?
+- Как именно agent должен быть представлен в UI как first-class citizen: identity, status, permissions, memory, capabilities или отдельный work object?
+- Как разделить session execution и task execution так, чтобы они были разными режимами, но использовали общую модель project/workspace/node/agent/artifact/event?
 - Как не сделать слишком абстрактную платформу до появления рабочего developer workbench?
