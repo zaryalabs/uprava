@@ -42,6 +42,7 @@ docs/ru/design/003-distributed-runtime-coordination.md
 docs/ru/design/004-modular-ui-work-surface.md
 docs/ru/design/005-dynamic-ui-from-agents.md
 docs/ru/design/006-visual-rendering-and-artifact-semantics.md
+docs/ru/design/007-plugins-tool-registry-and-mcp-strategy.md
 docs/ru/design/008-go-to-source-and-causality-ux.md
 docs/ru/design/009-human-agent-dual-interface.md
 docs/ru/design/010-project-workspace-surface.md
