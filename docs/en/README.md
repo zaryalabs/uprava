@@ -11,5 +11,7 @@ Current documents:
 - [`product-stages.md`](product-stages.md) - product development stages.
 - [`tech-stack.md`](tech-stack.md) - preliminary technical stack.
 - [`feature-inventory.md`](feature-inventory.md) - feature and direction inventory.
+- [`workspace-inspector.md`](workspace-inspector.md) - Project Workspace Inspector direction.
+- [`workspace-editing-and-ide-sidecar.md`](workspace-editing-and-ide-sidecar.md) - lightweight file editing and optional full-IDE sidecar direction.
 
 Russian drafts and source notes live in [`../ru`](../ru).

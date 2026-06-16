@@ -65,6 +65,7 @@ Base Cortex model:
 - **Execution Mode** - how agent work runs: persistent session, task-based run, or hybrid mode.
 - **Workflow** - durable work state that can survive agent, container, or node restarts.
 - **Artifact** - output of agent work: text, diff, file, dashboard, UML, form, report, chart, embedded tool, or custom UI block.
+- **Project Workspace Inspector** - non-chat workbench surface for a concrete workspace: file tree, file viewer, lightweight text editor, terminal/PTY sessions, command history, diffs, checks, and trace-linked workspace evidence.
 - **Tool Registry** - registry of tools/capabilities in Core: metadata, schemas, permissions, routing, UI contracts, and audit policy.
 - **Plugin** - extension that adds agents, tools, integrations, visual blocks, workflows, commands, or artifact types.
 
@@ -199,9 +200,8 @@ Minimal foundation:
 - binding between agent session/run, project, workspace, and task;
 - two architectural execution modes: persistent session and future task-based run;
 - chat as one interface to session/run;
-- project/workspace file browser;
-- terminal or terminal output;
-- change and diff view;
+- Project Workspace Inspector for project/workspace file tree, file viewing, lightweight text editing, terminal/PTY sessions, command/output history, diffs, and check entry points;
+- addressable workspace references connecting files, ranges, edits, terminal commands, diffs, checks, artifacts, and trace entries;
 - basic trace for agent session/run;
 - simple status model: draft / running / blocked / needs review / accepted / rejected / deferred;
 - manual review loop: what changed, what was checked, what is risky, what next;
@@ -236,9 +236,7 @@ First usable product for developer workflow:
 - persistent Codex-backed session on a node through an Agent Provider Adapter;
 - project/workspace binding;
 - chat/session view;
-- terminal/output view;
-- file browser;
-- basic diff view;
+- Project Workspace Inspector with file tree, file viewer, lightweight text editor, workspace terminal/PTY sessions, command/output history, and basic diff/check entry points;
 - basic trace and event log;
 - minimal Tool Registry, Plugin Registry, and visual block/artifact contract.
 

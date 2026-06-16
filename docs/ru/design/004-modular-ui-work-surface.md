@@ -449,10 +449,10 @@ embedded mode = клавиши отданы iframe/webview, Esc возвраща
 and commands. Если это внешний embed, Cortex может навигироваться только до
 границы embed-а.
 
-## Go to Cause
+## Go to Source / Cause
 
-Go to Cause тогда становится не отдельной feature, а частным случаем общей
-reference/detail/aspect модели.
+Go to Source / Cause тогда становится не отдельной feature, а частным случаем
+общей reference/detail/aspect модели.
 
 Пример:
 
@@ -656,10 +656,11 @@ Stage 2 может сделать modularity visible:
 Кто и при каких условиях может создать новый UI на лету?
 ```
 
-`A-008 Go to Cause and causality UX` отвечает:
+`A-008 Go to Source and Causality UX` отвечает:
 
 ```text
-Как reference/detail/aspect модель используется для навигации по причинам?
+Как reference/detail/aspect модель используется для навигации к source,
+evidence and причинам?
 ```
 
 `A-007 Plugins, Tool Registry and MCP strategy` отвечает:
@@ -683,5 +684,6 @@ selection, permissions and runtime state. Navigation разрешается из
 surface, object, selection and mode.
 
 Agents могут производить Markdown/structured output, который Cortex превращает
-в blocks, artifacts and references. Go to Cause использует ту же модель, чтобы
-превращать любой видимый результат в вход в цепочку причин.
+в blocks, artifacts and references. Go to Source / Cause использует ту же
+модель, чтобы превращать любой видимый результат в вход к источнику, evidence
+and цепочке причин.

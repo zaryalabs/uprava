@@ -1016,7 +1016,7 @@ If an agent writes Mermaid in Markdown, that is usually A-006 inline rendering,
 not A-005 dynamic UI. If an agent explicitly proposes a generated dashboard
 artifact, creation belongs to A-005 and visual semantics belong to A-006.
 
-### Relationship with A-008 Go to Cause
+### Relationship with A-008 Go to Source and Causality UX
 
 Every meaningful dynamic UI object should expose cause refs:
 
@@ -1029,9 +1029,9 @@ calculator output -> assumptions/version/formula
 button -> command/action
 ```
 
-Go to Cause should work from dynamic UI the same way it works from diff,
-terminal output or artifacts. Dynamic UI must not hide causality behind visual
-polish.
+Go to Source / Cause should work from dynamic UI the same way it works from
+diff, terminal output or artifacts. Dynamic UI must not hide source/evidence
+and causality behind visual polish.
 
 ### Relationship with A-009 Human-Agent Dual Interface
 

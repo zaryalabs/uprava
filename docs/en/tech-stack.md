@@ -219,6 +219,27 @@ This fits Cortex:
 
 Use lucide-react as the default icon set.
 
+### Project Workspace Inspector UI
+
+Stage 1 Web Control Panel must support the Project Workspace Inspector:
+
+- stable workbench layout with project tree, file/detail area, terminal panel,
+  and diff/check entry points;
+- file viewer/editor with line/range navigation, lightweight text editing,
+  dirty state, explicit save/apply, and safe fallbacks for large, binary,
+  missing, ignored, or permission-denied files;
+- terminal/PTY panel backed by Core-routed Node Daemon streams;
+- command/output history linked to session events and trace;
+- addressable workspace references for files, ranges, edits, terminal commands,
+  diffs, checks, and artifacts.
+
+The exact terminal and code editor component libraries are deferred. Likely
+directions are CodeMirror or Monaco for file viewing/editing and diff surfaces,
+and xterm.js for terminal rendering. Keep them behind local component boundaries
+such as `FileViewer`, `FileEditor`, `DiffViewer`, and `TerminalPanel` so the
+first implementation can stay small and be replaced if richer editing, replay,
+or a full IDE sidecar is needed later.
+
 ### State and Data Fetching
 
 TanStack Query is the default for server state:

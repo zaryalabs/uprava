@@ -42,9 +42,11 @@ Persistent agent session + Node Daemon + Core Backend already provide more contr
 - Codex provider adapter as default AI agent runtime.
 - Attach/detach to agent session.
 - Chat/session view.
-- Terminal/output view.
-- File browser.
-- Basic diff view.
+- Project Workspace Inspector as the non-chat developer surface.
+- Workspace file tree, file viewer, and lightweight text editor.
+- Workspace terminal/PTY sessions with attach/detach.
+- Command/output history linked to session events.
+- Basic diff/check entry points.
 - Basic session trace.
 - Basic event log.
 - Minimal status model for session/workspace/node.
@@ -62,6 +64,8 @@ Persistent agent session + Node Daemon + Core Backend already provide more contr
 - Managed cloud nodes.
 - Production support for additional providers such as OpenCode or Claude Code.
 - Full provider-neutral feature parity across CLI agents.
+- Full browser IDE, language server integration, rich refactoring, debugger, and
+  broad IDE-style editing workflows.
 
 ### Why This
 
@@ -82,8 +86,9 @@ The user can:
 2. Connect local or remote Node.
 3. Open a project on Node.
 4. Start persistent Codex-backed session through the Agent Provider Adapter.
-5. Inspect chat, terminal output, files, diff, and trace.
-6. Stop/continue work and return to the session later.
+5. Inspect chat, workspace files, terminal sessions, command output, diff/check state, and trace.
+6. Make a small text edit inside the workspace and see it reflected in diff/trace.
+7. Stop/continue work and return to the session later.
 
 ## Stage 2. Modular Developer Workbench
 
@@ -111,6 +116,8 @@ Cortex modularity must be a system capability, not a future promise.
 - Artifact metadata tied to tool/plugin output.
 - Minimal visual plugin/block API.
 - CLI access to registered tools.
+- Optional sidecar integration path for opening a workspace in a full browser IDE
+  such as code-server, OpenVSCode Server, Theia, or a future provider.
 
 ### Product Shift
 
@@ -129,6 +136,7 @@ Cortex's advantage over agent chat is not only control plane, but visual represe
 ### Scope
 
 - Rich diff/review view.
+- Richer file editing and review ergonomics without requiring a full IDE core.
 - Test/check report artifacts.
 - Trace timeline.
 - Terminal replay or structured command history.
@@ -287,6 +295,10 @@ Stage 7 expands it beyond software development.
 - Should Stage 1 include basic git integration, or is diff view over workspace enough?
 - Does Stage 1 need mobile UI, or is responsive web enough for monitoring/attach?
 - What is the minimal trace form for persistent session?
+- Should Stage 1 terminal be a fully interactive PTY, a command runner, or both?
+- Should Stage 1 editing save whole files, apply patches, or support both?
+- Which direct file operations are allowed before Cortex has full IDE semantics?
+- What is the minimal reference schema for workspace files, ranges, edits, commands, diffs, checks, and artifacts?
 - Should Tool Registry in Stage 1 be only an internal schema, or have UI?
 - Where is the boundary between Stage 2 visual block API and Stage 3 rich visual artifacts?
 - When does MR/PR flow appear: Stage 2 as git integration or Stage 4 as task-based output?

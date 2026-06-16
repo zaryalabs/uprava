@@ -94,6 +94,14 @@ Purpose: capture the product features and directions already discussed in `READM
 | F-068 | Test/check reports | Show tests/checks as run/session artifacts. |
 | F-069 | API-level regression evals | Use API regression where UI evals are expensive. |
 | F-070 | Project state view | See project/task/agent state, not only chat transcript. |
+| F-071 | Project Workspace Inspector | Non-chat workbench surface for project tree, file viewing, lightweight editing, terminal sessions, command/output history, diffs, checks, and trace-linked evidence. |
+| F-072 | File viewer/editor | Open workspace files and ranges safely, with lightweight text editing for direct human intervention. |
+| F-073 | Workspace terminal/PTY sessions | Start, attach, detach, resize, and close project-scoped consoles through Node Daemon. |
+| F-074 | Command/output history | Preserve terminal and agent command output as navigable evidence tied to session events and trace. |
+| F-075 | Addressable workspace references | Refer to files, ranges, edits, terminal sessions, commands, output ranges, diff hunks, checks, and artifacts from chat, trace, and UI actions. |
+| F-076 | Inspect-first intervention model | Start with safe observation and narrow interventions before full IDE replacement. |
+| F-077 | Basic file editing | Edit text files inside a workspace with explicit save/apply, conflict detection, diff visibility, and trace/audit events. |
+| F-078 | IDE sidecar escape hatch | Later optional action to open the same workspace in code-server, OpenVSCode Server, Theia, or another full browser IDE provider. |
 
 ## 5. UI, Visual Artifacts, Interaction
 
@@ -217,10 +225,14 @@ Most coherent first layer:
 - Codex as default provider adapter.
 - Persistent agent session.
 - Chat plus non-chat views.
-- File browser.
-- Terminal/output view.
-- Diff view.
+- Project Workspace Inspector.
+- File tree and file viewer/editor.
+- Basic text file editing.
+- Workspace terminal/PTY sessions.
+- Command/output history.
+- Diff/check entry points.
 - Basic session event log and trace.
+- Addressable workspace references.
 - Basic git/diff awareness.
 - Mobile-readable session/review state.
 - Minimal dynamic artifact/block API.

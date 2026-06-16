@@ -25,7 +25,7 @@
 - plugins and Tool Registry: как подключаются tools, plugins, integrations, MCP, native adapters and visual blocks;
 - dynamic UI: как агент может вернуть форму, dashboard, graph, embedded view или другой интерактивный блок;
 - visual rendering and artifact semantics: где и как Cortex рендерит visual objects, что является source-of-truth, и когда view становится artifact;
-- go to cause / causality navigation: как пользователь переходит от результата, diff, ошибки или artifact к причине;
+- go to source / causality navigation: как пользователь переходит от результата, diff, ошибки или artifact к источнику, evidence and причине;
 - run mode: как Cortex запускает агентскую работу через Persistent Runtime, stateless/ephemeral runtime или hybrid strategy, и как поверх этого различаются interactive session and bounded task contracts;
 - human-agent dual interface: как человек и агент работают с одной видимой моделью, где agent является first-class citizen.
 
@@ -42,6 +42,7 @@ docs/ru/design/003-distributed-runtime-coordination.md
 docs/ru/design/004-modular-ui-work-surface.md
 docs/ru/design/005-dynamic-ui-from-agents.md
 docs/ru/design/006-visual-rendering-and-artifact-semantics.md
+docs/ru/design/008-go-to-source-and-causality-ux.md
 ```
 
 Рекомендуемая структура документа:
@@ -99,13 +100,13 @@ docs/ru/design/006-visual-rendering-and-artifact-semantics.md
 | A-004 | Modular UI and work surface | Что значит модульный UI для Cortex? Это Notion-like blocks, IDE/workbench panels, Obsidian-like navigation, plugin-rendered surfaces или гибрид? Где проходят границы pages, panels, blocks, artifacts, integration surfaces and extension points? | Модель рабочей поверхности: layout, blocks, panels, navigation, plugin surfaces and constraints for React/Vite UI. |
 | A-005 | Dynamic UI from agents | Как агент должен возвращать форму, dashboard, chart, graph, embedded tool или custom block? Это schema-driven UI, prebuilt block types, sandboxed components, generated code or plugin-owned renderer? | Концепция dynamic UI: что агент может породить сам, что должно быть заранее зарегистрировано, где граница безопасности. |
 | A-006 | Visual rendering and artifact semantics | Где и как Cortex рендерит visual objects: inline Markdown diagrams, editor/viewer enhancements, diff/terminal/test views, charts, dashboards, external previews and artifacts? Что является source-of-truth, когда visual view становится artifact, какие refs/actions/fallback нужны? | Сквозная модель visual object semantics: source-of-truth, rendering scope, addressability, actions, fallback, ownership, cause refs and artifact promotion. |
-| A-007 | Plugins, Tool Registry and MCP strategy | Где живет Tool Registry? Нужен ли Core-level MCP gateway/proxy? Или MCP должен быть на уровне Node Daemon, agent process, plugin adapter, external provider? Как сравнить MCP, native adapters and hybrid adapters? | Модель tools/plugins/integrations: registry, execution location, routing, permissions, events and visual output. |
-| A-008 | Go to cause and causality UX | Как сделать аналог go to definition, но для причинности работы агента? Как из diff line, failed check, artifact, decision, status или UI block перейти к породившему prompt/context/tool call/command/event/file change? Что является cause graph, а что просто log noise? | Модель UIUX причинности: навигация от результата к причине, минимальная модель cause links and evidence without dumping raw trace. |
-| A-009 | Human-agent dual interface and Agent as First-Class Citizen | Как сделать UI понятным и человеку, и агенту? Что такое machine-readable UI state, context entry points, internal Cortex agent, chat over UI element, agent identity, capabilities, status, memory, permissions and ownership? | Модель dual interface, где agent является видимым участником системы, а не скрытым процессом за текстовым чатом. |
+| **A-007** | Plugins, Tool Registry and MCP strategy | Где живет Tool Registry? Нужен ли Core-level MCP gateway/proxy? Или MCP должен быть на уровне Node Daemon, agent process, plugin adapter, external provider? Как сравнить MCP, native adapters and hybrid adapters? | Модель tools/plugins/integrations: registry, execution location, routing, permissions, events and visual output. |
+| A-008 | Go to source and causality UX | Как сделать аналог go to definition, но для агентской работы? Как из answer, diff line, failed check, artifact, decision, status или UI block перейти к source/evidence/cause: prompt/context/tool call/command/event/file change/raw log? Что является source/cause graph, а что просто log noise? | Модель UIUX причинности: навигация от результата к источнику, evidence and причине, минимальная модель source/cause links without dumping raw trace. |
+| **A-009** | Human-agent dual interface and Agent as First-Class Citizen | Как сделать UI понятным и человеку, и агенту? Что такое machine-readable UI state, context entry points, internal Cortex agent, chat over UI element, agent identity, capabilities, status, memory, permissions and ownership? | Модель dual interface, где agent является видимым участником системы, а не скрытым процессом за текстовым чатом. |
 
 Не все важные темы являются отдельными ключевыми механиками. Некоторые стоит держать как пользовательские сценарии или срезы внутри design docs:
 
-- Developer workbench - главный Stage 1 сценарий для `A-002 Run Mode`, `A-003 Distributed Runtime Coordination`, `A-004 Modular UI and work surface` and `A-008 Go to cause and causality UX`.
+- Developer workbench - главный Stage 1 сценарий для `A-002 Run Mode`, `A-003 Distributed Runtime Coordination`, `A-004 Modular UI and work surface` and `A-008 Go to source and causality UX`.
 - Workflow and harness - сценарный срез для длинной работы, который проверяет `A-002 Run Mode` and `A-003 Distributed Runtime Coordination`, но не заменяет их.
 - Integration UX - частный случай модульности, plugins/tools and visual blocks; его нужно раскрывать внутри `A-004`, `A-005`, `A-006` and `A-007`.
 - Security, permissions and trust - обязательный architecture-срез для execution modes, plugins/tools, dynamic UI and agent identity, но не отдельная ключевая механика карты.
@@ -137,7 +138,7 @@ docs/ru/design/006-visual-rendering-and-artifact-semantics.md
 - Где граница между plugin, integration, tool, block and artifact?
 - Как изучить Notion-like modularity practically: как data model, как UI composition, как plugin model или как interaction pattern?
 - Где visual representation должен быть inline/viewer enhancement, где отдельным block, где artifact, а где external preview/embed?
-- Какой минимальный cause graph нужен для go to cause, чтобы помогать review, но не превращаться в шумный trace log?
+- Какой минимальный source/cause graph нужен для go to source, чтобы помогать review, но не превращаться в шумный trace log?
 - Как именно agent должен быть представлен в UI как first-class citizen: identity, status, permissions, memory, capabilities или отдельный work object?
 - Как внутри Run Mode развести interactive session contract и bounded task contract так, чтобы они использовали общую модель project/workspace/node/agent/artifact/event?
 - Как не сделать слишком абстрактную платформу до появления рабочего developer workbench?

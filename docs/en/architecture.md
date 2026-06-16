@@ -45,6 +45,30 @@ Web UI deployed with Core Backend and used to manage Cortex from the browser.
 
 At the early stage this can be the primary client. Desktop, mobile, and CLI clients can come later.
 
+### Project Workspace Inspector
+
+Non-chat workbench surface inside the Web Control Panel for a concrete project
+workspace.
+
+It provides:
+
+- workspace file tree;
+- file viewer and lightweight text editor;
+- workspace terminal/PTY sessions;
+- command and output history;
+- basic diff and check entry points;
+- explicit save/apply flow for small human edits;
+- navigation from chat/session events to concrete workspace evidence;
+- addressable references to files, ranges, edits, terminal sessions, commands,
+  diffs, checks, and artifacts.
+
+This surface can feel similar to a lightweight VS Code, GitHub, or GitLab
+project view, but Stage 1 should not require a full browser IDE. The first goal
+is inspection and intervention: understand the agent's environment, open a
+project-scoped console, inspect and lightly edit files, inspect changes, and
+connect observations to trace. A full IDE can later be exposed as a sidecar
+instead of becoming the core Cortex workbench.
+
 ### Client
 
 User interface to Core.
@@ -93,6 +117,32 @@ This is not an AI agent. Node Daemon is infrastructure. It:
 - manages local workspaces, env, credentials, and runtime limits.
 
 Node Daemon is the main Cortex data plane.
+
+### Workspace Access Model
+
+Workspace inspection and terminals are routed through Core and executed by Node
+Daemon:
+
+```text
+Web Control Panel -> Core Backend -> Node Daemon -> Workspace / PTY / Process
+```
+
+Core owns project/workspace identity, user permissions, edit permission checks,
+command routing, workspace reference metadata, trace metadata, and event
+ordering.
+
+Node Daemon owns workspace-root resolution, path normalization, filesystem
+access, controlled text writes or patch applies, terminal/PTY lifecycle, process
+output streaming, local resource limits, and enforcement of local workspace
+boundaries.
+
+The client renders the workbench, initiates commands, and navigates between
+chat, files, terminal, diffs, checks, artifacts, and trace. It should not connect
+directly to every node or own durable workspace state.
+
+Every file, terminal, and command action should be scoped to a registered
+workspace. Terminal access, command execution, and file writes are privileged
+actions and must be permissioned and traced.
 
 ### AI Agent
 
@@ -363,6 +413,8 @@ This makes integrations first-class parts of the system instead of hidden API ca
 - event log;
 - trace metadata;
 - artifact metadata;
+- workspace reference metadata for files, ranges, edits, terminal sessions,
+  commands, diffs, checks, and artifacts;
 - Tool Registry;
 - Plugin Registry;
 - integration registry and configuration;
@@ -377,8 +429,8 @@ This makes integrations first-class parts of the system instead of hidden API ca
 - Node registration and heartbeat;
 - local capability probing;
 - workspace management;
-- file access;
-- terminal/PTY;
+- workspace file access and controlled writes with path and boundary enforcement;
+- terminal/PTY lifecycle for workspace-scoped console sessions;
 - process lifecycle;
 - agent provider adapter lifecycle;
 - persistent agent sessions;
@@ -398,6 +450,7 @@ This makes integrations first-class parts of the system instead of hidden API ca
 - review UX;
 - command initiation;
 - session attach/detach;
+- Project Workspace Inspector rendering and navigation;
 - artifact browsing;
 - mobile/desktop/web ergonomics.
 
@@ -483,6 +536,10 @@ Good for a commercial/team product.
 - What minimal Core <-> Node Daemon protocol is needed for MVP?
 - Which transport comes first: HTTP polling, WebSocket, gRPC, message queue?
 - How do we isolate terminal/filesystem commands in persistent session mode?
+- Should Stage 1 terminal be a fully interactive PTY, command runner, or both?
+- Should Stage 1 editing save whole files, apply patches, or support both?
+- What is the minimal address/reference schema for files, ranges, edits,
+  commands, output ranges, diffs, checks, and artifacts?
 - How do we show the difference between Core-level tools and Node-local tools?
 
 ## Current Position
@@ -500,4 +557,9 @@ Current strongest architecture position:
 - External integrations connect through adapters: MCP, native API, Node-local, external provider, or hybrid.
 - MCP is important, but should not be the only extension mechanism.
 - Tool execution can happen on Node, in an external provider, or later in Core for safe lightweight tools.
+- Project workspace inspection, lightweight file editing, and terminal access are
+  first-class Stage 1 capabilities, routed through Core and enforced by Node
+  Daemon.
+- A full browser IDE should be treated as an optional sidecar/escape hatch, not
+  as the foundation of the Cortex workbench.
 - Clients should work through Core and not directly own distributed state.

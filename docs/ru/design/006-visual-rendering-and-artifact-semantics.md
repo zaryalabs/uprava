@@ -796,9 +796,9 @@ tool output schema
 -> actions/fallback/cause refs
 ```
 
-### Relationship with A-008 Go to Cause
+### Relationship with A-008 Go to Source and Causality UX
 
-A-006 provides the visible entry points for go to cause.
+A-006 provides the visible entry points for go to source/cause.
 
 Examples:
 
@@ -811,8 +811,8 @@ terminal segment -> command event + runtime session
 external preview -> external entity + snapshot event
 ```
 
-Go to Cause should work from inline visuals, viewer enhancements, blocks and
-artifacts. It should not be limited to top-level A-004 blocks.
+Go to Source / Cause should work from inline visuals, viewer enhancements,
+blocks and artifacts. It should not be limited to top-level A-004 blocks.
 
 ### Relationship with A-009 Human-Agent Dual Interface
 

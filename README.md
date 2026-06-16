@@ -13,6 +13,7 @@ Cortex should be a control plane and work surface for agent workloads:
 - **Core Backend** as the control plane.
 - **Node Daemon** as the data plane running on local machines, servers, devboxes, sandboxes, or cloud nodes.
 - **Web Control Panel** as the first client.
+- **Project Workspace Inspector** as the non-chat workbench surface for browsing project files, viewing and lightly editing text files, attaching workspace terminals, inspecting diffs/checks, and linking evidence back to trace.
 - **Run Mode and Agent Provider Adapter** as the execution abstractions, starting with managed-lifetime Persistent Runtime for live agent work and Codex as the first provider.
 - **Distributed Runtime Coordination** as the dispatch, event ordering, node/workspace placement, and resource-warning layer between Core, Node Daemon, and runtime processes.
 - **Tool Registry and Plugin Registry** as the foundation for modularity.
@@ -29,6 +30,8 @@ Canonical English docs:
 - [Product Stages](docs/en/product-stages.md)
 - [Tech Stack](docs/en/tech-stack.md)
 - [Feature Inventory](docs/en/feature-inventory.md)
+- [Project Workspace Inspector](docs/en/workspace-inspector.md)
+- [Workspace Editing and IDE Sidecar](docs/en/workspace-editing-and-ide-sidecar.md)
 
 Russian drafts and source notes:
 
@@ -45,11 +48,11 @@ Stage 1 is **Developer Node Workbench**:
 - distributed runtime coordination with a `Nodes -> Projects/Workspaces` tree, command dispatch, event ordering, and resource warning badges;
 - project/workspace binding;
 - chat/session view;
-- terminal/output view;
-- file browser;
-- basic diff view;
+- Project Workspace Inspector with file tree, file viewer, lightweight text editing, workspace terminal/PTY sessions, command/output history, and basic diff/check entry points;
 - basic trace and event log;
 - minimal Tool Registry, Plugin Registry, and visual block/artifact contract.
+
+The Stage 1 workspace surface should feel closer to a lightweight VS Code or GitHub/GitLab web project view than to a chat transcript, but it is not a full IDE. The first boundary is inspect and narrow intervention: browse files, make basic text edits with explicit save/apply semantics, attach a project-scoped console, inspect commands and diffs, and connect those observations to the agent session trace. Language-server features, rich refactoring, multi-file IDE workflows, and full IDE replacement are deferred. A separate code-server/OpenVSCode-style sidecar can be considered later as an "open full IDE" escape hatch.
 
 Stateless/sandboxed run strategies, durable workflow engine, and full MR/PR flow are intentionally deferred.
 
