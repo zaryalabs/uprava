@@ -24,7 +24,7 @@
 - modular UI: как устроена модульная рабочая поверхность, блоки, панели и расширяемость интерфейса;
 - plugins and Tool Registry: как подключаются tools, plugins, integrations, MCP, native adapters and visual blocks;
 - dynamic UI: как агент может вернуть форму, dashboard, graph, embedded view или другой интерактивный блок;
-- visualization system: какие визуализации нужны продукту и как они становятся first-class artifacts;
+- visual rendering and artifact semantics: где и как Cortex рендерит visual objects, что является source-of-truth, и когда view становится artifact;
 - go to cause / causality navigation: как пользователь переходит от результата, diff, ошибки или artifact к причине;
 - run mode: как Cortex запускает агентскую работу через Persistent Runtime, stateless/ephemeral runtime или hybrid strategy, и как поверх этого различаются interactive session and bounded task contracts;
 - human-agent dual interface: как человек и агент работают с одной видимой моделью, где agent является first-class citizen.
@@ -41,6 +41,7 @@ docs/ru/design/002-run-mode.md
 docs/ru/design/003-distributed-runtime-coordination.md
 docs/ru/design/004-modular-ui-work-surface.md
 docs/ru/design/005-dynamic-ui-from-agents.md
+docs/ru/design/006-visual-rendering-and-artifact-semantics.md
 ```
 
 Рекомендуемая структура документа:
@@ -56,7 +57,7 @@ docs/ru/design/005-dynamic-ui-from-agents.md
 ### Концептуально как реализуем
 ### Пользовательские сценарии
 ### Agent-facing сценарии
-### First release vs later
+### Scope boundaries / release constraints, if useful
 
 ## Architecture
 
@@ -97,7 +98,7 @@ docs/ru/design/005-dynamic-ui-from-agents.md
 | A-003 | Distributed Runtime Coordination | Как Core координирует runtime work между session thread, runtime session, workspace placement and Node? Как dispatch-ятся commands, как упорядочиваются events, как UI видит node/workspace tree, stale/offline, resource warning badges and overrides? Как git repo/branch signals подсвечивают возможные конфликты без lock-системы? | Рабочая модель coordination layer для Stage 1: Nodes -> Projects/Workspaces tree, command proxy, idempotency, event ordering, resource signals, warning badges, override events and reuse by future task/sandbox runtimes. |
 | A-004 | Modular UI and work surface | Что значит модульный UI для Cortex? Это Notion-like blocks, IDE/workbench panels, Obsidian-like navigation, plugin-rendered surfaces или гибрид? Где проходят границы pages, panels, blocks, artifacts, integration surfaces and extension points? | Модель рабочей поверхности: layout, blocks, panels, navigation, plugin surfaces and constraints for React/Vite UI. |
 | A-005 | Dynamic UI from agents | Как агент должен возвращать форму, dashboard, chart, graph, embedded tool или custom block? Это schema-driven UI, prebuilt block types, sandboxed components, generated code or plugin-owned renderer? | Концепция dynamic UI: что агент может породить сам, что должно быть заранее зарегистрировано, где граница безопасности. |
-| A-006 | Visualization and artifacts | Какие визуализации нужны Cortex: diff, terminal replay, causality map, test report, UML, charts, dashboards, dependency graphs, forms? Как они соотносятся с artifacts, blocks and plugins? | Продуктовая и техническая карта visual artifacts, включая first release vs later. |
+| A-006 | Visual rendering and artifact semantics | Где и как Cortex рендерит visual objects: inline Markdown diagrams, editor/viewer enhancements, diff/terminal/test views, charts, dashboards, external previews and artifacts? Что является source-of-truth, когда visual view становится artifact, какие refs/actions/fallback нужны? | Сквозная модель visual object semantics: source-of-truth, rendering scope, addressability, actions, fallback, ownership, cause refs and artifact promotion. |
 | A-007 | Plugins, Tool Registry and MCP strategy | Где живет Tool Registry? Нужен ли Core-level MCP gateway/proxy? Или MCP должен быть на уровне Node Daemon, agent process, plugin adapter, external provider? Как сравнить MCP, native adapters and hybrid adapters? | Модель tools/plugins/integrations: registry, execution location, routing, permissions, events and visual output. |
 | A-008 | Go to cause and causality UX | Как сделать аналог go to definition, но для причинности работы агента? Как из diff line, failed check, artifact, decision, status или UI block перейти к породившему prompt/context/tool call/command/event/file change? Что является cause graph, а что просто log noise? | Модель UIUX причинности: навигация от результата к причине, минимальная модель cause links and evidence without dumping raw trace. |
 | A-009 | Human-agent dual interface and Agent as First-Class Citizen | Как сделать UI понятным и человеку, и агенту? Что такое machine-readable UI state, context entry points, internal Cortex agent, chat over UI element, agent identity, capabilities, status, memory, permissions and ownership? | Модель dual interface, где agent является видимым участником системы, а не скрытым процессом за текстовым чатом. |
@@ -113,7 +114,7 @@ docs/ru/design/005-dynamic-ui-from-agents.md
 
 ## Глубина проработки
 
-Для каждой ключевой механики сначала нужен `Vision`. Это не summary, а корневой смысловой блок: какую проблему решаем, какую модель предлагаем, какие человеческие и agent-facing сценарии считаем ключевыми, что попадает в first release and later.
+Для каждой ключевой механики сначала нужен `Vision`. Это не summary, а корневой смысловой блок: какую проблему решаем, какую модель предлагаем, какие человеческие и agent-facing сценарии считаем ключевыми, and какие scope/release constraints уже понятны, если они полезны для конкретного направления.
 
 `Architecture` можно заполнять постепенно. Не каждая ключевая механика сразу должна доходить до подробных state machines, API contracts, storage implications or tests/evals. На текущем этапе важно создать design doc по каждой механике из карты, зафиксировать в каждом `Vision`, а затем углублять `Architecture` там, где решение критично для Stage 1 или блокирует соседние механики.
 
@@ -122,7 +123,7 @@ docs/ru/design/005-dynamic-ui-from-agents.md
 Дизайн-фаза будет полезной, если после нее будет понятно:
 
 - по каждой ключевой механике из карты есть design doc с корневым `Vision` и заготовкой `Architecture`;
-- как устроены ключевые механики Cortex: distributed architecture, run mode, distributed runtime coordination, modular UI, plugins/tools, dynamic UI and visual artifacts;
+- как устроены ключевые механики Cortex: distributed architecture, run mode, distributed runtime coordination, modular UI, plugins/tools, dynamic UI and visual rendering/artifact semantics;
 - какие решения обязательны для Stage 1, а какие только накладывают constraints на архитектуру;
 - какие идеи из Notion/Obsidian/IDE/Grafana/MCP мы берем, а какие не берем;
 - где проходит граница между product concept, architecture and implementation detail;
@@ -135,7 +136,7 @@ docs/ru/design/005-dynamic-ui-from-agents.md
 - Должен ли Core быть MCP gateway/proxy, или лучше держать MCP ближе к Node/agent/plugin execution?
 - Где граница между plugin, integration, tool, block and artifact?
 - Как изучить Notion-like modularity practically: как data model, как UI composition, как plugin model или как interaction pattern?
-- Какие visualizations являются must-have для Stage 1, а какие только демонстрируют будущую силу платформы?
+- Где visual representation должен быть inline/viewer enhancement, где отдельным block, где artifact, а где external preview/embed?
 - Какой минимальный cause graph нужен для go to cause, чтобы помогать review, но не превращаться в шумный trace log?
 - Как именно agent должен быть представлен в UI как first-class citizen: identity, status, permissions, memory, capabilities или отдельный work object?
 - Как внутри Run Mode развести interactive session contract и bounded task contract так, чтобы они использовали общую модель project/workspace/node/agent/artifact/event?
