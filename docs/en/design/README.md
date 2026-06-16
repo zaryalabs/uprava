@@ -136,15 +136,21 @@ These principles should run through all key mechanisms:
 | **A-007** | Plugins, Tool Registry and MCP strategy | Where does Tool Registry live? Do we need a Core-level MCP gateway/proxy? Or should MCP live closer to Node Daemon, agent process, plugin adapter, or external provider? How do we compare MCP, native adapters, and hybrid adapters? | Tools/plugins/integrations model: registry, execution location, routing, permissions, events, and visual output. |
 | A-008 | Go to source and causality UX | How do we make an equivalent of go to definition, but for agent work? How does a user go from answer, diff line, failed check, artifact, decision, status, or UI block to source/evidence/cause: prompt/context/tool call/command/event/file change/raw log? What is a source/cause graph, and what is log noise? | Causality UI/UX model: navigation from result to source, evidence, and cause, with a minimum source/cause link model that does not dump raw trace. |
 | **A-009** | Human-agent dual interface and Agent as First-Class Citizen | How do we make UI understandable to both humans and agents? What are machine-readable UI state, context entry points, internal Cortex agent, chat over UI element, agent identity, capabilities, status, memory, permissions, and ownership? | Dual-interface model where the agent is a visible system participant, not a hidden process behind text chat. |
-| A-010 | Project Workspace Surface | How does the user see and change a concrete agent workspace? Where do file tree, file viewer/editor, terminal/PTY, command history, diff/check views, and "open full IDE" sidecar live? How do Core/Node Daemon provide permissions, path boundaries, edit lifecycle, trace, and addressable workspace refs? | V01 workspace surface model: inspect-first, edit-light, terminal-capable, traceable, with optional full IDE sidecar later. |
+| A-010 | Project Workspace Surface | How does the user see and change a concrete agent workspace? Where do file tree, file viewer/editor, terminal/PTY, command history, diff/check views, and "open full IDE" sidecar live? How do Core/Node Daemon provide permissions, path boundaries, edit lifecycle, trace, and addressable workspace refs? | Post-V01 workspace surface model: inspect-first, edit-light, terminal-capable, traceable, with optional full IDE sidecar later. |
 
 Not every important topic is a separate key mechanism. Some should stay as user
 scenarios or slices inside design docs:
 
-- Developer workbench is the main V01 scenario for `A-002 Run Mode`, `A-003 Distributed Runtime Coordination`, `A-004 Modular UI and work surface`, `A-008 Go to source and causality UX`, and `A-010 Project Workspace Surface`.
+- Distributed Agent Control Panel is the main V01 scenario for `A-002 Run Mode`,
+  `A-003 Distributed Runtime Coordination`, and `A-004 Modular UI and work
+  surface`. Developer workbench surfaces start as post-V01 feature queue slices,
+  beginning with workspace references and read-only inspector.
 - Workflow and harness is a scenario slice for long work that validates `A-002 Run Mode` and `A-003 Distributed Runtime Coordination`, but does not replace them.
 - Integration UX is a specific case of modularity, plugins/tools, and visual blocks; it should be expanded inside `A-004`, `A-005`, `A-006`, and `A-007`.
-- Security, permissions, and trust are required architecture slices for execution modes, plugins/tools, dynamic UI, and agent identity, but not a separate key mechanism on the map.
+- Security, permissions, and trust are required architecture slices for execution
+  modes, plugins/tools, dynamic UI, and agent identity. Security baseline is a
+  first post-V01 implementation slice, but not a separate key mechanism on the
+  design map.
 - Metrics, observability, and evals are quality/feedback slices for checking mechanisms, not a separate key mechanism.
 - Mobile continuity, deployment/bootstrap, and beyond software development are important constraints/product horizons, but not key mechanisms of the current design phase.
 

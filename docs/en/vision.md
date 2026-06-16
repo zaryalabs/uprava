@@ -296,32 +296,35 @@ trying to implement every direction at once.
 
 Minimum foundation:
 
-- Core with projects, nodes, agents, agent sessions, and agent runs;
-- Node Daemon on a node that can start an agent and report state;
-- binding an agent session/run to a project, workspace, and task;
-- two base execution modes: persistent session and task-based run;
-- chat as one interface to a session/run;
-- project/workspace file browser;
-- terminal or terminal output for the agent environment;
-- changes and diff view;
-- basic trace for agent session/run;
-- simple status model: draft / running / blocked / needs review / accepted /
-  rejected / deferred;
-- manual review loop: what changed, what was checked, what is risky, and what to
-  do next;
-- minimal plugin/block contract for visual artifacts.
+- Core with projects, nodes, agent sessions, runtimes, messages, and events;
+- Node Daemon on a node that can start a Codex-backed runtime and report state;
+- binding an agent session to a node, project, and workspace;
+- one implemented execution mode: persistent interactive session;
+- task-based and hybrid modes preserved as architecture directions, not V01
+  implementation;
+- chat as the first interface to a session;
+- `Nodes -> Projects/Workspaces -> Sessions` navigation;
+- lifecycle controls: start, attach, detach, interrupt, stop, resume, and return
+  later where provider support allows it;
+- basic status model for node, project/workspace, runtime, and session;
+- basic event history and diagnostics for lifecycle, offline, stale, warning, and
+  error states;
+- trusted local/single-user or controlled development deployment, with security
+  baseline as the first hardening slice after V01;
+- UI shell and entity model prepared for later file browser, terminal, diff,
+  trace, tools, plugins, review, and visual artifact surfaces.
 
 Base developer flows:
 
 ```text
 persistent:
-node/project -> start or attach agent session -> chat/files/terminal -> changes -> trace -> review
+node/project/session tree -> start or attach agent session -> chat -> lifecycle/events -> stop/resume
 
 task-based:
-task -> agent run -> sandbox/tools -> diff -> checks -> trace -> review -> MR/PR
+future task -> agent run -> sandbox/tools -> diff -> checks -> trace -> review -> MR/PR
 
 hybrid:
-agent session -> spawn bounded task runs -> review artifacts -> merge state back into session/workflow
+future session -> spawn bounded task runs -> review artifacts -> merge state back into session/workflow
 ```
 
 The goal of the first layer is to prove that Cortex gives more transparency and
@@ -336,19 +339,19 @@ described in [product-evolution.md](product-evolution.md). A detailed inventory
 of already proposed features and directions lives in
 [feature-inventory.md](feature-inventory.md).
 
-The first product version is **V01 Developer Node Workbench**:
+The first product version is **V01 Distributed Agent Control Panel**:
 
 - Core Backend and Web Control Panel;
 - one or more nodes with Node Daemon;
 - persistent Codex-backed session through Agent Provider Adapter;
-- project/workspace binding;
-- chat/session view;
-- Project Workspace Inspector: file tree, file viewer, lightweight text editor,
-  workspace terminal/PTY sessions, command/output history, and basic diff/check
-  entry points;
-- basic trace and event log;
-- minimal Tool Registry, Plugin Registry, and visual block/artifact contract
-  shape.
+- `Nodes -> Projects/Workspaces -> Sessions` navigation tree;
+- project/workspace binding as placement context;
+- chat/session view as the first primary work surface;
+- session lifecycle controls: start, attach, detach, interrupt, stop, resume,
+  and return later where provider support allows it;
+- basic node, project, runtime, session, message, and event persistence;
+- UI shell and typed command/event envelopes shaped for future workspace,
+  editor, terminal, tools, plugins, trace, and artifact surfaces.
 
 After V01, development is better handled as a feature queue: each key mechanism
 can have a small useful slice and then grow toward the target shape.

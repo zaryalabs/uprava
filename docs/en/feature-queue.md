@@ -38,36 +38,53 @@ That belongs in [v01.md](v01.md).
 
 | Order | Mechanism / Feature Slice | First Useful Slice | Dependency | Complexity |
 | --- | --- | --- | --- | --- |
-| 0 | V01 Developer Node Workbench | First usable product cut | Current design baseline | High |
-| 1 | Runtime/session hardening | Robust lifecycle, resume, stop, blocked, stale states | V01 runtime path | Medium |
-| 2 | Workspace reference model | Stable refs for files, ranges, commands, diffs, checks, artifacts, and trace | V01 workspace surface | Medium |
-| 3 | Causality and trace UX | Coarse source/cause links with raw fallback | Workspace refs, event log | Medium |
-| 4 | Git and review basics | Better diff, branch/worktree awareness, check results | Workspace surface, trace | Medium |
-| 5 | Tool Registry v1 | Real tool metadata, permissions, routing, and audit policy | V01 internal registry shape | High |
-| 6 | Plugin Registry v1 | Installed plugin metadata, configuration, exposed tools, and artifact types | Tool Registry v1 | High |
-| 7 | First external integrations | Git provider and task tracker integration slices | Tool/Plugin Registry | High |
-| 8 | Visual artifact system | Test reports, richer diffs, timelines, dashboards/forms as first-class artifacts | Trace, registry contracts | High |
-| 9 | Dynamic UI from agents | Schema/tool/plugin-rendered UI with safe fallbacks | Visual artifact system, plugins | High |
-| 10 | Task-based sandbox runtime | Bounded run contract, isolated workspace, expected evidence | Runtime, workspace, trace | Very high |
-| 11 | Hybrid managed sessions | Persistent session can spawn bounded runs and merge evidence back | Task runtime | Very high |
-| 12 | Team/cloud model | Users, roles, shared projects, managed Core/nodes | Mature personal workflow | Very high |
-| 13 | Beyond software development | Research, analytics, documents, finance, knowledge workflows | Mature artifact/plugin model | Very high |
+| 0 | V01 Distributed Agent Control Panel | Multi-node chat/session control panel | Current design baseline | High |
+| 1 | Security baseline | Trusted-dev warning, node auth, local web auth, credential handling, audit minimum | V01 control path | High |
+| 2 | Runtime/session hardening | Robust lifecycle, resume, stop, blocked, stale states | V01 runtime path | Medium |
+| 3 | Workspace shell and reference model | Stable refs and routes for future workspace evidence | V01 entity/session model | Medium |
+| 4 | Read-only Project Workspace Inspector | File tree, metadata, safe text viewer | Workspace refs, Node file reads | Medium |
+| 5 | Workspace intervention layer | Lightweight editor, terminal, command history, diff/check entry points | Read-only inspector, events | High |
+| 6 | Causality and trace UX | Coarse source/cause links with raw fallback | Workspace refs, event log | Medium |
+| 7 | Git and review basics | Better diff, branch/worktree awareness, check results | Workspace intervention, trace | Medium |
+| 8 | Tool Registry v1 | Real tool metadata, permissions, routing, and audit policy | V01 capability model, events | High |
+| 9 | Plugin Registry v1 | Installed plugin metadata, configuration, exposed tools, and artifact types | Tool Registry v1 | High |
+| 10 | First external integrations | Git provider and task tracker integration slices | Tool/Plugin Registry | High |
+| 11 | Visual artifact system | Test reports, richer diffs, timelines, dashboards/forms as first-class artifacts | Trace, registry contracts | High |
+| 12 | Dynamic UI from agents | Schema/tool/plugin-rendered UI with safe fallbacks | Visual artifact system, plugins | High |
+| 13 | Task-based sandbox runtime | Bounded run contract, isolated workspace, expected evidence | Runtime, workspace, trace | Very high |
+| 14 | Hybrid managed sessions | Persistent session can spawn bounded runs and merge evidence back | Task runtime | Very high |
+| 15 | Team/cloud model | Users, roles, shared projects, managed Core/nodes | Mature personal workflow | Very high |
+| 16 | Beyond software development | Research, analytics, documents, finance, knowledge workflows | Mature artifact/plugin model | Very high |
 
 ## Queue Details
 
-### 0. V01 Developer Node Workbench
+### 0. V01 Distributed Agent Control Panel
 
-**Value:** Gives the first tactile product: a user can run Core, connect a
-node, start a persistent Codex-backed session, inspect workspace state, use a
-terminal, edit a file, and review trace/diff.
+**Value:** Gives the first tactile product: a user can run Core, connect one or
+more nodes, bind projects/workspaces, start persistent Codex-backed sessions,
+and control those sessions from a web UI.
 
 **First useful slice:** Defined in [v01.md](v01.md).
 
 **Target direction:** Keep the first product small while preserving the system
-model for providers, tools, plugins, visual artifacts, task runs, mobile, and
-team/cloud modes.
+model for workspaces, providers, tools, plugins, visual artifacts, task runs,
+mobile, and team/cloud modes.
 
-### 1. Runtime/session hardening
+### 1. Security baseline
+
+**Value:** Makes the V01 control path safe enough to use beyond a purely trusted
+local prototype without pretending to solve full team/cloud security.
+
+**First useful slice:** Explicit deployment profiles, visible non-production
+warning until hardened mode is enabled, node enrollment/auth, credential storage
+rules, revoke/rotate basics, local web auth/session handling, origin/CSRF checks
+where relevant, token redaction, and minimal security/audit events.
+
+**Target direction:** Grow into permissions, secrets handling, stronger audit,
+mTLS or request signing, keychain-backed credentials, team RBAC, and managed
+cloud security without changing the Core/Node responsibility split.
+
+### 2. Runtime/session hardening
 
 **Value:** Makes live agent work feel reliable instead of like a wrapped CLI.
 
@@ -78,19 +95,44 @@ resume messaging.
 **Target direction:** Support multiple runtime strategies and provider adapters
 without changing Core/UI concepts.
 
-### 2. Workspace reference model
+### 3. Workspace shell and reference model
 
-**Value:** Lets chat, trace, artifacts, review, and agents point at the same
-workspace evidence.
+**Value:** Lets future chat, trace, artifacts, review, and agents point at the
+same workspace evidence without forcing the full inspector into V01.
 
-**First useful slice:** Stable references for file, file range, edit, terminal
-session, command, output range, diff hunk, check result, artifact, turn, and
-trace event.
+**First useful slice:** Stable ids, routes, and reference shapes for project,
+workspace, session, turn, message, runtime event, and reserved future workspace
+objects such as file, file range, edit, terminal session, command, output range,
+diff hunk, check result, artifact, and trace event.
 
 **Target direction:** Shared addressability for UI navigation, agent prompts,
 review decisions, plugin blocks, and task-run packages.
 
-### 3. Causality and trace UX
+### 4. Read-only Project Workspace Inspector
+
+**Value:** Lets the user see where the agent is working before Cortex adds
+direct intervention tools.
+
+**First useful slice:** Workspace file tree, file metadata, safe text file
+viewer, readable states for large/binary/ignored/generated/permission-denied
+files, and node-side workspace boundary enforcement.
+
+**Target direction:** A project surface that can later host editor, terminal,
+diff, checks, artifacts, and trace links.
+
+### 5. Workspace intervention layer
+
+**Value:** Gives the human narrow control when direct action is faster than
+asking the agent to describe or fix its own environment.
+
+**First useful slice:** Controlled text writes or patch applies, workspace
+terminal/PTY or command runner, command/output history, session-level diff, and
+basic check/test entry points.
+
+**Target direction:** Lightweight developer workbench ergonomics without
+becoming a full browser IDE.
+
+### 6. Causality and trace UX
 
 **Value:** Reduces review cost by connecting result to evidence without dumping
 raw logs into the user interface.
@@ -102,7 +144,7 @@ fallbacks.
 **Target direction:** Richer cause graph and trace timeline once event quality
 and artifact semantics stabilize.
 
-### 4. Git and review basics
+### 7. Git and review basics
 
 **Value:** Developer work needs changed-file awareness and review ergonomics.
 
@@ -112,7 +154,7 @@ check entry points, warning badges for risky workspace state.
 **Target direction:** Git provider integration, PR/MR comment import, review
 queues, CI follow-up loops, and review-ready task outputs.
 
-### 5. Tool Registry v1
+### 8. Tool Registry v1
 
 **Value:** Tools become system capabilities with permissions, routing, schemas,
 UI contracts, and audit policy instead of hidden agent behavior.
@@ -123,10 +165,10 @@ tools and Node capabilities.
 **Target direction:** External providers, MCP/native/hybrid adapters, tool call
 trace, and agent-readable capability discovery.
 
-### 6. Plugin Registry v1
+### 9. Plugin Registry v1
 
 **Value:** Cortex becomes extensible without hardcoding every tool, block, and
-integration into the workbench.
+integration inside the workbench.
 
 **First useful slice:** Installed plugin metadata, versions, configuration,
 requested permissions, exposed tools, artifact types, and compatibility.
@@ -134,7 +176,7 @@ requested permissions, exposed tools, artifact types, and compatibility.
 **Target direction:** Plugin-provided commands, renderers, link handlers,
 workflow templates, and governed extension surfaces.
 
-### 7. First external integrations
+### 10. First external integrations
 
 **Value:** Agent work must connect to real development systems without hiding
 integration behavior behind text.
@@ -145,7 +187,7 @@ objects, actions, trace, and permission checks.
 **Target direction:** Native, MCP, Node-local, external-provider, and hybrid
 integration adapters.
 
-### 8. Visual artifact system
+### 11. Visual artifact system
 
 **Value:** Results such as diffs, checks, timelines, reports, diagrams, and
 dashboards should be inspectable UI objects, not only chat text.
@@ -156,7 +198,7 @@ timeline with source references and fallbacks.
 **Target direction:** Artifact gallery, richer visual review, dashboards, UML,
 forms, and embedded external views.
 
-### 9. Dynamic UI from agents
+### 12. Dynamic UI from agents
 
 **Value:** Agents and tools can return structured interactive surfaces where
 text is the wrong shape.
@@ -167,7 +209,7 @@ sanitized snapshots, source refs, permissions, and markdown/table fallback.
 **Target direction:** Plugin-rendered blocks, controlled embeds, generated UI
 sandboxing, and agent-readable UI state.
 
-### 10. Task-based sandbox runtime
+### 13. Task-based sandbox runtime
 
 **Value:** Cortex can run bounded background work with explicit scope,
 isolation, evidence, and review-ready output.
@@ -178,7 +220,7 @@ package, event log, expected evidence, and result package.
 **Target direction:** Durable workflow state, queues, CI/webhook wakeups, PR/MR
 flow, and reproducible review packages.
 
-### 11. Hybrid managed sessions
+### 14. Hybrid managed sessions
 
 **Value:** Live sessions and background tasks become one work loop instead of
 separate products.
@@ -189,7 +231,7 @@ the run's evidence back into the session trace/review model.
 **Target direction:** Orchestrated workflows, semi-deterministic pipelines,
 handoff between live and bounded work, and review debt visibility.
 
-### 12. Team/cloud model
+### 15. Team/cloud model
 
 **Value:** Cortex expands from personal workbench to shared distributed Agent OS.
 
@@ -199,7 +241,7 @@ team audit trail, and managed Core deployment path.
 **Target direction:** Managed cloud nodes, node pools, organization-level
 plugin/integration governance, stronger secrets model, and billing if needed.
 
-### 13. Beyond software development
+### 16. Beyond software development
 
 **Value:** The same node, agent, tool, artifact, trace, and workflow model can
 support broader knowledge work.
@@ -212,11 +254,15 @@ monitoring, and knowledge-base workflows.
 
 ## Open Queue Questions
 
-- Which queue item should be the first post-V01 product hardening slice?
+- How strict must the first security baseline be before any non-local node is
+  recommended?
+- How much of the workspace reference model should be implemented before the
+  first read-only inspector UI?
+- Should the first intervention layer ship terminal first, editor first, or
+  diff/check first?
 - Should git/review basics come before Tool Registry v1, or should registry
   contracts land first to avoid a hardcoded integration path?
 - Which integration is the best first proof: GitHub/GitLab, Linear, MCP, or an
   internal Cortex-native tool set?
 - How small can the first visual artifact system be while still changing the
-  review experience?
-- Which task-based runtime slice is useful before full durable workflow state?
+  product experience beyond text?

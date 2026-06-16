@@ -4,7 +4,9 @@
 
 ## Короткое решение
 
-Cortex должен включать **Project Workspace Inspector** в V01.
+Cortex должен добавить **Project Workspace Inspector** после V01, как первое
+крупное workbench-расширение после того, как distributed agent control panel уже
+пригодна к использованию.
 
 Это non-chat surface для просмотра проекта, в котором работает агент: project
 tree, file viewer, lightweight text editor, workspace terminal sessions, command
@@ -34,36 +36,44 @@ Chat полезен для dialogue and intent. Для developer work этого
 - какие checks запускались;
 - как files, commands, diffs, checks and artifacts связаны с trace.
 
-Это превращает первый продукт из "agent chat with logs" в developer workbench.
+Это превращает V01 control panel из "distributed agent chat with lifecycle
+state" в developer workbench.
 
-## V01 Scope
+## First Useful Slice
 
-Минимальный scope V01:
+Первый полезный inspector slice:
 
 - project/workspace binding, видимый в UI;
 - file tree rooted at the workspace;
 - file metadata and file content view;
-- lightweight text editing with explicit save/apply semantics;
 - safe handling for large, binary, ignored, generated and permission-denied files;
+- addressable references to files and ranges;
+- trace/event links from agent sessions to known workspace evidence, где они
+  доступны.
+
+Первая реализация может быть намеренно маленькой and read-only. File tree and
+safe text viewer уже проверяют следующий продуктовый шаг без затягивания editor,
+terminal, diff, checks, tools or plugins в V01.
+
+Следующий intervention layer должен добавить:
+
+- lightweight text editing with explicit save/apply semantics;
 - workspace-scoped terminal/PTY sessions with attach, detach, resize and close;
 - command/output history tied to terminal sessions and agent events;
 - basic diff view for workspace changes;
 - basic check/test result entry points;
-- addressable references to files, ranges, terminal sessions, commands, diffs
-  and checks;
-- trace links from agent events to workspace evidence.
-
-Первая реализация может быть намеренно маленькой. File tree, file viewer/editor,
-terminal panel and diff/check entry points уже проверяют product thesis.
+- addressable references to terminal sessions, commands, output ranges, diffs,
+  checks and edits.
 
 ## Explicit Non-Goals
 
-V01 не должна пытаться стать полноценной IDE:
+Первые inspector and intervention slices не должны пытаться стать полноценной
+IDE:
 
 - нет требования full code editor;
 - нет требования language server;
 - нет требования rich refactoring, debugger or VS Code extension compatibility;
-- нет arbitrary plugin-controlled workbench layout;
+- нет arbitrary plugin-controlled workbench layout before Plugin Registry exists;
 - нет direct client-to-node filesystem access;
 - нет unrestricted shell access без Core permissions and Node-side enforcement.
 
@@ -185,9 +195,10 @@ model.
 
 ## Открытые вопросы
 
-- Должен ли V01 terminal быть fully interactive PTY, command runner или обоими?
-- Должна ли V01 editing сохранять whole files, применять patches или
-  поддерживать оба пути?
+- Должен ли first intervention terminal быть fully interactive PTY, command
+  runner или обоими?
+- Должен ли first intervention editor сохранять whole files, применять patches
+  или поддерживать оба пути?
 - Как должен работать file search: Node-local search first, indexed search или
   оба?
 - Какая minimal reference schema нужна для path, range, command, output, diff,

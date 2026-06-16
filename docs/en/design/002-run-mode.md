@@ -306,7 +306,7 @@ V01, но Run Mode должен не закрывать такой путь.
 
 #### V01
 
-Для Developer Node Workbench нужно:
+Для Distributed Agent Control Panel нужно:
 
 - Core session/thread registry;
 - Node Daemon controlled Codex runtime;
@@ -322,9 +322,10 @@ V01, но Run Mode должен не закрывать такой путь.
 - user input path for chat turns;
 - approval/user-input request path;
 - interrupt и stop;
-- terminal/output view;
-- file browser;
-- basic diff per turn or since baseline;
+- chat/session view;
+- node/project/session placement visible in UI;
+- basic message and runtime event history;
+- basic offline/stale/resource warning states;
 - basic trace и event log;
 - runtime started/stopped/expired events;
 - attach/detach semantics;
@@ -350,6 +351,9 @@ trace model, а будущие OpenCode/Claude Code adapters придется д
 
 Later versions can add:
 
+- file browser and read-only workspace inspector;
+- terminal/output view;
+- basic diff per turn or since baseline;
 - stateless/ephemeral runtime as compatibility/fallback strategy;
 - richer lease policies, configurable TTLs, quotas и per-project runtime
   budgets;
@@ -986,16 +990,15 @@ Node storage должен поддерживать:
 
 ### Permissions and safety
 
-V01 permission model может быть простой, но explicit:
+Trusted V01 safety posture может быть простой and explicit. Формальная
+permission/security model относится к первому post-V01 security baseline.
 
 - runtime scoped to one workspace binding;
 - provider process runs with Node-local permissions, not Core database access;
 - Core routes approvals и user-input decisions;
-- Node records commands и file changes as events;
 - dangerous tool permissions become visible approval requests when provider
   supports it;
-- provider credentials stay on Node или provider-specific secure storage, not in
-  browser state.
+- provider credentials should not be copied into browser state.
 
 Agent не должен получать broad Cortex admin credentials только потому, что он
 запущен внутри project session.

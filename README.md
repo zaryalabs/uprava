@@ -44,20 +44,28 @@ Russian mirror and source notes:
 
 ## First Product Version
 
-V01 is **Developer Node Workbench**:
+V01 is **Distributed Agent Control Panel**:
 
 - Rust Core Backend;
 - Rust Node Daemon;
 - web control panel;
 - managed-lifetime Persistent Runtime as the first run mode, with Codex through a provider adapter;
-- distributed runtime coordination with a `Nodes -> Projects/Workspaces` tree, command dispatch, event ordering, and resource warning badges;
-- project/workspace binding;
-- chat/session view;
-- Project Workspace Inspector with file tree, file viewer, lightweight text editing, workspace terminal/PTY sessions, command/output history, and basic diff/check entry points;
-- basic trace and event log;
-- minimal Tool Registry, Plugin Registry, and visual block/artifact contract.
+- distributed runtime coordination with a `Nodes -> Projects/Workspaces -> Sessions` tree, command dispatch, event ordering, and resource/offline warning badges;
+- project/workspace binding as placement context;
+- chat/session view as the first primary work surface;
+- persistent session lifecycle: start, attach, detach, interrupt, stop, resume, and return later where provider support allows it;
+- basic node, project, runtime, session, message, and event persistence;
+- UI shell and typed command/event envelopes shaped so workspace inspector, editor, terminal, tools, plugins, trace, and artifact surfaces can be added later without reshaping the product model.
 
-The V01 workspace surface should feel closer to a lightweight VS Code or GitHub/GitLab web project view than to a chat transcript, but it is not a full IDE. The first boundary is inspect and narrow intervention: browse files, make basic text edits with explicit save/apply semantics, attach a project-scoped console, inspect commands and diffs, and connect those observations to the agent session trace.
+V01 should feel like a small control panel for a distributed agent system: only
+slightly more visible than chat at first, but already organized around nodes,
+projects, sessions, runtime state, and durable event history. Project Workspace
+Inspector, tools, plugins, dynamic UI, and visual artifacts move to the feature
+queue instead of being required in the first cut.
+
+V01 is a trusted local/single-user or controlled development deployment, not a
+production security release. Security baseline is the first post-V01 hardening
+slice.
 
 The detailed first-version scope lives in [V01](docs/en/v01.md). Follow-on work is tracked as an implementation queue in [Feature Queue](docs/en/feature-queue.md), not as a fixed phase-based roadmap.
 

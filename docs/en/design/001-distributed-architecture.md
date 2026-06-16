@@ -96,7 +96,7 @@ Pairing-code не является постоянным секретом. Это
 - все дальнейшие heartbeat/control requests проходят с node credential;
 - Core может в любой момент revoke/suspend node credential.
 
-Для V01 оптимальный security setup:
+Первый post-V01 security baseline должен включать:
 
 - remote deployment: только `HTTPS/WSS`;
 - local dev/single-user loopback: `HTTP/WS` допустим только на `127.0.0.1`;
@@ -106,7 +106,7 @@ Pairing-code не является постоянным секретом. Это
 - browser/client auth: server-side session cookie, not browser JWT.
 
 Ed25519 request signing, mTLS, per-message signatures and full PKI не нужны как
-обязательный минимум V01. Архитектурно протокол должен оставлять путь к
+обязательный минимум первого security baseline. Архитектурно протокол должен оставлять путь к
 `auth_kind = token | signed_request | mtls`, key rotation and
 hardware/keychain-backed storage, но первая реализация должна быть проще.
 
@@ -181,15 +181,12 @@ channel или то, что эта machine является одной из но
 
 #### V01
 
-Для Developer Node Workbench достаточно:
+Для Distributed Agent Control Panel достаточно:
 
 - один Core URL;
-- Node Daemon с outbound registration;
-- short-lived pairing-code;
-- registered node identity/credential;
-- encrypted transport для non-local deployment;
-- hashed node bearer token для daemon auth;
-- server-side session cookies для client auth;
+- Node Daemon с outbound registration в trusted/local/dev profile;
+- development node identity/enrollment metadata;
+- explicit non-production warning for remote node usage before security baseline;
 - configurable heartbeat interval, default около 5 секунд;
 - heartbeat payload с минимальным health/capability snapshot;
 - heartbeat response с lightweight config/version info and channel request;
@@ -200,10 +197,17 @@ channel или то, что эта machine является одной из но
 
 V01 не требует:
 
+- production security hardening;
+- hardened node authentication;
+- hardened user auth/session model;
+- credential rotation or keychain integration;
+- secrets management;
 - inbound-доступа к Node;
 - direct client-to-node connections;
 - сложного team RBAC;
 - message queue;
+- hashed node bearer token для daemon auth;
+- server-side session cookies для client auth;
 - full mTLS rollout;
 - signed request protocol;
 - browser-stored JWT as default web auth;
@@ -214,6 +218,8 @@ V01 не требует:
 
 Дальше можно добавить:
 
+- security baseline: node auth, local web auth, credential storage rules,
+  revoke/rotate basics, token redaction and minimal security audit events;
 - mTLS или request signing как обязательный режим;
 - credential rotation and device keychain integration;
 - WebAuthn/TOTP/OIDC/SAML для users and teams;
@@ -559,7 +565,7 @@ Client interactive attach should use WebSocket:
 - stdin/resize/interrupt;
 - low-latency bidirectional UI interactions.
 
-#### V01 security by channel
+#### Post-V01 security baseline by channel
 
 | Channel | Transport | Auth | Extra protection |
 | --- | --- | --- | --- |
@@ -654,7 +660,7 @@ Control channel opening should additionally use a short-lived connection lease:
 Client WebSocket/SSE connections authenticate with user session auth, not node
 credentials.
 
-V01 browser auth should use Core-managed server-side sessions:
+Post-V01 browser auth should use Core-managed server-side sessions:
 
 - session cookie is `HttpOnly`, `Secure` on HTTPS, and `SameSite`;
 - mutation APIs use CSRF protection;

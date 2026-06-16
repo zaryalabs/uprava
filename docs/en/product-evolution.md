@@ -19,26 +19,27 @@ work lives in [`feature-queue.md`](feature-queue.md).
 
 ## V01
 
-The first product version is **Developer Node Workbench**:
+The first product version is **Distributed Agent Control Panel**:
 
 - Core Backend and Web Control Panel;
 - one or more nodes with Node Daemon;
 - persistent Codex-backed session through Agent Provider Adapter;
-- project/workspace binding;
-- chat/session view;
-- Project Workspace Inspector: file tree, file viewer, lightweight text editor,
-  workspace terminal/PTY sessions, command/output history, and basic diff/check
-  entry points;
-- basic trace and event log;
-- minimal Tool Registry, Plugin Registry, and visual block/artifact contract
-  shape.
+- `Nodes -> Projects/Workspaces -> Sessions` navigation tree;
+- project/workspace binding as placement context;
+- chat/session view as the first primary work surface;
+- session lifecycle controls: start, attach, detach, interrupt, stop, resume, and
+  return later where provider support allows it;
+- basic node, project, runtime, session, message, and event persistence;
+- UI shell, entity model, and command/event envelopes shaped for future
+  workspace, editor, terminal, tools, plugins, trace, and artifact surfaces.
+- trusted local/single-user or controlled development deployment, with
+  production security hardening deferred to the first post-V01 slice.
 
 V01 validates the thesis:
 
 ```text
 Persistent Runtime + Node Daemon + Core UI
-give more control, continuity, and reviewability
-than a regular local agent chat.
+turn agent chat into a distributed control surface.
 ```
 
 ## Next
@@ -46,8 +47,10 @@ than a regular local agent chat.
 Further development is not fixed as a linear chain of stages. Instead, the next
 slices should be selected from the feature queue:
 
+- security baseline;
 - runtime/session hardening;
-- workspace references;
+- workspace shell and references;
+- Project Workspace Inspector;
 - causality and trace UX;
 - git and review basics;
 - Tool Registry v1;

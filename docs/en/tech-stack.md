@@ -64,16 +64,17 @@ Core Backend owns:
 
 - API for clients;
 - Web Control Panel delivery;
-- auth/session model;
+- development/trusted deployment profile for V01;
+- hardened auth/session model in the post-V01 security baseline;
 - Node registry and discovery;
 - project registry;
 - agent sessions/runs registry;
 - event log;
-- trace metadata;
-- artifact metadata;
-- Tool Registry;
-- Plugin Registry;
-- integration configuration;
+- trace metadata in later slices;
+- artifact metadata in later slices;
+- Tool Registry in later slices;
+- Plugin Registry in later slices;
+- integration configuration in later slices;
 - routing to Node Daemon.
 
 ### Node Daemon
@@ -84,12 +85,13 @@ Preliminary choice:
 - Tokio;
 - outbound connection to Core;
 - local workspace management;
-- PTY/terminal support;
 - process lifecycle management;
-- file operations;
 - persistent agent sessions;
 - output/event streaming;
-- local tool execution.
+- workspace binding validation for V01;
+- PTY/terminal support in later workspace slices;
+- file operations in later workspace slices;
+- local tool execution in later Tool Registry slices.
 
 Node Daemon should be maximally portable. V01 targets desktop/server nodes, but
 the architecture should not block future cloud nodes, sandboxes, and microVM
@@ -135,7 +137,7 @@ cargo nextest run --workspace
 For daily development, `bacon` can continuously run `check`, `clippy`, or
 targeted tests while code changes.
 
-Preliminary CI/security baseline:
+Preliminary CI/dependency hygiene baseline:
 
 ```text
 cargo fmt --check
@@ -237,9 +239,9 @@ TanStack Table is needed for:
 
 - nodes list;
 - sessions list;
-- tools/plugins registry;
-- artifacts;
 - events;
+- future tools/plugins registry;
+- future artifacts;
 - future review queues;
 - future task runs.
 
@@ -249,9 +251,9 @@ React Hook Form + Zod are needed for:
 
 - project settings;
 - node setup;
-- tool/plugin configuration;
-- integration credentials forms;
 - session launch forms;
+- future tool/plugin configuration;
+- future integration credentials forms;
 - future task run forms.
 
 Zod is useful as a frontend validation boundary. Backend contracts should still

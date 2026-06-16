@@ -18,26 +18,27 @@
 
 ## V01
 
-Первая версия продукта - **Developer Node Workbench**:
+Первая версия продукта - **Distributed Agent Control Panel**:
 
 - Core Backend и Web Control Panel;
 - одна или несколько нод с Node Daemon;
 - persistent Codex-backed session через Agent Provider Adapter;
-- project/workspace binding;
-- chat/session view;
-- Project Workspace Inspector: file tree, file viewer, lightweight text editor,
-  workspace terminal/PTY sessions, command/output history, basic diff/check
-  entry points;
-- basic trace and event log;
-- минимальная форма Tool Registry, Plugin Registry and visual block/artifact
-  contract.
+- navigation tree формата `Nodes -> Projects/Workspaces -> Sessions`;
+- project/workspace binding как placement context;
+- chat/session view как первая primary work surface;
+- session lifecycle controls: start, attach, detach, interrupt, stop, resume and
+  return later, если provider это поддерживает;
+- basic node, project, runtime, session, message and event persistence;
+- UI shell, entity model and command/event envelopes, подготовленные для будущих
+  workspace, editor, terminal, tools, plugins, trace and artifact surfaces.
+- trusted local/single-user or controlled development deployment, with
+  production security hardening deferred to the first post-V01 slice.
 
 V01 проверяет тезис:
 
 ```text
 Persistent Runtime + Node Daemon + Core UI
-дают больше контроля, continuity and reviewability,
-чем обычный локальный agent chat.
+превращают agent chat в distributed control surface.
 ```
 
 ## Дальше
@@ -45,8 +46,10 @@ Persistent Runtime + Node Daemon + Core UI
 Дальнейшее развитие не фиксируется как линейная цепочка стадий. Вместо этого
 следующие срезы должны выбираться из очереди фич:
 
+- security baseline;
 - runtime/session hardening;
-- workspace references;
+- workspace shell and references;
+- Project Workspace Inspector;
 - causality and trace UX;
 - git and review basics;
 - Tool Registry v1;

@@ -59,16 +59,17 @@ Core Backend отвечает за:
 
 - API for clients;
 - Web Control Panel delivery;
-- auth/session model;
+- development/trusted deployment profile for V01;
+- hardened auth/session model in the post-V01 security baseline;
 - Node registry and discovery;
 - project registry;
 - agent sessions/runs registry;
 - event log;
-- trace metadata;
-- artifact metadata;
-- Tool Registry;
-- Plugin Registry;
-- integration configuration;
+- trace metadata in later slices;
+- artifact metadata in later slices;
+- Tool Registry in later slices;
+- Plugin Registry in later slices;
+- integration configuration in later slices;
 - routing to Node Daemon.
 
 ### Node Daemon
@@ -79,12 +80,13 @@ Core Backend отвечает за:
 - Tokio;
 - outbound connection to Core;
 - local workspace management;
-- PTY/terminal support;
 - process lifecycle management;
-- file operations;
 - persistent agent sessions;
 - output/event streaming;
-- local tool execution.
+- workspace binding validation for V01;
+- PTY/terminal support in later workspace slices;
+- file operations in later workspace slices;
+- local tool execution in later Tool Registry slices.
 
 Node Daemon должен быть максимально переносимым. V01 ориентируется на desktop/server nodes, но архитектура должна не блокировать future cloud nodes, sandboxes and microVM hosts.
 
@@ -125,7 +127,7 @@ cargo nextest run --workspace
 
 Для ежедневной разработки можно использовать `bacon`, чтобы постоянно гонять `check`, `clippy` or targeted tests во время изменения кода.
 
-Предварительный CI/security baseline:
+Предварительный CI/dependency hygiene baseline:
 
 ```text
 cargo fmt --check
@@ -221,9 +223,9 @@ TanStack Table нужен для:
 
 - nodes list;
 - sessions list;
-- tools/plugins registry;
-- artifacts;
 - events;
+- future tools/plugins registry;
+- future artifacts;
 - future review queues;
 - future task runs.
 
@@ -233,9 +235,9 @@ React Hook Form + Zod нужны для:
 
 - project settings;
 - node setup;
-- tool/plugin configuration;
-- integration credentials forms;
 - session launch forms;
+- future tool/plugin configuration;
+- future integration credentials forms;
 - future task run forms.
 
 Zod полезен как frontend validation boundary. Backend contracts все равно должны быть Rust-first; позже можно подумать о generated schemas.
