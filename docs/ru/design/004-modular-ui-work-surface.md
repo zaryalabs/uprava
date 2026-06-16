@@ -28,6 +28,13 @@ IDE/workbench shell
 Интерфейс остается предсказуемым, но внутренние поверхности становятся
 расширяемыми.
 
+`A-010 Project Workspace Surface` является конкретной Stage 1 поверхностью
+внутри этой модели: file tree, file viewer/editor, terminal/PTY, command
+history, diff/check entry points and workspace refs. `A-004` отвечает за общий
+workbench-shell, commands/contributions and extension points; `A-010` отвечает
+за workspace-specific lifecycle, file editing, terminal access, Node/Core
+boundary, permissions and traceability.
+
 ## Базовые сущности
 
 Пока складывается такая модель:

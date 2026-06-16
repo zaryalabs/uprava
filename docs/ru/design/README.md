@@ -43,6 +43,7 @@ docs/ru/design/004-modular-ui-work-surface.md
 docs/ru/design/005-dynamic-ui-from-agents.md
 docs/ru/design/006-visual-rendering-and-artifact-semantics.md
 docs/ru/design/008-go-to-source-and-causality-ux.md
+docs/ru/design/010-project-workspace-surface.md
 ```
 
 Рекомендуемая структура документа:
@@ -103,10 +104,11 @@ docs/ru/design/008-go-to-source-and-causality-ux.md
 | **A-007** | Plugins, Tool Registry and MCP strategy | Где живет Tool Registry? Нужен ли Core-level MCP gateway/proxy? Или MCP должен быть на уровне Node Daemon, agent process, plugin adapter, external provider? Как сравнить MCP, native adapters and hybrid adapters? | Модель tools/plugins/integrations: registry, execution location, routing, permissions, events and visual output. |
 | A-008 | Go to source and causality UX | Как сделать аналог go to definition, но для агентской работы? Как из answer, diff line, failed check, artifact, decision, status или UI block перейти к source/evidence/cause: prompt/context/tool call/command/event/file change/raw log? Что является source/cause graph, а что просто log noise? | Модель UIUX причинности: навигация от результата к источнику, evidence and причине, минимальная модель source/cause links without dumping raw trace. |
 | **A-009** | Human-agent dual interface and Agent as First-Class Citizen | Как сделать UI понятным и человеку, и агенту? Что такое machine-readable UI state, context entry points, internal Cortex agent, chat over UI element, agent identity, capabilities, status, memory, permissions and ownership? | Модель dual interface, где agent является видимым участником системы, а не скрытым процессом за текстовым чатом. |
+| A-010 | Project Workspace Surface | Как пользователь видит и меняет конкретный workspace агента? Где живут file tree, file viewer/editor, terminal/PTY, command history, diff/check views and "open full IDE" sidecar? Как Core/Node Daemon обеспечивают permissions, path boundaries, edit lifecycle, trace and addressable workspace refs? | Модель Stage 1 workspace surface: inspect-first, edit-light, terminal-capable, traceable, with optional full IDE sidecar later. |
 
 Не все важные темы являются отдельными ключевыми механиками. Некоторые стоит держать как пользовательские сценарии или срезы внутри design docs:
 
-- Developer workbench - главный Stage 1 сценарий для `A-002 Run Mode`, `A-003 Distributed Runtime Coordination`, `A-004 Modular UI and work surface` and `A-008 Go to source and causality UX`.
+- Developer workbench - главный Stage 1 сценарий для `A-002 Run Mode`, `A-003 Distributed Runtime Coordination`, `A-004 Modular UI and work surface`, `A-008 Go to source and causality UX` and `A-010 Project Workspace Surface`.
 - Workflow and harness - сценарный срез для длинной работы, который проверяет `A-002 Run Mode` and `A-003 Distributed Runtime Coordination`, но не заменяет их.
 - Integration UX - частный случай модульности, plugins/tools and visual blocks; его нужно раскрывать внутри `A-004`, `A-005`, `A-006` and `A-007`.
 - Security, permissions and trust - обязательный architecture-срез для execution modes, plugins/tools, dynamic UI and agent identity, но не отдельная ключевая механика карты.
