@@ -4,7 +4,7 @@ Status: `draft`
 
 ## Short Decision
 
-Cortex should include a **Project Workspace Inspector** in Stage 1.
+Cortex should include a **Project Workspace Inspector** in V01.
 
 This is the non-chat surface for looking into the project where an agent works:
 project tree, file viewer, lightweight text editor, workspace terminal sessions,
@@ -37,9 +37,9 @@ The user also needs to see:
 This turns the first product from "agent chat with logs" into a developer
 workbench.
 
-## Stage 1 Scope
+## V01 Scope
 
-Minimal Stage 1 scope:
+Minimal V01 scope:
 
 - project/workspace binding visible in the UI;
 - file tree rooted at the workspace;
@@ -59,7 +59,7 @@ product thesis.
 
 ## Explicit Non-Goals
 
-Stage 1 should not try to become a full IDE:
+V01 should not try to become a full IDE:
 
 - no full code editor requirement;
 - no language server requirement;
@@ -141,9 +141,9 @@ These references support:
 - "ask agent about this file/range/hunk" actions;
 - trace entries that point to concrete evidence;
 - review decisions tied to changed files, user edits, commands, and checks;
-- future plugin contributions for previews, actions, and detail views.
+- plugin contributions for previews, actions, and detail views.
 
-The exact URI/schema can be designed later. The architectural rule is that files,
+The exact URI/schema is still open. The architectural rule is that files,
 terminal sessions, commands, diffs, checks, and artifacts must be addressable
 objects, not only pixels in the UI.
 
@@ -165,28 +165,27 @@ Important boundaries:
 - disconnected nodes should degrade to cached metadata and trace, not pretend the
   workspace is live.
 
-## Later Directions
+## Feature Queue Directions
 
-Stage 2 can make the surface extensible through the Tool Registry and Plugin
-Registry: file previews, extra actions, detail aspects, and integration-aware
-links.
+The feature queue can make the surface extensible through the Tool Registry and
+Plugin Registry: file previews, extra actions, detail aspects, and
+integration-aware links.
 
-Stage 3 can enrich the visual work surface with terminal replay, structured
-command history, richer editing/review flows, test reports, richer diff/review,
-symbol/navigation aids, and artifact galleries.
+Visual work surface items can enrich the product with terminal replay,
+structured command history, richer editing/review flows, test reports, richer
+diff/review, symbol/navigation aids, and artifact galleries.
 
-Stage 4 can reuse the same workspace concepts for task-based sandbox runs:
-review packages, isolated branches/workspaces, expected evidence, and MR/PR
-output.
+Task-based sandbox runtime can reuse the same workspace concepts for review
+packages, isolated branches/workspaces, expected evidence, and MR/PR output.
 
-Stage 5 can let a persistent session spawn bounded task runs and connect their
-workspace evidence back into the same review and trace model.
+Hybrid managed sessions can let a persistent session spawn bounded task runs and
+connect their workspace evidence back into the same review and trace model.
 
 ## Open Questions
 
-- Should Stage 1 terminal be a fully interactive PTY, a command runner, or both?
-- Should Stage 1 editing save whole files, apply patches, or support both?
-- How should file search work: Node-local search first, indexed search later, or both?
+- Should V01 terminal be a fully interactive PTY, a command runner, or both?
+- Should V01 editing save whole files, apply patches, or support both?
+- How should file search work: Node-local search first, indexed search, or both?
 - What is the minimal reference schema for path, range, command, output, diff,
   edit, and check objects?
 - How should session terminals and agent-owned terminals be distinguished in UI

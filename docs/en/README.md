@@ -1,17 +1,27 @@
 # English Documentation
 
-This directory contains the canonical English documentation.
+This directory is the English-facing documentation mirror.
 
-The repository's primary language is English. Some product and architecture work may start in Russian while ideas are still being shaped, but stable documents should be translated here and then maintained in English.
+The Markdown document set should match [`../ru`](../ru). If a document exists in
+one language tree, the other language tree should also contain the same relative
+path. If product or architecture content conflicts, the Russian version has
+priority and this English-facing mirror should be updated to match it.
+
+Some deep design documents may first be mirrored from Russian source text before
+they are fully translated. This keeps the documentation set complete while the
+English prose is polished incrementally.
 
 Current documents:
 
 - [`vision.md`](vision.md) - product vision.
 - [`architecture.md`](architecture.md) - Core / Node Daemon / Clients architecture.
-- [`product-stages.md`](product-stages.md) - product development stages.
+- [`v01.md`](v01.md) - first usable product version.
+- [`feature-queue.md`](feature-queue.md) - ranked implementation queue.
+- [`product-evolution.md`](product-evolution.md) - product evolution model.
+- [`product-stages.md`](product-stages.md) - superseded historical stage model.
 - [`tech-stack.md`](tech-stack.md) - preliminary technical stack.
 - [`feature-inventory.md`](feature-inventory.md) - feature and direction inventory.
 - [`workspace-inspector.md`](workspace-inspector.md) - Project Workspace Inspector direction.
 - [`workspace-editing-and-ide-sidecar.md`](workspace-editing-and-ide-sidecar.md) - lightweight file editing and optional full-IDE sidecar direction.
-
-Russian drafts and source notes live in [`../ru`](../ru).
+- [`cortex-notes.md`](cortex-notes.md) - source notes mirror.
+- [`design/`](design/) - deep design documents for key Cortex mechanisms.

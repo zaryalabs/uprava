@@ -91,26 +91,26 @@ docs/ru/design/010-project-workspace-surface.md
 - Persistent, stateless/ephemeral and hybrid strategies должны быть runtime strategies одного Run Mode, а не разными продуктами.
 - Distributed Runtime Coordination должен быть общим dispatch/resource-awareness слоем для interactive sessions, future task runs and sandboxed runtimes.
 - Human UI и agent-readable UI должны развиваться вместе.
-- Stage 1 должен быть маленьким, но не должен закрывать путь к plugins, visual blocks, task-based runtime, mobile and team/cloud.
+- V01 должен быть маленьким, но не должен закрывать путь к plugins, visual blocks, task-based runtime, mobile and team/cloud.
 
 ## Карта ключевых механик
 
 | ID | Механика | Ключевые вопросы механики | Ожидаемый результат |
 | --- | --- | --- | --- |
 | A-001 | Distributed architecture | Как именно реализуем distributed модель? Что является Core/control plane, что остается за Node Daemon/data plane, как клиенты работают через Core, где проходят границы host/node/workspace/session? | Рабочая позиция по Core / Node Daemon / clients модели, deployment profiles and responsibility boundaries. |
-| A-002 | Run Mode | Что такое Run Mode как единая механика запуска агентской работы? Как устроены Persistent Runtime, stateless/ephemeral runtime and hybrid strategy? Как поверх runtime strategy различаются interactive session and bounded task contracts? Где границы между project, workspace, node, thread, turn, run and agent process? | Концепция Run Mode для Stage 1 и дальше: Persistent Runtime first, managed process lifetime, lifecycle, visible surface, review points and constraints for future stateless/sandboxed strategies. |
-| A-003 | Distributed Runtime Coordination | Как Core координирует runtime work между session thread, runtime session, workspace placement and Node? Как dispatch-ятся commands, как упорядочиваются events, как UI видит node/workspace tree, stale/offline, resource warning badges and overrides? Как git repo/branch signals подсвечивают возможные конфликты без lock-системы? | Рабочая модель coordination layer для Stage 1: Nodes -> Projects/Workspaces tree, command proxy, idempotency, event ordering, resource signals, warning badges, override events and reuse by future task/sandbox runtimes. |
+| A-002 | Run Mode | Что такое Run Mode как единая механика запуска агентской работы? Как устроены Persistent Runtime, stateless/ephemeral runtime and hybrid strategy? Как поверх runtime strategy различаются interactive session and bounded task contracts? Где границы между project, workspace, node, thread, turn, run and agent process? | Концепция Run Mode для V01 и дальше: Persistent Runtime first, managed process lifetime, lifecycle, visible surface, review points and constraints for future stateless/sandboxed strategies. |
+| A-003 | Distributed Runtime Coordination | Как Core координирует runtime work между session thread, runtime session, workspace placement and Node? Как dispatch-ятся commands, как упорядочиваются events, как UI видит node/workspace tree, stale/offline, resource warning badges and overrides? Как git repo/branch signals подсвечивают возможные конфликты без lock-системы? | Рабочая модель coordination layer для V01: Nodes -> Projects/Workspaces tree, command proxy, idempotency, event ordering, resource signals, warning badges, override events and reuse by future task/sandbox runtimes. |
 | A-004 | Modular UI and work surface | Что значит модульный UI для Cortex? Это Notion-like blocks, IDE/workbench panels, Obsidian-like navigation, plugin-rendered surfaces или гибрид? Где проходят границы pages, panels, blocks, artifacts, integration surfaces and extension points? | Модель рабочей поверхности: layout, blocks, panels, navigation, plugin surfaces and constraints for React/Vite UI. |
 | A-005 | Dynamic UI from agents | Как агент должен возвращать форму, dashboard, chart, graph, embedded tool или custom block? Это schema-driven UI, prebuilt block types, sandboxed components, generated code or plugin-owned renderer? | Концепция dynamic UI: что агент может породить сам, что должно быть заранее зарегистрировано, где граница безопасности. |
 | A-006 | Visual rendering and artifact semantics | Где и как Cortex рендерит visual objects: inline Markdown diagrams, editor/viewer enhancements, diff/terminal/test views, charts, dashboards, external previews and artifacts? Что является source-of-truth, когда visual view становится artifact, какие refs/actions/fallback нужны? | Сквозная модель visual object semantics: source-of-truth, rendering scope, addressability, actions, fallback, ownership, cause refs and artifact promotion. |
 | **A-007** | Plugins, Tool Registry and MCP strategy | Где живет Tool Registry? Нужен ли Core-level MCP gateway/proxy? Или MCP должен быть на уровне Node Daemon, agent process, plugin adapter, external provider? Как сравнить MCP, native adapters and hybrid adapters? | Модель tools/plugins/integrations: registry, execution location, routing, permissions, events and visual output. |
 | A-008 | Go to source and causality UX | Как сделать аналог go to definition, но для агентской работы? Как из answer, diff line, failed check, artifact, decision, status или UI block перейти к source/evidence/cause: prompt/context/tool call/command/event/file change/raw log? Что является source/cause graph, а что просто log noise? | Модель UIUX причинности: навигация от результата к источнику, evidence and причине, минимальная модель source/cause links without dumping raw trace. |
 | **A-009** | Human-agent dual interface and Agent as First-Class Citizen | Как сделать UI понятным и человеку, и агенту? Что такое machine-readable UI state, context entry points, internal Cortex agent, chat over UI element, agent identity, capabilities, status, memory, permissions and ownership? | Модель dual interface, где agent является видимым участником системы, а не скрытым процессом за текстовым чатом. |
-| A-010 | Project Workspace Surface | Как пользователь видит и меняет конкретный workspace агента? Где живут file tree, file viewer/editor, terminal/PTY, command history, diff/check views and "open full IDE" sidecar? Как Core/Node Daemon обеспечивают permissions, path boundaries, edit lifecycle, trace and addressable workspace refs? | Модель Stage 1 workspace surface: inspect-first, edit-light, terminal-capable, traceable, with optional full IDE sidecar later. |
+| A-010 | Project Workspace Surface | Как пользователь видит и меняет конкретный workspace агента? Где живут file tree, file viewer/editor, terminal/PTY, command history, diff/check views and "open full IDE" sidecar? Как Core/Node Daemon обеспечивают permissions, path boundaries, edit lifecycle, trace and addressable workspace refs? | Модель V01 workspace surface: inspect-first, edit-light, terminal-capable, traceable, with optional full IDE sidecar later. |
 
 Не все важные темы являются отдельными ключевыми механиками. Некоторые стоит держать как пользовательские сценарии или срезы внутри design docs:
 
-- Developer workbench - главный Stage 1 сценарий для `A-002 Run Mode`, `A-003 Distributed Runtime Coordination`, `A-004 Modular UI and work surface`, `A-008 Go to source and causality UX` and `A-010 Project Workspace Surface`.
+- Developer workbench - главный V01 сценарий для `A-002 Run Mode`, `A-003 Distributed Runtime Coordination`, `A-004 Modular UI and work surface`, `A-008 Go to source and causality UX` and `A-010 Project Workspace Surface`.
 - Workflow and harness - сценарный срез для длинной работы, который проверяет `A-002 Run Mode` and `A-003 Distributed Runtime Coordination`, но не заменяет их.
 - Integration UX - частный случай модульности, plugins/tools and visual blocks; его нужно раскрывать внутри `A-004`, `A-005`, `A-006` and `A-007`.
 - Security, permissions and trust - обязательный architecture-срез для execution modes, plugins/tools, dynamic UI and agent identity, но не отдельная ключевая механика карты.
@@ -121,7 +121,7 @@ docs/ru/design/010-project-workspace-surface.md
 
 Для каждой ключевой механики сначала нужен `Vision`. Это не summary, а корневой смысловой блок: какую проблему решаем, какую модель предлагаем, какие человеческие и agent-facing сценарии считаем ключевыми, and какие scope/release constraints уже понятны, если они полезны для конкретного направления.
 
-`Architecture` можно заполнять постепенно. Не каждая ключевая механика сразу должна доходить до подробных state machines, API contracts, storage implications or tests/evals. На текущем этапе важно создать design doc по каждой механике из карты, зафиксировать в каждом `Vision`, а затем углублять `Architecture` там, где решение критично для Stage 1 или блокирует соседние механики.
+`Architecture` можно заполнять постепенно. Не каждая ключевая механика сразу должна доходить до подробных state machines, API contracts, storage implications or tests/evals. На текущем этапе важно создать design doc по каждой механике из карты, зафиксировать в каждом `Vision`, а затем углублять `Architecture` там, где решение критично для V01 или блокирует соседние механики.
 
 ## Что считать готовым результатом этой фазы
 
@@ -129,7 +129,7 @@ docs/ru/design/010-project-workspace-surface.md
 
 - по каждой ключевой механике из карты есть design doc с корневым `Vision` и заготовкой `Architecture`;
 - как устроены ключевые механики Cortex: distributed architecture, run mode, distributed runtime coordination, modular UI, plugins/tools, dynamic UI and visual rendering/artifact semantics;
-- какие решения обязательны для Stage 1, а какие только накладывают constraints на архитектуру;
+- какие решения обязательны для V01, а какие только накладывают constraints на архитектуру;
 - какие идеи из Notion/Obsidian/IDE/Grafana/MCP мы берем, а какие не берем;
 - где проходит граница между product concept, architecture and implementation detail;
 - какие документы нужно переводить в `docs/en`, когда позиция стабилизируется.

@@ -2,11 +2,11 @@
 
 Статус: `draft`
 
-Этот документ фиксирует предварительно выбранный технический стек для Stage 1 и ближайших стадий.
+Этот документ фиксирует предварительно выбранный технический стек для V01 и ближайших срезов feature queue.
 
 ## Короткое решение
 
-Stage 1 строим как Rust-first system with web-first UI:
+V01 строим как Rust-first system with web-first UI:
 
 ```text
 Rust Core Backend + Rust Node Daemon
@@ -21,13 +21,13 @@ Vitest
 Rust tooling: cargo, rust-analyzer, rustfmt, clippy, bacon, nextest, audit, deny, taplo
 ```
 
-Next.js 16 App Router пока не берем как базу Stage 1. Причина не в том, что Next.js плохой, а в том, что у Cortex уже есть Rust Core Backend. На первой стадии не хочется создавать второй backend/BFF слой на Node.js без сильной причины.
+Next.js 16 App Router пока не берем как базу V01. Причина не в том, что Next.js плохой, а в том, что у Cortex уже есть Rust Core Backend. В первой версии продукта не хочется создавать второй backend/BFF слой на Node.js без сильной причины.
 
 ## Архитектурная позиция
 
 Core Backend and Node Daemon должны быть написаны на Rust.
 
-Web UI должен быть обычным frontend-приложением, которое общается с Core API and event streams. На Stage 1 его можно отдавать из Rust Core как static assets.
+Web UI должен быть обычным frontend-приложением, которое общается с Core API and event streams. На V01 его можно отдавать из Rust Core как static assets.
 
 Tauri рассматриваем как desktop shell/client, но не как ядро продукта.
 
@@ -86,7 +86,7 @@ Core Backend отвечает за:
 - output/event streaming;
 - local tool execution.
 
-Node Daemon должен быть максимально переносимым. Stage 1 ориентируется на desktop/server nodes, но архитектура должна не блокировать future cloud nodes, sandboxes and microVM hosts.
+Node Daemon должен быть максимально переносимым. V01 ориентируется на desktop/server nodes, но архитектура должна не блокировать future cloud nodes, sandboxes and microVM hosts.
 
 ### CLI
 
@@ -143,7 +143,7 @@ taplo lint
 
 ### Base
 
-Выбор для Stage 1:
+Выбор для V01:
 
 - React 19;
 - TypeScript;
@@ -157,7 +157,7 @@ taplo lint
 - Zod;
 - Vitest.
 
-### Почему Vite SPA, а не Next.js на Stage 1
+### Почему Vite SPA, а не Next.js на V01
 
 Vite SPA проще для текущей архитектуры:
 
@@ -205,7 +205,7 @@ TanStack Query - default для server state:
 - events snapshots;
 - review state.
 
-Realtime updates на Stage 1 можно строить так:
+Realtime updates на V01 можно строить так:
 
 ```text
 HTTP queries for snapshots
@@ -242,7 +242,7 @@ Zod полезен как frontend validation boundary. Backend contracts все
 
 ### Testing
 
-Stage 1:
+V01:
 
 - Vitest для unit/component logic;
 - Rust tests для core/node crates.
@@ -255,7 +255,7 @@ Later:
 
 ## Tauri
 
-Tauri v2 не является foundation для Stage 1, но остается сильным кандидатом для desktop client.
+Tauri v2 не является foundation для V01, но остается сильным кандидатом для desktop client.
 
 Возможные роли Tauri:
 
@@ -302,7 +302,7 @@ apps/
 - WebSocket vs SSE for event streams.
 - OpenAPI vs custom generated client vs shared schema generation.
 - Whether frontend lives under `apps/web` with Vite or later moves to Next.js.
-- Whether Tauri appears in Stage 1 as launcher or waits until Stage 2/3.
+- Whether Tauri appears in V01 as launcher or waits for a feature queue item.
 - Exact package manager for frontend.
 - Exact monorepo tooling for frontend.
 
@@ -327,7 +327,7 @@ Vitest
 Rust tooling: cargo, rust-analyzer, rustfmt, clippy, bacon, nextest, audit, deny, taplo
 ```
 
-Stage 1 should avoid:
+V01 should avoid:
 
 - Next.js as required app runtime;
 - Node.js BFF layer;

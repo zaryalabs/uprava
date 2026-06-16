@@ -2,7 +2,7 @@
 
 Cortex is a Distributed Agent OS for large-scale work with AI agents.
 
-The product starts with software development workflows and can later expand into analytics, research, finance, documents, and broader knowledge work. The first practical direction is a developer-focused workbench for live agent work running on nodes through a managed-lifetime Persistent Runtime run mode and a distributed runtime coordination layer.
+The product starts with software development workflows and can expand into analytics, research, finance, documents, and broader knowledge work as the base model transfers. The first practical direction is a developer-focused workbench for live agent work running on nodes through a managed-lifetime Persistent Runtime run mode and a distributed runtime coordination layer.
 
 ## Product Thesis
 
@@ -19,27 +19,32 @@ Cortex should be a control plane and work surface for agent workloads:
 - **Tool Registry and Plugin Registry** as the foundation for modularity.
 - **Visual artifacts and traceability** as first-class product principles.
 
-## Current Stage
+## Current State
 
-The current repository stage is product and architecture design.
+The current repository state is product and architecture design.
 
-Canonical English docs:
+Synchronized product and architecture docs:
 
 - [Vision](docs/en/vision.md)
 - [Architecture](docs/en/architecture.md)
-- [Product Stages](docs/en/product-stages.md)
+- [V01](docs/en/v01.md)
+- [Feature Queue](docs/en/feature-queue.md)
+- [Product Evolution](docs/en/product-evolution.md)
+- [Product Stages](docs/en/product-stages.md) - superseded historical stage model
 - [Tech Stack](docs/en/tech-stack.md)
 - [Feature Inventory](docs/en/feature-inventory.md)
 - [Project Workspace Inspector](docs/en/workspace-inspector.md)
 - [Workspace Editing and IDE Sidecar](docs/en/workspace-editing-and-ide-sidecar.md)
+- [Design Docs](docs/en/design)
+- [Source Notes](docs/en/cortex-notes.md)
 
-Russian drafts and source notes:
+Russian mirror and source notes:
 
 - [Russian docs](docs/ru)
 
-## First Product Direction
+## First Product Version
 
-Stage 1 is **Developer Node Workbench**:
+V01 is **Developer Node Workbench**:
 
 - Rust Core Backend;
 - Rust Node Daemon;
@@ -52,9 +57,9 @@ Stage 1 is **Developer Node Workbench**:
 - basic trace and event log;
 - minimal Tool Registry, Plugin Registry, and visual block/artifact contract.
 
-The Stage 1 workspace surface should feel closer to a lightweight VS Code or GitHub/GitLab web project view than to a chat transcript, but it is not a full IDE. The first boundary is inspect and narrow intervention: browse files, make basic text edits with explicit save/apply semantics, attach a project-scoped console, inspect commands and diffs, and connect those observations to the agent session trace. Language-server features, rich refactoring, multi-file IDE workflows, and full IDE replacement are deferred. A separate code-server/OpenVSCode-style sidecar can be considered later as an "open full IDE" escape hatch.
+The V01 workspace surface should feel closer to a lightweight VS Code or GitHub/GitLab web project view than to a chat transcript, but it is not a full IDE. The first boundary is inspect and narrow intervention: browse files, make basic text edits with explicit save/apply semantics, attach a project-scoped console, inspect commands and diffs, and connect those observations to the agent session trace.
 
-Stateless/sandboxed run strategies, durable workflow engine, and full MR/PR flow are intentionally deferred.
+The detailed first-version scope lives in [V01](docs/en/v01.md). Follow-on work is tracked as an implementation queue in [Feature Queue](docs/en/feature-queue.md), not as a fixed phase-based roadmap.
 
 ## Preliminary Tech Stack
 
@@ -75,23 +80,21 @@ Vitest
 Rust tooling: cargo, rust-analyzer, rustfmt, clippy, bacon, nextest, audit, deny, taplo
 ```
 
-Next.js is not the required Stage 1 runtime. It remains a deferred option for future cloud/web frontend, BFF, SSR, public pages, or SaaS needs.
+Next.js is not the required V01 runtime. It remains an option for cloud/web frontend, BFF, SSR, public pages, or SaaS needs if those become strong enough reasons.
 
 ## Documentation Workflow
 
-The repository's primary language is English.
+Documentation is split by language and should stay path-synchronized:
 
-Documentation is split by language:
+- [`docs/en`](docs/en) - English-facing documentation mirror.
+- [`docs/ru`](docs/ru) - Russian documentation, drafts, source notes, and design work.
 
-- [`docs/en`](docs/en) - canonical English documentation. After a document is translated here, this version becomes the source of truth.
-- [`docs/ru`](docs/ru) - Russian drafts, notes, and intermediate documents. Use this folder when it is easier to shape product or architecture ideas in Russian first.
+Synchronization rules:
 
-Default flow:
-
-1. Draft and discuss in Russian under `docs/ru` when needed.
-2. Stabilize the idea and translate it to `docs/en`.
-3. Continue further work in English in `docs/en`.
-4. Keep the Russian version as a draft/archive unless a new Russian discussion starts.
+1. Keep the same relative Markdown document set in `docs/en` and `docs/ru`.
+2. If one language has a document that the other language lacks, add the missing mirror instead of deleting the source document.
+3. If both language versions exist but the product or architecture content conflicts, the Russian version has priority and the English version should be updated to match it.
+4. Deep design documents may start in Russian and be mirrored first so the document set stays complete; translate or polish the English-facing text incrementally without removing the Russian source position.
 
 ## Background
 

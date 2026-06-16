@@ -1,32 +1,43 @@
 # Cortex Product Stages
 
-Status: `draft`
+Status: `superseded`
 
-This document describes product development stages. The key idea: each stage should produce a qualitatively new product, not just a longer feature list.
+This document is preserved for historical context. The active product model has
+moved to [product-evolution.md](product-evolution.md), [v01.md](v01.md), and
+[feature-queue.md](feature-queue.md).
+
+This document describes product development stages. The main idea: each stage
+should produce a qualitatively new product, not just a set of additional
+features.
 
 ## Stage Principles
 
 - Each stage should be usable end-to-end.
 - Each stage should validate one main product thesis.
-- First-stage architecture must leave room for registry, plugins, visual blocks, integrations, and task-based mode.
+- First-stage architecture must leave room for registry, plugins, visual blocks,
+  integrations, and task-based mode.
 - First product focus is developer workflow.
 - First execution mode is persistent agent session on nodes.
-- Codex is the first agent provider implementation, not the long-term product boundary.
-- Stage 1 should include a minimal Agent Provider Adapter boundary even if the first adapter is Codex-optimized.
 - Task-based sandbox mode is important, but not needed in the first version.
-- A small coherent working system is better than a full cloud-agent runtime built too early.
+- A small coherent working system is better than immediately building a full
+  cloud-agent runtime.
 
 ## Stage 1. Developer Node Workbench
 
-**Qualitatively new product:** Cortex can be used as a web control panel for working with a live development agent on one or more nodes.
+**Qualitatively new product:** Cortex can be used as a web control panel for
+working with a live development agent on one or more nodes.
 
-It is not just chat. The user sees project, agent session, terminal, files, changes, basic trace, and node state.
+It is not just chat. The user sees project, agent session, terminal, files,
+changes, basic trace, and node state.
 
-Stage 1 technical base is described in [tech-stack.md](tech-stack.md): Rust Core/Node, React 19 + TypeScript + Vite, Tailwind CSS v4, shadcn/ui conventions, lucide-react, TanStack Query/Table, React Hook Form + Zod, and Vitest.
+Stage 1 technical base is described in [tech-stack.md](tech-stack.md): Rust
+Core/Node, React 19 + TypeScript + Vite, Tailwind CSS v4, shadcn/ui conventions,
+lucide-react, TanStack Query/Table, React Hook Form + Zod, and Vitest.
 
 ### Main Thesis
 
-Persistent agent session + Node Daemon + Core Backend already provide more control, transparency, and mobility than a regular local agent chat.
+Persistent agent session + Node Daemon + Core Backend already provide more
+control, transparency, and mobility than a regular local agent chat.
 
 ### Scope
 
@@ -38,15 +49,12 @@ Persistent agent session + Node Daemon + Core Backend already provide more contr
 - Project registry.
 - Project/workspace binding on node.
 - Persistent agent session mode.
-- Minimal Agent Provider Adapter contract.
-- Codex provider adapter as default AI agent runtime.
+- Codex as default AI agent.
 - Attach/detach to agent session.
 - Chat/session view.
-- Project Workspace Inspector as the non-chat developer surface.
-- Workspace file tree, file viewer, and lightweight text editor.
-- Workspace terminal/PTY sessions with attach/detach.
-- Command/output history linked to session events.
-- Basic diff/check entry points.
+- Terminal/output view.
+- File browser.
+- Basic diff view.
 - Basic session trace.
 - Basic event log.
 - Minimal status model for session/workspace/node.
@@ -62,43 +70,40 @@ Persistent agent session + Node Daemon + Core Backend already provide more contr
 - Full plugin marketplace.
 - Complex RBAC/team model.
 - Managed cloud nodes.
-- Production support for additional providers such as OpenCode or Claude Code.
-- Full provider-neutral feature parity across CLI agents.
-- Full browser IDE, language server integration, rich refactoring, debugger, and
-  broad IDE-style editing workflows.
 
 ### Why This
 
-Persistent mode is simpler and closer to the first developer use case: run an agent on your node, attach to it, inspect its environment, and control work. It validates the base Cortex value faster: control plane + node daemon + transparent UI.
+Persistent mode is simpler and closer to the first developer use case: run an
+agent on your node, attach to it, see the environment, and control work. It
+validates the base Cortex value faster: control plane + node daemon +
+transparent UI.
 
-The first implementation may overfit to Codex where that is pragmatic, but the
-launch/resume/control boundary should still be expressed as an Agent Provider
-Adapter. Core and UI should talk about providers, runtimes, sessions, turns,
-events, approvals, files, diffs, and trace, not Codex-specific process details.
-
-Task-based mode needs more infrastructure: sandbox lifecycle, workflow state, queues, review contracts, artifact packaging, retries, webhook wakeups. It should come after the base model of nodes, sessions, files, terminal, diff, and trace works.
+Task-based mode needs more infrastructure: sandbox lifecycle, workflow state,
+queues, review contracts, artifact packaging, retries, webhook wakeups. It is
+better to add it after the base model of nodes, sessions, files, terminal, diff,
+and trace already works.
 
 ### Readiness Criterion
 
 The user can:
 
 1. Start Core and Web Control Panel.
-2. Connect local or remote Node.
+2. Connect a local or remote Node.
 3. Open a project on Node.
-4. Start persistent Codex-backed session through the Agent Provider Adapter.
-5. Inspect chat, workspace files, terminal sessions, command output, diff/check state, and trace.
-6. Make a small text edit inside the workspace and see it reflected in diff/trace.
-7. Stop/continue work and return to the session later.
+4. Start a persistent Codex session.
+5. Inspect chat, terminal output, files, diff, and trace.
+6. Stop/continue work and return to the session later.
 
 ## Stage 2. Modular Developer Workbench
 
-**Qualitatively new product:** Cortex becomes an extensible platform for developer workflows, not a hardcoded workbench.
+**Qualitatively new product:** Cortex becomes an extensible platform for
+developer workflows, not a hardcoded workbench.
 
-Registry contracts and first integrations become real.
+At this stage, real registry contracts and first integrations appear.
 
 ### Main Thesis
 
-Cortex modularity must be a system capability, not a future promise.
+Cortex modularity must be a system capability, not a future declaration.
 
 ### Scope
 
@@ -107,7 +112,6 @@ Cortex modularity must be a system capability, not a future promise.
 - Integration adapter model.
 - First-class MCP adapter support.
 - Native adapter path for integrations where MCP is not enough.
-- First extension path for additional agent provider adapters when a concrete provider is selected.
 - Git provider integration.
 - Linear integration as first task tracker.
 - Basic plugin configuration UI.
@@ -116,27 +120,27 @@ Cortex modularity must be a system capability, not a future promise.
 - Artifact metadata tied to tool/plugin output.
 - Minimal visual plugin/block API.
 - CLI access to registered tools.
-- Optional sidecar integration path for opening a workspace in a full browser IDE
-  such as code-server, OpenVSCode Server, Theia, or a future provider.
 
 ### Product Shift
 
 Stage 1 is a workbench for live agent sessions.
 
-Stage 2 is a workbench that can be extended: tools, integrations, visual blocks, and workflows start connecting through a clear model.
+Stage 2 is a workbench that can be extended: tools, integrations, visual blocks,
+and workflows start connecting through a clear model.
 
 ## Stage 3. Visual Agent Work Surface
 
-**Qualitatively new product:** Cortex becomes a visual work surface for agent work, not a set of panels around chat.
+**Qualitatively new product:** Cortex becomes a visual work surface for agent
+work, not a set of panels around chat.
 
 ### Main Thesis
 
-Cortex's advantage over agent chat is not only control plane, but visual representation of result, state, and review.
+Cortex's main advantage over agent chat is not only control plane, but also a
+visual representation of result, state, and review.
 
 ### Scope
 
 - Rich diff/review view.
-- Richer file editing and review ergonomics without requiring a full IDE core.
 - Test/check report artifacts.
 - Trace timeline.
 - Terminal replay or structured command history.
@@ -152,17 +156,20 @@ Cortex's advantage over agent chat is not only control plane, but visual represe
 
 Stage 2 connects tools and plugins.
 
-Stage 3 turns their results into first-class UI artifacts that can be inspected, reviewed, and used without reading long agent text.
+Stage 3 makes the results of those tools into first-class UI artifacts that can
+be inspected, checked, and used without reading long agent text.
 
 ## Stage 4. Task-Based Agent Runtime
 
-**Qualitatively new product:** Cortex becomes a runtime for background agent tasks, not only interactive sessions.
+**Qualitatively new product:** Cortex becomes a runtime for background agent
+tasks, not only interactive sessions.
 
-This stage adds the second execution mode: task-based sandbox run.
+This adds the second execution mode: task-based sandbox run.
 
 ### Main Thesis
 
-After Core, Node Daemon, registry, trace, and visual artifacts exist, Cortex can safely add a cloud-agent-like task flow.
+After Core, Node Daemon, registry, trace, and visual artifacts already exist,
+Cortex can safely add a cloud-agent-like task flow.
 
 ### Scope
 
@@ -183,9 +190,10 @@ After Core, Node Daemon, registry, trace, and visual artifacts exist, Cortex can
 
 ### Product Shift
 
-Stage 3: user works with live agents and visual artifacts.
+Stage 3: the user works with live agents and visual artifacts.
 
-Stage 4: user can put bounded tasks in the background and receive review-ready output.
+Stage 4: the user can put bounded tasks in the background and receive
+review-ready output.
 
 ## Stage 5. Hybrid and Orchestrated Workflows
 
@@ -193,7 +201,9 @@ Stage 4: user can put bounded tasks in the background and receive review-ready o
 
 ### Main Thesis
 
-A strong agent workflow does not have to be only live session or only task run. A live session can spawn bounded runs, and a task-based workflow can return to interactive review.
+A strong agent workflow does not have to be only live session or only task run.
+A live session can spawn bounded runs, and a task-based workflow can return to
+interactive review.
 
 ### Scope
 
@@ -219,7 +229,8 @@ Stage 5 turns them into managed agentic workflows.
 
 ### Main Thesis
 
-After validating single-user and personal distributed scenarios, Cortex can expand into a team/cloud model.
+After validating single-user and personal distributed scenarios, Cortex can
+expand into a team/cloud model.
 
 ### Scope
 
@@ -247,7 +258,9 @@ Stage 6 is a managed distributed Agent OS for teams.
 
 ### Main Thesis
 
-Developer workflow is the first vertical. The base model is broader: nodes, agents, tools, visual artifacts, trace, and workflows apply to research, analytics, documents, finance, and knowledge work.
+Developer workflow is the first vertical. But the base model is broader: nodes,
+agents, tools, visual artifacts, trace, and workflows apply to research,
+analytics, documents, finance, and knowledge work.
 
 ### Scope
 
@@ -292,14 +305,16 @@ Stage 7 expands it beyond software development.
 
 ## Open Questions
 
-- Should Stage 1 include basic git integration, or is diff view over workspace enough?
-- Does Stage 1 need mobile UI, or is responsive web enough for monitoring/attach?
+- Should Stage 1 include basic git integration, or is diff view over workspace
+  enough?
+- Does Stage 1 need mobile UI, or is responsive web enough for
+  monitoring/attach?
 - What is the minimal trace form for persistent session?
-- Should Stage 1 terminal be a fully interactive PTY, a command runner, or both?
-- Should Stage 1 editing save whole files, apply patches, or support both?
-- Which direct file operations are allowed before Cortex has full IDE semantics?
-- What is the minimal reference schema for workspace files, ranges, edits, commands, diffs, checks, and artifacts?
-- Should Tool Registry in Stage 1 be only an internal schema, or have UI?
-- Where is the boundary between Stage 2 visual block API and Stage 3 rich visual artifacts?
-- When does MR/PR flow appear: Stage 2 as git integration or Stage 4 as task-based output?
-- Should Stage 4 use an existing workflow engine or a minimal internal durable state first?
+- Should Tool Registry in Stage 1 be only an internal schema, or already have
+  UI?
+- Where is the boundary between Stage 2 visual block API and Stage 3 rich visual
+  artifacts?
+- When exactly does MR/PR flow appear: in Stage 2 as git integration or in Stage
+  4 as task-based output?
+- Should Stage 4 be built on an existing workflow engine or start with minimal
+  internal durable state?

@@ -7,7 +7,7 @@ Status: `draft`
 Cortex should support **basic workspace file editing** without trying to become a
 full IDE in the first implementation.
 
-The Stage 1 target is:
+The V01 target is:
 
 ```text
 file tree
@@ -21,7 +21,7 @@ file tree
 This gives the user a practical way to intervene in agent work, fix small
 issues, adjust docs/config/code, and review the result without leaving Cortex.
 
-A full browser IDE can remain a later sidecar capability: Cortex may expose an
+A full browser IDE should remain a sidecar capability: Cortex may expose an
 "open full IDE" action backed by code-server, OpenVSCode Server, Theia, or
 another provider, but the main Cortex workbench should not depend on that
 architecture.
@@ -42,7 +42,7 @@ The user should be able to:
 The goal is not "replace VS Code". The goal is "make the agent workspace
 operable".
 
-## Stage 1 Editing Scope
+## V01 Editing Scope
 
 Minimal useful scope:
 
@@ -127,7 +127,7 @@ Likely candidates:
 - **Monaco Editor** - closer to VS Code behavior, strong for code viewing,
   diffing, models, and line decorations, but heavier and more IDE-shaped.
 
-The implementation choice should be deferred until the web scaffold exists.
+The implementation choice should stay open until the web scaffold exists.
 Whichever component is chosen, Cortex should wrap it in local components such as
 `FileViewer`, `FileEditor`, and `DiffViewer` so the rest of the product is not
 coupled to a specific editor library.
@@ -137,15 +137,15 @@ likely xterm.js, while Node Daemon owns the actual PTY/process lifecycle.
 
 ## IDE Sidecar
 
-Cortex can later expose a full IDE as a sidecar rather than embedding it into the
-core workbench.
+Cortex can expose a full IDE as a sidecar rather than embedding it into the core
+workbench.
 
 Possible sidecar providers:
 
 - code-server;
 - OpenVSCode Server;
 - Theia-based IDE;
-- future managed devbox/cloud IDE provider.
+- managed devbox/cloud IDE provider.
 
 Sidecar role:
 
@@ -163,10 +163,10 @@ review.
 
 ## Open Questions
 
-- Should Stage 1 editing save whole files, apply patches, or support both?
+- Should V01 editing save whole files, apply patches, or support both?
 - Should edits be allowed directly, require diff preview, or depend on path risk?
 - Which editor component should be used first: CodeMirror or Monaco?
 - How much diff UI is needed before saving versus after saving?
 - How should user edits and agent edits be distinguished in trace and review?
-- When should the "open full IDE" sidecar appear: Stage 1 experiment, Stage 2
-  integration, or later?
+- When should the "open full IDE" sidecar appear: V01 experiment or feature
+  queue item?

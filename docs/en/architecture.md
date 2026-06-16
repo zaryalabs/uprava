@@ -2,13 +2,18 @@
 
 Status: `draft`
 
-This document records the first architectural position on the client/server model for Cortex.
+This document records the first architectural position on the Cortex
+client/server model.
 
 ## Short Decision
 
-Cortex should have a separate **Core Backend** as the control plane. Clients work through Core, while concrete work with machines, files, terminals, processes, sandboxes, and AI-agent lifecycle happens through **Node Daemons**.
+Cortex should have a separate **Core Backend** as the control plane. Clients work
+through Core, while work with concrete machines, files, terminals, processes,
+sandboxes, and the AI-agent lifecycle is performed through **Node Daemons**.
 
-Core is a required architectural abstraction, but not necessarily a remote SaaS backend in every deployment. In local mode, Core can run on the same machine as the UI and Node Daemon.
+Important: Core is a required architectural abstraction, but it does not have to
+be a remote SaaS backend in every deployment. In local mode, Core can run on the
+same machine as the UI and Node Daemon.
 
 ```text
 Clients
@@ -20,58 +25,38 @@ API, web control panel, auth, discovery, registry, workflows, events, artifacts
         |
         v
 Node Daemons / Data Plane
-files, terminal, processes, sandboxes, agent runtime lifecycle, provider adapters
+files, terminal, processes, sandboxes, agent lifecycle, local capabilities
         |
         v
-Agent Provider Runtimes / Tools / Workspaces
-Codex first, future providers, persistent sessions, task runs, hybrid flows
+AI Agents / Tools / Workspaces
+persistent sessions, task runs, hybrid flows
 ```
 
 ## Terms
 
 ### Core Backend
 
-Central backend and control plane for Cortex.
+The central backend and control plane of Cortex.
 
 Core owns the global system model: projects, users, permissions, nodes,
-capabilities, agent providers, agent sessions, agent runs, workflows, artifacts,
-event log, trace, tool registry, routing, and web control panel.
+capabilities, agent sessions, agent runs, workflows, artifacts, event log,
+trace, tool registry, routing, and web control panel.
 
-Core should not become a process that directly works with every machine's filesystem. Concrete environment work should remain on the Node Daemon side.
+Core should not become the process that directly works with file systems across
+all machines. Work with a concrete environment should stay on the Node Daemon
+side.
 
 ### Control Panel
 
-Web UI deployed with Core Backend and used to manage Cortex from the browser.
+The Web UI deployed next to Core Backend that provides browser access to Cortex
+management.
 
-At the early stage this can be the primary client. Desktop, mobile, and CLI clients can come later.
-
-### Project Workspace Inspector
-
-Non-chat workbench surface inside the Web Control Panel for a concrete project
-workspace.
-
-It provides:
-
-- workspace file tree;
-- file viewer and lightweight text editor;
-- workspace terminal/PTY sessions;
-- command and output history;
-- basic diff and check entry points;
-- explicit save/apply flow for small human edits;
-- navigation from chat/session events to concrete workspace evidence;
-- addressable references to files, ranges, edits, terminal sessions, commands,
-  diffs, checks, and artifacts.
-
-This surface can feel similar to a lightweight VS Code, GitHub, or GitLab
-project view, but Stage 1 should not require a full browser IDE. The first goal
-is inspection and intervention: understand the agent's environment, open a
-project-scoped console, inspect and lightly edit files, inspect changes, and
-connect observations to trace. A full IDE can later be exposed as a sidecar
-instead of becoming the core Cortex workbench.
+At the early stage, this can be the main client. Later, desktop, mobile, and CLI
+clients can appear next to it.
 
 ### Client
 
-User interface to Core.
+A user interface to Core.
 
 Client types:
 
@@ -80,148 +65,58 @@ Client types:
 - mobile;
 - CLI.
 
-A client should not be required to connect directly to every node. Base model: client talks to Core, Core routes commands, events, and state between client and nodes.
+A client should not be required to connect directly to every node. The base
+model is: the client talks to Core, and Core routes commands, events, and state
+between the client and nodes.
 
 ### Node
 
-Registered compute environment where work can run.
+A registered compute environment where work can run.
 
-Node can be:
+A Node can be:
 
-- local computer;
-- server;
-- devbox;
-- cloud workspace;
-- sandbox;
-- microVM host;
-- future managed cloud node.
+- a local computer;
+- a server;
+- a devbox;
+- a cloud workspace;
+- a sandbox;
+- a microVM host;
+- a future managed cloud node.
 
-`Host` can be used as a technical explanation, but the product entity is better named `Node`, because Cortex is closer to a distributed/cloud model than to a simple list of machines.
+The term `host` can be used as a technical explanation, but the product entity
+is better called `Node`, because Cortex is closer to a distributed/cloud model
+than to a simple list of machines.
 
 ### Node Daemon
 
-System daemon running on a Node.
+A system daemon running on a Node.
 
-This is not an AI agent. Node Daemon is infrastructure. It:
+It is not an AI agent. Node Daemon is an infrastructure process that:
 
-- registers Node in Core;
+- registers the Node in Core;
 - reports capabilities;
-- starts and stops AI-agent runtimes through provider adapters;
+- starts and stops AI agents;
 - manages persistent agent sessions;
-- runs task-based work in sandbox/workspace;
-- exposes files;
+- performs task-based runs in a sandbox/workspace;
+- provides file access;
 - opens terminal/PTY or command execution;
 - streams logs, events, and outputs;
 - applies changes;
 - runs checks/tests;
-- manages local workspaces, env, credentials, and runtime limits.
+- manages local workspaces, environment, credentials, and runtime limits.
 
-Node Daemon is the main Cortex data plane.
-
-### Workspace Access Model
-
-Workspace inspection and terminals are routed through Core and executed by Node
-Daemon:
-
-```text
-Web Control Panel -> Core Backend -> Node Daemon -> Workspace / PTY / Process
-```
-
-Core owns project/workspace identity, user permissions, edit permission checks,
-command routing, workspace reference metadata, trace metadata, and event
-ordering.
-
-Node Daemon owns workspace-root resolution, path normalization, filesystem
-access, controlled text writes or patch applies, terminal/PTY lifecycle, process
-output streaming, local resource limits, and enforcement of local workspace
-boundaries.
-
-The client renders the workbench, initiates commands, and navigates between
-chat, files, terminal, diffs, checks, artifacts, and trace. It should not connect
-directly to every node or own durable workspace state.
-
-Every file, terminal, and command action should be scoped to a registered
-workspace. Terminal access, command execution, and file writes are privileged
-actions and must be permissioned and traced.
+Node Daemon is the main data plane of Cortex.
 
 ### AI Agent
 
-AI-agent workload launched through Node Daemon or connected as an external provider.
+An AI-agent workload that runs through Node Daemon or connects as an external
+provider.
 
-AI Agent can work in different execution modes:
+An AI Agent can work in different execution modes:
 
 - persistent agent session;
 - task-based sandbox run;
 - hybrid managed session.
-
-### Agent Provider
-
-Concrete agent implementation that can perform AI work.
-
-Codex is the first provider Cortex should support in Stage 1. Future provider
-adapters should be possible for OpenCode, Claude Code, and other coding or
-domain agents without changing the Core product model.
-
-Provider-specific behavior includes:
-
-- launch command or protocol;
-- session or conversation identity;
-- resume mechanism;
-- output/event format;
-- approval and user-input requests;
-- interrupt/stop semantics;
-- tool and filesystem permission model;
-- provider-specific local state.
-
-Provider-specific details should stay at the adapter edge unless they are
-normalized into Cortex concepts such as session, turn, runtime status, event,
-approval, artifact, trace entry, diff, or check result.
-
-### Agent Runtime
-
-Live or recoverable execution instance of an Agent Provider.
-
-Depending on provider and execution mode, an Agent Runtime can be:
-
-- a long-lived CLI or local process;
-- a CLI process resumed by provider-native session id;
-- a connection to an external provider service;
-- a sandboxed process inside a task workspace;
-- a future managed runtime slot.
-
-An Agent Runtime is not the durable product object. The durable objects are
-session thread, workspace binding, run/workflow state, event log, artifacts,
-trace metadata, and provider resume reference when available.
-
-### Agent Provider Adapter
-
-Boundary owned by Node Daemon or an external provider integration that translates
-provider-specific behavior into Cortex lifecycle commands and events.
-
-The adapter should provide a minimal contract:
-
-```text
-discover capabilities
-start runtime in workspace
-resume runtime from provider resume reference when possible
-submit user turn or task input
-stream provider output as normalized Cortex events
-map provider approval/user-input requests to Cortex requests
-interrupt runtime
-stop runtime
-report runtime status and exit reason
-extract provider session id / resume cursor when available
-```
-
-Stage 1 can have one production adapter for Codex and may still be optimized
-around Codex behavior. The architectural rule is that Core, UI, trace, and
-workflow state should not be named or shaped as if Codex is the only possible
-agent. Codex-specific protocol fields can exist in adapter-local state or in an
-opaque provider reference, not as the general Cortex runtime contract.
-
-The first provider-neutral surface should stay intentionally small. Cortex does
-not need universal feature parity across every CLI agent before it has one good
-Codex-backed persistent runtime.
 
 ## Why Core Backend Is Needed
 
@@ -240,72 +135,82 @@ sandbox capabilities
 security limits
 ```
 
-Without Core, every client would need to discover nodes, hold connections, understand capabilities, and synchronize state. This breaks quickly in mobile, distributed, and team scenarios.
+Without Core, each client would have to discover nodes, keep connections,
+understand capabilities, and synchronize state on its own. This quickly breaks
+in mobile, distributed, and team scenarios.
 
 ### Mobile and Web Access
 
-Phone or browser should not connect directly to a laptop, devbox, or sandbox. They need a stable endpoint.
+A phone or browser should not connect directly to a laptop, devbox, or sandbox.
+They need a stable endpoint.
 
-Core provides that endpoint and allows the user to:
+Core provides this endpoint and allows the user to:
 
-- open web UI;
+- open the web UI;
 - inspect task state;
 - attach to an agent session;
 - read trace;
 - inspect diff/artifacts;
-- make review decisions;
+- make a review decision;
 - stop or continue work.
 
 ### Workflow State
 
-Task-based mode, hybrid mode, CI callbacks, and long-running work require durable state:
+Task-based mode, hybrid mode, CI callbacks, and long-running work need durable
+state:
 
 - what was started;
 - where work stopped;
 - which checks passed;
 - which webhook arrived;
 - what the next step is;
-- who needs to decide.
+- who must make a decision.
 
 This state should live in Core, not in a specific client.
 
 ### Trace and Event Log
 
-Traceability should be shared across all clients and nodes. Core stores event log, trace metadata, artifact metadata, review decisions, and workflow state.
+Traceability should be shared across all clients and nodes. Core stores the
+event log, trace metadata, artifact metadata, review decisions, and workflow
+state.
 
-Node Daemon can store local raw logs or large files, but Core should know what exists, where it lives, who can access it, and how it connects to workflow.
+Node Daemon can store local raw logs or large files, but Core should know what
+exists, where it is, who has access, and how it relates to the workflow.
 
 ### Security and Permissions
 
-Core is where system-level decisions are made and checked:
+Core should be the place where system decisions are made and checked:
 
-- who sees a project;
-- who sees a Node;
-- who can open terminal;
+- who can see a project;
+- who can see a Node;
+- who can open a terminal;
 - who can start an agent run;
 - who can use a tool;
 - who can read an artifact;
 - who can accept a diff;
 - who can stop or delete a session.
 
-Node Daemon must enforce local restrictions, but policy and routing should be coordinated through Core.
+Node Daemon should enforce local limits, but policy and routing should be
+coordinated through Core.
 
 ## Tool Registry
 
 Tool Registry should live in Core.
 
-Tools are part of shared capabilities, permissions, UI, trace, and routing. If the registry only lives on nodes or clients, Core cannot answer:
+Reason: tools are part of the common system of capabilities, permissions, UI,
+trace, and routing. If the registry exists only on nodes or clients, Core cannot
+properly answer:
 
 - which tools are available in a project;
 - which tools are available on a specific Node;
-- which tools a user or agent can use;
-- which tools can appear in UI;
-- how a tool maps to a visual block or artifact;
-- which tool calls must be traced;
+- which tools are allowed for a specific user or agent;
+- which tools can be shown in UI;
+- how a tool appears as a visual block or artifact;
+- which tool calls need tracing;
 - where to route a tool call;
-- which schemas, permissions, and risk levels a tool has.
+- which schemas, permissions, and risk levels the tool has.
 
-Tool execution does not have to happen in Core.
+At the same time, tool execution does not have to happen in Core.
 
 Model:
 
@@ -320,19 +225,24 @@ External Tool Provider
 MCP, SaaS API, GitHub, Linear, Grafana, Docker, MLflow, etc.
 ```
 
-Core knows that a tool exists and how to work with it. Node Daemon or external provider executes the action where data, credentials, and runtime live.
+Core knows that a tool exists and how to work with it. Node Daemon or an
+external provider performs the concrete action where data, credentials, and
+runtime live.
 
 ## Plugins and Integrations
 
 Plugins and integrations are one of the main modularity mechanisms in Cortex.
 
-Cortex should not implement every external system itself. Core should provide an extensible model for connecting:
+Cortex should not implement every external system itself. Instead, Core should
+have an extensible model for connecting:
 
 - task trackers: Linear, Jira, GitHub Issues;
 - knowledge and docs systems: Notion, Obsidian-like repos, Google Docs;
 - git providers: GitHub, GitLab;
-- observability and dashboards: Grafana, LangSmith, Langfuse, OpenTelemetry, Phoenix;
-- runtimes and infrastructure: Docker, sandbox providers, devboxes, Kubernetes-like environments;
+- observability and dashboards: Grafana, LangSmith, Langfuse, OpenTelemetry,
+  Phoenix;
+- runtimes and infrastructure: Docker, sandbox providers, devboxes,
+  Kubernetes-like environments;
 - ML/experiment systems: MLflow and similar tools;
 - custom internal company tools;
 - MCP servers.
@@ -350,31 +260,39 @@ Plugin Registry owns:
 - visual blocks;
 - artifact types;
 - workflow templates;
-- permissions requested by plugin;
+- permissions requested by a plugin;
 - integration accounts/connections;
 - compatibility with Core and Node Daemon versions.
 
-Tool Registry owns concrete callable capabilities. Plugin Registry owns package-level extension: where a tool came from, which UI/artifact/workflow extensions it added, how it is configured, and how it updates.
+Tool Registry owns concrete callable capabilities. Plugin Registry owns the
+package-level extension: where a tool came from, which UI/artifact/workflow
+extensions it added, how it is configured, and how it is updated.
 
 ### Integration Adapters
 
 An integration can connect in different ways:
 
-- **MCP adapter** - when the external system is already available through MCP or MCP is a good tool protocol.
-- **Native API adapter** - when we need control over auth, pagination, webhooks, rate limits, domain objects, or visual UX.
-- **Node-local adapter** - when the tool must run near files, terminal, local credentials, or runtime.
-- **External provider adapter** - when the tool executes in an external SaaS/provider.
-- **Hybrid adapter** - metadata and permissions live in Core, execution happens through Node or external provider.
+- **MCP adapter** - when the external system is already available through MCP or
+  MCP fits well as a tool protocol.
+- **Native API adapter** - when Cortex needs control over auth, pagination,
+  webhooks, rate limits, domain objects, or visual UX.
+- **Node-local adapter** - when a tool must run next to files, terminal, local
+  credentials, or runtime.
+- **External provider adapter** - when a tool executes in an external
+  SaaS/provider.
+- **Hybrid adapter** - metadata and permissions live in Core, while execution
+  goes through Node or an external provider.
 
-MCP is important, but it should not be the only integration mechanism. Cortex needs more than tool calls:
+MCP matters, but it should not be the only integration method. For Cortex, it is
+important not only to call a tool, but also to:
 
-- show tools in UI;
+- show it in UI;
 - trace calls;
-- connect output to artifact/workflow;
+- connect the result to an artifact/workflow;
 - apply permissions;
 - support review;
 - embed visualizations;
-- make results understandable to both human and agent.
+- make the result understandable to humans and agents.
 
 ### Integration Contract
 
@@ -395,7 +313,8 @@ visual blocks
 workflow hooks
 ```
 
-This makes integrations first-class parts of the system instead of hidden API calls behind an agent text response.
+This is needed so integrations become first-class parts of the system, not a set
+of hidden API calls behind the agent's text answer.
 
 ## Responsibility Split
 
@@ -408,18 +327,15 @@ This makes integrations first-class parts of the system instead of hidden API ca
 - Node registry and discovery;
 - Node capabilities;
 - agent session/run registry;
-- agent provider capability metadata;
 - workflow state;
 - event log;
 - trace metadata;
 - artifact metadata;
-- workspace reference metadata for files, ranges, edits, terminal sessions,
-  commands, diffs, checks, and artifacts;
 - Tool Registry;
 - Plugin Registry;
 - integration registry and configuration;
 - permissions and policies;
-- command routing to Node Daemons;
+- routing commands to Node Daemons;
 - webhooks from GitHub/GitLab/Linear/CI;
 - review queue and decisions;
 - global dashboards.
@@ -429,10 +345,9 @@ This makes integrations first-class parts of the system instead of hidden API ca
 - Node registration and heartbeat;
 - local capability probing;
 - workspace management;
-- workspace file access and controlled writes with path and boundary enforcement;
-- terminal/PTY lifecycle for workspace-scoped console sessions;
+- file access;
+- terminal/PTY;
 - process lifecycle;
-- agent provider adapter lifecycle;
 - persistent agent sessions;
 - task-based sandbox runs;
 - sandbox/microVM integration;
@@ -450,7 +365,6 @@ This makes integrations first-class parts of the system instead of hidden API ca
 - review UX;
 - command initiation;
 - session attach/detach;
-- Project Workspace Inspector rendering and navigation;
 - artifact browsing;
 - mobile/desktop/web ergonomics.
 
@@ -463,11 +377,11 @@ Client should not own durable workflow state.
 - producing changes and artifacts;
 - reporting expected evidence;
 - exposing unresolved risks;
-- following mode-specific contract.
+- following the mode-specific contract.
 
 ## Connection Model
 
-Base secure model: Node Daemon establishes an outbound connection to Core.
+The base safe model: Node Daemon establishes an outbound connection to Core.
 
 This simplifies:
 
@@ -477,9 +391,10 @@ This simplifies:
 - cloud nodes;
 - mobile/web access.
 
-Core then routes commands and streams through that connection.
+Core then routes commands and streams through this connection.
 
-Direct client-to-node connection can be considered later as a local-mode optimization, but not as the required base architecture.
+Direct client-to-node connection can be considered later as an optimization for
+local mode, but not as the required base architecture.
 
 ## Deployment Profiles
 
@@ -490,7 +405,7 @@ same machine:
 Core Backend + Web Control Panel + Node Daemon
 ```
 
-Good for early MVP and local development.
+Fits early MVP and local development.
 
 ### Personal Distributed
 
@@ -505,7 +420,8 @@ clients:
 web/mobile/desktop/CLI
 ```
 
-Good for "work from computer and phone, agents run on different machines".
+Fits the scenario "I work from computer and phone, while agents run on different
+machines".
 
 ### Team/Cloud
 
@@ -518,48 +434,42 @@ shared workflows
 role-based access
 ```
 
-Good for a commercial/team product.
+Fits commercial/team product.
 
 ## Open Questions
 
-- Do we finalize `Node` instead of `Host`?
-- Where do large artifacts live: Core storage, Node, or external object storage?
-- Which secrets can live in Core, and which must remain only on Node?
-- How should tool capabilities be described: MCP schema, own contract, or adapter model?
+- Do we definitively call the entity `Node` rather than `Host`?
+- Where should large artifacts be stored: Core storage, Node, or external object
+  storage?
+- Which secrets can live in Core, and which should stay only on Node?
+- How should tool capabilities be described: MCP schema, custom contract, or
+  adapter model?
 - Where is the boundary between plugin, integration, tool, and visual block?
-- Which integrations should use MCP, and which need native adapters?
-- How does versioning tools/plugins affect trace reproducibility?
-- Should Core execute lightweight tools itself, or should every execution go through Node/Provider?
-- What is the minimal Agent Provider Adapter contract needed for the Codex-first MVP?
-- Which provider-specific resume/session fields can Core persist, and which must stay Node-local or opaque?
-- When should OpenCode and Claude Code adapters become product requirements rather than compatibility tests?
-- What minimal Core <-> Node Daemon protocol is needed for MVP?
-- Which transport comes first: HTTP polling, WebSocket, gRPC, message queue?
-- How do we isolate terminal/filesystem commands in persistent session mode?
-- Should Stage 1 terminal be a fully interactive PTY, command runner, or both?
-- Should Stage 1 editing save whole files, apply patches, or support both?
-- What is the minimal address/reference schema for files, ranges, edits,
-  commands, output ranges, diffs, checks, and artifacts?
-- How do we show the difference between Core-level tools and Node-local tools?
+- Which integrations should use MCP, and which require a native adapter?
+- How does tool/plugin versioning affect trace reproducibility?
+- Should Core be able to execute lightweight tools itself, or should every
+  execution go through Node/Provider?
+- What minimum protocol is needed between Core and Node Daemon for MVP?
+- Which transport should come first: HTTP polling, WebSocket, gRPC, message
+  queue?
+- How should terminal/filesystem commands be isolated in persistent session mode?
+- How should the user see the difference between a Core-level tool and a
+  Node-local tool?
 
 ## Current Position
 
-Current strongest architecture position:
+At the current vision level, the strongest architectural position is:
 
 - `Core Backend` is required as the control plane.
-- `Web Control Panel` can be deployed with Core.
-- `Node Daemon` is the system daemon on a node and the main data plane.
+- `Web Control Panel` can be deployed together with Core immediately.
+- `Node Daemon` is the system agent on a node and the main data plane.
 - `AI Agents` are workloads, not infrastructure daemons.
-- `Agent Provider Adapter` is the boundary between Cortex runtime contracts and provider-specific launch/resume protocols.
-- Codex is the first provider implementation, but Core concepts should remain provider-neutral.
 - `Tool Registry` lives in Core.
 - `Plugin Registry` lives in Core next to Tool Registry.
-- External integrations connect through adapters: MCP, native API, Node-local, external provider, or hybrid.
-- MCP is important, but should not be the only extension mechanism.
-- Tool execution can happen on Node, in an external provider, or later in Core for safe lightweight tools.
-- Project workspace inspection, lightweight file editing, and terminal access are
-  first-class Stage 1 capabilities, routed through Core and enforced by Node
-  Daemon.
-- A full browser IDE should be treated as an optional sidecar/escape hatch, not
-  as the foundation of the Cortex workbench.
-- Clients should work through Core and not directly own distributed state.
+- External integrations connect through adapters: MCP, native API, Node-local,
+  external provider, or hybrid.
+- MCP matters as an integration protocol, but should not be the only extension
+  mechanism.
+- Tool execution can happen on Node, in an external provider, or later inside
+  Core for safe lightweight tools.
+- Clients should work through Core rather than directly owning distributed state.
