@@ -23,3 +23,9 @@ design docs.
 - [`workspace-inspector.md`](workspace-inspector.md) - направление Project Workspace Inspector.
 - [`workspace-editing-and-ide-sidecar.md`](workspace-editing-and-ide-sidecar.md) - базовое редактирование workspace и optional full-IDE sidecar.
 - [`design/`](design/) - глубокие design docs по ключевым механизмам Cortex.
+
+Временные реализационные планы живут вне языкового зеркала в
+[`../tmp-plans`](../tmp-plans). Это tactical working documents для активных
+промежуточных срезов разработки. Если в таком плане появляется долговечное
+продуктовое, архитектурное или процессное решение, его нужно перенести обратно в
+синхронизированную английскую и русскую документацию.

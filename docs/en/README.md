@@ -25,3 +25,8 @@ Current documents:
 - [`workspace-editing-and-ide-sidecar.md`](workspace-editing-and-ide-sidecar.md) - lightweight file editing and optional full-IDE sidecar direction.
 - [`cortex-notes.md`](cortex-notes.md) - source notes mirror.
 - [`design/`](design/) - deep design documents for key Cortex mechanisms.
+
+Temporary implementation plans live outside the language mirror in
+[`../tmp-plans`](../tmp-plans). They are tactical working documents for active
+intermediate development slices. Durable decisions discovered there should be
+promoted back into the synchronized English and Russian documentation.

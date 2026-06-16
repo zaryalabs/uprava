@@ -37,6 +37,7 @@ Synchronized product and architecture docs:
 - [Workspace Editing and IDE Sidecar](docs/en/workspace-editing-and-ide-sidecar.md)
 - [Design Docs](docs/en/design)
 - [Source Notes](docs/en/cortex-notes.md)
+- [TMP Plans](docs/tmp-plans) - temporary implementation plans for intermediate development slices
 
 Russian mirror and source notes:
 
@@ -96,6 +97,7 @@ Documentation is split by language and should stay path-synchronized:
 
 - [`docs/en`](docs/en) - English-facing documentation mirror.
 - [`docs/ru`](docs/ru) - Russian documentation, drafts, source notes, and design work.
+- [`docs/tmp-plans`](docs/tmp-plans) - temporary implementation plans for active intermediate development slices.
 
 Synchronization rules:
 
@@ -103,6 +105,11 @@ Synchronization rules:
 2. If one language has a document that the other language lacks, add the missing mirror instead of deleting the source document.
 3. If both language versions exist but the product or architecture content conflicts, the Russian version has priority and the English version should be updated to match it.
 4. Deep design documents may start in Russian and be mirrored first so the document set stays complete; translate or polish the English-facing text incrementally without removing the Russian source position.
+
+TMP Plans are intentionally tactical and are not part of the `docs/en` and
+`docs/ru` mirror set. If a temporary plan creates a durable product,
+architecture, or process decision, promote that decision into the synchronized
+canonical documentation.
 
 ## Background
 
