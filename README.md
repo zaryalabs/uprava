@@ -2,7 +2,7 @@
 
 Cortex is a Distributed Agent OS for large-scale work with AI agents.
 
-The product starts with software development workflows and can later expand into analytics, research, finance, documents, and broader knowledge work. The first practical direction is a developer-focused workbench for live agent work running on nodes through a managed-lifetime Persistent Runtime run mode.
+The product starts with software development workflows and can later expand into analytics, research, finance, documents, and broader knowledge work. The first practical direction is a developer-focused workbench for live agent work running on nodes through a managed-lifetime Persistent Runtime run mode and a distributed runtime coordination layer.
 
 ## Product Thesis
 
@@ -14,6 +14,7 @@ Cortex should be a control plane and work surface for agent workloads:
 - **Node Daemon** as the data plane running on local machines, servers, devboxes, sandboxes, or cloud nodes.
 - **Web Control Panel** as the first client.
 - **Run Mode and Agent Provider Adapter** as the execution abstractions, starting with managed-lifetime Persistent Runtime for live agent work and Codex as the first provider.
+- **Distributed Runtime Coordination** as the dispatch, event ordering, node/workspace placement, and resource-warning layer between Core, Node Daemon, and runtime processes.
 - **Tool Registry and Plugin Registry** as the foundation for modularity.
 - **Visual artifacts and traceability** as first-class product principles.
 
@@ -41,6 +42,7 @@ Stage 1 is **Developer Node Workbench**:
 - Rust Node Daemon;
 - web control panel;
 - managed-lifetime Persistent Runtime as the first run mode, with Codex through a provider adapter;
+- distributed runtime coordination with a `Nodes -> Projects/Workspaces` tree, command dispatch, event ordering, and resource warning badges;
 - project/workspace binding;
 - chat/session view;
 - terminal/output view;
