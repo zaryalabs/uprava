@@ -11,6 +11,7 @@ V01 should be built as a Rust-first system with a web-first UI:
 
 ```text
 Rust Core Backend + Rust Node Daemon
+Docker Compose local development profile
 React 19 + TypeScript + Vite SPA
 Tailwind CSS v4
 shadcn/ui conventions
@@ -19,6 +20,7 @@ TanStack Query
 TanStack Table
 React Hook Form + Zod
 Vitest
+Playwright
 Rust tooling: cargo, rust-analyzer, rustfmt, clippy, bacon, nextest, audit, deny, taplo
 ```
 
@@ -43,6 +45,28 @@ CLI                 Rust
 Web Control Panel   React / TypeScript / Vite
 Desktop Client      Tauri later, wraps Web Control Panel or talks to Core
 ```
+
+## Local Development Environment
+
+Docker Compose is the canonical local bootstrap and smoke-test environment for
+V01 development. It is not a production deployment model; it is a stability tool
+for making Core, Web, Node-facing protocol paths, fake provider flows and
+diagnostics reproducible on every machine.
+
+The baseline Compose setup should provide:
+
+- predictable ports for Core and Web;
+- persistent but resettable SQLite/Core state volumes;
+- a fake provider path that can run without Codex;
+- an option to run a Node Daemon in Compose for synthetic workspaces;
+- an option to run Node Daemon on the host when it must touch real local
+  workspaces and host credentials;
+- health checks that are useful to `make`, Playwright and CI;
+- documented reset and log-collection commands.
+
+Real local workspace control can require a host-running Node Daemon. Compose
+should still remain the stable way to start Core/Web and the fake-provider smoke
+path, so tests and agent checks do not depend on ad hoc terminal state.
 
 ## Rust Stack
 
@@ -265,12 +289,20 @@ V01:
 
 - Vitest for unit/component logic;
 - Rust tests for core/node crates.
+- Playwright for automated Web Control Panel E2E tests against the Docker
+  Compose local profile;
+- Playwright CLI for agent/operator UI verification while implementing: inspect
+  the running app, click through flows, capture screenshots, and confirm that
+  state is visible outside assistant text.
 
 Later:
 
-- Playwright for Web Control Panel e2e;
 - integration tests for Core <-> Node Daemon protocol;
 - scenario/eval tests for agent workflows.
+
+The Playwright CLI mode is not a replacement for deterministic E2E coverage. It
+is the interactive verification path agents use before handoff when a UI change
+needs visual or workflow confirmation.
 
 ## Tauri
 
@@ -326,6 +358,7 @@ This is not the final structure, but it reflects the main separation:
 - Whether Tauri appears in V01 as launcher or waits for a feature queue item.
 - Exact package manager for frontend.
 - Exact monorepo tooling for frontend.
+- Exact Docker Compose service split for host-node and all-in-compose profiles.
 
 ## Current Recommendation
 
@@ -337,6 +370,7 @@ Axum Core Backend
 Rust Node Daemon
 SQLite
 HTTP + WebSocket/SSE
+Docker Compose local development profile
 React 19 + TypeScript + Vite
 Tailwind CSS v4
 shadcn/ui conventions
@@ -345,6 +379,7 @@ TanStack Query
 TanStack Table
 React Hook Form + Zod
 Vitest
+Playwright
 Rust tooling: cargo, rust-analyzer, rustfmt, clippy, bacon, nextest, audit, deny, taplo
 ```
 

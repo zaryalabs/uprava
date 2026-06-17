@@ -78,6 +78,7 @@ Axum Core Backend
 Rust Node Daemon
 SQLite
 HTTP + WebSocket/SSE
+Docker Compose local development profile
 React 19 + TypeScript + Vite
 Tailwind CSS v4
 shadcn/ui conventions
@@ -86,10 +87,16 @@ TanStack Query
 TanStack Table
 React Hook Form + Zod
 Vitest
+Playwright UI testing and agent verification
 Rust tooling: cargo, rust-analyzer, rustfmt, clippy, bacon, nextest, audit, deny, taplo
 ```
 
 Next.js is not the required V01 runtime. It remains an option for cloud/web frontend, BFF, SSR, public pages, or SaaS needs if those become strong enough reasons.
+
+Local development should have a Docker Compose profile that starts the stable
+Core/Web/fake-provider path with predictable ports, volumes, and reset behavior.
+UI verification should use Playwright in two modes: automated E2E tests and
+agent/operator inspection through `playwright-cli` against the same local setup.
 
 ## Documentation Workflow
 

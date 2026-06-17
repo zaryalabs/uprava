@@ -184,6 +184,10 @@ channel или то, что эта machine является одной из но
 Для Distributed Agent Control Panel достаточно:
 
 - один Core URL;
+- Docker Compose local profile for reproducible Core/Web/fake-provider startup,
+  with an explicit host-node option for real local workspace access;
+- Playwright verification against that local profile, split into automated E2E
+  tests and agent/operator inspection through `playwright-cli`;
 - Node Daemon с outbound registration в trusted/local/dev profile;
 - development node identity/enrollment metadata;
 - explicit non-production warning for remote node usage before security baseline;

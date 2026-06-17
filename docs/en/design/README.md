@@ -120,6 +120,10 @@ These principles should run through all key mechanisms:
 - Distributed Runtime Coordination should be a shared dispatch/resource-awareness
   layer for interactive sessions, future task runs, and sandboxed runtimes.
 - Human UI and agent-readable UI should evolve together.
+- Local development and UI verification are part of the system design: Docker
+  Compose should provide a reproducible Core/Web/fake-provider setup, and
+  Playwright should cover both automated E2E checks and agent/operator
+  inspection through `playwright-cli`.
 - V01 should be small, but should not block plugins, visual blocks, task-based
   runtime, mobile, and team/cloud.
 
