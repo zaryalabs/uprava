@@ -1,0 +1,51 @@
+services:
+  core:
+    build:
+      context: .
+      dockerfile: Dockerfile.core
+    environment:
+      CORTEX_CORE_BIND: 0.0.0.0:8080
+      CORTEX_DATABASE_URL: sqlite:///data/core.sqlite
+      CORTEX_DEPLOYMENT_PROFILE: local_trusted
+      CORTEX_AUTO_APPROVE_ENROLLMENTS: "true"
+      RUST_LOG: info,cortex_server=debug
+    ports:
+      - "8080:8080"
+    volumes:
+      - cortex-core-data:/data
+    healthcheck:
+      test: ["CMD", "cortex-server", "healthcheck", "127.0.0.1:8080"]
+      interval: 5s
+      timeout: 2s
+      retries: 20
+
+  node:
+    build:
+      context: .
+      dockerfile: Dockerfile.node
+    environment:
+      CORTEX_CORE_URL: http://core:8080
+      CORTEX_NODE_DISPLAY_NAME: Compose Node
+      CORTEX_NODE_STATE_PATH: /state/node.json
+      CORTEX_NODE_WORKSPACES: /workspace
+      RUST_LOG: info,cortex_node=debug
+    volumes:
+      - cortex-node-state:/state
+      - ./docs:/workspace:ro
+    depends_on:
+      core:
+        condition: service_healthy
+
+  web:
+    build:
+      context: apps/web
+      dockerfile: Dockerfile
+    ports:
+      - "5173:5173"
+    depends_on:
+      core:
+        condition: service_healthy
+
+volumes:
+  cortex-core-data:
+  cortex-node-state:

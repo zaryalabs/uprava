@@ -1023,7 +1023,9 @@ Agent не должен получать broad Cortex admin credentials толь
   resume.
 - Core event subscription endpoint для session thread updates.
 - Node command handler для start/resume/send/approve/interrupt/stop.
-- Codex provider adapter для live process/session runtime.
+- Codex provider adapter behind the Provider Adapter boundary. The V01 first
+  adapter uses CLI exec/resume continuity; provider-native live process/session
+  ownership is post-V01 work.
 - Persist provider resume cursor/session id when available.
 - Track `last_runtime_step_at` from meaningful runtime events.
 - 24h no-steps expiry loop в Node.
@@ -1034,8 +1036,8 @@ Agent не должен получать broad Cortex admin credentials толь
 
 ### Remaining architecture questions
 
-- Which exact Codex runtime protocol should V01 adapter use first:
-  app-server-style live protocol или CLI resume fallback?
+- When should post-V01 adopt a provider-native Codex app-server/live protocol
+  instead of the V01 CLI exec/resume adapter?
 - How much provider raw event data should Core persist for debugging, and how
   much should be normalized only?
 - Do we need per-turn diff attribution in V01, or is session-level diff

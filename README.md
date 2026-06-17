@@ -58,6 +58,13 @@ V01 is **Distributed Agent Control Panel**:
 - basic node, project, runtime, session, message, and event persistence;
 - UI shell and typed command/event envelopes shaped so workspace inspector, editor, terminal, tools, plugins, trace, and artifact surfaces can be added later without reshaping the product model.
 
+For the first Codex adapter, V01 treats the persistent runtime as a
+Core-managed session with persisted state, ordered events and provider resume
+references. Codex continuity uses the stable `codex exec` and
+`codex exec resume` paths where a provider session id is available; a
+provider-native live process owner, live output streaming and real Codex
+interrupt escalation are follow-on work.
+
 V01 should feel like a small control panel for a distributed agent system: only
 slightly more visible than chat at first, but already organized around nodes,
 projects, sessions, runtime state, and durable event history. Project Workspace
@@ -97,6 +104,35 @@ Local development should have a Docker Compose profile that starts the stable
 Core/Web/fake-provider path with predictable ports, volumes, and reset behavior.
 UI verification should use Playwright in two modes: automated E2E tests and
 agent/operator inspection through `playwright-cli` against the same local setup.
+
+## Local Development Scaffold
+
+The `0.1` implementation scaffold now includes:
+
+- Rust workspace crates for shared protocol/domain contracts, Core Backend and
+  Node Daemon;
+- Vite React Web Control Panel under `apps/web`;
+- SQLite-backed Core skeleton with health, inventory, heartbeat, placement,
+  session, fake-provider turn, artifact tree and agent projection APIs;
+- Docker Compose local profile for Core, Web and a synthetic Node Daemon.
+
+Start the local stack from separate terminals:
+
+```sh
+make init
+make core-r
+make node-r
+make web-r
+```
+
+Or use the Compose profile:
+
+```sh
+make compose-up
+```
+
+The current local runbook is
+[`docs/en/runbooks/v01-local-dev.md`](docs/en/runbooks/v01-local-dev.md).
 
 ## Documentation Workflow
 

@@ -3,6 +3,9 @@ SHELL := /bin/sh
 RUST_MANIFEST := Cargo.toml
 WEB_DIR := apps/web
 WEB_PACKAGE := $(WEB_DIR)/package.json
+WEB_NODE_MODULES := $(WEB_DIR)/node_modules
+COMPOSE ?= docker compose
+COMPOSE_PARALLEL_LIMIT ?= 1
 
 ifneq (,$(wildcard pnpm-lock.yaml))
 WEB_PM := pnpm
@@ -102,42 +105,119 @@ rust-t: ## Run Rust tests when Cargo workspace exists
 
 web-r: ## Run web development server when web app exists
 	@if [ -f "$(WEB_PACKAGE)" ]; then \
-		$(WEB_RUN) run dev; \
+		if [ -d "$(WEB_NODE_MODULES)" ]; then $(WEB_RUN) run dev; else echo "Web dependencies are not installed; run make init"; fi; \
 	else \
 		echo "No $(WEB_PACKAGE) found; skipping web dev server"; \
 	fi
 
+core-r: ## Run Core Backend locally when Cargo workspace exists
+	@if [ -f "$(RUST_MANIFEST)" ]; then \
+		cargo run -p cortex-server; \
+	else \
+		echo "No Cargo.toml found; skipping Core run"; \
+	fi
+
+node-r: ## Run Node Daemon locally when Cargo workspace exists
+	@if [ -f "$(RUST_MANIFEST)" ]; then \
+		cargo run -p cortex-node; \
+	else \
+		echo "No Cargo.toml found; skipping Node run"; \
+	fi
+
+compose-up: ## Start local Core/Web/Node development profile
+	@set -e; \
+	if [ -f compose.yaml ]; then \
+		COMPOSE_PARALLEL_LIMIT=$(COMPOSE_PARALLEL_LIMIT) $(COMPOSE) build core; \
+		COMPOSE_PARALLEL_LIMIT=$(COMPOSE_PARALLEL_LIMIT) $(COMPOSE) build node; \
+		COMPOSE_PARALLEL_LIMIT=$(COMPOSE_PARALLEL_LIMIT) $(COMPOSE) build web; \
+		COMPOSE_PARALLEL_LIMIT=$(COMPOSE_PARALLEL_LIMIT) $(COMPOSE) up --no-build; \
+	else \
+		echo "No compose.yaml found; skipping compose up"; \
+	fi
+
+compose-down: ## Stop local Docker Compose profile
+	@if [ -f compose.yaml ]; then \
+		$(COMPOSE) down; \
+	else \
+		echo "No compose.yaml found; skipping compose down"; \
+	fi
+
+compose-logs: ## Show local Docker Compose logs
+	@if [ -f compose.yaml ]; then \
+		$(COMPOSE) logs -f; \
+	else \
+		echo "No compose.yaml found; skipping compose logs"; \
+	fi
+
+compose-reset: ## Remove local Docker Compose state volume intentionally
+	@if [ -f compose.yaml ]; then \
+		$(COMPOSE) down -v; \
+	else \
+		echo "No compose.yaml found; skipping compose reset"; \
+	fi
+
+compose-smoke: ## Smoke-check Core, Web and synthetic Compose Node
+	@set -e; \
+	if [ "$${SMOKE_SKIP_COMPOSE_UP:-0}" != "1" ]; then \
+		if [ -f compose.yaml ]; then \
+			COMPOSE_PARALLEL_LIMIT=$(COMPOSE_PARALLEL_LIMIT) $(COMPOSE) build core; \
+			COMPOSE_PARALLEL_LIMIT=$(COMPOSE_PARALLEL_LIMIT) $(COMPOSE) build node; \
+			COMPOSE_PARALLEL_LIMIT=$(COMPOSE_PARALLEL_LIMIT) $(COMPOSE) build web; \
+			COMPOSE_PARALLEL_LIMIT=$(COMPOSE_PARALLEL_LIMIT) $(COMPOSE) up -d --no-build; \
+		else \
+			echo "No compose.yaml found; skipping compose startup"; \
+		fi; \
+	fi
+	@if [ -f scripts/compose-smoke.sh ]; then \
+		sh scripts/compose-smoke.sh; \
+	else \
+		echo "No scripts/compose-smoke.sh found; skipping compose smoke"; \
+	fi
+
+codex-smoke: ## Smoke-check real Codex provider with host Core/Web/Node
+	@if [ -f scripts/codex-provider-smoke.sh ]; then \
+		sh scripts/codex-provider-smoke.sh; \
+	else \
+		echo "No scripts/codex-provider-smoke.sh found; skipping Codex provider smoke"; \
+	fi
+
 web-fmt: ## Format web app when package script exists
 	@if [ -f "$(WEB_PACKAGE)" ]; then \
-		$(WEB_RUN) run format; \
+		if [ -d "$(WEB_NODE_MODULES)" ]; then $(WEB_RUN) run format; else echo "Web dependencies are not installed; skipping web format"; fi; \
 	else \
 		echo "No $(WEB_PACKAGE) found; skipping web format"; \
 	fi
 
 web-l: ## Run web lint/typecheck when package scripts exist
 	@if [ -f "$(WEB_PACKAGE)" ]; then \
-		$(WEB_RUN) run lint; \
-		$(WEB_RUN) run typecheck; \
+		if [ -d "$(WEB_NODE_MODULES)" ]; then $(WEB_RUN) run lint; $(WEB_RUN) run typecheck; else echo "Web dependencies are not installed; skipping web lint"; fi; \
 	else \
 		echo "No $(WEB_PACKAGE) found; skipping web lint"; \
 	fi
 
 web-dl: ## Run web production build when package scripts exist
 	@if [ -f "$(WEB_PACKAGE)" ]; then \
-		$(WEB_RUN) run build; \
+		if [ -d "$(WEB_NODE_MODULES)" ]; then $(WEB_RUN) run build; else echo "Web dependencies are not installed; skipping web build"; fi; \
 	else \
 		echo "No $(WEB_PACKAGE) found; skipping web build"; \
 	fi
 
 web-t: ## Run web tests when package scripts exist
 	@if [ -f "$(WEB_PACKAGE)" ]; then \
-		$(WEB_RUN) run test; \
+		if [ -d "$(WEB_NODE_MODULES)" ]; then $(WEB_RUN) run test; else echo "Web dependencies are not installed; skipping web tests"; fi; \
 	else \
 		echo "No $(WEB_PACKAGE) found; skipping web tests"; \
+	fi
+
+web-e2e: ## Run Playwright web E2E tests when browser dependencies exist
+	@if [ -f "$(WEB_PACKAGE)" ]; then \
+		if [ -d "$(WEB_NODE_MODULES)" ]; then $(WEB_RUN) run e2e; else echo "Web dependencies are not installed; skipping web E2E tests"; fi; \
+	else \
+		echo "No $(WEB_PACKAGE) found; skipping web E2E tests"; \
 	fi
 
 clean: ## Remove common local build and cache artifacts
 	rm -rf target htmlcov coverage .pytest_cache .ruff_cache .mypy_cache .ty
 	rm -rf $(WEB_DIR)/dist $(WEB_DIR)/coverage
 
-.PHONY: help init fmt l dl t c pc docs-fmt docs-l rust-fmt rust-l rust-dl rust-t web-r web-fmt web-l web-dl web-t clean
+.PHONY: help init fmt l dl t c pc docs-fmt docs-l rust-fmt rust-l rust-dl rust-t web-r web-fmt web-l web-dl web-t web-e2e core-r node-r compose-up compose-down compose-logs compose-reset compose-smoke codex-smoke clean

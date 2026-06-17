@@ -19,6 +19,23 @@ to summarize its own environment.
 The editing and full-IDE sidecar position is detailed in
 [workspace-editing-and-ide-sidecar.md](workspace-editing-and-ide-sidecar.md).
 
+## V01 Reference Inspector Slot
+
+V01 reserves the right-side inspector stack before the full Project Workspace
+Inspector ships. This first slot is reference-oriented, not a file browser or
+terminal surface.
+
+The Web Control Panel can open and copy `CortexRef` objects from visible session
+timeline blocks, artifact-tree entries, nodes, placements, sessions, runtimes,
+events, commands, approvals and warnings. The panel resolves details from the
+currently loaded Core snapshots and session event log. Future workspace,
+terminal, diff, check, tool-call and external refs render explicit unavailable
+or not-implemented states instead of broken links or invented targets.
+
+This keeps the V01 workbench traceable while preserving the later inspector
+boundary: direct workspace inspection still goes through Core and Node Daemon
+capabilities when that feature queue slice ships.
+
 ## Product Role
 
 Chat is useful for dialogue and intent. It is not enough for developer work.

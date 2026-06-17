@@ -1,0 +1,16 @@
+.git
+.local
+.DS_Store
+
+target
+node_modules
+coverage
+htmlcov
+
+apps/web/node_modules
+apps/web/dist
+apps/web/coverage
+apps/web/playwright-report
+apps/web/test-results
+
+*.log

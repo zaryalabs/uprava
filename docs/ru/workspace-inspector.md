@@ -20,6 +20,23 @@ agent work достаточно observable and interruptible, чтобы чел�
 Позиция по editing and full-IDE sidecar описана в
 [workspace-editing-and-ide-sidecar.md](workspace-editing-and-ide-sidecar.md).
 
+## V01 Reference Inspector Slot
+
+V01 резервирует правый inspector stack до появления полноценного Project
+Workspace Inspector. Первый слот работает с references, а не как file browser or
+terminal surface.
+
+Web Control Panel может открывать и копировать `CortexRef` objects из visible
+session timeline blocks, artifact-tree entries, nodes, placements, sessions,
+runtimes, events, commands, approvals and warnings. Панель резолвит детали из
+уже загруженных Core snapshots и session event log. Future workspace, terminal,
+diff, check, tool-call and external refs показывают explicit unavailable or
+not-implemented states вместо broken links or invented targets.
+
+Так V01 workbench остается traceable, но сохраняет будущую inspector boundary:
+direct workspace inspection все еще должен идти через Core and Node Daemon
+capabilities, когда соответствующий feature queue slice будет реализован.
+
 ## Product Role
 
 Chat полезен для dialogue and intent. Для developer work этого недостаточно.
