@@ -1,33 +1,33 @@
 # TMP Plans
 
-Статус: `active`
+Status: `active`
 
-`TMP Plans` - это временный раздел документации для промежуточных
-реализационных планов. Эти документы помогают довести уже спроектированный
-product slice до конкретной имплементации, но не являются каноническим
-источником продуктовых или архитектурных решений.
+`TMP Plans` is a temporary documentation section for intermediate
+implementation plans. These documents help turn an already designed product
+slice into concrete implementation work, but they are not the canonical source
+of product or architecture decisions.
 
-Используйте эту директорию, когда срез уже достаточно спроектирован, но для
-разработки еще нужен staged plan, task breakdown, release gate или временный
+Use this directory when a slice is already designed enough, but development
+still needs a staged plan, task breakdown, release gate or temporary
 coordination document.
 
-## Правила
+## Rules
 
-- Каждый временный план должен ссылаться на продуктовые или архитектурные
-  документы, которые он реализует.
-- Каждый временный план должен иметь статус, scope и completion criteria.
-- Временные планы можно писать на рабочем языке, который удобнее команде на
-  данном этапе.
-- Если временный план фиксирует долговечное продуктовое, архитектурное или
-  процессное решение, это решение нужно перенести в каноническую документацию
-  под `docs/en` и `docs/ru`.
-- Не используйте этот раздел как финальный roadmap. Долгоживущая очередность
-  должна оставаться в `docs/en/feature-queue.md` и
-  `docs/ru/feature-queue.md`.
-- После shipping или superseding среза временный план нужно архивировать,
-  заменить или удалить.
+- Every temporary plan must link to the product or architecture documents it
+  implements.
+- Every temporary plan must have a status, scope and completion criteria.
+- Temporary plans can be written in the working language that is most useful to
+  the team at that stage.
+- If a temporary plan records a durable product, architecture or process
+  decision, that decision must be promoted into canonical documentation under
+  `docs/en` and `docs/ru`.
+- Do not use this section as the final roadmap. Long-lived sequencing should
+  stay in `docs/en/feature-queue.md` and `docs/ru/feature-queue.md`.
+- After a slice ships or is superseded, archive, replace or delete its
+  temporary plan.
 
-## Текущие планы
+## Current Plans
 
-- [`v0.1-implementation-plan.md`](v0.1-implementation-plan.md) - детальный
-  план имплементации первой версии `0.1` на базе продуктового среза V01.
+- [`v0.1-implementation-plan.md`](v0.1-implementation-plan.md) - detailed
+  implementation plan for the first `0.1` version based on the V01 product
+  slice.
