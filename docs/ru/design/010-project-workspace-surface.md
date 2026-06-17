@@ -30,8 +30,8 @@ A-010 решает это как отдельную механику: **workspac
 
 ### Главная позиция
 
-V01 должен иметь не полноценную IDE, а **inspect-first, edit-light project
-workspace surface**.
+Первый workspace surface slice после V01 должен иметь не полноценную IDE, а
+**inspect-first, edit-light project workspace surface**.
 
 Формула:
 
@@ -68,9 +68,10 @@ Project Workspace Surface
 
 Но полностью read-only модель тоже слабая. Пользователь должен иметь возможность
 поправить маленькую вещь сам: doc/config/test/script/code fragment. Поэтому
-V01 должен поддерживать базовое редактирование, но в узком контракте.
+workspace direction должен поддерживать базовое редактирование, но в узком
+контракте, после read-only inspector foundation.
 
-### V01 target
+### First workspace surface target
 
 Минимальная целевая цепочка:
 
@@ -158,7 +159,7 @@ artifact
 
 ### Scope boundaries
 
-V01 включает:
+Первый полноценный workspace surface slice включает:
 
 - file tree;
 - file viewer;
@@ -171,7 +172,7 @@ V01 включает:
 - addressable workspace refs;
 - audit/trace events for privileged actions.
 
-V01 не включает:
+Он не включает:
 
 - полноценный IDE core;
 - LSP как обязательное требование;
@@ -283,9 +284,9 @@ OpenFile(path)
 -> Diff/review state updates
 ```
 
-Open question: V01 должен сохранять whole file, применять patch, or support
-both. Whole file проще. Patch лучше для trace and conflict handling. Практичная
-позиция: начать с whole-file save для маленьких text files, но Core/Node command
+Open question: первый editing slice должен сохранять whole file, применять patch
+or support both. Whole file проще. Patch лучше для trace and conflict handling.
+Практичная позиция: начать с whole-file save для маленьких text files, но Core/Node command
 shape проектировать так, чтобы patch apply появился без переписывания модели.
 
 ### Terminal lifecycle
@@ -303,8 +304,8 @@ CreateTerminal(workspace_binding_id, shell/profile)
 -> Close/detach preserves explicit terminal status
 ```
 
-Важная развилка: полноценный interactive PTY или command runner. Для V01
-нужно оставить оба пути архитектурно возможными:
+Важная развилка: полноценный interactive PTY или command runner. Для первого
+workspace surface slice нужно оставить оба пути архитектурно возможными:
 
 - interactive PTY нужен для привычной работы;
 - command runner проще трассировать и безопаснее для controlled checks.
@@ -394,7 +395,7 @@ through Core, enforced by Node, and connected to trace/review.
 
 ### Open questions
 
-- Should V01 save whole file, apply patches, or support both?
+- Should the first editing slice save whole file, apply patches, or support both?
 - Which files are editable by default: all text files, docs/config only, or
   policy-based?
 - How much diff preview is required before save?
@@ -402,4 +403,4 @@ through Core, enforced by Node, and connected to trace/review.
 - How long do terminal output buffers live, and where are they stored?
 - Should terminal session persistence use PTY lifecycle only, shell history, or
   tmux-like persistence later?
-- When does full IDE sidecar appear: V01 experiment or feature queue item?
+- When does full IDE sidecar appear: workspace-surface experiment or later feature queue item?

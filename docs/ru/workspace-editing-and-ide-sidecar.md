@@ -5,9 +5,9 @@
 ## Короткое решение
 
 Cortex должен поддерживать **basic workspace file editing**, не пытаясь стать
-полноценной IDE в первой реализации.
+полноценной IDE в первой workspace editing implementation.
 
-V01 target:
+First editing slice target:
 
 ```text
 file tree
@@ -42,7 +42,7 @@ Read-only inspection недостаточен для developer workbench.
 
 Цель не "replace VS Code". Цель - "make the agent workspace operable".
 
-## V01 Editing Scope
+## First Editing Scope
 
 Минимальный полезный scope:
 
@@ -163,12 +163,12 @@ traceability and review.
 
 ## Открытые вопросы
 
-- Должна ли V01 editing сохранять whole files, применять patches или
+- Должен ли первый editing slice сохранять whole files, применять patches или
   поддерживать оба пути?
 - Должны ли edits быть allowed directly, require diff preview или depend on path
   risk?
 - Какой editor component использовать первым: CodeMirror or Monaco?
 - Сколько diff UI нужно до save versus after save?
 - Как различать user edits and agent edits in trace and review?
-- Когда должен появиться "open full IDE" sidecar: V01 experiment or feature
-  queue item?
+- Когда должен появиться "open full IDE" sidecar: workspace-surface experiment
+  or later feature queue item?

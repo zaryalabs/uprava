@@ -28,9 +28,9 @@ IDE/workbench shell
 Интерфейс остается предсказуемым, но внутренние поверхности становятся
 расширяемыми.
 
-`A-010 Project Workspace Surface` является конкретной V01 поверхностью
-внутри этой модели: file tree, file viewer/editor, terminal/PTY, command
-history, diff/check entry points and workspace refs. `A-004` отвечает за общий
+`A-010 Project Workspace Surface` является конкретной post-V01 workbench
+поверхностью внутри этой модели: file tree, file viewer/editor, terminal/PTY,
+command history, diff/check entry points and workspace refs. `A-004` отвечает за общий
 workbench-shell, commands/contributions and extension points; `A-010` отвечает
 за workspace-specific lifecycle, file editing, terminal access, Node/Core
 boundary, permissions and traceability.
@@ -609,10 +609,13 @@ external plugin ecosystem:
 
 - стабильный workbench-shell;
 - небольшой набор core surfaces;
-- встроенные core renderers for chat, markdown, files, terminal, diff, trace;
+- встроенные core renderers for chat, markdown, status, approvals and safe
+  fallbacks, with renderer contracts reserved for files, terminal, diff and
+  trace;
 - минимальный visual block/artifact contract;
-- стабильные references для session, turn, artifact, file range, command,
-  diff hunk and trace event;
+- stable references for session, runtime, turn, message, command, event,
+  approval, warning and artifact placeholder, plus reserved reference shapes for
+  future file ranges, terminal output, diff hunks, checks and tool calls;
 - первый inspector/detail stack;
 - command registry for core actions;
 - basic context actions;

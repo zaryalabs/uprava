@@ -539,19 +539,21 @@ Permissions
 The default view should be compact and readable. Raw trace should stay one
 click deeper unless the object itself is raw output.
 
-### Minimum V01 model
+### Minimum V01 readiness model
 
-V01 does not need perfect causality. It needs enough structure to make
-agent work reviewable.
+V01 does not need perfect causality or the full workspace inspector. It needs
+enough structure that later workspace, trace and artifact slices can attach
+review evidence without reshaping the product model.
 
 Required baseline:
 
-- refs for session, turn, message, tool call, terminal command, output range,
-  file range, diff hunk, check result and artifact;
-- answer-level `open steps` link;
-- coarse agent step parsing from provider/runtime events;
-- command/output history linked to session events;
-- diff/check/artifact links back to command/tool/message where known;
+- refs for session, runtime, turn, message, command, event, approval, warning
+  and artifact placeholder;
+- reserved ref shapes for future tool call, terminal command, output range, file
+  range, diff hunk and check result;
+- answer-level `open steps` link when source/cause refs exist;
+- coarse agent step parsing from provider/runtime events where available;
+- artifact and status links back to command/event/message where known;
 - raw fallback for every unresolved rich view;
 - `copy reference`;
 - inspector/detail stack for linked refs;
@@ -559,6 +561,8 @@ Required baseline:
 
 Explicitly not required for V01:
 
+- command/output history beyond provider/session output needed for chat;
+- file, terminal, diff and check surfaces;
 - perfect line-level causality for every edit;
 - full graph visualization;
 - automatic reasoning over all logs;
