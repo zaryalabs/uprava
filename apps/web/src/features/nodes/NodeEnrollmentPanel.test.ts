@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 
 import {
+  enrollmentStatusText,
   isEnrollmentApprovable,
   isEnrollmentApproved,
 } from "./NodeEnrollmentPanel";
@@ -33,6 +34,21 @@ describe("isEnrollmentApprovable", () => {
       isEnrollmentApproved(enrollment({ approved_at: "2026-06-17T00:00:00Z" })),
     ).toBe(true);
     expect(isEnrollmentApproved(enrollment())).toBe(false);
+  });
+
+  it("labels claimed enrollments as claimed instead of waiting for claim", () => {
+    expect(
+      enrollmentStatusText(
+        enrollment({
+          status: "registered",
+          claimed_node_id: "node-1",
+          approved_at: "2026-06-17T00:00:00Z",
+        }),
+      ),
+    ).toBe("Claimed by node-1");
+    expect(enrollmentStatusText(enrollment({ status: "approved" }))).toBe(
+      "Approved; waiting for claim",
+    );
   });
 });
 

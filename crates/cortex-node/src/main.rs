@@ -310,14 +310,34 @@ impl NodeLocalState {
         self.enrollment_id = None;
         self.pairing_code = None;
     }
+
+    fn clear_enrollment_attempt(&mut self) {
+        self.enrollment_id = None;
+        self.pairing_code = None;
+    }
 }
 
-fn heartbeat_auth_rejected(error: &anyhow::Error) -> bool {
+fn http_error_status(error: &anyhow::Error) -> Option<reqwest::StatusCode> {
     error.chain().find_map(|cause| {
         cause
             .downcast_ref::<reqwest::Error>()
             .and_then(reqwest::Error::status)
-    }) == Some(reqwest::StatusCode::UNAUTHORIZED)
+    })
+}
+
+fn heartbeat_auth_rejected(error: &anyhow::Error) -> bool {
+    http_error_status(error) == Some(reqwest::StatusCode::UNAUTHORIZED)
+}
+
+fn enrollment_claim_status_invalidates_attempt(status: Option<reqwest::StatusCode>) -> bool {
+    matches!(
+        status,
+        Some(reqwest::StatusCode::NOT_FOUND | reqwest::StatusCode::UNAUTHORIZED)
+    )
+}
+
+fn enrollment_claim_invalidates_attempt(error: &anyhow::Error) -> bool {
+    enrollment_claim_status_invalidates_attempt(http_error_status(error))
 }
 
 async fn ensure_enrollment(
@@ -337,15 +357,31 @@ async fn ensure_enrollment(
         local_state.save(&config.state_path)?;
     }
 
-    let claim = claim_enrollment(client, config, local_state).await?;
+    let claim = match claim_enrollment(client, config, local_state).await {
+        Ok(claim) => claim,
+        Err(error) if enrollment_claim_invalidates_attempt(&error) => {
+            tracing::warn!(
+                error = %error,
+                enrollment_id = local_state
+                    .enrollment_id
+                    .as_ref()
+                    .map(EnrollmentId::as_str)
+                    .unwrap_or("missing"),
+                "enrollment claim was rejected; clearing stale local enrollment"
+            );
+            local_state.clear_enrollment_attempt();
+            local_state.save(&config.state_path)?;
+            return Ok(false);
+        }
+        Err(error) => return Err(error),
+    };
     if claim.pending {
         tracing::info!("waiting for enrollment approval");
         return Ok(false);
     }
     if !claim.accepted {
         tracing::warn!(message = %claim.message, "enrollment was not accepted");
-        local_state.enrollment_id = None;
-        local_state.pairing_code = None;
+        local_state.clear_enrollment_attempt();
         local_state.save(&config.state_path)?;
         return Ok(false);
     }
@@ -2786,6 +2822,91 @@ mod tests {
             local_state.command_status.get("command-1"),
             Some(&CommandState::Completed)
         );
+    }
+
+    #[test]
+    fn clear_enrollment_attempt_preserves_node_identity_and_cached_work() {
+        let mut local_state = NodeLocalState {
+            node_id: Some(NodeId::from("node-1")),
+            credential: Some("development-secret".to_owned()),
+            enrollment_id: Some(EnrollmentId::from("enrollment-1")),
+            pairing_code: Some("pair-secret".to_owned()),
+            command_status: HashMap::from([("command-1".to_owned(), CommandState::Completed)]),
+            ..NodeLocalState::default()
+        };
+
+        local_state.clear_enrollment_attempt();
+
+        assert_eq!(local_state.node_id, Some(NodeId::from("node-1")));
+        assert_eq!(
+            local_state.credential,
+            Some("development-secret".to_owned())
+        );
+        assert_eq!(local_state.enrollment_id, None);
+        assert_eq!(local_state.pairing_code, None);
+        assert_eq!(
+            local_state.command_status.get("command-1"),
+            Some(&CommandState::Completed)
+        );
+    }
+
+    #[test]
+    fn enrollment_claim_status_invalidates_only_stale_local_attempts() {
+        assert!(enrollment_claim_status_invalidates_attempt(Some(
+            reqwest::StatusCode::NOT_FOUND
+        )));
+        assert!(enrollment_claim_status_invalidates_attempt(Some(
+            reqwest::StatusCode::UNAUTHORIZED
+        )));
+        assert!(!enrollment_claim_status_invalidates_attempt(Some(
+            reqwest::StatusCode::INTERNAL_SERVER_ERROR
+        )));
+        assert!(!enrollment_claim_status_invalidates_attempt(None));
+    }
+
+    #[tokio::test]
+    async fn ensure_enrollment_clears_stale_local_attempt_after_not_found_claim() {
+        use tokio::io::{AsyncReadExt, AsyncWriteExt};
+
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0")
+            .await
+            .expect("test server binds");
+        let address = listener.local_addr().expect("test server address");
+        let server = tokio::spawn(async move {
+            let (mut stream, _) = listener.accept().await.expect("request accepted");
+            let mut buffer = [0_u8; 2048];
+            let _ = stream.read(&mut buffer).await.expect("request read");
+            stream
+                .write_all(
+                    b"HTTP/1.1 404 Not Found\r\ncontent-length: 0\r\nconnection: close\r\n\r\n",
+                )
+                .await
+                .expect("response written");
+        });
+        let state_path = std::env::temp_dir().join(format!("cortex-node-{}.json", Uuid::new_v4()));
+        let mut config = config_fixture();
+        config.core_url = format!("http://{address}")
+            .parse()
+            .expect("test core URL parses");
+        config.state_path = state_path.clone();
+        let mut local_state = NodeLocalState {
+            enrollment_id: Some(EnrollmentId::from("stale-enrollment")),
+            pairing_code: Some("stale-pairing-code".to_owned()),
+            ..NodeLocalState::default()
+        };
+
+        let enrolled = ensure_enrollment(&reqwest::Client::new(), &config, &mut local_state)
+            .await
+            .expect("stale enrollment clears");
+        server.await.expect("test server finishes");
+        let saved_state = NodeLocalState::load(&state_path).expect("state reloads");
+        std::fs::remove_file(state_path).expect("node state fixture is removed");
+
+        assert!(!enrolled);
+        assert_eq!(local_state.enrollment_id, None);
+        assert_eq!(local_state.pairing_code, None);
+        assert_eq!(saved_state.enrollment_id, None);
+        assert_eq!(saved_state.pairing_code, None);
     }
 
     #[test]

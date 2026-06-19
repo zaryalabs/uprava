@@ -1,29 +1,20 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { ShieldCheck } from "lucide-react";
-import { useState } from "react";
 
 import { coreApi } from "../../shared/api/http-client";
 import { queryKeys } from "../../shared/api/query-keys";
-import type {
-  NodeEnrollmentRequestedResponse,
-  NodeEnrollmentSummary,
-} from "../../shared/protocol/types";
+import type { NodeEnrollmentSummary } from "../../shared/protocol/types";
 import { Badge } from "../../shared/ui/badge";
 import { Button } from "../../shared/ui/button";
 import { ErrorNotice } from "../../shared/ui/error-notice";
-import {
-  canRunCommand,
-  runWorkbenchCommand,
-} from "../../workbench/commands/registry";
+import { runWorkbenchCommand } from "../../workbench/commands/registry";
 
 export function NodeEnrollmentPanel() {
   const queryClient = useQueryClient();
-  const [displayName, setDisplayName] = useState("Local Node");
-  const [createdEnrollment, setCreatedEnrollment] =
-    useState<NodeEnrollmentRequestedResponse | null>(null);
   const enrollments = useQuery({
     queryKey: queryKeys.nodeEnrollments,
     queryFn: coreApi.nodeEnrollments,
+    refetchInterval: 2_000,
   });
   const invalidateEnrollments = async () => {
     await queryClient.invalidateQueries({
@@ -31,18 +22,6 @@ export function NodeEnrollmentPanel() {
     });
     await queryClient.invalidateQueries({ queryKey: queryKeys.inventory });
   };
-  const createEnrollment = useMutation({
-    mutationFn: () =>
-      runWorkbenchCommand("node.createEnrollment", {
-        nodeDisplayName: displayName,
-        afterSuccess: invalidateEnrollments,
-      }),
-    onSuccess: (response) => {
-      if (isCreatedEnrollment(response)) {
-        setCreatedEnrollment(response);
-      }
-    },
-  });
   const approveEnrollment = useMutation({
     mutationFn: (enrollmentId: string) =>
       runWorkbenchCommand("node.approveEnrollment", {
@@ -65,60 +44,10 @@ export function NodeEnrollmentPanel() {
         <Badge tone="warn">not production-secure</Badge>
       </div>
 
-      <form
-        className="grid gap-2 sm:grid-cols-[minmax(0,1fr)_auto]"
-        onSubmit={(event) => {
-          event.preventDefault();
-          if (
-            !canRunCommand("node.createEnrollment", {
-              nodeDisplayName: displayName,
-            })
-          ) {
-            return;
-          }
-          createEnrollment.mutate();
-        }}
-      >
-        <label className="block space-y-1">
-          <span className="text-sm font-medium">Display name</span>
-          <input
-            className="h-10 w-full rounded-md border border-[#bfc8bc] px-3"
-            value={displayName}
-            onChange={(event) => setDisplayName(event.target.value)}
-          />
-        </label>
-        <div className="flex items-end">
-          <Button
-            variant="primary"
-            disabled={
-              createEnrollment.isPending ||
-              !canRunCommand("node.createEnrollment", {
-                nodeDisplayName: displayName,
-              })
-            }
-          >
-            <ShieldCheck size={15} />
-            Create
-          </Button>
-        </div>
-      </form>
-
-      {createdEnrollment ? (
-        <div className="rounded-md border border-[#a9c3d8] bg-[#e8f2fa] p-3 text-sm text-[#315d7d]">
-          <div className="font-medium">Pairing code</div>
-          <div className="mt-1 font-mono text-base">
-            {createdEnrollment.pairing_code}
-          </div>
-          <div className="mt-1 text-xs">
-            Expires {new Date(createdEnrollment.expires_at).toLocaleString()}
-          </div>
-        </div>
-      ) : null}
-
-      {createEnrollment.isError ? (
+      {enrollments.isError ? (
         <ErrorNotice
-          error={createEnrollment.error}
-          title="Enrollment request failed"
+          error={enrollments.error}
+          title="Enrollment list unavailable"
         />
       ) : null}
       {approveEnrollment.isError ? (
@@ -138,6 +67,16 @@ export function NodeEnrollmentPanel() {
           />
         ))}
       </div>
+      {enrollments.isLoading ? (
+        <div className="rounded-md border border-[#e0e5dc] bg-[#f8faf5] p-3 text-sm text-[#667268]">
+          Loading enrollment requests
+        </div>
+      ) : null}
+      {!enrollments.isLoading && enrollments.data?.length === 0 ? (
+        <div className="rounded-md border border-[#e0e5dc] bg-[#f8faf5] p-3 text-sm text-[#667268]">
+          Waiting for local Node enrollment requests.
+        </div>
+      ) : null}
     </section>
   );
 }
@@ -152,7 +91,6 @@ function EnrollmentRow({
   onApprove: () => void;
 }) {
   const approvable = isEnrollmentApprovable(enrollment);
-  const approved = isEnrollmentApproved(enrollment);
 
   return (
     <article className="rounded-md border border-[#e0e5dc] bg-[#f8faf5] p-3">
@@ -168,16 +106,13 @@ function EnrollmentRow({
         <Badge tone={enrollmentTone(enrollment)}>{enrollment.status}</Badge>
       </div>
       <div className="mt-2 flex flex-wrap items-center justify-between gap-2 text-xs text-[#536257]">
-        <span>
-          {approved
-            ? "Approved; waiting for claim"
-            : `Expires ${new Date(enrollment.expires_at).toLocaleString()}`}
-        </span>
+        <span>{enrollmentStatusText(enrollment)}</span>
         <Button
           variant="secondary"
           disabled={!approvable || approving}
           onClick={onApprove}
         >
+          <ShieldCheck size={15} />
           Approve
         </Button>
       </div>
@@ -195,21 +130,25 @@ export function isEnrollmentApproved(enrollment: NodeEnrollmentSummary) {
   return enrollment.status === "approved" || Boolean(enrollment.approved_at);
 }
 
+export function enrollmentStatusText(enrollment: NodeEnrollmentSummary) {
+  if (enrollment.status === "registered") {
+    return enrollment.claimed_node_id
+      ? `Claimed by ${enrollment.claimed_node_id}`
+      : "Claimed";
+  }
+  if (isEnrollmentApproved(enrollment)) {
+    return "Approved; waiting for claim";
+  }
+  if (enrollment.status === "expired") return "Expired before claim";
+  if (enrollment.status === "revoked") return "Revoked";
+  if (enrollment.status === "rejected") return "Rejected";
+  return `Expires ${new Date(enrollment.expires_at).toLocaleString()}`;
+}
+
 function enrollmentTone(enrollment: NodeEnrollmentSummary) {
   if (enrollment.status === "registered") return "good";
   if (enrollment.status === "expired" || enrollment.status === "revoked") {
     return "bad";
   }
   return isEnrollmentApproved(enrollment) ? "info" : "warn";
-}
-
-function isCreatedEnrollment(
-  value: unknown,
-): value is NodeEnrollmentRequestedResponse {
-  return (
-    typeof value === "object" &&
-    value !== null &&
-    "pairing_code" in value &&
-    typeof value.pairing_code === "string"
-  );
 }
