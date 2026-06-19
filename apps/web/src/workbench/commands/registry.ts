@@ -11,6 +11,7 @@ import {
   Send,
   ShieldCheck,
   Square,
+  Trash2,
 } from "lucide-react";
 
 import { coreApi } from "../../shared/api/http-client";
@@ -27,6 +28,7 @@ export type WorkbenchCommandId =
   | "node.createEnrollment"
   | "node.approveEnrollment"
   | "node.revoke"
+  | "node.delete"
   | "placement.validate"
   | "session.start"
   | "session.attach"
@@ -96,6 +98,19 @@ const commands: UiCommand[] = [
         "node.revoke requires nodeId",
       );
       return finishCommand(context, coreApi.revokeNode(nodeId));
+    },
+  },
+  {
+    id: "node.delete",
+    title: "Delete node",
+    icon: Trash2,
+    when: (context) => Boolean(context.nodeId),
+    run: async (context) => {
+      const nodeId = requireValue(
+        context.nodeId,
+        "node.delete requires nodeId",
+      );
+      return finishCommand(context, coreApi.deleteNode(nodeId));
     },
   },
   {

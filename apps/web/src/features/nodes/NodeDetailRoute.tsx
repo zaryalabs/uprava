@@ -1,6 +1,6 @@
 import { useMutation, useQueryClient } from "@tanstack/react-query";
-import { FolderPlus, ShieldOff } from "lucide-react";
-import { Link, useParams } from "react-router-dom";
+import { FolderPlus, ShieldOff, Trash2 } from "lucide-react";
+import { Link, useNavigate, useParams } from "react-router-dom";
 
 import { useInventory } from "../inventory/api";
 import { HeartbeatAge } from "./HeartbeatAge";
@@ -17,6 +17,7 @@ import { ReferenceActions } from "../../workbench/references/ReferenceActions";
 
 export function NodeDetailRoute() {
   const { nodeId } = useParams();
+  const navigate = useNavigate();
   const queryClient = useQueryClient();
   const inventory = useInventory();
   const node = inventory.data?.nodes.find(
@@ -41,12 +42,30 @@ export function NodeDetailRoute() {
         },
       }),
   });
+  const deleteNode = useMutation({
+    mutationFn: () =>
+      runWorkbenchCommand("node.delete", {
+        nodeId,
+        afterSuccess: async () => {
+          await queryClient.invalidateQueries({
+            queryKey: queryKeys.inventory,
+          });
+          if (nodeId) {
+            await queryClient.invalidateQueries({
+              queryKey: queryKeys.node(nodeId),
+            });
+          }
+          navigate("/nodes");
+        },
+      }),
+  });
 
   if (!node) {
     return <div className="text-sm text-[#536257]">Node not found</div>;
   }
 
   const canRevoke = canRunCommand("node.revoke", { nodeId: node.node_id });
+  const canDelete = canRunCommand("node.delete", { nodeId: node.node_id });
 
   return (
     <section className="space-y-5">
@@ -79,10 +98,25 @@ export function NodeDetailRoute() {
             <ShieldOff size={16} />
             Revoke
           </Button>
+          <Button
+            variant="danger"
+            disabled={!canDelete || deleteNode.isPending}
+            onClick={() => {
+              if (confirmNodeDelete(node.display_name)) {
+                deleteNode.mutate();
+              }
+            }}
+          >
+            <Trash2 size={16} />
+            Delete
+          </Button>
         </div>
       </div>
       {revokeNode.isError ? (
         <ErrorNotice error={revokeNode.error} title="Node revoke failed" />
+      ) : null}
+      {deleteNode.isError ? (
+        <ErrorNotice error={deleteNode.error} title="Node delete failed" />
       ) : null}
       <section className="space-y-2">
         <h2 className="text-sm font-semibold uppercase tracking-normal text-[#667268]">
@@ -114,5 +148,11 @@ export function NodeDetailRoute() {
         </div>
       </section>
     </section>
+  );
+}
+
+function confirmNodeDelete(displayName: string) {
+  return window.confirm(
+    `Delete node "${displayName}" and its workspaces/sessions from Cortex?`,
   );
 }

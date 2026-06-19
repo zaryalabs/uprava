@@ -655,6 +655,12 @@ pub struct NodeRevocationResponse {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct NodeDeletionResponse {
+    pub node_id: NodeId,
+    pub deleted: bool,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct NodeHeartbeatRequest {
     pub node_id: Option<NodeId>,
     pub credential: Option<String>,

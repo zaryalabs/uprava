@@ -20,6 +20,7 @@ describe("workbench command registry", () => {
       }),
     ).toBe(false);
     expect(canRunCommand("node.revoke", { nodeId: "node-1" })).toBe(true);
+    expect(canRunCommand("node.delete", { nodeId: "node-1" })).toBe(true);
     expect(
       canRunCommand("node.approveEnrollment", { enrollmentId: "enroll-1" }),
     ).toBe(true);

@@ -11,6 +11,14 @@ describe("App routes", () => {
   });
 
   it("renders nodes, placement, and session routes from mocked Core snapshots", async () => {
+    renderApp("/");
+
+    expect(
+      await screen.findByRole("heading", { name: "Dashboard" }),
+    ).toBeVisible();
+    expect(await screen.findByText("Core API")).toBeVisible();
+    expect(screen.getByRole("link", { name: "Nodes" })).toBeVisible();
+
     renderApp("/nodes");
 
     expect(await screen.findByRole("heading", { name: "Nodes" })).toBeVisible();

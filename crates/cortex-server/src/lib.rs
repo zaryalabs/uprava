@@ -29,13 +29,14 @@ use cortex_protocol::{
     CommandKind, CommandState, ControlFrame, CorrelationId, CortexRef, CreatePlacementRequest,
     CreateSessionRequest, DeploymentProfile, EnrollmentId, EnrollmentState, EventEnvelope, EventId,
     EventKind, HealthResponse, InventorySnapshot, Message, MessageId, MessageRole,
-    NodeEnrollmentClaimRequest, NodeEnrollmentClaimResponse, NodeEnrollmentRequest,
-    NodeEnrollmentRequestedResponse, NodeEnrollmentSummary, NodeHeartbeatRequest,
-    NodeHeartbeatResponse, NodeId, NodePresence, NodeRevocationResponse, PlacementState, ProjectId,
-    ProjectPlacementId, ProjectPlacementSummary, ResolveApprovalRequest, ResourceBadge,
-    RuntimeSessionId, RuntimeSessionState, RuntimeSummary, ScopeRef, SendTurnRequest,
-    SessionDetail, SessionSummary, SessionThreadId, SessionThreadState, SleepHint, TurnId,
-    TurnState, VersionResponse, WarningAcknowledgementResponse, WarningSeverity, WorkspaceSnapshot,
+    NodeDeletionResponse, NodeEnrollmentClaimRequest, NodeEnrollmentClaimResponse,
+    NodeEnrollmentRequest, NodeEnrollmentRequestedResponse, NodeEnrollmentSummary,
+    NodeHeartbeatRequest, NodeHeartbeatResponse, NodeId, NodePresence, NodeRevocationResponse,
+    PlacementState, ProjectId, ProjectPlacementId, ProjectPlacementSummary, ResolveApprovalRequest,
+    ResourceBadge, RuntimeSessionId, RuntimeSessionState, RuntimeSummary, ScopeRef,
+    SendTurnRequest, SessionDetail, SessionSummary, SessionThreadId, SessionThreadState, SleepHint,
+    TurnId, TurnState, VersionResponse, WarningAcknowledgementResponse, WarningSeverity,
+    WorkspaceSnapshot,
 };
 use futures_util::{SinkExt, Stream, StreamExt};
 use serde::Deserialize;
@@ -238,7 +239,7 @@ pub fn build_router(state: Arc<AppState>) -> Router {
         .route("/client/logs", post(client_logs))
         .route("/inventory", get(inventory))
         .route("/nodes", get(nodes))
-        .route("/nodes/{node_id}", get(node_detail))
+        .route("/nodes/{node_id}", get(node_detail).delete(delete_node))
         .route("/nodes/{node_id}/revoke", post(revoke_node))
         .route(
             "/node-enrollments",
@@ -311,7 +312,7 @@ pub fn build_router(state: Arc<AppState>) -> Router {
 fn cors_layer(config: &AppConfig) -> CorsLayer {
     CorsLayer::new()
         .allow_origin(AllowOrigin::list(config.allowed_origins.clone()))
-        .allow_methods([Method::GET, Method::POST])
+        .allow_methods([Method::DELETE, Method::GET, Method::POST])
         .allow_headers([
             AUTHORIZATION,
             CONTENT_TYPE,
@@ -521,6 +522,145 @@ async fn revoke_node(
     Ok(Json(NodeRevocationResponse {
         node_id,
         revoked: true,
+    }))
+}
+
+async fn delete_node(
+    State(state): State<Arc<AppState>>,
+    Path(node_id): Path<String>,
+) -> Result<Json<NodeDeletionResponse>, AppError> {
+    let node_id = NodeId::from(node_id);
+    let mut transaction = state.pool.begin().await?;
+    let exists = sqlx::query_scalar::<_, i64>("select 1 from nodes where node_id = ?1")
+        .bind(node_id.as_str())
+        .fetch_optional(&mut *transaction)
+        .await?
+        .is_some();
+    if !exists {
+        return Err(AppError::not_found("node.not_found", "Node not found"));
+    }
+
+    let deleted_sessions = sqlx::query_scalar::<_, i64>(
+        r#"
+        select count(*)
+        from session_threads st
+        join project_placements pp on pp.project_placement_id = st.project_placement_id
+        where pp.node_id = ?1
+        "#,
+    )
+    .bind(node_id.as_str())
+    .fetch_one(&mut *transaction)
+    .await?;
+    let deleted_placements =
+        sqlx::query_scalar::<_, i64>("select count(*) from project_placements where node_id = ?1")
+            .bind(node_id.as_str())
+            .fetch_one(&mut *transaction)
+            .await?;
+
+    for statement in [
+        r#"
+        delete from events
+        where node_id = ?1
+           or runtime_session_id in (
+                select rs.runtime_session_id
+                from runtime_sessions rs
+                join session_threads st on st.session_thread_id = rs.session_thread_id
+                join project_placements pp on pp.project_placement_id = st.project_placement_id
+                where pp.node_id = ?1
+           )
+           or session_thread_id in (
+                select st.session_thread_id
+                from session_threads st
+                join project_placements pp on pp.project_placement_id = st.project_placement_id
+                where pp.node_id = ?1
+           )
+        "#,
+        r#"
+        delete from warning_acknowledgements
+        where session_thread_id in (
+            select st.session_thread_id
+            from session_threads st
+            join project_placements pp on pp.project_placement_id = st.project_placement_id
+            where pp.node_id = ?1
+        )
+        "#,
+        r#"
+        delete from approvals
+        where session_thread_id in (
+            select st.session_thread_id
+            from session_threads st
+            join project_placements pp on pp.project_placement_id = st.project_placement_id
+            where pp.node_id = ?1
+        )
+        "#,
+        r#"
+        delete from messages
+        where session_thread_id in (
+            select st.session_thread_id
+            from session_threads st
+            join project_placements pp on pp.project_placement_id = st.project_placement_id
+            where pp.node_id = ?1
+        )
+        "#,
+        r#"
+        delete from turns
+        where session_thread_id in (
+            select st.session_thread_id
+            from session_threads st
+            join project_placements pp on pp.project_placement_id = st.project_placement_id
+            where pp.node_id = ?1
+        )
+        "#,
+        r#"
+        delete from runtime_sessions
+        where session_thread_id in (
+            select st.session_thread_id
+            from session_threads st
+            join project_placements pp on pp.project_placement_id = st.project_placement_id
+            where pp.node_id = ?1
+        )
+        "#,
+        r#"
+        delete from session_threads
+        where project_placement_id in (
+            select project_placement_id from project_placements where node_id = ?1
+        )
+        "#,
+        "delete from commands where target_node_id = ?1",
+        "delete from project_placements where node_id = ?1",
+        "delete from node_capabilities where node_id = ?1",
+        "delete from node_enrollments where claimed_node_id = ?1",
+    ] {
+        sqlx::query(statement)
+            .bind(node_id.as_str())
+            .execute(&mut *transaction)
+            .await?;
+    }
+
+    let deleted = sqlx::query("delete from nodes where node_id = ?1")
+        .bind(node_id.as_str())
+        .execute(&mut *transaction)
+        .await?
+        .rows_affected();
+    transaction.commit().await?;
+    state
+        .control_channels
+        .write()
+        .await
+        .remove(node_id.as_str());
+
+    if deleted == 0 {
+        return Err(AppError::not_found("node.not_found", "Node not found"));
+    }
+    tracing::warn!(
+        node_id = %node_id,
+        deleted_placements,
+        deleted_sessions,
+        "node deleted"
+    );
+    Ok(Json(NodeDeletionResponse {
+        node_id,
+        deleted: true,
     }))
 }
 
@@ -5716,6 +5856,43 @@ mod tests {
         assert_eq!(envelope.message, "Node not found");
         assert!(!envelope.retryable);
         assert!(!envelope.correlation_id.as_str().is_empty());
+    }
+
+    #[tokio::test]
+    async fn delete_node_removes_inventory_dependents() {
+        let state = test_state().await;
+        let (node_id, detail, _workspace_path) = create_test_session(&state).await;
+        let app = build_router(state.clone());
+        let response = app
+            .oneshot(
+                Request::builder()
+                    .method(Method::DELETE)
+                    .uri(format!("/api/v1/nodes/{node_id}"))
+                    .body(Body::empty())
+                    .expect("request builds"),
+            )
+            .await
+            .expect("router responds");
+        let status = response.status();
+        let body = to_bytes(response.into_body(), 64 * 1024)
+            .await
+            .expect("response body loads");
+        let deletion: NodeDeletionResponse =
+            serde_json::from_slice(&body).expect("node deletion response parses");
+        let inventory = load_inventory(&state).await.expect("inventory loads");
+
+        assert_eq!(status, StatusCode::OK);
+        assert_eq!(deletion.node_id, node_id);
+        assert!(deletion.deleted);
+        assert!(!inventory.nodes.iter().any(|node| node.node_id == node_id));
+        assert!(!inventory
+            .placements
+            .iter()
+            .any(|placement| placement.node_id == node_id));
+        assert!(!inventory
+            .sessions
+            .iter()
+            .any(|session| { session.session_thread_id == detail.session.session_thread_id }));
     }
 
     #[tokio::test]

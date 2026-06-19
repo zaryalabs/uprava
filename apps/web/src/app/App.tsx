@@ -1,6 +1,7 @@
-import { Navigate, Route, Routes } from "react-router-dom";
+import { Route, Routes } from "react-router-dom";
 
 import { AppShell } from "./shell/AppShell";
+import { DashboardRoute } from "../features/dashboard/DashboardRoute";
 import { NodeDetailRoute } from "../features/nodes/NodeDetailRoute";
 import { NodesRoute } from "../features/nodes/NodesRoute";
 import { PlacementNewRoute } from "../features/placements/PlacementNewRoute";
@@ -12,7 +13,8 @@ export function App() {
   return (
     <Routes>
       <Route element={<AppShell />}>
-        <Route index element={<Navigate to="/nodes" replace />} />
+        <Route index element={<DashboardRoute />} />
+        <Route path="/dashboard" element={<DashboardRoute />} />
         <Route path="/nodes" element={<NodesRoute />} />
         <Route path="/nodes/:nodeId" element={<NodeDetailRoute />} />
         <Route

@@ -246,6 +246,11 @@ export type NodeRevocationResponse = {
   revoked: boolean;
 };
 
+export type NodeDeletionResponse = {
+  node_id: string;
+  deleted: boolean;
+};
+
 export type CommandAcceptedResponse = {
   command_id: string;
   session: SessionDetail | null;

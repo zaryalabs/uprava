@@ -7,6 +7,7 @@ import type {
   CreatePlacementRequest,
   CreateSessionRequest,
   HealthResponse,
+  NodeDeletionResponse,
   NodeEnrollmentRequestedResponse,
   NodeEnrollmentSummary,
   NodeRevocationResponse,
@@ -35,6 +36,10 @@ export async function apiPost<T>(path: string, body?: unknown): Promise<T> {
     headers: { "content-type": "application/json" },
     body: body === undefined ? undefined : JSON.stringify(body),
   });
+}
+
+export async function apiDelete<T>(path: string): Promise<T> {
+  return apiRequest<T>(path, { method: "DELETE" });
 }
 
 async function apiRequest<T>(path: string, init: RequestInit): Promise<T> {
@@ -78,6 +83,8 @@ export const coreApi = {
     apiPost<NodeRevocationResponse>(
       `/nodes/${encodeURIComponent(nodeId)}/revoke`,
     ),
+  deleteNode: (nodeId: string) =>
+    apiDelete<NodeDeletionResponse>(`/nodes/${encodeURIComponent(nodeId)}`),
   placement: (placementId: string) =>
     apiGet<import("../protocol/types").ProjectPlacementSummary>(
       `/placements/${encodeURIComponent(placementId)}`,

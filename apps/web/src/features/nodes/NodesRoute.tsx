@@ -1,15 +1,34 @@
+import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { Link } from "react-router-dom";
-import { Plus } from "lucide-react";
+import { Plus, Trash2 } from "lucide-react";
 
 import { useInventory } from "../inventory/api";
 import { HeartbeatAge } from "./HeartbeatAge";
 import { NodeEnrollmentPanel } from "./NodeEnrollmentPanel";
 import { NodeStatusBadge } from "./NodeStatusBadge";
+import { queryKeys } from "../../shared/api/query-keys";
 import { Badge } from "../../shared/ui/badge";
 import { Button } from "../../shared/ui/button";
+import { ErrorNotice } from "../../shared/ui/error-notice";
+import {
+  canRunCommand,
+  runWorkbenchCommand,
+} from "../../workbench/commands/registry";
 
 export function NodesRoute() {
+  const queryClient = useQueryClient();
   const inventory = useInventory();
+  const deleteNode = useMutation({
+    mutationFn: (nodeId: string) =>
+      runWorkbenchCommand("node.delete", {
+        nodeId,
+        afterSuccess: async () => {
+          await queryClient.invalidateQueries({
+            queryKey: queryKeys.inventory,
+          });
+        },
+      }),
+  });
 
   return (
     <section className="space-y-4">
@@ -22,6 +41,9 @@ export function NodesRoute() {
         </div>
       </div>
       <NodeEnrollmentPanel />
+      {deleteNode.isError ? (
+        <ErrorNotice error={deleteNode.error} title="Node delete failed" />
+      ) : null}
       <div className="grid gap-3">
         {inventory.data?.nodes.map((node) => (
           <article
@@ -51,13 +73,28 @@ export function NodesRoute() {
                 <Badge key={capability.key}>{capability.key}</Badge>
               ))}
             </div>
-            <div className="mt-4">
+            <div className="mt-4 flex flex-wrap gap-2">
               <Link to={`/nodes/${node.node_id}/placements/new`}>
                 <Button>
                   <Plus size={15} />
                   Workspace
                 </Button>
               </Link>
+              <Button
+                variant="danger"
+                disabled={
+                  deleteNode.isPending ||
+                  !canRunCommand("node.delete", { nodeId: node.node_id })
+                }
+                onClick={() => {
+                  if (confirmNodeDelete(node.display_name)) {
+                    deleteNode.mutate(node.node_id);
+                  }
+                }}
+              >
+                <Trash2 size={15} />
+                Delete
+              </Button>
             </div>
           </article>
         ))}
@@ -68,5 +105,11 @@ export function NodesRoute() {
         </div>
       ) : null}
     </section>
+  );
+}
+
+function confirmNodeDelete(displayName: string) {
+  return window.confirm(
+    `Delete node "${displayName}" and its workspaces/sessions from Cortex?`,
   );
 }

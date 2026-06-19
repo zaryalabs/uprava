@@ -4,6 +4,10 @@ test("renders the control panel shell", async ({ page }) => {
   await page.goto("/");
 
   await expect(page.getByRole("link", { name: "Cortex" })).toBeVisible();
+  await expect(page.getByRole("heading", { name: "Dashboard" })).toBeVisible();
+  await expect(
+    page.getByRole("navigation", { name: "Primary navigation" }),
+  ).toBeVisible();
   await expect(
     page.getByRole("navigation", { name: "Inventory tree" }),
   ).toBeVisible();
