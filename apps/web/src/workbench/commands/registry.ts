@@ -30,6 +30,7 @@ export type WorkbenchCommandId =
   | "node.revoke"
   | "node.delete"
   | "placement.validate"
+  | "placement.delete"
   | "session.start"
   | "session.attach"
   | "session.detach"
@@ -145,6 +146,24 @@ const commands: UiCommand[] = [
         "placement.validate requires placementRequest",
       );
       return finishCommand(context, coreApi.validatePlacement(request));
+    },
+  },
+  {
+    id: "placement.delete",
+    title: "Delete workspace",
+    icon: Trash2,
+    when: (context) => Boolean(context.placement),
+    run: async (context) => {
+      const placement = requireValue(
+        context.placement,
+        "placement.delete requires placement",
+      );
+      const response = await coreApi.deletePlacement(
+        placement.project_placement_id,
+      );
+      await context.afterSuccess?.();
+      context.navigate?.(`/nodes/${placement.node_id}`);
+      return response;
     },
   },
   {

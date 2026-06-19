@@ -32,11 +32,11 @@ use cortex_protocol::{
     NodeDeletionResponse, NodeEnrollmentClaimRequest, NodeEnrollmentClaimResponse,
     NodeEnrollmentRequest, NodeEnrollmentRequestedResponse, NodeEnrollmentSummary,
     NodeHeartbeatRequest, NodeHeartbeatResponse, NodeId, NodePresence, NodeRevocationResponse,
-    PlacementState, ProjectId, ProjectPlacementId, ProjectPlacementSummary, ResolveApprovalRequest,
-    ResourceBadge, RuntimeSessionId, RuntimeSessionState, RuntimeSummary, ScopeRef,
-    SendTurnRequest, SessionDetail, SessionSummary, SessionThreadId, SessionThreadState, SleepHint,
-    TurnId, TurnState, VersionResponse, WarningAcknowledgementResponse, WarningSeverity,
-    WorkspaceSnapshot,
+    PlacementDeletionResponse, PlacementState, ProjectId, ProjectPlacementId,
+    ProjectPlacementSummary, ResolveApprovalRequest, ResourceBadge, RuntimeSessionId,
+    RuntimeSessionState, RuntimeSummary, ScopeRef, SendTurnRequest, SessionDetail, SessionSummary,
+    SessionThreadId, SessionThreadState, SleepHint, TurnId, TurnState, VersionResponse,
+    WarningAcknowledgementResponse, WarningSeverity, WorkspaceSnapshot,
 };
 use futures_util::{SinkExt, Stream, StreamExt};
 use serde::Deserialize;
@@ -257,7 +257,10 @@ pub fn build_router(state: Arc<AppState>) -> Router {
             "/project-placements/validate",
             post(validate_placement_route),
         )
-        .route("/placements/{placement_id}", get(placement_detail))
+        .route(
+            "/placements/{placement_id}",
+            get(placement_detail).delete(delete_placement),
+        )
         .route(
             "/placements/{placement_id}/resource-snapshot/refresh",
             post(refresh_resource_snapshot_route),
@@ -1032,6 +1035,13 @@ async fn validate_placement_with_correlation(
     let placement_id = ProjectPlacementId::new();
     let display_name = request.display_name.trim().to_owned();
     let workspace_path = request.workspace_path.trim().to_owned();
+    sqlx::query(
+        "delete from deleted_workspace_bindings where node_id = ?1 and workspace_path = ?2",
+    )
+    .bind(request.node_id.as_str())
+    .bind(&workspace_path)
+    .execute(&state.pool)
+    .await?;
     upsert_project(state, &project_id, &display_name, now).await?;
     sqlx::query(
         r#"
@@ -1088,6 +1098,177 @@ async fn placement_detail(
     load_placement(&state, &ProjectPlacementId::from(placement_id))
         .await
         .map(Json)
+}
+
+async fn delete_placement(
+    State(state): State<Arc<AppState>>,
+    Path(placement_id): Path<String>,
+) -> Result<Json<PlacementDeletionResponse>, AppError> {
+    let placement_id = ProjectPlacementId::from(placement_id);
+    let mut transaction = state.pool.begin().await?;
+    let placement_row = sqlx::query(
+        "select node_id, workspace_path from project_placements where project_placement_id = ?1",
+    )
+    .bind(placement_id.as_str())
+    .fetch_optional(&mut *transaction)
+    .await?;
+    let Some(placement_row) = placement_row else {
+        return Err(AppError::not_found(
+            "placement.not_found",
+            "Placement not found",
+        ));
+    };
+    let node_id: String = placement_row.try_get("node_id")?;
+    let workspace_path: String = placement_row.try_get("workspace_path")?;
+    let now = Utc::now();
+
+    let deleted_sessions = sqlx::query_scalar::<_, i64>(
+        "select count(*) from session_threads where project_placement_id = ?1",
+    )
+    .bind(placement_id.as_str())
+    .fetch_one(&mut *transaction)
+    .await?;
+    sqlx::query(
+        r#"
+        insert into deleted_workspace_bindings (node_id, workspace_path, deleted_at)
+        values (?1, ?2, ?3)
+        on conflict(node_id, workspace_path) do update set
+            deleted_at = excluded.deleted_at
+        "#,
+    )
+    .bind(&node_id)
+    .bind(&workspace_path)
+    .bind(now)
+    .execute(&mut *transaction)
+    .await?;
+
+    for statement in [
+        r#"
+        delete from events
+        where command_id in (
+            select command_id
+            from commands
+            where project_placement_id = ?1
+               or session_thread_id in (
+                    select session_thread_id
+                    from session_threads
+                    where project_placement_id = ?1
+               )
+               or runtime_session_id in (
+                    select runtime_session_id
+                    from runtime_sessions
+                    where session_thread_id in (
+                        select session_thread_id
+                        from session_threads
+                        where project_placement_id = ?1
+                    )
+               )
+        )
+           or runtime_session_id in (
+                select runtime_session_id
+                from runtime_sessions
+                where session_thread_id in (
+                    select session_thread_id
+                    from session_threads
+                    where project_placement_id = ?1
+                )
+           )
+           or session_thread_id in (
+                select session_thread_id
+                from session_threads
+                where project_placement_id = ?1
+           )
+        "#,
+        r#"
+        delete from warning_acknowledgements
+        where session_thread_id in (
+            select session_thread_id
+            from session_threads
+            where project_placement_id = ?1
+        )
+        "#,
+        r#"
+        delete from approvals
+        where session_thread_id in (
+            select session_thread_id
+            from session_threads
+            where project_placement_id = ?1
+        )
+        "#,
+        r#"
+        delete from messages
+        where session_thread_id in (
+            select session_thread_id
+            from session_threads
+            where project_placement_id = ?1
+        )
+        "#,
+        r#"
+        delete from turns
+        where session_thread_id in (
+            select session_thread_id
+            from session_threads
+            where project_placement_id = ?1
+        )
+        "#,
+        r#"
+        delete from commands
+        where project_placement_id = ?1
+           or session_thread_id in (
+                select session_thread_id
+                from session_threads
+                where project_placement_id = ?1
+           )
+           or runtime_session_id in (
+                select runtime_session_id
+                from runtime_sessions
+                where session_thread_id in (
+                    select session_thread_id
+                    from session_threads
+                    where project_placement_id = ?1
+                )
+           )
+        "#,
+        r#"
+        delete from runtime_sessions
+        where session_thread_id in (
+            select session_thread_id
+            from session_threads
+            where project_placement_id = ?1
+        )
+        "#,
+        "delete from session_threads where project_placement_id = ?1",
+    ] {
+        sqlx::query(statement)
+            .bind(placement_id.as_str())
+            .execute(&mut *transaction)
+            .await?;
+    }
+
+    let deleted = sqlx::query("delete from project_placements where project_placement_id = ?1")
+        .bind(placement_id.as_str())
+        .execute(&mut *transaction)
+        .await?
+        .rows_affected();
+    transaction.commit().await?;
+
+    if deleted == 0 {
+        return Err(AppError::not_found(
+            "placement.not_found",
+            "Placement not found",
+        ));
+    }
+    tracing::warn!(
+        placement_id = %placement_id,
+        node_id,
+        workspace_path,
+        deleted_sessions,
+        "placement deleted"
+    );
+    Ok(Json(PlacementDeletionResponse {
+        project_placement_id: placement_id,
+        deleted: true,
+    }))
 }
 
 async fn refresh_resource_snapshot_route(
@@ -2713,6 +2894,9 @@ async fn upsert_heartbeat_workspaces(
     workspaces: Vec<WorkspaceSnapshot>,
 ) -> Result<(), AppError> {
     for workspace in workspaces {
+        if workspace_binding_deleted(state, node_id, &workspace.workspace_path).await? {
+            continue;
+        }
         let placement_id = stable_placement_id(node_id, &workspace.workspace_path);
         let project_id = stable_project_id(node_id, &workspace.workspace_path);
         upsert_project(
@@ -2751,6 +2935,26 @@ async fn upsert_heartbeat_workspaces(
         .await?;
     }
     Ok(())
+}
+
+async fn workspace_binding_deleted(
+    state: &AppState,
+    node_id: &NodeId,
+    workspace_path: &str,
+) -> Result<bool, AppError> {
+    sqlx::query_scalar::<_, i64>(
+        r#"
+        select 1
+        from deleted_workspace_bindings
+        where node_id = ?1 and workspace_path = ?2
+        "#,
+    )
+    .bind(node_id.as_str())
+    .bind(workspace_path)
+    .fetch_optional(&state.pool)
+    .await
+    .map(|row| row.is_some())
+    .map_err(AppError::from)
 }
 
 async fn replace_node_capabilities(
@@ -5168,6 +5372,14 @@ const MIGRATIONS: &[&str] = &[
     )
     "#,
     r#"
+    create table if not exists deleted_workspace_bindings (
+        node_id text not null references nodes(node_id),
+        workspace_path text not null,
+        deleted_at text not null,
+        primary key(node_id, workspace_path)
+    )
+    "#,
+    r#"
     create table if not exists session_threads (
         session_thread_id text primary key,
         project_placement_id text not null references project_placements(project_placement_id),
@@ -5896,6 +6108,45 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn delete_placement_removes_inventory_dependents_but_keeps_node() {
+        let state = test_state().await;
+        let (node_id, detail, _workspace_path) = create_test_session(&state).await;
+        let placement_id = detail.placement.project_placement_id.clone();
+        let app = build_router(state.clone());
+
+        let response = app
+            .oneshot(
+                Request::builder()
+                    .method(Method::DELETE)
+                    .uri(format!("/api/v1/placements/{placement_id}"))
+                    .body(Body::empty())
+                    .expect("request builds"),
+            )
+            .await
+            .expect("router responds");
+        let status = response.status();
+        let body = to_bytes(response.into_body(), 64 * 1024)
+            .await
+            .expect("response body loads");
+        let deletion: PlacementDeletionResponse =
+            serde_json::from_slice(&body).expect("placement deletion response parses");
+        let inventory = load_inventory(&state).await.expect("inventory loads");
+
+        assert_eq!(status, StatusCode::OK);
+        assert_eq!(deletion.project_placement_id, placement_id);
+        assert!(deletion.deleted);
+        assert!(inventory.nodes.iter().any(|node| node.node_id == node_id));
+        assert!(!inventory
+            .placements
+            .iter()
+            .any(|placement| { placement.project_placement_id == deletion.project_placement_id }));
+        assert!(!inventory
+            .sessions
+            .iter()
+            .any(|session| { session.session_thread_id == detail.session.session_thread_id }));
+    }
+
+    #[tokio::test]
     async fn heartbeat_appears_in_inventory() {
         let state = test_state().await;
         let claim = enroll_test_node(&state).await;
@@ -6332,6 +6583,102 @@ mod tests {
         std::fs::remove_dir_all(&workspace_path).expect("workspace dir removes");
 
         assert_eq!(project_display_name, "workspace");
+    }
+
+    #[tokio::test]
+    async fn delete_placement_tombstones_node_reported_workspace_until_explicit_validate() {
+        let state = test_state().await;
+        let claim = enroll_test_node(&state).await;
+        let node_id = claim.node_id.clone().expect("node id returned");
+        let workspace_path_buf =
+            std::env::temp_dir().join(format!("cortex-test-{}", Uuid::new_v4()));
+        let workspace_path = workspace_path_buf.display().to_string();
+        std::fs::create_dir_all(&workspace_path_buf).expect("workspace dir creates");
+
+        let _ = node_heartbeat(
+            State(state.clone()),
+            Json(NodeHeartbeatRequest {
+                node_id: claim.node_id.clone(),
+                credential: claim.credential.clone(),
+                display_name: "Test node".to_owned(),
+                daemon_version: "0.1.0".to_owned(),
+                capabilities: vec![],
+                diagnostics: None,
+                active_runtime_count: 0,
+                sleep_hint: SleepHint::Awake,
+                workspace_summaries: vec![workspace_snapshot_from_request(
+                    "workspace",
+                    &workspace_path,
+                    PlacementState::Validated,
+                )],
+            }),
+        )
+        .await
+        .expect("heartbeat accepted");
+        let placement = load_inventory(&state)
+            .await
+            .expect("inventory loads")
+            .placements
+            .into_iter()
+            .find(|placement| placement.workspace_path == workspace_path)
+            .expect("heartbeat placement appears");
+        let app = build_router(state.clone());
+
+        let delete_response = app
+            .oneshot(
+                Request::builder()
+                    .method(Method::DELETE)
+                    .uri(format!(
+                        "/api/v1/placements/{}",
+                        placement.project_placement_id
+                    ))
+                    .body(Body::empty())
+                    .expect("request builds"),
+            )
+            .await
+            .expect("router responds");
+
+        let _ = node_heartbeat(
+            State(state.clone()),
+            Json(NodeHeartbeatRequest {
+                node_id: claim.node_id,
+                credential: claim.credential,
+                display_name: "Test node".to_owned(),
+                daemon_version: "0.1.0".to_owned(),
+                capabilities: vec![],
+                diagnostics: None,
+                active_runtime_count: 0,
+                sleep_hint: SleepHint::Awake,
+                workspace_summaries: vec![workspace_snapshot_from_request(
+                    "workspace",
+                    &workspace_path,
+                    PlacementState::Validated,
+                )],
+            }),
+        )
+        .await
+        .expect("heartbeat accepted");
+        let inventory_after_heartbeat = load_inventory(&state).await.expect("inventory loads");
+
+        let explicit_placement = validate_placement(
+            State(state.clone()),
+            Json(CreatePlacementRequest {
+                node_id,
+                display_name: "workspace".to_owned(),
+                workspace_path: workspace_path.clone(),
+            }),
+        )
+        .await
+        .expect("explicit validation recreates placement")
+        .0;
+        std::fs::remove_dir_all(&workspace_path_buf).expect("workspace dir removes");
+
+        assert_eq!(delete_response.status(), StatusCode::OK);
+        assert!(!inventory_after_heartbeat
+            .placements
+            .iter()
+            .any(|placement| placement.workspace_path == workspace_path));
+        assert_eq!(explicit_placement.workspace_path, workspace_path);
     }
 
     #[tokio::test]

@@ -1,5 +1,5 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { Play, RefreshCw } from "lucide-react";
+import { Play, RefreshCw, Trash2 } from "lucide-react";
 import { useState } from "react";
 import { Link, useNavigate, useParams } from "react-router-dom";
 
@@ -8,6 +8,7 @@ import { queryKeys } from "../../shared/api/query-keys";
 import type { NodeSummary } from "../../shared/protocol/types";
 import { Badge } from "../../shared/ui/badge";
 import { Button } from "../../shared/ui/button";
+import { ErrorNotice } from "../../shared/ui/error-notice";
 import {
   canRunCommand,
   runWorkbenchCommand,
@@ -50,12 +51,30 @@ export function PlacementRoute() {
       });
     },
   });
+  const deleteMutation = useMutation({
+    mutationFn: () =>
+      runWorkbenchCommand("placement.delete", {
+        placement: placement.data,
+        navigate,
+        afterSuccess: async () => {
+          await queryClient.invalidateQueries({
+            queryKey: queryKeys.inventory,
+          });
+          await queryClient.invalidateQueries({
+            queryKey: queryKeys.placement(placementId ?? ""),
+          });
+        },
+      }),
+  });
 
   if (!placement.data) {
     return <div className="text-sm text-[#536257]">Loading workspace</div>;
   }
 
   const canStart = canRunCommand("session.start", {
+    placement: placement.data,
+  });
+  const canDelete = canRunCommand("placement.delete", {
     placement: placement.data,
   });
   const node = inventory.data?.nodes.find(
@@ -115,6 +134,18 @@ export function PlacementRoute() {
             Refresh
           </Button>
           <Button
+            variant="danger"
+            disabled={!canDelete || deleteMutation.isPending}
+            onClick={() => {
+              if (confirmPlacementDelete(placement.data.display_name)) {
+                deleteMutation.mutate();
+              }
+            }}
+          >
+            <Trash2 size={16} />
+            Delete
+          </Button>
+          <Button
             variant="primary"
             disabled={
               mutation.isPending || !canStart || !selectedProviderAvailable
@@ -126,6 +157,12 @@ export function PlacementRoute() {
           </Button>
         </div>
       </div>
+      {deleteMutation.isError ? (
+        <ErrorNotice
+          error={deleteMutation.error}
+          title="Workspace delete failed"
+        />
+      ) : null}
       <div className="flex flex-wrap gap-2">
         <Badge tone="good">{placement.data.state}</Badge>
         {placement.data.resource_badges.map((badge) => (
@@ -144,6 +181,12 @@ export function PlacementRoute() {
         Open node
       </Link>
     </section>
+  );
+}
+
+function confirmPlacementDelete(displayName: string) {
+  return window.confirm(
+    `Delete workspace "${displayName}" and its sessions from Cortex? Local files stay on the node.`,
   );
 }
 

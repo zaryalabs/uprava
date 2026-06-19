@@ -100,6 +100,15 @@ describe("workbench command registry", () => {
     ).toBe(false);
   });
 
+  it("enables workspace deletion when placement context is present", () => {
+    expect(
+      canRunCommand("placement.delete", {
+        placement: placementWithHardBlock(false),
+      }),
+    ).toBe(true);
+    expect(canRunCommand("placement.delete", {})).toBe(false);
+  });
+
   it("opens and copies references through injected command context", async () => {
     const ref = { kind: "session" as const, session_thread_id: "session-1" };
     const opened: import("../../shared/protocol/types").CortexRef[] = [];

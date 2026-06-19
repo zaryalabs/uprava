@@ -11,6 +11,7 @@ import type {
   NodeEnrollmentRequestedResponse,
   NodeEnrollmentSummary,
   NodeRevocationResponse,
+  PlacementDeletionResponse,
   ResolveApprovalRequest,
   SendTurnRequest,
   SessionDetail,
@@ -87,6 +88,10 @@ export const coreApi = {
     apiDelete<NodeDeletionResponse>(`/nodes/${encodeURIComponent(nodeId)}`),
   placement: (placementId: string) =>
     apiGet<import("../protocol/types").ProjectPlacementSummary>(
+      `/placements/${encodeURIComponent(placementId)}`,
+    ),
+  deletePlacement: (placementId: string) =>
+    apiDelete<PlacementDeletionResponse>(
       `/placements/${encodeURIComponent(placementId)}`,
     ),
   refreshResourceSnapshot: (placementId: string) =>

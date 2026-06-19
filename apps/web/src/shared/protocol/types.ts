@@ -251,6 +251,11 @@ export type NodeDeletionResponse = {
   deleted: boolean;
 };
 
+export type PlacementDeletionResponse = {
+  project_placement_id: string;
+  deleted: boolean;
+};
+
 export type CommandAcceptedResponse = {
   command_id: string;
   session: SessionDetail | null;

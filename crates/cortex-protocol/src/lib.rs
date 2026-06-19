@@ -661,6 +661,12 @@ pub struct NodeDeletionResponse {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct PlacementDeletionResponse {
+    pub project_placement_id: ProjectPlacementId,
+    pub deleted: bool,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct NodeHeartbeatRequest {
     pub node_id: Option<NodeId>,
     pub credential: Option<String>,
