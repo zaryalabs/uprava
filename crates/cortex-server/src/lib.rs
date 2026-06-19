@@ -630,6 +630,7 @@ async fn delete_node(
         )
         "#,
         "delete from commands where target_node_id = ?1",
+        "delete from deleted_workspace_bindings where node_id = ?1",
         "delete from project_placements where node_id = ?1",
         "delete from node_capabilities where node_id = ?1",
         "delete from node_enrollments where claimed_node_id = ?1",
@@ -6105,6 +6106,44 @@ mod tests {
             .sessions
             .iter()
             .any(|session| { session.session_thread_id == detail.session.session_thread_id }));
+    }
+
+    #[tokio::test]
+    async fn delete_node_removes_deleted_workspace_tombstones() {
+        let state = test_state().await;
+        let (node_id, detail, _workspace_path) = create_test_session(&state).await;
+
+        let placement_deletion = delete_placement(
+            State(state.clone()),
+            Path(detail.placement.project_placement_id.to_string()),
+        )
+        .await
+        .expect("placement delete succeeds")
+        .0;
+        let tombstone_count: i64 = sqlx::query_scalar(
+            "select count(*) from deleted_workspace_bindings where node_id = ?1",
+        )
+        .bind(node_id.as_str())
+        .fetch_one(&state.pool)
+        .await
+        .expect("tombstone count loads");
+
+        let node_deletion = delete_node(State(state.clone()), Path(node_id.to_string()))
+            .await
+            .expect("node delete succeeds")
+            .0;
+        let remaining_tombstones: i64 = sqlx::query_scalar(
+            "select count(*) from deleted_workspace_bindings where node_id = ?1",
+        )
+        .bind(node_id.as_str())
+        .fetch_one(&state.pool)
+        .await
+        .expect("remaining tombstone count loads");
+
+        assert!(placement_deletion.deleted);
+        assert_eq!(tombstone_count, 1);
+        assert!(node_deletion.deleted);
+        assert_eq!(remaining_tombstones, 0);
     }
 
     #[tokio::test]

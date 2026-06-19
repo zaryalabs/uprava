@@ -11,22 +11,49 @@ export type TimelineBlockItem = {
   approvalId?: string;
 };
 
+type OrderedTimelineBlockItem = {
+  item: TimelineBlockItem;
+  timestamp: string;
+  seq: number;
+  sourceIndex: number;
+};
+
 export function buildSessionTimelineBlocks(
   detail: SessionDetail,
 ): TimelineBlockItem[] {
+  const eventById = new Map(
+    detail.events.map((event) => [event.event_id, event]),
+  );
   const messageSourceEventIds = new Set(
     detail.messages
       .map((message) => message.source_event_id)
       .filter((eventId): eventId is string => typeof eventId === "string"),
   );
-  const messageBlocks = detail.messages.map((message) => ({
-    block: blockFromMessage(message, detail.events),
-  }));
+  const messageBlocks = detail.messages.map((message, sourceIndex) => {
+    const sourceEvent = message.source_event_id
+      ? eventById.get(message.source_event_id)
+      : undefined;
+    return orderedTimelineBlockItem(
+      { block: blockFromMessage(message, detail.events) },
+      sourceEvent?.happened_at ?? message.created_at,
+      sourceEvent?.seq ?? 0,
+      sourceIndex,
+    );
+  });
   const eventBlocks = detail.events
     .filter((event) => !messageSourceEventIds.has(event.event_id))
-    .map((event) => blockFromEvent(event));
+    .map((event, sourceIndex) =>
+      orderedTimelineBlockItem(
+        blockFromEvent(event),
+        event.happened_at,
+        event.seq,
+        detail.messages.length + sourceIndex,
+      ),
+    );
 
-  return [...messageBlocks, ...eventBlocks];
+  return [...messageBlocks, ...eventBlocks]
+    .sort(compareTimelineBlockItems)
+    .map(({ item }) => item);
 }
 
 export function blockFromMessage(
@@ -210,4 +237,24 @@ function payloadSummary(payload: unknown) {
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null;
+}
+
+function orderedTimelineBlockItem(
+  item: TimelineBlockItem,
+  timestamp: string,
+  seq: number,
+  sourceIndex: number,
+): OrderedTimelineBlockItem {
+  return { item, timestamp, seq, sourceIndex };
+}
+
+function compareTimelineBlockItems(
+  left: OrderedTimelineBlockItem,
+  right: OrderedTimelineBlockItem,
+) {
+  const timestampComparison = left.timestamp.localeCompare(right.timestamp);
+  if (timestampComparison !== 0) return timestampComparison;
+  const seqComparison = left.seq - right.seq;
+  if (seqComparison !== 0) return seqComparison;
+  return left.sourceIndex - right.sourceIndex;
 }

@@ -27,6 +27,52 @@ describe("session timeline blocks", () => {
     expect(blocks[1].block.actions).toEqual(["approval.resolve"]);
   });
 
+  it("renders newer dialogue blocks after older ones", () => {
+    const detail = detailWithApproval();
+    const userMessage = {
+      message_id: "message-user",
+      session_thread_id: "session-1",
+      turn_id: "turn-1",
+      role: "user" as const,
+      content: "Run checks",
+      created_at: "2026-06-17T00:00:00Z",
+      completed_at: "2026-06-17T00:00:00Z",
+      source_event_id: null,
+    };
+    const assistantMessage = {
+      ...detail.messages[0],
+      message_id: "message-assistant",
+      turn_id: "turn-1",
+      created_at: "2026-06-17T00:00:02Z",
+      completed_at: "2026-06-17T00:00:02Z",
+    };
+
+    const blocks = buildSessionTimelineBlocks({
+      ...detail,
+      messages: [assistantMessage, userMessage],
+      events: [
+        {
+          ...detail.events[0],
+          turn_id: "turn-1",
+          seq: 3,
+          happened_at: "2026-06-17T00:00:02Z",
+        },
+        {
+          ...detail.events[1],
+          turn_id: "turn-1",
+          seq: 2,
+          happened_at: "2026-06-17T00:00:01Z",
+        },
+      ],
+    });
+
+    expect(blocks.map((item) => item.block.block_id)).toEqual([
+      "message:message-user",
+      "event:event-approval.requested",
+      "message:message-assistant",
+    ]);
+  });
+
   it("maps known event families to registered renderer types", () => {
     const event = eventWithPayload("resource.snapshot.updated", {
       git_branch: "main",
