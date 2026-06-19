@@ -16,10 +16,8 @@ import type {
   VersionResponse,
   WarningAcknowledgementResponse,
 } from "../protocol/types";
-
-export const apiBase =
-  import.meta.env.VITE_CORTEX_API_BASE?.toString() ??
-  "http://127.0.0.1:8080/api/v1";
+import { apiBase } from "./config";
+import { logClientEvent } from "../logging/client-logger";
 
 export class CortexApiError extends Error {
   constructor(readonly envelope: ApiError) {
@@ -48,7 +46,14 @@ async function apiRequest<T>(path: string, init: RequestInit): Promise<T> {
       retryable: response.status >= 500,
       correlation_id: "unavailable",
     };
-    throw new CortexApiError(await response.json().catch(() => fallback));
+    const envelope = await response.json().catch(() => fallback);
+    logClientEvent("warn", "web.api", envelope.message, {
+      path,
+      status: response.status,
+      error_code: envelope.error_code,
+      correlation_id: envelope.correlation_id,
+    });
+    throw new CortexApiError(envelope);
   }
   return response.json() as Promise<T>;
 }

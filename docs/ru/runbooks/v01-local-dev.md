@@ -28,6 +28,9 @@ Default ports and paths:
 - Web UI: `http://127.0.0.1:5173`
 - Core SQLite: `.local/state/core.sqlite`
 - Node local state: `~/.local/share/cortex-node/node.json`
+- Core process log: `.local/logs/core.log`
+- Node process log: `.local/logs/node.log`
+- Browser client log accepted by Core: `.local/logs/client.log`
 - Runtime idle expiry: `CORTEX_RUNTIME_EXPIRY_SECONDS`, default `86400`
 - Browser CORS origins: `CORTEX_ALLOWED_ORIGINS`, default
   `http://127.0.0.1:5173,http://localhost:5173`
@@ -172,6 +175,29 @@ active runtime ids from that projection. `runtime.ready`, `runtime.running`,
 ## Logs And Redaction
 
 Use `RUST_LOG=info,cortex_server=debug,cortex_node=debug` for local diagnosis.
+Core and Node write the same tracing stream to stderr and append local files by
+default:
+
+```sh
+tail -f .local/logs/core.log
+tail -f .local/logs/node.log
+tail -f .local/logs/client.log
+```
+
+Override file locations when running outside the repository root:
+
+```sh
+export CORTEX_CORE_LOG_FILE=/tmp/cortex-core.log
+export CORTEX_NODE_LOG_FILE=/tmp/cortex-node.log
+export CORTEX_CLIENT_LOG_FILE=/tmp/cortex-client.log
+```
+
+Web client installs global `error` and `unhandledrejection` handlers and logs
+failed Core API calls plus session-stream errors to `POST /api/v1/client/logs`.
+Core stores those records as JSONL in `CORTEX_CLIENT_LOG_FILE`, including
+browser route, user agent, client timestamp, source, level, message and bounded
+diagnostic detail.
+
 Core emits structured logs for enrollment create/approve/claim, heartbeat
 acceptance, control-channel connect/disconnect, command record/dispatch/result,
 event append, stream gaps and runtime-state changes. These logs use IDs,

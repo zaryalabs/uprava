@@ -118,6 +118,7 @@ pub enum ScopeRef {
 pub enum EnrollmentState {
     Unregistered,
     PendingUserApproval,
+    Approved,
     Registered,
     Expired,
     Rejected,
@@ -230,6 +231,15 @@ pub enum WarningSeverity {
     Info,
     Warning,
     HardBlock,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum ClientLogLevel {
+    Debug,
+    Info,
+    Warn,
+    Error,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -556,6 +566,23 @@ pub struct ResolveApprovalRequest {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct AcknowledgeWarningRequest {
     pub message: Option<String>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ClientLogRequest {
+    pub level: ClientLogLevel,
+    pub source: String,
+    pub message: String,
+    pub route: Option<String>,
+    pub user_agent: Option<String>,
+    pub occurred_at: DateTime<Utc>,
+    #[serde(default)]
+    pub detail: serde_json_value::JsonValue,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ClientLogResponse {
+    pub accepted: bool,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]

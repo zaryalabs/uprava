@@ -1,5 +1,6 @@
 [workspace]
 members = [
+    "crates/cortex-logging",
     "crates/cortex-node",
     "crates/cortex-protocol",
     "crates/cortex-server",

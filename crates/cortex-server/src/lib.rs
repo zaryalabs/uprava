@@ -1,6 +1,9 @@
 use std::{
     collections::{HashMap, HashSet},
     convert::Infallible,
+    fs::OpenOptions,
+    io::Write,
+    path::PathBuf,
     sync::Arc,
 };
 
@@ -21,18 +24,18 @@ use chrono::{DateTime, Utc};
 use cortex_protocol::{
     serde_json_value::JsonValue, AcknowledgeWarningRequest, ActorRef, AgentProjection, ApiError,
     ApprovalId, ApprovalState, ApproveNodeEnrollmentResponse, ArtifactId, ArtifactTree,
-    ArtifactTreeNode, CapabilitySummary, ClientCreateNodeEnrollmentRequest,
-    CommandAcceptedResponse, CommandEnvelope, CommandId, CommandKind, CommandState, ControlFrame,
-    CorrelationId, CortexRef, CreatePlacementRequest, CreateSessionRequest, DeploymentProfile,
-    EnrollmentId, EnrollmentState, EventEnvelope, EventId, EventKind, HealthResponse,
-    InventorySnapshot, Message, MessageId, MessageRole, NodeEnrollmentClaimRequest,
-    NodeEnrollmentClaimResponse, NodeEnrollmentRequest, NodeEnrollmentRequestedResponse,
-    NodeEnrollmentSummary, NodeHeartbeatRequest, NodeHeartbeatResponse, NodeId, NodePresence,
-    NodeRevocationResponse, PlacementState, ProjectId, ProjectPlacementId, ProjectPlacementSummary,
-    ResolveApprovalRequest, ResourceBadge, RuntimeSessionId, RuntimeSessionState, RuntimeSummary,
-    ScopeRef, SendTurnRequest, SessionDetail, SessionSummary, SessionThreadId, SessionThreadState,
-    SleepHint, TurnId, TurnState, VersionResponse, WarningAcknowledgementResponse, WarningSeverity,
-    WorkspaceSnapshot,
+    ArtifactTreeNode, CapabilitySummary, ClientCreateNodeEnrollmentRequest, ClientLogLevel,
+    ClientLogRequest, ClientLogResponse, CommandAcceptedResponse, CommandEnvelope, CommandId,
+    CommandKind, CommandState, ControlFrame, CorrelationId, CortexRef, CreatePlacementRequest,
+    CreateSessionRequest, DeploymentProfile, EnrollmentId, EnrollmentState, EventEnvelope, EventId,
+    EventKind, HealthResponse, InventorySnapshot, Message, MessageId, MessageRole,
+    NodeEnrollmentClaimRequest, NodeEnrollmentClaimResponse, NodeEnrollmentRequest,
+    NodeEnrollmentRequestedResponse, NodeEnrollmentSummary, NodeHeartbeatRequest,
+    NodeHeartbeatResponse, NodeId, NodePresence, NodeRevocationResponse, PlacementState, ProjectId,
+    ProjectPlacementId, ProjectPlacementSummary, ResolveApprovalRequest, ResourceBadge,
+    RuntimeSessionId, RuntimeSessionState, RuntimeSummary, ScopeRef, SendTurnRequest,
+    SessionDetail, SessionSummary, SessionThreadId, SessionThreadState, SleepHint, TurnId,
+    TurnState, VersionResponse, WarningAcknowledgementResponse, WarningSeverity, WorkspaceSnapshot,
 };
 use futures_util::{SinkExt, Stream, StreamExt};
 use serde::Deserialize;
@@ -51,6 +54,8 @@ const APP_VERSION: &str = env!("CARGO_PKG_VERSION");
 const SCHEMA_VERSION: i64 = 1;
 const CORRELATION_ID_HEADER: &str = "x-correlation-id";
 const REQUEST_ID_HEADER: &str = "x-request-id";
+const MAX_CLIENT_LOG_FIELD_CHARS: usize = 2_000;
+const MAX_CLIENT_LOG_DETAIL_CHARS: usize = 8_000;
 
 #[derive(Debug, Clone)]
 pub struct AppConfig {
@@ -63,6 +68,7 @@ pub struct AppConfig {
     pub enrollment_ttl_seconds: i64,
     pub runtime_expiry_seconds: i64,
     pub auto_approve_enrollments: bool,
+    pub client_log_file: PathBuf,
 }
 
 impl AppConfig {
@@ -79,6 +85,9 @@ impl AppConfig {
             enrollment_ttl_seconds: parse_env_i64("CORTEX_ENROLLMENT_TTL_SECONDS", 600)?,
             runtime_expiry_seconds: parse_env_i64("CORTEX_RUNTIME_EXPIRY_SECONDS", 86_400)?,
             auto_approve_enrollments: parse_env_bool("CORTEX_AUTO_APPROVE_ENROLLMENTS", false),
+            client_log_file: std::env::var("CORTEX_CLIENT_LOG_FILE")
+                .map(PathBuf::from)
+                .unwrap_or_else(|_| PathBuf::from(".local/logs/client.log")),
         })
     }
 }
@@ -226,6 +235,7 @@ pub fn build_router(state: Arc<AppState>) -> Router {
     let api = Router::new()
         .route("/health", get(health))
         .route("/version", get(version))
+        .route("/client/logs", post(client_logs))
         .route("/inventory", get(inventory))
         .route("/nodes", get(nodes))
         .route("/nodes/{node_id}", get(node_detail))
@@ -351,6 +361,46 @@ async fn version(State(state): State<Arc<AppState>>) -> Json<VersionResponse> {
     })
 }
 
+async fn client_logs(
+    State(state): State<Arc<AppState>>,
+    headers: HeaderMap,
+    Json(request): Json<ClientLogRequest>,
+) -> Result<Json<ClientLogResponse>, AppError> {
+    let accepted_at = Utc::now();
+    let user_agent = request
+        .user_agent
+        .filter(|value| !value.trim().is_empty())
+        .or_else(|| header_value(&headers, "user-agent"))
+        .map(|value| truncate_chars(value.trim(), MAX_CLIENT_LOG_FIELD_CHARS));
+    let record = json!({
+        "accepted_at": accepted_at,
+        "occurred_at": request.occurred_at,
+        "level": format_client_log_level(request.level),
+        "source": truncate_chars(request.source.trim(), MAX_CLIENT_LOG_FIELD_CHARS),
+        "message": truncate_chars(request.message.trim(), MAX_CLIENT_LOG_FIELD_CHARS),
+        "route": request
+            .route
+            .filter(|value| !value.trim().is_empty())
+            .map(|value| truncate_chars(value.trim(), MAX_CLIENT_LOG_FIELD_CHARS)),
+        "user_agent": user_agent,
+        "detail": truncate_chars(
+            &serde_json::to_string(&request.detail.0).unwrap_or_else(|_| "null".to_owned()),
+            MAX_CLIENT_LOG_DETAIL_CHARS,
+        ),
+    });
+    append_jsonl_log(
+        state.config.client_log_file.clone(),
+        serde_json::to_string(&record)?,
+    )
+    .await?;
+    tracing::debug!(
+        level = format_client_log_level(request.level),
+        source = %request.source,
+        "client log accepted"
+    );
+    Ok(Json(ClientLogResponse { accepted: true }))
+}
+
 async fn inventory(
     State(state): State<Arc<AppState>>,
 ) -> Result<Json<InventorySnapshot>, AppError> {
@@ -414,9 +464,10 @@ async fn approve_node_enrollment(
     let updated = sqlx::query(
         r#"
         update node_enrollments
-        set status = 'pending_user_approval', approved_at = ?1, updated_at = ?1
+        set status = 'approved', approved_at = ?1, updated_at = ?1
         where enrollment_id = ?2
           and status = 'pending_user_approval'
+          and approved_at is null
           and expires_at > ?1
         "#,
     )
@@ -2211,6 +2262,11 @@ async fn create_enrollment(
     let pairing_code = new_secret("pair");
     let expires_at = now + chrono::Duration::seconds(state.config.enrollment_ttl_seconds);
     let approved_at = state.config.auto_approve_enrollments.then_some(now);
+    let status = if approved_at.is_some() {
+        EnrollmentState::Approved
+    } else {
+        EnrollmentState::PendingUserApproval
+    };
     sqlx::query(
         r#"
         insert into node_enrollments (
@@ -2218,7 +2274,7 @@ async fn create_enrollment(
             pairing_code_hash, status, expires_at, claimed_node_id,
             created_at, updated_at, approved_at
         )
-        values (?1, ?2, ?3, ?4, ?5, 'pending_user_approval', ?6, null, ?7, ?7, ?8)
+        values (?1, ?2, ?3, ?4, ?5, ?6, ?7, null, ?8, ?8, ?9)
         "#,
     )
     .bind(enrollment_id.as_str())
@@ -2226,6 +2282,7 @@ async fn create_enrollment(
     .bind(daemon_version)
     .bind(serde_json::to_string(&capabilities)?)
     .bind(hash_secret(&pairing_code))
+    .bind(format_enrollment_state(&status))
     .bind(expires_at)
     .bind(now)
     .bind(approved_at)
@@ -2244,7 +2301,7 @@ async fn create_enrollment(
     Ok(NodeEnrollmentRequestedResponse {
         enrollment_id,
         pairing_code,
-        status: EnrollmentState::PendingUserApproval,
+        status,
         expires_at,
     })
 }
@@ -2296,19 +2353,6 @@ async fn claim_enrollment(
         ));
     }
     let approved_at: Option<DateTime<Utc>> = row.try_get("approved_at")?;
-    if approved_at.is_none() && !state.config.auto_approve_enrollments {
-        tracing::debug!(
-            enrollment_id = %request.enrollment_id,
-            "node enrollment claim waiting for user approval"
-        );
-        return Ok(NodeEnrollmentClaimResponse {
-            accepted: false,
-            pending: true,
-            node_id: None,
-            credential: None,
-            message: "Enrollment is waiting for approval".to_owned(),
-        });
-    }
     if status == EnrollmentState::Registered {
         let claimed_node_id: Option<String> = row.try_get("claimed_node_id")?;
         tracing::info!(
@@ -2322,6 +2366,39 @@ async fn claim_enrollment(
             node_id: claimed_node_id.map(NodeId::from),
             credential: None,
             message: "Enrollment already claimed; existing credential is not returned".to_owned(),
+        });
+    }
+    if matches!(
+        status,
+        EnrollmentState::Expired | EnrollmentState::Rejected | EnrollmentState::Revoked
+    ) {
+        tracing::warn!(
+            enrollment_id = %request.enrollment_id,
+            status = ?status,
+            "node enrollment claim rejected because enrollment is terminal"
+        );
+        return Ok(NodeEnrollmentClaimResponse {
+            accepted: false,
+            pending: false,
+            node_id: None,
+            credential: None,
+            message: format!("Enrollment is {}", format_enrollment_state(&status)),
+        });
+    }
+    let approved = approved_at.is_some()
+        || status == EnrollmentState::Approved
+        || state.config.auto_approve_enrollments;
+    if !approved {
+        tracing::debug!(
+            enrollment_id = %request.enrollment_id,
+            "node enrollment claim waiting for user approval"
+        );
+        return Ok(NodeEnrollmentClaimResponse {
+            accepted: false,
+            pending: true,
+            node_id: None,
+            credential: None,
+            message: "Enrollment is waiting for approval".to_owned(),
         });
     }
 
@@ -2390,7 +2467,7 @@ async fn expire_enrollment(
         r#"
         update node_enrollments
         set status = 'expired', updated_at = ?1
-        where enrollment_id = ?2 and status = 'pending_user_approval'
+        where enrollment_id = ?2 and status in ('pending_user_approval', 'approved')
         "#,
     )
     .bind(now)
@@ -2435,14 +2512,19 @@ async fn load_enrollment(
 
 fn row_to_enrollment(row: sqlx::sqlite::SqliteRow) -> Result<NodeEnrollmentSummary, AppError> {
     let claimed_node_id: Option<String> = row.try_get("claimed_node_id")?;
+    let approved_at: Option<DateTime<Utc>> = row.try_get("approved_at")?;
+    let mut status = parse_enrollment_state(row.try_get::<String, _>("status")?.as_str());
+    if status == EnrollmentState::PendingUserApproval && approved_at.is_some() {
+        status = EnrollmentState::Approved;
+    }
     Ok(NodeEnrollmentSummary {
         enrollment_id: EnrollmentId::from(row.try_get::<String, _>("enrollment_id")?),
         display_name: row.try_get("display_name")?,
-        status: parse_enrollment_state(row.try_get::<String, _>("status")?.as_str()),
+        status,
         claimed_node_id: claimed_node_id.map(NodeId::from),
         expires_at: row.try_get("expires_at")?,
         created_at: row.try_get("created_at")?,
-        approved_at: row.try_get("approved_at")?,
+        approved_at,
     })
 }
 
@@ -4547,6 +4629,7 @@ fn parse_presence(value: &str) -> NodePresence {
 
 fn parse_enrollment_state(value: &str) -> EnrollmentState {
     match value {
+        "approved" => EnrollmentState::Approved,
         "registered" => EnrollmentState::Registered,
         "expired" => EnrollmentState::Expired,
         "rejected" => EnrollmentState::Rejected,
@@ -4554,6 +4637,50 @@ fn parse_enrollment_state(value: &str) -> EnrollmentState {
         "unregistered" => EnrollmentState::Unregistered,
         _ => EnrollmentState::PendingUserApproval,
     }
+}
+
+fn format_enrollment_state(value: &EnrollmentState) -> &'static str {
+    match value {
+        EnrollmentState::Unregistered => "unregistered",
+        EnrollmentState::PendingUserApproval => "pending_user_approval",
+        EnrollmentState::Approved => "approved",
+        EnrollmentState::Registered => "registered",
+        EnrollmentState::Expired => "expired",
+        EnrollmentState::Rejected => "rejected",
+        EnrollmentState::Revoked => "revoked",
+    }
+}
+
+fn format_client_log_level(value: ClientLogLevel) -> &'static str {
+    match value {
+        ClientLogLevel::Debug => "debug",
+        ClientLogLevel::Info => "info",
+        ClientLogLevel::Warn => "warn",
+        ClientLogLevel::Error => "error",
+    }
+}
+
+fn truncate_chars(value: &str, max_chars: usize) -> String {
+    if value.chars().count() <= max_chars {
+        return value.to_owned();
+    }
+    let mut truncated = value.chars().take(max_chars).collect::<String>();
+    truncated.push_str("...");
+    truncated
+}
+
+async fn append_jsonl_log(path: PathBuf, line: String) -> Result<(), AppError> {
+    tokio::task::spawn_blocking(move || -> std::io::Result<()> {
+        if let Some(parent) = path.parent().filter(|path| !path.as_os_str().is_empty()) {
+            std::fs::create_dir_all(parent)?;
+        }
+        let mut file = OpenOptions::new().create(true).append(true).open(path)?;
+        file.write_all(line.as_bytes())?;
+        file.write_all(b"\n")?;
+        file.flush()
+    })
+    .await??;
+    Ok(())
 }
 
 fn format_sleep_hint(value: SleepHint) -> &'static str {
@@ -4733,6 +4860,10 @@ pub enum AppError {
     Database(#[from] sqlx::Error),
     #[error("serialization error: {0}")]
     Serialization(#[from] serde_json::Error),
+    #[error("io error: {0}")]
+    Io(#[from] std::io::Error),
+    #[error("background task error: {0}")]
+    TaskJoin(#[from] tokio::task::JoinError),
     #[error("not found: {message}")]
     NotFound { code: &'static str, message: String },
     #[error("bad request: {message}")]
@@ -4784,6 +4915,24 @@ impl IntoResponse for AppError {
                     "internal.serialization",
                     "Core serialization failed".to_owned(),
                     false,
+                )
+            }
+            Self::Io(error) => {
+                tracing::error!(%correlation_id, error = %error, "io error");
+                (
+                    StatusCode::INTERNAL_SERVER_ERROR,
+                    "internal.io",
+                    "Core IO operation failed".to_owned(),
+                    true,
+                )
+            }
+            Self::TaskJoin(error) => {
+                tracing::error!(%correlation_id, error = %error, "background task error");
+                (
+                    StatusCode::INTERNAL_SERVER_ERROR,
+                    "internal.task_join",
+                    "Core background task failed".to_owned(),
+                    true,
                 )
             }
             Self::NotFound { code, message } => (StatusCode::NOT_FOUND, code, message, false),
@@ -5028,6 +5177,7 @@ mod tests {
         "CORTEX_ENROLLMENT_TTL_SECONDS",
         "CORTEX_RUNTIME_EXPIRY_SECONDS",
         "CORTEX_AUTO_APPROVE_ENROLLMENTS",
+        "CORTEX_CLIENT_LOG_FILE",
     ];
 
     async fn test_state() -> Arc<AppState> {
@@ -5090,6 +5240,8 @@ mod tests {
             enrollment_ttl_seconds: 600,
             runtime_expiry_seconds,
             auto_approve_enrollments: false,
+            client_log_file: std::env::temp_dir()
+                .join(format!("cortex-client-log-{}.jsonl", Uuid::new_v4())),
         }
     }
 
@@ -5154,6 +5306,10 @@ mod tests {
         assert_eq!(config.enrollment_ttl_seconds, 600);
         assert_eq!(config.runtime_expiry_seconds, 86_400);
         assert!(!config.auto_approve_enrollments);
+        assert_eq!(
+            config.client_log_file,
+            PathBuf::from(".local/logs/client.log")
+        );
     }
 
     #[test]
@@ -5172,6 +5328,7 @@ mod tests {
         std::env::set_var("CORTEX_ENROLLMENT_TTL_SECONDS", "30");
         std::env::set_var("CORTEX_RUNTIME_EXPIRY_SECONDS", "120");
         std::env::set_var("CORTEX_AUTO_APPROVE_ENROLLMENTS", "yes");
+        std::env::set_var("CORTEX_CLIENT_LOG_FILE", "/tmp/cortex-client.jsonl");
 
         let config = AppConfig::from_env().expect("overridden core config parses");
 
@@ -5191,6 +5348,10 @@ mod tests {
         assert_eq!(config.enrollment_ttl_seconds, 30);
         assert_eq!(config.runtime_expiry_seconds, 120);
         assert!(config.auto_approve_enrollments);
+        assert_eq!(
+            config.client_log_file,
+            PathBuf::from("/tmp/cortex-client.jsonl")
+        );
     }
 
     #[test]
@@ -5429,6 +5590,58 @@ mod tests {
             .expect("router responds");
 
         assert_eq!(response.status(), StatusCode::OK);
+    }
+
+    #[tokio::test]
+    async fn client_logs_endpoint_appends_local_jsonl_record() {
+        let state = test_state().await;
+        let log_path = state.config.client_log_file.clone();
+        let app = build_router(state);
+        let request = ClientLogRequest {
+            level: ClientLogLevel::Error,
+            source: "web.global_error".to_owned(),
+            message: "render failed".to_owned(),
+            route: Some("/nodes".to_owned()),
+            user_agent: Some("vitest".to_owned()),
+            occurred_at: Utc::now(),
+            detail: JsonValue(json!({ "component": "NodesRoute" })),
+        };
+        let response = app
+            .oneshot(
+                Request::builder()
+                    .method(Method::POST)
+                    .uri("/api/v1/client/logs")
+                    .header(CONTENT_TYPE, "application/json")
+                    .body(Body::from(
+                        serde_json::to_vec(&request).expect("request serializes"),
+                    ))
+                    .expect("request builds"),
+            )
+            .await
+            .expect("router responds");
+        let status = response.status();
+        let body = to_bytes(response.into_body(), 64 * 1024)
+            .await
+            .expect("response body loads");
+        let log_content = std::fs::read_to_string(&log_path).expect("client log file reads");
+        let first_line = log_content.lines().next().expect("client log line exists");
+        let record: serde_json::Value =
+            serde_json::from_str(first_line).expect("client log json parses");
+        let _ = std::fs::remove_file(log_path);
+
+        assert_eq!(status, StatusCode::OK);
+        assert!(
+            serde_json::from_slice::<ClientLogResponse>(&body)
+                .expect("response parses")
+                .accepted
+        );
+        assert_eq!(record["level"], "error");
+        assert_eq!(record["source"], "web.global_error");
+        assert_eq!(record["message"], "render failed");
+        assert!(record["detail"]
+            .as_str()
+            .expect("detail is bounded string")
+            .contains("NodesRoute"));
     }
 
     #[tokio::test]
@@ -5738,6 +5951,89 @@ mod tests {
         .expect("claim returns pending");
 
         assert!(claim.pending);
+    }
+
+    #[tokio::test]
+    async fn approval_moves_enrollment_to_approved_state() {
+        let state = test_state().await;
+        let requested = create_enrollment(&state, "Approved node", Some("0.1.0"), vec![])
+            .await
+            .expect("enrollment creates");
+
+        let response =
+            approve_node_enrollment(State(state), Path(requested.enrollment_id.to_string()))
+                .await
+                .expect("enrollment approves")
+                .0;
+
+        assert_eq!(response.enrollment.status, EnrollmentState::Approved);
+        assert!(response.enrollment.approved_at.is_some());
+    }
+
+    #[tokio::test]
+    async fn approved_enrollment_claim_registers_node() {
+        let state = test_state().await;
+        let requested = create_enrollment(&state, "Approved node", Some("0.1.0"), vec![])
+            .await
+            .expect("enrollment creates");
+        let _ = approve_node_enrollment(
+            State(state.clone()),
+            Path(requested.enrollment_id.to_string()),
+        )
+        .await
+        .expect("enrollment approves");
+
+        let claim = claim_enrollment(
+            &state,
+            &NodeEnrollmentClaimRequest {
+                enrollment_id: requested.enrollment_id.clone(),
+                pairing_code: requested.pairing_code,
+            },
+        )
+        .await
+        .expect("approved claim registers");
+        let enrollment = load_enrollment(&state, &requested.enrollment_id)
+            .await
+            .expect("enrollment loads");
+
+        assert!(claim.accepted);
+        assert!(!claim.pending);
+        assert!(claim.node_id.is_some());
+        assert!(claim.credential.is_some());
+        assert_eq!(enrollment.status, EnrollmentState::Registered);
+    }
+
+    #[tokio::test]
+    async fn legacy_approved_pending_enrollment_claim_registers_node() {
+        let state = test_state().await;
+        let requested = create_enrollment(&state, "Legacy node", Some("0.1.0"), vec![])
+            .await
+            .expect("enrollment creates");
+        sqlx::query(
+            r#"
+            update node_enrollments
+            set approved_at = ?1
+            where enrollment_id = ?2
+            "#,
+        )
+        .bind(Utc::now())
+        .bind(requested.enrollment_id.as_str())
+        .execute(&state.pool)
+        .await
+        .expect("legacy approval stores");
+
+        let claim = claim_enrollment(
+            &state,
+            &NodeEnrollmentClaimRequest {
+                enrollment_id: requested.enrollment_id.clone(),
+                pairing_code: requested.pairing_code,
+            },
+        )
+        .await
+        .expect("legacy approved claim registers");
+
+        assert!(claim.accepted);
+        assert!(claim.credential.is_some());
     }
 
     #[tokio::test]

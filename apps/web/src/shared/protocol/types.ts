@@ -25,6 +25,7 @@ export type PlacementState =
   | "read_only"
   | "error";
 export type WarningSeverity = "info" | "warning" | "hard_block";
+export type ClientLogLevel = "debug" | "info" | "warn" | "error";
 export type MessageRole =
   | "user"
   | "assistant"
@@ -33,6 +34,7 @@ export type MessageRole =
   | "approval";
 export type EnrollmentState =
   | "pending_user_approval"
+  | "approved"
   | "registered"
   | "expired"
   | "rejected"
@@ -198,6 +200,20 @@ export type ResolveApprovalRequest = {
 
 export type AcknowledgeWarningRequest = {
   message?: string | null;
+};
+
+export type ClientLogRequest = {
+  level: ClientLogLevel;
+  source: string;
+  message: string;
+  route?: string | null;
+  user_agent?: string | null;
+  occurred_at: string;
+  detail?: unknown;
+};
+
+export type ClientLogResponse = {
+  accepted: boolean;
 };
 
 export type ClientCreateNodeEnrollmentRequest = {

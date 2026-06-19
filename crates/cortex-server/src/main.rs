@@ -1,12 +1,13 @@
 use std::{
     io::{Read, Write},
     net::{SocketAddr, TcpStream, ToSocketAddrs},
+    path::Path,
     time::Duration,
 };
 
+use cortex_logging::init_tracing;
 use cortex_server::{build_router, shutdown_signal, AppConfig, AppState};
 use sqlx::sqlite::{SqliteConnectOptions, SqlitePoolOptions};
-use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt, EnvFilter};
 
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
@@ -17,10 +18,7 @@ async fn main() -> anyhow::Result<()> {
         return run_healthcheck(&address);
     }
 
-    tracing_subscriber::registry()
-        .with(EnvFilter::try_from_default_env().unwrap_or_else(|_| EnvFilter::new("info")))
-        .with(tracing_subscriber::fmt::layer())
-        .init();
+    let log_path = init_tracing("core", "CORTEX_CORE_LOG_FILE", ".local/logs/core.log")?;
 
     let config = AppConfig::from_env()?;
     ensure_sqlite_parent_dir(&config.database_url)?;
@@ -40,6 +38,8 @@ async fn main() -> anyhow::Result<()> {
     tracing::info!(
         bind_address = %address,
         database_url = %config.database_url,
+        log_file = %log_path.display(),
+        client_log_file = %config.client_log_file.display(),
         profile = ?config.profile,
         "starting cortex core"
     );
@@ -79,7 +79,7 @@ fn ensure_sqlite_parent_dir(database_url: &str) -> anyhow::Result<()> {
     if path == ":memory:" || path.is_empty() {
         return Ok(());
     }
-    let Some(parent) = std::path::Path::new(path).parent() else {
+    let Some(parent) = Path::new(path).parent() else {
         return Ok(());
     };
     if !parent.as_os_str().is_empty() {

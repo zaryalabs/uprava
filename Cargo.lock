@@ -236,11 +236,21 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "773648b94d0e5d620f64f280777445740e61fe701025087ec8b57f45c791888b"
 
 [[package]]
+name = "cortex-logging"
+version = "0.1.0"
+dependencies = [
+ "thiserror 1.0.69",
+ "tracing",
+ "tracing-subscriber",
+]
+
+[[package]]
 name = "cortex-node"
 version = "0.1.0"
 dependencies = [
  "anyhow",
  "chrono",
+ "cortex-logging",
  "cortex-protocol",
  "futures-util",
  "reqwest",
@@ -271,6 +281,7 @@ dependencies = [
  "async-stream",
  "axum",
  "chrono",
+ "cortex-logging",
  "cortex-protocol",
  "futures-util",
  "serde",

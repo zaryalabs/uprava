@@ -8,6 +8,7 @@ use std::{
 
 use anyhow::Context;
 use chrono::Utc;
+use cortex_logging::init_tracing;
 use cortex_protocol::{
     serde_json_value::JsonValue, ActorRef, ApiError, ApprovalId, CapabilitySummary,
     CommandEnvelope, CommandId, CommandKind, CommandState, ControlFrame, CorrelationId,
@@ -25,7 +26,6 @@ use tokio_tungstenite::{
     connect_async,
     tungstenite::{client::IntoClientRequest, http::HeaderValue, Message as WsMessage},
 };
-use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt, EnvFilter};
 use uuid::Uuid;
 
 type ControlSocket =
@@ -38,10 +38,7 @@ const MAX_CODEX_TRANSCRIPT_CHARS: usize = 12_000;
 
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
-    tracing_subscriber::registry()
-        .with(EnvFilter::try_from_default_env().unwrap_or_else(|_| EnvFilter::new("info")))
-        .with(tracing_subscriber::fmt::layer())
-        .init();
+    let log_path = init_tracing("node", "CORTEX_NODE_LOG_FILE", ".local/logs/node.log")?;
 
     let config = NodeConfig::from_env()?;
     let client = reqwest::Client::new();
@@ -51,6 +48,7 @@ async fn main() -> anyhow::Result<()> {
         core_url = %config.core_url,
         display_name = %config.display_name,
         state_path = %config.state_path.display(),
+        log_file = %log_path.display(),
         "starting cortex node"
     );
 
@@ -91,7 +89,26 @@ async fn main() -> anyhow::Result<()> {
                     tokio::spawn(control_channel_loop(config.clone(), local_state.clone()));
                 }
             }
-            Err(error) => tracing::warn!(error = %error, "heartbeat failed"),
+            Err(error) => {
+                if heartbeat_auth_rejected(&error) {
+                    tracing::warn!(
+                        error = %error,
+                        state_path = %config.state_path.display(),
+                        "heartbeat auth rejected; clearing local node identity and re-enrolling"
+                    );
+                    local_state.clear_core_registration();
+                    control_started = false;
+                    if let Err(save_error) = local_state.save(&config.state_path) {
+                        tracing::warn!(
+                            error = %save_error,
+                            state_path = %config.state_path.display(),
+                            "failed to persist cleared node identity"
+                        );
+                    }
+                } else {
+                    tracing::warn!(error = %error, "heartbeat failed");
+                }
+            }
         }
         tokio::time::sleep(config.heartbeat_interval).await;
     }
@@ -286,6 +303,21 @@ impl NodeLocalState {
     fn is_enrolled(&self) -> bool {
         self.node_id.is_some() && self.credential.is_some()
     }
+
+    fn clear_core_registration(&mut self) {
+        self.node_id = None;
+        self.credential = None;
+        self.enrollment_id = None;
+        self.pairing_code = None;
+    }
+}
+
+fn heartbeat_auth_rejected(error: &anyhow::Error) -> bool {
+    error.chain().find_map(|cause| {
+        cause
+            .downcast_ref::<reqwest::Error>()
+            .and_then(reqwest::Error::status)
+    }) == Some(reqwest::StatusCode::UNAUTHORIZED)
 }
 
 async fn ensure_enrollment(
@@ -2731,6 +2763,29 @@ mod tests {
         assert!(!formatted.contains("secret prompt content"));
         assert!(formatted.contains("runtime_transcript_counts"));
         assert!(formatted.contains("[redacted]"));
+    }
+
+    #[test]
+    fn clear_core_registration_removes_pairing_and_node_identity_only() {
+        let mut local_state = NodeLocalState {
+            node_id: Some(NodeId::from("node-1")),
+            credential: Some("development-secret".to_owned()),
+            enrollment_id: Some(EnrollmentId::from("enrollment-1")),
+            pairing_code: Some("pair-secret".to_owned()),
+            command_status: HashMap::from([("command-1".to_owned(), CommandState::Completed)]),
+            ..NodeLocalState::default()
+        };
+
+        local_state.clear_core_registration();
+
+        assert_eq!(local_state.node_id, None);
+        assert_eq!(local_state.credential, None);
+        assert_eq!(local_state.enrollment_id, None);
+        assert_eq!(local_state.pairing_code, None);
+        assert_eq!(
+            local_state.command_status.get("command-1"),
+            Some(&CommandState::Completed)
+        );
     }
 
     #[test]

@@ -152,6 +152,7 @@ function EnrollmentRow({
   onApprove: () => void;
 }) {
   const approvable = isEnrollmentApprovable(enrollment);
+  const approved = isEnrollmentApproved(enrollment);
 
   return (
     <article className="rounded-md border border-[#e0e5dc] bg-[#f8faf5] p-3">
@@ -168,7 +169,7 @@ function EnrollmentRow({
       </div>
       <div className="mt-2 flex flex-wrap items-center justify-between gap-2 text-xs text-[#536257]">
         <span>
-          {enrollment.approved_at
+          {approved
             ? "Approved; waiting for claim"
             : `Expires ${new Date(enrollment.expires_at).toLocaleString()}`}
         </span>
@@ -190,12 +191,16 @@ export function isEnrollmentApprovable(enrollment: NodeEnrollmentSummary) {
   );
 }
 
+export function isEnrollmentApproved(enrollment: NodeEnrollmentSummary) {
+  return enrollment.status === "approved" || Boolean(enrollment.approved_at);
+}
+
 function enrollmentTone(enrollment: NodeEnrollmentSummary) {
   if (enrollment.status === "registered") return "good";
   if (enrollment.status === "expired" || enrollment.status === "revoked") {
     return "bad";
   }
-  return enrollment.approved_at ? "info" : "warn";
+  return isEnrollmentApproved(enrollment) ? "info" : "warn";
 }
 
 function isCreatedEnrollment(

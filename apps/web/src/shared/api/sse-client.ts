@@ -1,4 +1,5 @@
-import { apiBase } from "./http-client";
+import { apiBase } from "./config";
+import { logClientEvent } from "../logging/client-logger";
 import type { EventEnvelope } from "../protocol/types";
 
 export function openSessionStream(
@@ -14,6 +15,12 @@ export function openSessionStream(
   source.addEventListener("cortex.event", (event) => {
     onEvent(JSON.parse((event as MessageEvent).data) as EventEnvelope);
   });
-  source.onerror = () => onError();
+  source.onerror = () => {
+    logClientEvent("warn", "web.sse", "session stream error", {
+      session_thread_id: sessionThreadId,
+      after_seq: afterSeq,
+    });
+    onError();
+  };
   return () => source.close();
 }

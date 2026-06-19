@@ -1,6 +1,9 @@
 import { describe, expect, it } from "vitest";
 
-import { isEnrollmentApprovable } from "./NodeEnrollmentPanel";
+import {
+  isEnrollmentApprovable,
+  isEnrollmentApproved,
+} from "./NodeEnrollmentPanel";
 import type { NodeEnrollmentSummary } from "../../shared/protocol/types";
 
 describe("isEnrollmentApprovable", () => {
@@ -9,6 +12,7 @@ describe("isEnrollmentApprovable", () => {
     expect(
       isEnrollmentApprovable(
         enrollment({
+          status: "approved",
           approved_at: "2026-06-17T00:00:00Z",
         }),
       ),
@@ -21,6 +25,14 @@ describe("isEnrollmentApprovable", () => {
         }),
       ),
     ).toBe(false);
+  });
+
+  it("recognizes approved state and legacy approved timestamp", () => {
+    expect(isEnrollmentApproved(enrollment({ status: "approved" }))).toBe(true);
+    expect(
+      isEnrollmentApproved(enrollment({ approved_at: "2026-06-17T00:00:00Z" })),
+    ).toBe(true);
+    expect(isEnrollmentApproved(enrollment())).toBe(false);
   });
 });
 
