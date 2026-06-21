@@ -48,6 +48,7 @@ Follow the stack documented in `docs/en/tech-stack.md`:
 - Core owns projects, nodes, sessions, event log, trace metadata, Tool Registry, Plugin Registry, permissions, and routing.
 - Node Daemon owns local workspaces, files, PTY/process lifecycle, local tool execution, and agent process management.
 - Do not make the web client depend on direct access to every node.
+- Prefer DDD style in code;
 - Do not hide integration behavior behind untraced agent text when it should become a tool, event, artifact, or visual block.
 
 ## Code Conventions
