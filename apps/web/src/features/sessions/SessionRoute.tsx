@@ -6,7 +6,10 @@ import { coreApi } from "../../shared/api/http-client";
 import { queryKeys } from "../../shared/api/query-keys";
 import { openSessionStream } from "../../shared/api/sse-client";
 import { Badge } from "../../shared/ui/badge";
-import { runWorkbenchCommand } from "../../workbench/commands/registry";
+import {
+  canRunCommand,
+  runWorkbenchCommand,
+} from "../../workbench/commands/registry";
 import { applySessionStreamEventToCache } from "../../workbench/projection/session-stream-cache";
 import { ReferenceActions } from "../../workbench/references/ReferenceActions";
 import { ArtifactTree } from "../artifacts/ArtifactTree";
@@ -33,6 +36,7 @@ export function SessionRoute() {
     mutationFn: (content: string) =>
       runWorkbenchCommand("session.sendTurn", {
         session: session.data?.session,
+        runtime: session.data?.session.runtime,
         turnContent: content,
         afterSuccess: invalidateSession,
       }),
@@ -64,6 +68,11 @@ export function SessionRoute() {
   }
 
   const isDetached = session.data.session.state === "detached";
+  const canSendTurn = canRunCommand("session.sendTurn", {
+    session: session.data.session,
+    runtime: session.data.session.runtime,
+    turnContent: "ready",
+  });
 
   return (
     <section className="grid gap-4 xl:grid-cols-[minmax(0,1fr)_280px]">
@@ -110,7 +119,7 @@ export function SessionRoute() {
         <SessionTimeline detail={session.data} />
         <ChatComposer
           pending={sendTurn.isPending}
-          disabled={isDetached}
+          disabled={!canSendTurn}
           onSend={(content) => sendTurn.mutate(content)}
         />
       </div>

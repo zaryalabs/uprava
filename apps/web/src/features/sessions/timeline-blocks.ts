@@ -33,6 +33,7 @@ export function buildSessionTimelineBlocks(
   const groupedActivityTurnIds = new Set(
     activityGroups.map((group) => group.turnId),
   );
+  const pendingApprovals = pendingApprovalIds(detail.events);
   const messageSourceEventIds = new Set(
     detail.messages
       .map((message) => message.source_event_id)
@@ -66,7 +67,7 @@ export function buildSessionTimelineBlocks(
     )
     .map((event, sourceIndex) =>
       orderedTimelineBlockItem(
-        blockFromEvent(event),
+        blockFromEvent(event, { pendingApprovals }),
         event.happened_at,
         event.seq,
         detail.messages.length + activityBlocks.length + sourceIndex,
@@ -108,9 +109,13 @@ export function blockFromMessage(
   });
 }
 
-export function blockFromEvent(event: EventEnvelope): TimelineBlockItem {
+export function blockFromEvent(
+  event: EventEnvelope,
+  options: { pendingApprovals?: Set<string> } = {},
+): TimelineBlockItem {
   const approvalId = approvalIdFromEvent(event);
   if (approvalId) {
+    const pending = options.pendingApprovals?.has(approvalId) ?? true;
     return {
       block: baseBlock({
         blockId: `event:${event.event_id}`,
@@ -123,11 +128,12 @@ export function blockFromEvent(event: EventEnvelope): TimelineBlockItem {
           eventKind: event.kind,
           seq: event.seq,
           happenedAt: event.happened_at,
+          state: pending ? "pending" : "resolved",
         },
-        actions: ["approval.resolve"],
+        actions: pending ? ["approval.resolve"] : [],
         fallbackText: approvalPromptFromEvent(event),
       }),
-      approvalId,
+      approvalId: pending ? approvalId : undefined,
     };
   }
 
@@ -313,9 +319,34 @@ function turnActivityCounts(rows: ReturnType<typeof turnActivityRow>[]) {
 
 export function approvalIdFromEvent(event: EventEnvelope) {
   if (event.kind !== "approval.requested") return null;
-  if (!isRecord(event.payload)) return null;
-  const approvalId = event.payload.approval_id;
+  return approvalIdFromPayload(event.payload);
+}
+
+function approvalIdFromResolutionEvent(event: EventEnvelope) {
+  if (event.kind !== "approval.resolved") return null;
+  return approvalIdFromPayload(event.payload);
+}
+
+function approvalIdFromPayload(payload: unknown) {
+  if (!isRecord(payload)) return null;
+  const approvalId = payload.approval_id;
   return typeof approvalId === "string" ? approvalId : null;
+}
+
+function pendingApprovalIds(events: EventEnvelope[]) {
+  const pending = new Set<string>();
+  for (const event of [...events].sort(compareEvents)) {
+    const requestedId = approvalIdFromEvent(event);
+    if (requestedId) {
+      pending.add(requestedId);
+      continue;
+    }
+    const resolvedId = approvalIdFromResolutionEvent(event);
+    if (resolvedId) {
+      pending.delete(resolvedId);
+    }
+  }
+  return pending;
 }
 
 function approvalPromptFromEvent(event: EventEnvelope) {

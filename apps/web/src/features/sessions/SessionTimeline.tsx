@@ -4,7 +4,10 @@ import { queryKeys } from "../../shared/api/query-keys";
 import type { SessionDetail } from "../../shared/protocol/types";
 import { Button } from "../../shared/ui/button";
 import { TimelineBlockRenderer } from "../../workbench/blocks/TimelineBlockRenderer";
-import { runWorkbenchCommand } from "../../workbench/commands/registry";
+import {
+  canRunCommand,
+  runWorkbenchCommand,
+} from "../../workbench/commands/registry";
 import { ReferenceActions } from "../../workbench/references/ReferenceActions";
 import { buildSessionTimelineBlocks } from "./timeline-blocks";
 
@@ -26,12 +29,20 @@ export function SessionTimeline({ detail }: { detail: SessionDetail }) {
     }) =>
       runWorkbenchCommand("approval.resolve", {
         session: detail.session,
+        runtime: detail.session.runtime,
         approvalId,
         approved,
         afterSuccess: invalidateSession,
       }),
   });
   const blocks = buildSessionTimelineBlocks(detail);
+  const canResolveApproval = (approvalId: string, approved: boolean) =>
+    canRunCommand("approval.resolve", {
+      session: detail.session,
+      runtime: detail.session.runtime,
+      approvalId,
+      approved,
+    });
 
   return (
     <div className="space-y-3">
@@ -46,7 +57,10 @@ export function SessionTimeline({ detail }: { detail: SessionDetail }) {
                 <>
                   <Button
                     variant="primary"
-                    disabled={resolveApproval.isPending}
+                    disabled={
+                      resolveApproval.isPending ||
+                      !canResolveApproval(approvalId, true)
+                    }
                     onClick={() =>
                       resolveApproval.mutate({ approvalId, approved: true })
                     }
@@ -55,7 +69,10 @@ export function SessionTimeline({ detail }: { detail: SessionDetail }) {
                   </Button>
                   <Button
                     variant="danger"
-                    disabled={resolveApproval.isPending}
+                    disabled={
+                      resolveApproval.isPending ||
+                      !canResolveApproval(approvalId, false)
+                    }
                     onClick={() =>
                       resolveApproval.mutate({ approvalId, approved: false })
                     }

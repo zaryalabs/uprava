@@ -88,6 +88,36 @@ describe("workbench command registry", () => {
         turnContent: "   ",
       }),
     ).toBe(false);
+    expect(
+      canRunCommand("session.sendTurn", {
+        session: sessionWithRuntime("active", runtimeWithState("expired")),
+        turnContent: "hello",
+      }),
+    ).toBe(false);
+  });
+
+  it("requires blocked attached runtime state for approval resolution", () => {
+    expect(
+      canRunCommand("approval.resolve", {
+        session: sessionWithRuntime("active", runtimeWithState("blocked")),
+        approvalId: "approval-1",
+        approved: true,
+      }),
+    ).toBe(true);
+    expect(
+      canRunCommand("approval.resolve", {
+        session: sessionWithRuntime("active", runtimeWithState("ready")),
+        approvalId: "approval-1",
+        approved: true,
+      }),
+    ).toBe(false);
+    expect(
+      canRunCommand("approval.resolve", {
+        session: sessionWithRuntime("detached", runtimeWithState("blocked")),
+        approvalId: "approval-1",
+        approved: true,
+      }),
+    ).toBe(false);
   });
 
   it("blocks session start when placement has a hard resource badge", () => {
@@ -157,13 +187,20 @@ function runtimeWithState(state: RuntimeSummary["state"]): RuntimeSummary {
 }
 
 function sessionWithState(state: SessionSummary["state"]): SessionSummary {
+  return sessionWithRuntime(state, runtimeWithState("ready"));
+}
+
+function sessionWithRuntime(
+  state: SessionSummary["state"],
+  runtime: RuntimeSummary,
+): SessionSummary {
   return {
     session_thread_id: "session-1",
     project_placement_id: "placement-1",
-    runtime_session_id: "runtime-1",
+    runtime_session_id: runtime.runtime_session_id,
     title: "Session",
     state,
-    runtime: runtimeWithState("ready"),
+    runtime,
     message_count: 0,
     updated_at: "2026-06-17T00:00:00Z",
   };

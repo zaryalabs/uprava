@@ -27,6 +27,34 @@ describe("session timeline blocks", () => {
     expect(blocks[1].block.actions).toEqual(["approval.resolve"]);
   });
 
+  it("does not expose approval actions after a matching resolution event", () => {
+    const detail = detailWithApproval();
+    const blocks = buildSessionTimelineBlocks({
+      ...detail,
+      events: [
+        ...detail.events,
+        {
+          ...eventWithPayload("approval.resolved", {
+            approval_id: "approval-1",
+            approved: true,
+            message: "Approved",
+          }),
+          event_id: "event-approval-resolved",
+          seq: 3,
+          happened_at: "2026-06-17T00:00:01Z",
+        },
+      ],
+    });
+
+    const approvalBlock = blocks.find(
+      (item) => item.block.type === "core.approval-request",
+    );
+
+    expect(approvalBlock?.approvalId).toBeUndefined();
+    expect(approvalBlock?.block.actions).toEqual([]);
+    expect(approvalBlock?.block.data).toMatchObject({ state: "resolved" });
+  });
+
   it("renders newer dialogue blocks after older ones", () => {
     const detail = detailWithApproval();
     const userMessage = {

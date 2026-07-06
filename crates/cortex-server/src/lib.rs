@@ -4822,7 +4822,12 @@ fn available_commands(
     {
         commands.push("runtime.resume".to_owned());
     }
-    if has_pending_approvals && node_accepts_commands && provider_available && session_is_attached {
+    if has_pending_approvals
+        && runtime_state == RuntimeSessionState::Blocked
+        && node_accepts_commands
+        && provider_available
+        && session_is_attached
+    {
         commands.push("approval.resolve".to_owned());
     }
     if has_active_warnings {
@@ -9486,6 +9491,54 @@ mod tests {
             vec![ApprovalId::from("approval-1")]
         );
         assert!(projection
+            .available_commands
+            .contains(&"approval.resolve".to_owned()));
+    }
+
+    #[tokio::test]
+    async fn agent_projection_requires_blocked_runtime_for_approval_resolution() {
+        let state = test_state().await;
+        let (node_id, detail, workspace_path) = create_test_session(&state).await;
+        accept_node_event(
+            &state,
+            node_event_fixture(
+                &detail,
+                node_id.clone(),
+                "projection-approval-ready-1",
+                1,
+                EventKind::ApprovalRequested,
+                json!({
+                    "approval_id": "approval-ready",
+                    "prompt": "Allow projection test"
+                }),
+            ),
+        )
+        .await
+        .expect("approval event accepts");
+        accept_node_event(
+            &state,
+            node_event_fixture(
+                &detail,
+                node_id,
+                "projection-runtime-ready-after-approval",
+                2,
+                EventKind::RuntimeReady,
+                json!({ "provider": "codex" }),
+            ),
+        )
+        .await
+        .expect("ready event accepts");
+
+        let projection = build_agent_projection(&state, &detail.session.session_thread_id)
+            .await
+            .expect("projection builds");
+        std::fs::remove_dir_all(&workspace_path).expect("workspace dir removes");
+
+        assert_eq!(
+            projection.pending_approvals,
+            vec![ApprovalId::from("approval-ready")]
+        );
+        assert!(!projection
             .available_commands
             .contains(&"approval.resolve".to_owned()));
     }

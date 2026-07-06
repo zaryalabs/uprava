@@ -253,6 +253,9 @@ const commands: UiCommand[] = [
       Boolean(context.session) &&
       context.session?.state !== "detached" &&
       context.session?.state !== "stopped" &&
+      ["ready", "running"].includes(
+        (context.runtime ?? context.session?.runtime)?.state ?? "",
+      ) &&
       Boolean(context.turnContent?.trim()),
     run: async (context) => {
       const session = requireValue(
@@ -333,6 +336,8 @@ const commands: UiCommand[] = [
     icon: Check,
     when: (context) =>
       Boolean(context.session && context.approvalId) &&
+      context.session?.state !== "detached" &&
+      (context.runtime ?? context.session?.runtime)?.state === "blocked" &&
       typeof context.approved === "boolean",
     run: async (context) => {
       const session = requireValue(

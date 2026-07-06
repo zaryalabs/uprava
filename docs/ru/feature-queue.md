@@ -41,7 +41,7 @@ dependency, complexity, risk and value. Позиции могут двигать
 | --- | --- | --- | --- | --- | --- |
 | 0 | + | V01 Distributed Agent Control Panel | Multi-node chat/session control panel | Current design baseline | High |
 | 1 | + | Security baseline | Trusted-dev warning, node auth, local web auth, credential handling, audit minimum | V01 control path | High |
-| 2 | - | Runtime/session hardening | Robust lifecycle, resume, stop, blocked, stale states | V01 runtime path | Medium |
+| 2 | + | Runtime/session hardening | Robust lifecycle, resume, stop, blocked, stale states | V01 runtime path | Medium |
 | 3 | - | Workspace shell and reference model | Stable refs and routes for future workspace evidence | V01 entity/session model | Medium |
 | 4 | - | Read-only Project Workspace Inspector | File tree, metadata, safe text viewer | Workspace refs, Node file reads | Medium |
 | 5 | - | Workspace intervention layer | Lightweight editor, terminal, command history, diff/check entry points | Read-only inspector, events | High |
@@ -101,6 +101,15 @@ cloud security без изменения Core/Node responsibility split.
 **First useful slice:** Clear lifecycle states, explicit expiry/resume behavior,
 blocked approvals, interrupt/stop semantics, stale node handling and degraded
 resume messaging.
+
+**Current implementation note:** Core and Node now persist and project
+start/ready/running/blocked/resuming/stopped/error/expired runtime state,
+bounded provider resume refs, idle expiry, stale/offline/revoked node warnings,
+detached-session gates, approval request/resolution state and command preflight.
+The Web Control Panel and agent projection only advertise send-turn and
+approval-resolution commands when those commands match Core runtime/session
+preflight, and resolved historical approval blocks no longer expose approval
+actions.
 
 **Target direction:** Поддержать несколько runtime strategies and provider
 adapters без изменения Core/UI concepts.
