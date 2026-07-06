@@ -18,20 +18,25 @@ export function applySessionEvent(
   event: EventEnvelope,
 ): ProjectionApplyResult {
   const currentSeq = detail.events.reduce(
-    (max, candidate) => Math.max(max, candidate.seq),
+    (max, candidate) => Math.max(max, sessionEventCursor(candidate)),
     0,
   );
-  if (event.seq !== currentSeq + 1) {
+  const receivedSeq = sessionEventCursor(event);
+  if (receivedSeq !== currentSeq + 1) {
     return {
       kind: "gap",
       expectedSeq: currentSeq + 1,
-      receivedSeq: event.seq,
+      receivedSeq,
     };
   }
   return {
     kind: "applied",
     detail: applyContiguousEvent(detail, event),
   };
+}
+
+export function sessionEventCursor(event: EventEnvelope): number {
+  return event.session_projection_seq ?? event.seq;
 }
 
 function applyContiguousEvent(

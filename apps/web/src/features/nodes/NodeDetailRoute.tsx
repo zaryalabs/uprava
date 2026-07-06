@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { FolderPlus, KeyRound, ShieldOff, Trash2 } from "lucide-react";
 import { Link, useNavigate, useParams } from "react-router-dom";
@@ -34,6 +34,9 @@ export function NodeDetailRoute() {
   const placements = inventory.data?.placements.filter(
     (placement) => placement.node_id === nodeId,
   );
+  useEffect(() => {
+    setRotatedCredential(null);
+  }, [nodeId]);
   const revokeNode = useMutation({
     mutationFn: () =>
       runWorkbenchCommand("node.revoke", {
@@ -84,8 +87,24 @@ export function NodeDetailRoute() {
       });
       return result as NodeCredentialRotationResponse;
     },
+    onMutate: () => {
+      setRotatedCredential(null);
+    },
     onSuccess: setRotatedCredential,
+    onError: () => {
+      setRotatedCredential(null);
+    },
   });
+
+  if (inventory.isError) {
+    return (
+      <ErrorNotice error={inventory.error} title="Node inventory failed" />
+    );
+  }
+
+  if (inventory.isLoading || !inventory.data) {
+    return <div className="text-sm text-[#536257]">Loading node</div>;
+  }
 
   if (!node) {
     return <div className="text-sm text-[#536257]">Node not found</div>;

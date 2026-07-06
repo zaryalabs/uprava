@@ -13,6 +13,11 @@ pub enum LoggingError {
     CreateDirectory { path: PathBuf, source: io::Error },
     #[error("failed to open log file `{path}`")]
     OpenFile { path: PathBuf, source: io::Error },
+    #[error("failed to initialize tracing subscriber")]
+    SubscriberInit {
+        #[source]
+        source: tracing_subscriber::util::TryInitError,
+    },
 }
 
 #[derive(Clone)]
@@ -102,7 +107,8 @@ pub fn init_tracing(
         .with(env_filter)
         .with(stderr_layer)
         .with(file_layer)
-        .init();
+        .try_init()
+        .map_err(|source| LoggingError::SubscriberInit { source })?;
     tracing::info!(
         service = service_name,
         log_file = %log_path.display(),
@@ -132,11 +138,22 @@ mod tests {
         init_tracing("test", "UPRAVA_LOGGING_TEST_FILE", &path).expect("tracing initializes");
         tracing::info!("logging helper test event");
         let content = std::fs::read_to_string(&path).expect("log file reads");
+        let second_path = std::env::temp_dir().join(format!(
+            "uprava-logging-double-init-test-{}-{}.log",
+            std::process::id(),
+            SystemTime::now()
+                .duration_since(UNIX_EPOCH)
+                .expect("system clock is after unix epoch")
+                .as_nanos()
+        ));
+        let second = init_tracing("test", "UPRAVA_LOGGING_DOUBLE_INIT_TEST_FILE", &second_path);
         let _ = std::fs::remove_file(path);
+        let _ = std::fs::remove_file(second_path);
 
         assert!(
             content.contains("logging helper test event"),
             "log file content was: {content}"
         );
+        assert!(matches!(second, Err(LoggingError::SubscriberInit { .. })));
     }
 }

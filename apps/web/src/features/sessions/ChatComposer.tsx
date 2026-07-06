@@ -7,7 +7,7 @@ import { Textarea } from "../../shared/ui/textarea";
 type Props = {
   pending: boolean;
   disabled?: boolean;
-  onSend: (content: string) => void;
+  onSend: (content: string) => Promise<void> | void;
 };
 
 export function ChatComposer({ pending, disabled = false, onSend }: Props) {
@@ -20,8 +20,11 @@ export function ChatComposer({ pending, disabled = false, onSend }: Props) {
         event.preventDefault();
         const trimmed = content.trim();
         if (disabled || !trimmed) return;
-        onSend(trimmed);
-        setContent("");
+        void Promise.resolve(onSend(trimmed))
+          .then(() => {
+            setContent("");
+          })
+          .catch(() => {});
       }}
     >
       <Textarea

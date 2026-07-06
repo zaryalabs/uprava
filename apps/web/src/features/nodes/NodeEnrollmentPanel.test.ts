@@ -50,6 +50,16 @@ describe("isEnrollmentApprovable", () => {
       "Approved; waiting for claim",
     );
   });
+
+  it("does not let legacy approval timestamps hide terminal statuses", () => {
+    const expired = enrollment({
+      status: "expired",
+      approved_at: "2026-06-17T00:00:00Z",
+    });
+
+    expect(isEnrollmentApproved(expired)).toBe(false);
+    expect(enrollmentStatusText(expired)).toBe("Expired before claim");
+  });
 });
 
 function enrollment(

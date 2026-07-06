@@ -36,6 +36,8 @@ use subtle::ConstantTimeEq;
 use tokio::sync::{broadcast, mpsc, RwLock};
 use tower_http::{
     cors::{AllowOrigin, CorsLayer},
+    limit::RequestBodyLimitLayer,
+    timeout::TimeoutLayer,
     trace::TraceLayer,
 };
 use uprava_protocol::{
@@ -77,6 +79,8 @@ const AUTH_FAILURE_LIMIT: usize = 10;
 const AUTH_FAILURE_WINDOW_SECONDS: i64 = 60;
 const WORKSPACE_COMMAND_TIMEOUT: Duration = Duration::from_secs(5);
 const WORKSPACE_INTERVENTION_TIMEOUT: Duration = Duration::from_secs(120);
+const HTTP_REQUEST_TIMEOUT: Duration = Duration::from_secs(130);
+const MAX_HTTP_REQUEST_BODY_BYTES: usize = 1024 * 1024;
 
 #[derive(Debug, Clone)]
 pub struct AppConfig {
@@ -269,11 +273,10 @@ impl AppState {
     }
 
     async fn ensure_optional_schema(&self) -> Result<(), AppError> {
-        let _ = sqlx::query("alter table nodes add column credential_hash text")
-            .execute(&self.pool)
-            .await;
+        self.add_optional_column("alter table nodes add column credential_hash text")
+            .await?;
         for statement in ["alter table runtime_sessions add column provider_resume_ref_json text"] {
-            let _ = sqlx::query(statement).execute(&self.pool).await;
+            self.add_optional_column(statement).await?;
         }
         for statement in [
             "alter table commands add column actor_ref_json text",
@@ -284,7 +287,7 @@ impl AppState {
             "alter table commands add column result_payload_json text",
             "alter table commands add column dedupe_key text",
         ] {
-            let _ = sqlx::query(statement).execute(&self.pool).await;
+            self.add_optional_column(statement).await?;
         }
         for statement in [
             "alter table events add column actor_ref_json text",
@@ -295,9 +298,49 @@ impl AppState {
             "alter table events add column cause_refs_json text",
             "alter table events add column result_refs_json text",
             "alter table events add column payload_json text",
+            "alter table events add column session_projection_seq integer",
         ] {
-            let _ = sqlx::query(statement).execute(&self.pool).await;
+            self.add_optional_column(statement).await?;
         }
+        self.backfill_session_projection_seq().await?;
+        Ok(())
+    }
+
+    async fn add_optional_column(&self, statement: &str) -> Result<(), AppError> {
+        match sqlx::query(statement).execute(&self.pool).await {
+            Ok(_) => Ok(()),
+            Err(sqlx::Error::Database(error))
+                if error.message().contains("duplicate column name") =>
+            {
+                Ok(())
+            }
+            Err(error) => Err(error.into()),
+        }
+    }
+
+    async fn backfill_session_projection_seq(&self) -> Result<(), AppError> {
+        sqlx::query(
+            r#"
+            update events
+            set session_projection_seq = (
+                select count(*)
+                from events as ordered_events
+                where ordered_events.session_thread_id = events.session_thread_id
+                  and ordered_events.session_thread_id is not null
+                  and (
+                    ordered_events.happened_at < events.happened_at
+                    or (
+                        ordered_events.happened_at = events.happened_at
+                        and ordered_events.event_id <= events.event_id
+                    )
+                  )
+            )
+            where session_thread_id is not null
+              and session_projection_seq is null
+            "#,
+        )
+        .execute(&self.pool)
+        .await?;
         Ok(())
     }
 }
@@ -409,6 +452,11 @@ pub fn build_router(state: Arc<AppState>) -> Router {
     Router::new()
         .nest("/api/v1", public_api.merge(client_api))
         .with_state(state)
+        .layer(TimeoutLayer::with_status_code(
+            StatusCode::REQUEST_TIMEOUT,
+            HTTP_REQUEST_TIMEOUT,
+        ))
+        .layer(RequestBodyLimitLayer::new(MAX_HTTP_REQUEST_BODY_BYTES))
         .layer(TraceLayer::new_for_http())
         .layer(cors)
 }
@@ -2617,13 +2665,13 @@ async fn session_stream(
     let stream = async_stream::stream! {
         let mut last_seq = after_seq;
         for event in events {
-            last_seq = last_seq.max(event.seq);
+            last_seq = last_seq.max(session_event_cursor(&event));
             yield Ok(sse_event_for_event(&event));
         }
         loop {
             match event_rx.recv().await {
                 Ok(event) if event_matches_session_after_seq(&event, &session_id, last_seq) => {
-                    last_seq = event.seq;
+                    last_seq = session_event_cursor(&event);
                     yield Ok(sse_event_for_event(&event));
                 }
                 Ok(_) => {}
@@ -2660,7 +2708,7 @@ fn last_event_id_after_seq(headers: &HeaderMap) -> Option<i64> {
 fn sse_event_for_event(event: &EventEnvelope) -> axum::response::sse::Event {
     let data = serde_json::to_string(event).unwrap_or_else(|_| "{}".to_owned());
     axum::response::sse::Event::default()
-        .id(event.seq.to_string())
+        .id(session_event_cursor(event).to_string())
         .event("uprava.event")
         .data(data)
 }
@@ -2674,7 +2722,11 @@ fn event_matches_session_after_seq(
         .session_thread_id
         .as_ref()
         .is_some_and(|event_session_id| event_session_id == session_id)
-        && event.seq > after_seq
+        && session_event_cursor(event) > after_seq
+}
+
+fn session_event_cursor(event: &EventEnvelope) -> i64 {
+    event.session_projection_seq.unwrap_or(event.seq)
 }
 
 async fn session_artifact_tree(
@@ -3122,7 +3174,7 @@ async fn dispatch_pending_commands(state: &AppState, node_id: &NodeId) -> Result
         r#"
         select command_id, command_json
         from commands
-        where target_node_id = ?1 and state in ('recorded', 'pending_dispatch', 'dispatched')
+        where target_node_id = ?1 and state in ('recorded', 'pending_dispatch', 'dispatched', 'acknowledged')
         order by created_at asc
         "#,
     )
@@ -3193,7 +3245,7 @@ async fn should_open_control_channel(state: &AppState, node_id: &NodeId) -> Resu
         return Ok(false);
     }
     let pending: i64 = sqlx::query_scalar(
-        "select count(*) from commands where target_node_id = ?1 and state in ('recorded', 'pending_dispatch', 'dispatched')",
+        "select count(*) from commands where target_node_id = ?1 and state in ('recorded', 'pending_dispatch', 'dispatched', 'acknowledged')",
     )
     .bind(node_id.as_str())
     .fetch_one(&state.pool)
@@ -3319,6 +3371,11 @@ async fn accept_node_event(state: &AppState, event: EventEnvelope) -> Result<(),
     if event.correlation_id.is_none() {
         event.correlation_id = command_correlation_id(state, event.command_id.as_ref()).await?;
     }
+    if let Some(session_id) = event.session_thread_id.clone() {
+        event.session_projection_seq = Some(next_session_projection_seq(state, &session_id).await?);
+    } else {
+        event.session_projection_seq = None;
+    }
     upsert_actor(state, &event.actor_ref, event.happened_at).await?;
 
     insert_event_record(state, &scope_key, &event).await?;
@@ -3341,11 +3398,11 @@ async fn insert_event_record(
         r#"
         insert into events (
             event_id, scope_key, seq, kind, node_id, runtime_session_id,
-            session_thread_id, command_id, actor_ref_json, scope_ref_json,
-            correlation_id, source_refs_json, evidence_refs_json, cause_refs_json,
-            result_refs_json, payload_json, event_json, happened_at
+            session_thread_id, session_projection_seq, command_id, actor_ref_json,
+            scope_ref_json, correlation_id, source_refs_json, evidence_refs_json,
+            cause_refs_json, result_refs_json, payload_json, event_json, happened_at
         )
-        values (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18)
+        values (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18, ?19)
         "#,
     )
     .bind(event.event_id.as_str())
@@ -3365,6 +3422,7 @@ async fn insert_event_record(
             .as_ref()
             .map(SessionThreadId::as_str),
     )
+    .bind(event.session_projection_seq)
     .bind(event.command_id.as_ref().map(CommandId::as_str))
     .bind(serde_json::to_string(&event.actor_ref)?)
     .bind(serde_json::to_string(&event.scope_ref)?)
@@ -3379,6 +3437,19 @@ async fn insert_event_record(
     .execute(&state.pool)
     .await?;
     Ok(())
+}
+
+async fn next_session_projection_seq(
+    state: &AppState,
+    session_id: &SessionThreadId,
+) -> Result<i64, AppError> {
+    let max_seq: Option<i64> = sqlx::query_scalar(
+        "select max(session_projection_seq) from events where session_thread_id = ?1",
+    )
+    .bind(session_id.as_str())
+    .fetch_one(&state.pool)
+    .await?;
+    Ok(max_seq.unwrap_or(0) + 1)
 }
 
 async fn command_correlation_id(
@@ -3668,6 +3739,9 @@ async fn record_warning_acknowledgement(
         session_thread_id: Some(detail.session.session_thread_id.clone()),
         turn_id: None,
         seq,
+        session_projection_seq: Some(
+            next_session_projection_seq(state, &detail.session.session_thread_id).await?,
+        ),
         kind: EventKind::CoordinationWarningAcknowledged,
         happened_at,
         source_refs: vec![UpravaRef::Warning {
@@ -4687,6 +4761,7 @@ async fn expire_idle_runtimes(state: &AppState) -> Result<(), AppError> {
                 session_thread_id: Some(session_thread_id),
                 turn_id: None,
                 seq,
+                session_projection_seq: None,
                 kind: EventKind::RuntimeExpired,
                 happened_at: now,
                 source_refs: vec![UpravaRef::Runtime { runtime_session_id }],
@@ -4814,10 +4889,10 @@ async fn load_events(
 ) -> Result<Vec<EventEnvelope>, AppError> {
     let rows = sqlx::query(
         r#"
-        select event_json
+        select event_json, session_projection_seq
         from events
-        where session_thread_id = ?1 and seq > ?2
-        order by seq asc
+        where session_thread_id = ?1 and session_projection_seq > ?2
+        order by session_projection_seq asc
         "#,
     )
     .bind(session_id.as_str())
@@ -4827,7 +4902,9 @@ async fn load_events(
     rows.into_iter()
         .map(|row| {
             let event_json: String = row.try_get("event_json")?;
-            Ok(serde_json::from_str::<EventEnvelope>(&event_json)?)
+            let mut event = serde_json::from_str::<EventEnvelope>(&event_json)?;
+            event.session_projection_seq = row.try_get("session_projection_seq")?;
+            Ok(event)
         })
         .collect()
 }
@@ -5721,6 +5798,10 @@ async fn append_event(state: &AppState, new_event: NewEvent) -> Result<EventEnve
     let scope_key = scope_key(&new_event.scope_ref);
     let seq = next_seq(state, &scope_key).await?;
     let now = Utc::now();
+    let session_projection_seq = match &new_event.session_thread_id {
+        Some(session_id) => Some(next_session_projection_seq(state, session_id).await?),
+        None => None,
+    };
     let event = EventEnvelope {
         event_id: EventId::new(),
         command_id: new_event.command_id,
@@ -5732,6 +5813,7 @@ async fn append_event(state: &AppState, new_event: NewEvent) -> Result<EventEnve
         session_thread_id: new_event.session_thread_id,
         turn_id: new_event.turn_id,
         seq,
+        session_projection_seq,
         kind: new_event.kind,
         happened_at: now,
         source_refs: vec![],
@@ -6871,6 +6953,7 @@ const MIGRATIONS: &[&str] = &[
         node_id text,
         runtime_session_id text,
         session_thread_id text,
+        session_projection_seq integer,
         command_id text,
         actor_ref_json text not null,
         scope_ref_json text not null,
@@ -6884,6 +6967,11 @@ const MIGRATIONS: &[&str] = &[
         happened_at text not null,
         unique(scope_key, seq)
     )
+    "#,
+    r#"
+    create unique index if not exists events_session_projection_seq_idx
+    on events(session_thread_id, session_projection_seq)
+    where session_thread_id is not null and session_projection_seq is not null
     "#,
     r#"
     create table if not exists warning_acknowledgements (
@@ -7414,6 +7502,24 @@ mod tests {
             .expect("router responds");
 
         assert_eq!(response.status(), StatusCode::OK);
+    }
+
+    #[tokio::test]
+    async fn router_rejects_oversized_request_body() {
+        let app = build_router(test_state().await);
+        let response = app
+            .oneshot(
+                Request::builder()
+                    .method(Method::POST)
+                    .uri("/api/v1/client/logs")
+                    .header(CONTENT_TYPE, "application/json")
+                    .body(Body::from(vec![b'a'; MAX_HTTP_REQUEST_BODY_BYTES + 1]))
+                    .expect("request builds"),
+            )
+            .await
+            .expect("router responds");
+
+        assert_eq!(response.status(), StatusCode::PAYLOAD_TOO_LARGE);
     }
 
     #[tokio::test]
@@ -8897,6 +9003,42 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn acknowledged_command_without_result_dispatches_after_reconnect() {
+        let state = test_state().await;
+        let claim = enroll_test_node(&state).await;
+        let node_id = claim.node_id.expect("node id returned");
+        let command_id = CommandId::from("acknowledged-command-1");
+
+        record_command(&state, command_fixture(command_id.clone(), node_id.clone()))
+            .await
+            .expect("command records");
+        update_command_state(&state, &command_id, CommandState::Acknowledged)
+            .await
+            .expect("command acknowledges");
+
+        assert!(should_open_control_channel(&state, &node_id)
+            .await
+            .expect("channel request evaluates"));
+
+        let (tx, mut rx) = mpsc::unbounded_channel();
+        state
+            .control_channels
+            .write()
+            .await
+            .insert(node_id.to_string(), tx);
+        dispatch_pending_commands(&state, &node_id)
+            .await
+            .expect("acknowledged command redispatches");
+        let frame = rx.recv().await.expect("dispatch frame is sent");
+
+        assert!(matches!(
+            frame,
+            ControlFrame::CommandDispatch { command, .. }
+                if command.command_id == command_id
+        ));
+    }
+
+    #[tokio::test]
     async fn workspace_file_route_dispatches_node_read_and_decodes_payload() {
         let state = test_state().await;
         let claim = enroll_test_node(&state).await;
@@ -9357,6 +9499,68 @@ mod tests {
         assert_eq!(events.len(), 1);
         assert_eq!(events[0].event_id, expected_event_id);
         assert_eq!(events[0].seq, 2);
+    }
+
+    #[tokio::test]
+    async fn session_events_endpoint_uses_projection_cursor_across_scopes() {
+        let state = test_state().await;
+        let (node_id, detail, workspace_path) = create_test_session(&state).await;
+        accept_node_event(
+            &state,
+            node_event_fixture(
+                &detail,
+                node_id,
+                "cursor-runtime-raw-5",
+                5,
+                EventKind::ProviderOutputDelta,
+                json!({ "delta": "runtime" }),
+            ),
+        )
+        .await
+        .expect("runtime event accepts");
+        let session_event = append_event(
+            &state,
+            NewEvent {
+                command_id: None,
+                actor_ref: ActorRef::System,
+                scope_ref: ScopeRef::Session {
+                    session_thread_id: detail.session.session_thread_id.clone(),
+                },
+                node_id: None,
+                runtime_session_id: Some(detail.session.runtime.runtime_session_id.clone()),
+                session_thread_id: Some(detail.session.session_thread_id.clone()),
+                turn_id: None,
+                kind: EventKind::CoordinationWarningAcknowledged,
+                payload: json!({ "warning_kind": "runtime_degraded" }),
+            },
+        )
+        .await
+        .expect("session event appends");
+        let app = build_router(state);
+
+        let response = app
+            .oneshot(
+                Request::builder()
+                    .uri(format!(
+                        "/api/v1/sessions/{}/events?after_seq=1",
+                        detail.session.session_thread_id
+                    ))
+                    .body(Body::empty())
+                    .expect("request builds"),
+            )
+            .await
+            .expect("router responds");
+        let body = to_bytes(response.into_body(), 64 * 1024)
+            .await
+            .expect("response body loads");
+        let events: Vec<EventEnvelope> =
+            serde_json::from_slice(&body).expect("events response parses");
+        std::fs::remove_dir_all(&workspace_path).expect("workspace dir removes");
+
+        assert_eq!(events.len(), 1);
+        assert_eq!(events[0].event_id, session_event.event_id);
+        assert_eq!(events[0].seq, 1);
+        assert_eq!(events[0].session_projection_seq, Some(2));
     }
 
     #[tokio::test]
@@ -10881,6 +11085,7 @@ mod tests {
                 session_thread_id: None,
                 turn_id: None,
                 seq: 1,
+                session_projection_seq: None,
                 kind,
                 happened_at: Utc::now(),
                 source_refs: vec![],
@@ -10941,6 +11146,7 @@ mod tests {
             session_thread_id: Some(detail.session.session_thread_id.clone()),
             turn_id: Some(TurnId::from("turn-1")),
             seq,
+            session_projection_seq: None,
             kind,
             happened_at: Utc::now(),
             source_refs: vec![],
@@ -11048,6 +11254,7 @@ mod tests {
                 session_thread_id: None,
                 turn_id: None,
                 seq: 1,
+                session_projection_seq: None,
                 kind: EventKind::ProviderMessageCompleted,
                 happened_at: Utc::now(),
                 source_refs: vec![source_ref.clone()],
@@ -11134,6 +11341,7 @@ mod tests {
                 session_thread_id: None,
                 turn_id: None,
                 seq: 1,
+                session_projection_seq: None,
                 kind: EventKind::RuntimeReady,
                 happened_at: Utc::now(),
                 source_refs: vec![],

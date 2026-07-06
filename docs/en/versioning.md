@@ -33,7 +33,7 @@ Release versions describe repository and implementation state. Current planning
 documents should refer to the current release baseline, not to `V01`, when they
 discuss features delivered after `0.1.0`.
 
-Current baseline: `0.1.5`.
+Current baseline: `0.1.6`.
 
 ## Update Rules
 

@@ -37,8 +37,8 @@ dependency, complexity, risk and value. Позиции могут двигать
 
 ## Обзор очереди
 
-Current release baseline: `0.1.5`. Закрытые пункты `0` through `5`
-соответствуют shipped versions, зафиксированным в
+Current release baseline: `0.1.6`. Закрытые пункты `0` through `5` plus
+unified audit hardening release соответствуют shipped versions, зафиксированным в
 [`releases.md`](releases.md).
 
 | Order | Done | Mechanism / Feature Slice | First Useful Slice | Dependency | Complexity |
@@ -60,6 +60,7 @@ Current release baseline: `0.1.5`. Закрытые пункты `0` through `5`
 | 14 | - | Hybrid managed sessions | Persistent session can spawn bounded runs and merge evidence back | Task runtime | Very high |
 | 15 | - | Team/cloud model | Users, roles, shared projects, managed Core/nodes | Mature personal workflow | Very high |
 | 16 | - | Beyond software development | Research, analytics, documents, finance, knowledge workflows | Mature artifact/plugin model | Very high |
+| 17 | - | Audit follow-up refactors | Core/Node module split, generated protocol contracts, async workspace command API | `0.1.6` audit hardening | Medium |
 
 ## Детали очереди
 
@@ -303,6 +304,22 @@ developer artifact/plugin model станет достаточно сильной
 
 **Target direction:** Research, analytics, documents, presentations, finance,
 monitoring and knowledge-base workflows.
+
+### 17. Audit follow-up refactors
+
+**Value:** Сохраняет `0.1.6` audit fixes reviewable, contract-backed and ready
+for longer-running tools, не смешивая broad mechanical work с behavior
+hardening release.
+
+**First useful slice:** Разделить Core command/event/session code и Node
+state/command-runner code into focused modules under current public interfaces;
+add generated or schema-checked web protocol contracts; design async workspace
+command API для команд, которые перерастают bounded synchronous execution.
+
+**Target direction:** Сделать command lifecycle, session projection, Node state
+store, workspace command execution and web protocol shapes independently
+testable до того, как Tool Registry and external integrations увеличат surface
+area.
 
 ## Открытые вопросы очереди
 

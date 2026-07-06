@@ -6,7 +6,7 @@ WEB_PACKAGE := $(WEB_DIR)/package.json
 WEB_NODE_MODULES := $(WEB_DIR)/node_modules
 COMPOSE ?= docker compose
 COMPOSE_PARALLEL_LIMIT ?= 1
-RUST_TOOL_TOML_FILES := Cargo.toml crates/*/Cargo.toml deny.toml taplo.toml
+RUST_TOOL_TOML_FILES := $(wildcard Cargo.toml crates/*/Cargo.toml deny.toml taplo.toml)
 # rsa is retained in Cargo.lock as an inactive optional dependency and
 # RUSTSEC-2023-0071 has no fixed release.
 CARGO_AUDIT_IGNORE := --ignore RUSTSEC-2023-0071
@@ -32,18 +32,21 @@ help: ## Show available make targets
 	@awk 'BEGIN {FS = ":.*## "}; /^[a-zA-Z0-9_.-]+:.*## / {printf "  %-14s %s\n", $$1, $$2}' $(MAKEFILE_LIST)
 
 init: ## Install local hooks and project dependencies when manifests exist
-	@if command -v pre-commit >/dev/null 2>&1; then \
+	@set -e; \
+	if command -v pre-commit >/dev/null 2>&1; then \
 		pre-commit install; \
 	else \
 		echo "pre-commit is not installed; install it to enable commit hooks"; \
 	fi
-	@if [ -f "$(RUST_MANIFEST)" ]; then \
+	@set -e; \
+	if [ -f "$(RUST_MANIFEST)" ]; then \
 		cargo fetch; \
 		$(MAKE) --no-print-directory rust-tools-install; \
 	else \
 		echo "No Cargo.toml found; skipping Rust dependency fetch"; \
 	fi
-	@if [ -f "$(WEB_PACKAGE)" ]; then \
+	@set -e; \
+	if [ -f "$(WEB_PACKAGE)" ]; then \
 		$(WEB_RUN) install; \
 	else \
 		echo "No $(WEB_PACKAGE) found; skipping web dependency install"; \
@@ -106,7 +109,8 @@ rust-fmt: ## Format Rust code when Cargo workspace exists
 	fi
 
 rust-l: ## Run Rust format check and clippy when Cargo workspace exists
-	@if [ -f "$(RUST_MANIFEST)" ]; then \
+	@set -e; \
+	if [ -f "$(RUST_MANIFEST)" ]; then \
 		cargo fmt --all -- --check; \
 		cargo clippy --workspace --all-targets -- -D warnings; \
 	else \
@@ -133,7 +137,8 @@ rust-dl: ## Run deeper Rust dependency/config checks when tools are available
 	fi
 
 rust-tools-install: ## Install Rust quality tools required by rust-dl
-	@if [ -f "$(RUST_MANIFEST)" ]; then \
+	@set -e; \
+	if [ -f "$(RUST_MANIFEST)" ]; then \
 		install_tool() { \
 			bin="$$1"; \
 			package="$$2"; \
@@ -246,29 +251,33 @@ codex-smoke: ## Smoke-check real Codex provider with host Core/Web/Node
 	fi
 
 web-fmt: ## Format web app when package script exists
-	@if [ -f "$(WEB_PACKAGE)" ]; then \
-		if [ -d "$(WEB_NODE_MODULES)" ]; then $(WEB_RUN) run format; else echo "Web dependencies are not installed; skipping web format"; fi; \
+	@set -e; \
+	if [ -f "$(WEB_PACKAGE)" ]; then \
+		if [ -d "$(WEB_NODE_MODULES)" ]; then $(WEB_RUN) run format; else echo "Web dependencies are not installed; run make init"; exit 1; fi; \
 	else \
 		echo "No $(WEB_PACKAGE) found; skipping web format"; \
 	fi
 
 web-l: ## Run web lint/typecheck when package scripts exist
-	@if [ -f "$(WEB_PACKAGE)" ]; then \
-		if [ -d "$(WEB_NODE_MODULES)" ]; then $(WEB_RUN) run lint; $(WEB_RUN) run typecheck; else echo "Web dependencies are not installed; skipping web lint"; fi; \
+	@set -e; \
+	if [ -f "$(WEB_PACKAGE)" ]; then \
+		if [ -d "$(WEB_NODE_MODULES)" ]; then $(WEB_RUN) run lint; $(WEB_RUN) run typecheck; else echo "Web dependencies are not installed; run make init"; exit 1; fi; \
 	else \
 		echo "No $(WEB_PACKAGE) found; skipping web lint"; \
 	fi
 
 web-dl: ## Run web production build when package scripts exist
-	@if [ -f "$(WEB_PACKAGE)" ]; then \
-		if [ -d "$(WEB_NODE_MODULES)" ]; then $(WEB_RUN) run build; else echo "Web dependencies are not installed; skipping web build"; fi; \
+	@set -e; \
+	if [ -f "$(WEB_PACKAGE)" ]; then \
+		if [ -d "$(WEB_NODE_MODULES)" ]; then $(WEB_RUN) run build; else echo "Web dependencies are not installed; run make init"; exit 1; fi; \
 	else \
 		echo "No $(WEB_PACKAGE) found; skipping web build"; \
 	fi
 
 web-t: ## Run web tests when package scripts exist
-	@if [ -f "$(WEB_PACKAGE)" ]; then \
-		if [ -d "$(WEB_NODE_MODULES)" ]; then $(WEB_RUN) run test; else echo "Web dependencies are not installed; skipping web tests"; fi; \
+	@set -e; \
+	if [ -f "$(WEB_PACKAGE)" ]; then \
+		if [ -d "$(WEB_NODE_MODULES)" ]; then $(WEB_RUN) run test; else echo "Web dependencies are not installed; run make init"; exit 1; fi; \
 	else \
 		echo "No $(WEB_PACKAGE) found; skipping web tests"; \
 	fi
@@ -284,4 +293,4 @@ clean: ## Remove common local build and cache artifacts
 	rm -rf target htmlcov coverage .pytest_cache .ruff_cache .mypy_cache .ty
 	rm -rf $(WEB_DIR)/dist $(WEB_DIR)/coverage
 
-.PHONY: help init fmt l dl t c pc docs-fmt docs-l rust-fmt rust-l rust-dl rust-tools-install rust-t web-r web-fmt web-l web-dl web-t web-e2e core-r node-r compose-up compose-down compose-logs compose-reset compose-smoke codex-smoke clean
+.PHONY: help init fmt l dl t c pc claw-doctor claw-init claw-map claw-review claw-report claw-ci claw-show claw-fix docs-fmt docs-l rust-fmt rust-l rust-dl rust-tools-install rust-t web-r web-fmt web-l web-dl web-t web-e2e core-r node-r compose-up compose-down compose-logs compose-reset compose-smoke codex-smoke clean

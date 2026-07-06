@@ -66,6 +66,10 @@ execution там, где Codex установлен.
 
 ## Rust stack
 
+Текущий implementation baseline использует Rust `1.88` как minimum supported
+Rust version. Это следует за locked dependency graph вместо pinning transitive
+dependencies к более старому provisional toolchain.
+
 ### Core Backend
 
 Предварительный выбор:

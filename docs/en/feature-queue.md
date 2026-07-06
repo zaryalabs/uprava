@@ -36,8 +36,9 @@ That belongs in [v01.md](v01.md).
 
 ## Queue Overview
 
-Current release baseline: `0.1.5`. Done items `0` through `5` correspond to
-the shipped versions recorded in [`releases.md`](releases.md).
+Current release baseline: `0.1.6`. Done items `0` through `5` plus the
+unified audit hardening release correspond to the shipped versions recorded in
+[`releases.md`](releases.md).
 
 | Order | Done | Mechanism / Feature Slice | First Useful Slice | Dependency | Complexity |
 | --- | --- | --- | --- | --- | --- |
@@ -58,6 +59,7 @@ the shipped versions recorded in [`releases.md`](releases.md).
 | 14 | - | Hybrid managed sessions | Persistent session can spawn bounded runs and merge evidence back | Task runtime | Very high |
 | 15 | - | Team/cloud model | Users, roles, shared projects, managed Core/nodes | Mature personal workflow | Very high |
 | 16 | - | Beyond software development | Research, analytics, documents, finance, knowledge workflows | Mature artifact/plugin model | Very high |
+| 17 | - | Audit follow-up refactors | Core/Node module split, generated protocol contracts, async workspace command API | `0.1.6` audit hardening | Medium |
 
 ## Queue Details
 
@@ -299,6 +301,23 @@ artifact/plugin model is strong enough to transfer.
 
 **Target direction:** Research, analytics, documents, presentations, finance,
 monitoring, and knowledge-base workflows.
+
+### 17. Audit follow-up refactors
+
+**Value:** Keeps the `0.1.6` audit fixes reviewable, contract-backed, and ready
+for longer-running tools without mixing broad mechanical work into a behavior
+hardening release.
+
+**First useful slice:** Split Core command/event/session code and Node
+state/command-runner code into focused modules under the current public
+interfaces; add generated or schema-checked web protocol contracts; design an
+async workspace command API for commands that outgrow bounded synchronous
+execution.
+
+**Target direction:** Make the command lifecycle, session projection, Node
+state store, workspace command execution, and web protocol shapes independently
+testable before Tool Registry and external integration work increase the
+surface area.
 
 ## Open Queue Questions
 

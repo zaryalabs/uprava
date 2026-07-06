@@ -7,10 +7,12 @@ import { coreApi } from "../../shared/api/http-client";
 import { queryKeys } from "../../shared/api/query-keys";
 import { openSessionStream } from "../../shared/api/sse-client";
 import { Badge } from "../../shared/ui/badge";
+import { ErrorNotice } from "../../shared/ui/error-notice";
 import {
   canRunCommand,
   runWorkbenchCommand,
 } from "../../workbench/commands/registry";
+import { sessionEventCursor } from "../../workbench/projection/apply-session-event";
 import { applySessionStreamEventToCache } from "../../workbench/projection/session-stream-cache";
 import { ReferenceActions } from "../../workbench/references/ReferenceActions";
 import {
@@ -49,8 +51,11 @@ export function SessionRoute() {
   });
 
   useEffect(() => {
-    if (!sessionThreadId || !session.data?.events.length) return;
-    const afterSeq = Math.max(...session.data.events.map((event) => event.seq));
+    if (!sessionThreadId || !session.data) return;
+    const afterSeq = session.data.events.reduce(
+      (max, event) => Math.max(max, sessionEventCursor(event)),
+      0,
+    );
     return openSessionStream(
       sessionThreadId,
       afterSeq,
@@ -68,6 +73,10 @@ export function SessionRoute() {
       },
     );
   }, [queryClient, session.data?.events, sessionThreadId]);
+
+  if (session.isError) {
+    return <ErrorNotice error={session.error} title="Session load failed" />;
+  }
 
   if (!session.data) {
     return <div className="text-sm text-[#536257]">Loading session</div>;
@@ -137,10 +146,13 @@ export function SessionRoute() {
           </div>
         </header>
         <SessionTimeline detail={session.data} />
+        {sendTurn.isError ? (
+          <ErrorNotice error={sendTurn.error} title="Send failed" />
+        ) : null}
         <ChatComposer
           pending={sendTurn.isPending}
           disabled={!canSendTurn}
-          onSend={(content) => sendTurn.mutate(content)}
+          onSend={(content) => sendTurn.mutateAsync(content).then(() => {})}
         />
       </div>
       <aside className="space-y-4">

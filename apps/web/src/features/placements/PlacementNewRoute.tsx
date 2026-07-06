@@ -158,13 +158,15 @@ export function workspacePathSuggestions(
 }
 
 function workspacePathSegment(displayName: string) {
-  return (
-    displayName
-      .trim()
-      .toLowerCase()
-      .replace(/[^a-z0-9._-]+/g, "-")
-      .replace(/^-+|-+$/g, "") || "workspace"
-  );
+  const segment = displayName
+    .trim()
+    .toLowerCase()
+    .replace(/[^a-z0-9._-]+/g, "-")
+    .replace(/^-+|-+$/g, "");
+  if (!segment || segment === "." || segment === "..") {
+    return "workspace";
+  }
+  return segment;
 }
 
 function uniquePaths(paths: string[]) {

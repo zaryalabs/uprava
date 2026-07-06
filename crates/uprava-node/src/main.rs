@@ -1,8 +1,7 @@
 use std::{
     collections::{BTreeMap, HashMap, HashSet},
     fs::{self, OpenOptions},
-    io::ErrorKind,
-    io::Write,
+    io::{ErrorKind, Read, Seek, SeekFrom, Write},
     path::{Path, PathBuf},
     process::{Command as StdCommand, ExitStatus, Stdio},
     time::{Duration, Instant},
@@ -17,7 +16,7 @@ use futures_util::{SinkExt, StreamExt};
 use reqwest::Url;
 use serde::{Deserialize, Serialize};
 use tokio::{
-    io::{AsyncBufReadExt, BufReader},
+    io::{AsyncBufReadExt, AsyncRead, AsyncReadExt, BufReader},
     process::Command as TokioCommand,
     time::timeout,
 };
@@ -53,6 +52,9 @@ const MAX_WORKSPACE_COMMAND_OUTPUT_BYTES: usize = 64 * 1024;
 const MAX_WORKSPACE_COMMAND_ARGS: usize = 32;
 const MAX_WORKSPACE_COMMAND_ARG_CHARS: usize = 512;
 const MAX_WORKSPACE_COMMAND_SECONDS: u64 = 120;
+const ALLOWED_WORKSPACE_COMMANDS: &[&str] = &[
+    "cargo", "git", "make", "node", "npm", "pnpm", "bun", "rustc",
+];
 const WORKSPACE_DIFF_STAT_BYTES: usize = 16 * 1024;
 const WORKSPACE_DIFF_BYTES: usize = 128 * 1024;
 const MAX_CODEX_TRANSCRIPT_CHARS: usize = 12_000;
@@ -67,7 +69,7 @@ async fn main() -> anyhow::Result<()> {
     let config = NodeConfig::from_env()?;
     let client = reqwest::Client::new();
     let mut local_state = NodeLocalState::load(&config.state_path)?;
-    let mut control_started = false;
+    let mut control_task: Option<tokio::task::JoinHandle<()>> = None;
     tracing::info!(
         core_url = %config.core_url,
         display_name = %config.display_name,
@@ -92,7 +94,14 @@ async fn main() -> anyhow::Result<()> {
             }
         }
 
-        if control_started {
+        if control_task
+            .as_ref()
+            .is_some_and(tokio::task::JoinHandle::is_finished)
+        {
+            control_task = None;
+        }
+
+        if control_task.is_some() {
             match NodeLocalState::load(&config.state_path) {
                 Ok(updated_state) if updated_state.is_enrolled() => local_state = updated_state,
                 Ok(_) => tracing::warn!("node state refresh returned unenrolled state"),
@@ -108,9 +117,11 @@ async fn main() -> anyhow::Result<()> {
                     node_id = %response.node_id,
                     "heartbeat accepted"
                 );
-                if response.open_control_channel && !control_started {
-                    control_started = true;
-                    tokio::spawn(control_channel_loop(config.clone(), local_state.clone()));
+                if response.open_control_channel && control_task.is_none() {
+                    control_task = Some(tokio::spawn(control_channel_loop(
+                        config.clone(),
+                        local_state.clone(),
+                    )));
                 }
             }
             Err(error) => {
@@ -120,8 +131,10 @@ async fn main() -> anyhow::Result<()> {
                         state_path = %config.state_path.display(),
                         "heartbeat auth rejected; clearing local node identity and re-enrolling"
                     );
+                    if let Some(task) = control_task.take() {
+                        task.abort();
+                    }
                     local_state.clear_core_registration();
-                    control_started = false;
                     if let Err(save_error) = local_state.save(&config.state_path) {
                         tracing::warn!(
                             error = %save_error,
@@ -214,6 +227,8 @@ struct NodeLocalState {
     #[serde(default)]
     command_status: HashMap<String, CommandState>,
     #[serde(default)]
+    command_result_payloads: HashMap<String, JsonValue>,
+    #[serde(default)]
     runtime_seqs: HashMap<String, i64>,
     #[serde(default)]
     event_outbox: Vec<EventEnvelope>,
@@ -254,6 +269,7 @@ impl Default for NodeLocalState {
             enrollment_id: None,
             pairing_code: None,
             command_status: HashMap::new(),
+            command_result_payloads: HashMap::new(),
             runtime_seqs: HashMap::new(),
             event_outbox: Vec::new(),
             runtime_providers: HashMap::new(),
@@ -288,6 +304,10 @@ impl std::fmt::Debug for NodeLocalState {
                 &self.pairing_code.as_ref().map(|_| "[redacted]"),
             )
             .field("command_status", &self.command_status)
+            .field(
+                "command_result_payload_count",
+                &self.command_result_payloads.len(),
+            )
             .field("runtime_seqs", &self.runtime_seqs)
             .field("event_outbox", &self.event_outbox)
             .field("runtime_providers", &self.runtime_providers)
@@ -348,20 +368,50 @@ impl NodeLocalState {
 }
 
 fn write_private_file(path: &Path, content: &[u8]) -> anyhow::Result<()> {
+    let parent = path.parent().unwrap_or_else(|| Path::new("."));
+    std::fs::create_dir_all(parent)
+        .with_context(|| format!("failed to create {}", parent.display()))?;
+    set_private_dir_permissions(parent);
+    let file_name = path
+        .file_name()
+        .context("private file path must include a file name")?
+        .to_string_lossy();
+    let temp_path = parent.join(format!(
+        ".{file_name}.{}.tmp",
+        sanitize_filename_segment(&Uuid::new_v4().to_string())
+    ));
     let mut options = OpenOptions::new();
-    options.create(true).truncate(true).write(true);
+    options.create_new(true).write(true);
     #[cfg(unix)]
     {
         options.mode(0o600);
     }
-    let mut file = options.open(path)?;
+    let mut file = options.open(&temp_path)?;
     file.write_all(content)?;
     file.flush()?;
+    file.sync_all()?;
+    #[cfg(unix)]
+    {
+        std::fs::set_permissions(&temp_path, PermissionsExt::from_mode(0o600))?;
+    }
+    std::fs::rename(&temp_path, path)?;
     #[cfg(unix)]
     {
         std::fs::set_permissions(path, PermissionsExt::from_mode(0o600))?;
     }
+    sync_parent_directory(parent)?;
     Ok(())
+}
+
+fn sync_parent_directory(parent: &Path) -> anyhow::Result<()> {
+    match fs::File::open(parent) {
+        Ok(directory) => {
+            directory.sync_all()?;
+            Ok(())
+        }
+        Err(error) if error.kind() == ErrorKind::PermissionDenied => Ok(()),
+        Err(error) => Err(error.into()),
+    }
 }
 
 fn set_private_dir_permissions(path: &Path) {
@@ -883,7 +933,11 @@ async fn prepare_command_dispatch_with_live_socket(
                 &local_state.event_outbox,
                 &command.command_id,
             ),
-            result_payload: JsonValue(serde_json::json!({})),
+            result_payload: local_state
+                .command_result_payloads
+                .get(command.command_id.as_str())
+                .cloned()
+                .unwrap_or_else(|| JsonValue(serde_json::json!({}))),
             state_changed: false,
         };
     }
@@ -899,9 +953,7 @@ async fn prepare_command_dispatch_with_live_socket(
         }
         CommandKind::ListWorkspaceTree => {
             let (status, payload) = workspace_tree_command_result(config, command);
-            local_state
-                .command_status
-                .insert(command.command_id.to_string(), status);
+            record_command_result_payload(local_state, command, status, &payload);
             return CommandDispatchOutcome {
                 status,
                 events_to_send: vec![],
@@ -911,9 +963,7 @@ async fn prepare_command_dispatch_with_live_socket(
         }
         CommandKind::ReadWorkspaceFile => {
             let (status, payload) = workspace_file_command_result(config, command);
-            local_state
-                .command_status
-                .insert(command.command_id.to_string(), status);
+            record_command_result_payload(local_state, command, status, &payload);
             return CommandDispatchOutcome {
                 status,
                 events_to_send: vec![],
@@ -923,9 +973,7 @@ async fn prepare_command_dispatch_with_live_socket(
         }
         CommandKind::WriteWorkspaceFile => {
             let (status, payload) = workspace_file_write_command_result(config, command);
-            local_state
-                .command_status
-                .insert(command.command_id.to_string(), status);
+            record_command_result_payload(local_state, command, status, &payload);
             return CommandDispatchOutcome {
                 status,
                 events_to_send: vec![],
@@ -935,9 +983,7 @@ async fn prepare_command_dispatch_with_live_socket(
         }
         CommandKind::RunWorkspaceCommand => {
             let (status, payload) = workspace_command_run_command_result(config, command).await;
-            local_state
-                .command_status
-                .insert(command.command_id.to_string(), status);
+            record_command_result_payload(local_state, command, status, &payload);
             return CommandDispatchOutcome {
                 status,
                 events_to_send: vec![],
@@ -947,9 +993,7 @@ async fn prepare_command_dispatch_with_live_socket(
         }
         CommandKind::ReadWorkspaceDiff => {
             let (status, payload) = workspace_diff_command_result(config, command).await;
-            local_state
-                .command_status
-                .insert(command.command_id.to_string(), status);
+            record_command_result_payload(local_state, command, status, &payload);
             return CommandDispatchOutcome {
                 status,
                 events_to_send: vec![],
@@ -958,34 +1002,44 @@ async fn prepare_command_dispatch_with_live_socket(
             };
         }
         _ => {
-            remember_runtime_metadata(local_state, command);
-            let provider_key = provider_for_command(local_state, command);
-            let workspace_path = workspace_path_for_command(local_state, command);
-            let mut live_event_sink = live_socket.map(|socket| {
-                NodeLiveEventSink::new(
-                    socket,
-                    &mut local_state.event_outbox,
-                    &mut local_state.runtime_states,
+            let provider_key =
+                provider_for_command(local_state, command).unwrap_or_else(|| "unknown".to_owned());
+            if let Err(error) = remember_runtime_metadata(config, local_state, command) {
+                runtime_workspace_error_events(
+                    &provider_key,
+                    command,
+                    &mut local_state.runtime_seqs,
+                    error,
                 )
-            });
-            let events = if let Some(provider_key) = provider_key {
-                RuntimeManager::for_provider(&provider_key, config)
-                    .execute_command(
-                        command,
-                        &mut local_state.runtime_seqs,
-                        workspace_path.as_deref(),
-                        &mut local_state.runtime_transcripts,
-                        &mut local_state.runtime_provider_resume_refs,
-                        live_event_sink.as_mut(),
-                    )
-                    .await
             } else {
-                missing_provider_events_for_command(command, &mut local_state.runtime_seqs)
-            };
-            if let Some(sink) = live_event_sink {
-                live_event_ids = sink.emitted_event_ids;
+                let provider_key = provider_for_command(local_state, command);
+                let workspace_path = workspace_path_for_command(local_state, command);
+                let mut live_event_sink = live_socket.map(|socket| {
+                    NodeLiveEventSink::new(
+                        socket,
+                        &mut local_state.event_outbox,
+                        &mut local_state.runtime_states,
+                    )
+                });
+                let events = if let Some(provider_key) = provider_key {
+                    RuntimeManager::for_provider(&provider_key, config)
+                        .execute_command(
+                            command,
+                            &mut local_state.runtime_seqs,
+                            workspace_path.as_deref(),
+                            &mut local_state.runtime_transcripts,
+                            &mut local_state.runtime_provider_resume_refs,
+                            live_event_sink.as_mut(),
+                        )
+                        .await
+                } else {
+                    missing_provider_events_for_command(command, &mut local_state.runtime_seqs)
+                };
+                if let Some(sink) = live_event_sink {
+                    live_event_ids = sink.emitted_event_ids;
+                }
+                events
             }
-            events
         }
     };
     let unsent_events = events
@@ -1011,6 +1065,20 @@ async fn prepare_command_dispatch_with_live_socket(
         result_payload,
         state_changed: true,
     }
+}
+
+fn record_command_result_payload(
+    local_state: &mut NodeLocalState,
+    command: &CommandEnvelope,
+    status: CommandState,
+    payload: &JsonValue,
+) {
+    local_state
+        .command_status
+        .insert(command.command_id.to_string(), status);
+    local_state
+        .command_result_payloads
+        .insert(command.command_id.to_string(), payload.clone());
 }
 
 fn command_status_for_events(events: &[EventEnvelope]) -> CommandState {
@@ -1138,6 +1206,7 @@ fn runtime_outbox_retention_event(
         session_thread_id,
         turn_id: None,
         seq,
+        session_projection_seq: None,
         kind: EventKind::RuntimeError,
         happened_at: Utc::now(),
         source_refs: vec![],
@@ -1151,12 +1220,27 @@ fn runtime_outbox_retention_event(
     }
 }
 
-fn remember_runtime_metadata(local_state: &mut NodeLocalState, command: &CommandEnvelope) -> bool {
+fn remember_runtime_metadata(
+    config: &NodeConfig,
+    local_state: &mut NodeLocalState,
+    command: &CommandEnvelope,
+) -> Result<bool, WorkspaceInspectError> {
     let Some(runtime_session_id) = &command.runtime_session_id else {
-        return false;
+        return Ok(false);
     };
     let runtime_key = runtime_session_id.to_string();
     let mut changed = false;
+    let canonical_workspace_path = if matches!(
+        command.kind,
+        CommandKind::StartRuntime | CommandKind::ResumeRuntime
+    ) {
+        match command_payload_str(command, "workspace_path") {
+            Some(workspace_path) => Some(canonical_workspace_root(config, workspace_path)?),
+            None => None,
+        }
+    } else {
+        None
+    };
 
     if matches!(command.kind, CommandKind::StartRuntime) {
         if let Some(provider) = command_payload_str(command, "provider") {
@@ -1187,16 +1271,16 @@ fn remember_runtime_metadata(local_state: &mut NodeLocalState, command: &Command
         command.kind,
         CommandKind::StartRuntime | CommandKind::ResumeRuntime
     ) {
-        if let Some(workspace_path) = command_payload_str(command, "workspace_path") {
+        if let Some(workspace_path) = canonical_workspace_path {
             changed |= insert_if_changed(
                 &mut local_state.runtime_workspace_paths,
                 runtime_key,
-                workspace_path.to_owned(),
+                workspace_path.display().to_string(),
             );
         }
     }
 
-    changed
+    Ok(changed)
 }
 
 fn provider_for_command(local_state: &NodeLocalState, command: &CommandEnvelope) -> Option<String> {
@@ -1443,11 +1527,13 @@ fn validate_command_workspace(
 }
 
 fn workspace_path_allowed(config: &NodeConfig, path: &Path) -> bool {
-    !config.workspace_paths.is_empty()
-        && config
-            .workspace_paths
-            .iter()
-            .any(|root| path.starts_with(root))
+    if let Ok(canonical_path) = std::fs::canonicalize(path) {
+        return canonical_workspace_path_allowed(config, &canonical_path);
+    }
+    path.ancestors()
+        .skip(1)
+        .find_map(|ancestor| std::fs::canonicalize(ancestor).ok())
+        .is_some_and(|ancestor| canonical_workspace_path_allowed(config, &ancestor))
 }
 
 fn workspace_tree_command_result(
@@ -1573,44 +1659,30 @@ fn write_workspace_file(
         ));
     }
     let target_path = parent_path.join(file_name);
-    match fs::symlink_metadata(&target_path) {
-        Ok(_) => {
-            validate_existing_write_target(
-                &target_path,
-                &relative_path,
-                request.expected_content.as_deref(),
-            )?;
-        }
-        Err(error) if error.kind() == ErrorKind::NotFound => {
-            if request.expected_content.is_some() {
-                return Err(WorkspaceInspectError::new(
-                    "workspace.write_conflict",
-                    "Workspace file changed before save: target is now missing",
-                ));
-            }
-        }
-        Err(error) => {
-            return Err(WorkspaceInspectError::new(
-                "workspace.metadata_failed",
-                format!("Failed to inspect {}: {error}", relative_path.display()),
-            ));
-        }
+    if binary_extension(&relative_path) {
+        return Err(WorkspaceInspectError::new(
+            "workspace.write_binary_file",
+            "Workspace file writes do not edit binary file types",
+        ));
     }
 
-    let mut file = OpenOptions::new()
-        .create(true)
-        .truncate(true)
-        .write(true)
-        .open(&target_path)
-        .map_err(|error| {
-            WorkspaceInspectError::new(
-                "workspace.write_failed",
-                format!(
-                    "Failed to open {} for writing: {error}",
-                    relative_path.display()
-                ),
-            )
-        })?;
+    let mut file = open_workspace_write_target(
+        &target_path,
+        &relative_path,
+        request.expected_content.as_deref(),
+    )?;
+    file.set_len(0).map_err(|error| {
+        WorkspaceInspectError::new(
+            "workspace.write_failed",
+            format!("Failed to truncate {}: {error}", relative_path.display()),
+        )
+    })?;
+    file.seek(SeekFrom::Start(0)).map_err(|error| {
+        WorkspaceInspectError::new(
+            "workspace.write_failed",
+            format!("Failed to seek {}: {error}", relative_path.display()),
+        )
+    })?;
     file.write_all(request.content.as_bytes())
         .map_err(|error| {
             WorkspaceInspectError::new(
@@ -1618,14 +1690,14 @@ fn write_workspace_file(
                 format!("Failed to write {}: {error}", relative_path.display()),
             )
         })?;
-    file.flush().map_err(|error| {
+    file.sync_all().map_err(|error| {
         WorkspaceInspectError::new(
             "workspace.write_failed",
-            format!("Failed to flush {}: {error}", relative_path.display()),
+            format!("Failed to sync {}: {error}", relative_path.display()),
         )
     })?;
 
-    let metadata = fs::symlink_metadata(&target_path).map_err(|error| {
+    let metadata = file.metadata().map_err(|error| {
         WorkspaceInspectError::new(
             "workspace.metadata_failed",
             format!(
@@ -1651,23 +1723,74 @@ fn write_workspace_file(
     })
 }
 
-fn validate_existing_write_target(
+fn open_workspace_write_target(
     target_path: &Path,
     relative_path: &Path,
     expected_content: Option<&str>,
+) -> Result<fs::File, WorkspaceInspectError> {
+    let mut options = OpenOptions::new();
+    options.read(true).write(true);
+    set_no_follow(&mut options);
+    match options.open(target_path) {
+        Ok(mut file) => {
+            validate_opened_write_target(&mut file, relative_path, expected_content)?;
+            Ok(file)
+        }
+        Err(error) if error.kind() == ErrorKind::NotFound && expected_content.is_none() => {
+            let mut create_options = OpenOptions::new();
+            create_options.read(true).write(true).create_new(true);
+            set_no_follow(&mut create_options);
+            create_options.open(target_path).map_err(|error| {
+                if is_symlink_open_error(&error) {
+                    WorkspaceInspectError::new(
+                        "workspace.write_symlink",
+                        "Workspace file writes do not follow symlinks",
+                    )
+                } else if error.kind() == ErrorKind::AlreadyExists {
+                    WorkspaceInspectError::new(
+                        "workspace.write_conflict",
+                        "Workspace file changed before save; reload before writing",
+                    )
+                } else {
+                    WorkspaceInspectError::new(
+                        "workspace.write_failed",
+                        format!(
+                            "Failed to create {} for writing: {error}",
+                            relative_path.display()
+                        ),
+                    )
+                }
+            })
+        }
+        Err(error) if error.kind() == ErrorKind::NotFound => Err(WorkspaceInspectError::new(
+            "workspace.write_conflict",
+            "Workspace file changed before save: target is now missing",
+        )),
+        Err(error) if is_symlink_open_error(&error) => Err(WorkspaceInspectError::new(
+            "workspace.write_symlink",
+            "Workspace file writes do not follow symlinks",
+        )),
+        Err(error) => Err(WorkspaceInspectError::new(
+            "workspace.write_failed",
+            format!(
+                "Failed to open {} for writing: {error}",
+                relative_path.display()
+            ),
+        )),
+    }
+}
+
+fn validate_opened_write_target(
+    file: &mut fs::File,
+    relative_path: &Path,
+    expected_content: Option<&str>,
 ) -> Result<(), WorkspaceInspectError> {
-    let metadata = fs::symlink_metadata(target_path).map_err(|error| {
+    let metadata = file.metadata().map_err(|error| {
         WorkspaceInspectError::new(
             "workspace.metadata_failed",
             format!("Failed to inspect {}: {error}", relative_path.display()),
         )
     })?;
-    if metadata.file_type().is_symlink() {
-        return Err(WorkspaceInspectError::new(
-            "workspace.write_symlink",
-            "Workspace file writes do not follow symlinks",
-        ));
-    }
     if !metadata.is_file() {
         return Err(WorkspaceInspectError::new(
             "workspace.write_not_file",
@@ -1680,13 +1803,17 @@ fn validate_existing_write_target(
             "Workspace file write target is too large for lightweight editing",
         ));
     }
-    if binary_extension(relative_path) {
-        return Err(WorkspaceInspectError::new(
-            "workspace.write_binary_file",
-            "Workspace file writes do not edit binary file types",
-        ));
-    }
-    let bytes = fs::read(target_path).map_err(|error| {
+    file.seek(SeekFrom::Start(0)).map_err(|error| {
+        WorkspaceInspectError::new(
+            "workspace.read_failed",
+            format!(
+                "Failed to seek {} before writing: {error}",
+                relative_path.display()
+            ),
+        )
+    })?;
+    let mut bytes = Vec::new();
+    file.read_to_end(&mut bytes).map_err(|error| {
         WorkspaceInspectError::new(
             "workspace.read_failed",
             format!(
@@ -1716,6 +1843,29 @@ fn validate_existing_write_target(
         }
     }
     Ok(())
+}
+
+fn set_no_follow(options: &mut OpenOptions) {
+    #[cfg(unix)]
+    {
+        options.custom_flags(libc::O_NOFOLLOW);
+    }
+    #[cfg(not(unix))]
+    {
+        let _ = options;
+    }
+}
+
+fn is_symlink_open_error(error: &std::io::Error) -> bool {
+    #[cfg(unix)]
+    {
+        error.raw_os_error() == Some(libc::ELOOP)
+    }
+    #[cfg(not(unix))]
+    {
+        let _ = error;
+        false
+    }
 }
 
 async fn run_workspace_command(
@@ -1862,6 +2012,12 @@ fn validate_workspace_command_request(
             "Workspace command executable must be a program name, not a path",
         ));
     }
+    if !ALLOWED_WORKSPACE_COMMANDS.contains(&command) {
+        return Err(WorkspaceInspectError::new(
+            "workspace.command_not_allowed",
+            format!("Workspace command `{command}` is not allowed by node policy"),
+        ));
+    }
     if request.args.len() > MAX_WORKSPACE_COMMAND_ARGS {
         return Err(WorkspaceInspectError::new(
             "workspace.command_too_many_args",
@@ -1916,16 +2072,36 @@ async fn run_workspace_process(
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())
         .kill_on_drop(true);
-    let output = timeout(timeout_duration, command.output()).await;
+    let mut child = match command.spawn() {
+        Ok(child) => child,
+        Err(error) => {
+            return WorkspaceProcessOutput {
+                exit_code: None,
+                success: false,
+                stdout: String::new(),
+                stderr: format!("Failed to start `{command_name}`: {error}"),
+                stdout_truncated: false,
+                stderr_truncated: false,
+                duration_ms: duration_millis(started),
+                started_at,
+                completed_at: Utc::now(),
+            };
+        }
+    };
+    let stdout = child.stdout.take();
+    let stderr = child.stderr.take();
+    let stdout_task = tokio::spawn(read_capped_process_output(stdout, stdout_cap));
+    let stderr_task = tokio::spawn(read_capped_process_output(stderr, stderr_cap));
+    let wait_result = timeout(timeout_duration, child.wait()).await;
     let completed_at = Utc::now();
     let duration_ms = duration_millis(started);
-    match output {
-        Ok(Ok(output)) => {
-            let (stdout, stdout_truncated) = bounded_process_output(&output.stdout, stdout_cap);
-            let (stderr, stderr_truncated) = bounded_process_output(&output.stderr, stderr_cap);
+    match wait_result {
+        Ok(Ok(status)) => {
+            let (stdout, stdout_truncated) = join_capped_output(stdout_task).await;
+            let (stderr, stderr_truncated) = join_capped_output(stderr_task).await;
             WorkspaceProcessOutput {
-                exit_code: output.status.code(),
-                success: output.status.success(),
+                exit_code: status.code(),
+                success: status.success(),
                 stdout,
                 stderr,
                 stdout_truncated,
@@ -1946,30 +2122,77 @@ async fn run_workspace_process(
             started_at,
             completed_at,
         },
-        Err(_) => WorkspaceProcessOutput {
-            exit_code: None,
-            success: false,
-            stdout: String::new(),
-            stderr: format!(
+        Err(_) => {
+            let _ = child.kill().await;
+            let _ = child.wait().await;
+            let (stdout, stdout_truncated) = join_capped_output(stdout_task).await;
+            let (mut stderr, stderr_truncated) = join_capped_output(stderr_task).await;
+            let timeout_message = format!(
                 "`{command_name}` timed out after {} seconds",
                 timeout_duration.as_secs()
-            ),
-            stdout_truncated: false,
-            stderr_truncated: false,
-            duration_ms,
-            started_at,
-            completed_at,
-        },
+            );
+            if stderr.trim().is_empty() {
+                stderr = timeout_message;
+            } else {
+                stderr.push('\n');
+                stderr.push_str(&timeout_message);
+            }
+            WorkspaceProcessOutput {
+                exit_code: None,
+                success: false,
+                stdout,
+                stderr,
+                stdout_truncated,
+                stderr_truncated,
+                duration_ms,
+                started_at,
+                completed_at,
+            }
+        }
     }
 }
 
-fn bounded_process_output(bytes: &[u8], cap: usize) -> (String, bool) {
-    let truncated = bytes.len() > cap;
-    let end = bytes.len().min(cap);
-    (
-        String::from_utf8_lossy(&bytes[..end]).into_owned(),
-        truncated,
-    )
+async fn read_capped_process_output<R>(
+    reader: Option<R>,
+    cap: usize,
+) -> std::io::Result<(String, bool)>
+where
+    R: AsyncRead + Unpin,
+{
+    let Some(mut reader) = reader else {
+        return Ok((String::new(), false));
+    };
+    let mut buffer = [0_u8; 8192];
+    let mut collected = Vec::with_capacity(cap.min(8192));
+    let mut truncated = false;
+    loop {
+        let read = reader.read(&mut buffer).await?;
+        if read == 0 {
+            break;
+        }
+        let remaining = cap.saturating_sub(collected.len());
+        if remaining > 0 {
+            let keep = read.min(remaining);
+            collected.extend_from_slice(&buffer[..keep]);
+            truncated |= keep < read;
+        } else {
+            truncated = true;
+        }
+    }
+    Ok((String::from_utf8_lossy(&collected).into_owned(), truncated))
+}
+
+async fn join_capped_output(
+    task: tokio::task::JoinHandle<std::io::Result<(String, bool)>>,
+) -> (String, bool) {
+    match task.await {
+        Ok(Ok(output)) => output,
+        Ok(Err(error)) => (format!("failed to read process output: {error}"), false),
+        Err(error) => (
+            format!("failed to join process output reader: {error}"),
+            false,
+        ),
+    }
 }
 
 fn duration_millis(started: Instant) -> u64 {
@@ -2257,6 +2480,13 @@ fn canonical_workspace_root(
     config: &NodeConfig,
     workspace_path: &str,
 ) -> Result<PathBuf, WorkspaceInspectError> {
+    canonical_workspace_root_for_allowed_paths(&config.workspace_paths, workspace_path)
+}
+
+fn canonical_workspace_root_for_allowed_paths(
+    allowed_paths: &[PathBuf],
+    workspace_path: &str,
+) -> Result<PathBuf, WorkspaceInspectError> {
     let root = std::fs::canonicalize(workspace_path).map_err(|error| {
         let code = if error.kind() == ErrorKind::NotFound {
             "workspace.root_missing"
@@ -2276,7 +2506,7 @@ fn canonical_workspace_root(
             "Workspace root is not a directory",
         ));
     }
-    if !canonical_workspace_path_allowed(config, &root) {
+    if !canonical_workspace_path_allowed_roots(allowed_paths, &root) {
         return Err(WorkspaceInspectError::new(
             "workspace.outside_allowed_roots",
             "Workspace root is outside the node allowed roots",
@@ -2286,8 +2516,15 @@ fn canonical_workspace_root(
 }
 
 fn canonical_workspace_path_allowed(config: &NodeConfig, workspace_root: &Path) -> bool {
-    !config.workspace_paths.is_empty()
-        && config.workspace_paths.iter().any(|allowed_root| {
+    canonical_workspace_path_allowed_roots(&config.workspace_paths, workspace_root)
+}
+
+fn canonical_workspace_path_allowed_roots(
+    allowed_paths: &[PathBuf],
+    workspace_root: &Path,
+) -> bool {
+    !allowed_paths.is_empty()
+        && allowed_paths.iter().any(|allowed_root| {
             std::fs::canonicalize(allowed_root)
                 .map(|root| workspace_root.starts_with(root))
                 .unwrap_or(false)
@@ -2648,6 +2885,7 @@ fn placement_event_for_command(
         session_thread_id: None,
         turn_id: None,
         seq,
+        session_projection_seq: None,
         kind,
         happened_at: Utc::now(),
         source_refs: command.source_refs.clone(),
@@ -2716,6 +2954,7 @@ impl RuntimeManager {
 struct CodexProviderAdapter {
     codex_binary: String,
     timeout: Duration,
+    workspace_paths: Vec<PathBuf>,
 }
 
 #[derive(Debug, Clone)]
@@ -2745,11 +2984,20 @@ impl CodexProviderAdapter {
         Self {
             codex_binary: config.codex_binary.clone(),
             timeout: config.codex_timeout,
+            workspace_paths: config.workspace_paths.clone(),
         }
     }
 
     fn provider_key(&self) -> &'static str {
         "codex"
+    }
+
+    fn authorized_workspace_path(
+        &self,
+        workspace_path: &str,
+    ) -> Result<String, WorkspaceInspectError> {
+        canonical_workspace_root_for_allowed_paths(&self.workspace_paths, workspace_path)
+            .map(|path| path.display().to_string())
     }
 
     async fn events_for_command(
@@ -3007,6 +3255,21 @@ impl CodexProviderAdapter {
             ));
             return events;
         };
+        let workspace_path = match self.authorized_workspace_path(workspace_path) {
+            Ok(path) => path,
+            Err(error) => {
+                events.push(runtime_error_event(
+                    self.provider_key(),
+                    command,
+                    runtime_seqs,
+                    runtime_session_id,
+                    turn_id,
+                    error.code,
+                    error.message,
+                ));
+                return events;
+            }
+        };
 
         let last_message_path = codex_last_message_path(&command.command_id);
         let provider_resume_ref = runtime_provider_resume_refs
@@ -3017,7 +3280,7 @@ impl CodexProviderAdapter {
             .and_then(|resume_ref| resume_ref.provider_session_id.as_deref())
         {
             self.run_codex_exec_resume(
-                workspace_path,
+                &workspace_path,
                 provider_session_id,
                 content,
                 &last_message_path,
@@ -3037,7 +3300,7 @@ impl CodexProviderAdapter {
                     .unwrap_or(&[]),
             );
             self.run_codex_exec(
-                workspace_path,
+                &workspace_path,
                 &prompt,
                 &last_message_path,
                 command,
@@ -3902,6 +4165,26 @@ fn runtime_error_event(
     )
 }
 
+fn runtime_workspace_error_events(
+    provider_key: &str,
+    command: &CommandEnvelope,
+    runtime_seqs: &mut HashMap<String, i64>,
+    error: WorkspaceInspectError,
+) -> Vec<EventEnvelope> {
+    let Some(runtime_session_id) = command.runtime_session_id.clone() else {
+        return vec![];
+    };
+    vec![runtime_error_event(
+        provider_key,
+        command,
+        runtime_seqs,
+        runtime_session_id,
+        None,
+        error.code,
+        error.message,
+    )]
+}
+
 fn codex_last_message_path(command_id: &CommandId) -> PathBuf {
     std::env::temp_dir().join(format!(
         "uprava-codex-{}-{}.txt",
@@ -3973,6 +4256,7 @@ fn event_for_command(
         session_thread_id: command.session_thread_id.clone(),
         turn_id,
         seq,
+        session_projection_seq: None,
         kind,
         happened_at: Utc::now(),
         source_refs: vec![],
@@ -4911,6 +5195,130 @@ mod tests {
         );
     }
 
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn validate_workspace_command_rejects_symlink_escape_from_allowed_root() {
+        let allowed_root = std::env::temp_dir().join(format!("uprava-allowed-{}", Uuid::new_v4()));
+        let outside_root = std::env::temp_dir().join(format!("uprava-outside-{}", Uuid::new_v4()));
+        std::fs::create_dir_all(&allowed_root).expect("allowed root creates");
+        std::fs::create_dir_all(&outside_root).expect("outside root creates");
+        let escaped_workspace = allowed_root.join("escaped");
+        std::os::unix::fs::symlink(&outside_root, &escaped_workspace)
+            .expect("escaped workspace symlink creates");
+        let mut config = config_fixture();
+        config.workspace_paths = vec![allowed_root.clone()];
+        let command = placement_command_fixture(
+            "command-validate-symlink-escape",
+            "placement-symlink-escape",
+            "workspace",
+            &escaped_workspace.display().to_string(),
+        );
+        let mut local_state = NodeLocalState::default();
+
+        let outcome = prepare_command_dispatch(&config, &mut local_state, &command).await;
+
+        std::fs::remove_dir_all(&allowed_root).expect("allowed root removes");
+        std::fs::remove_dir_all(&outside_root).expect("outside root removes");
+        assert_eq!(
+            outcome.events_to_send[0]
+                .payload
+                .0
+                .get("resource_badges")
+                .and_then(serde_json::Value::as_array)
+                .and_then(|badges| badges.first())
+                .and_then(|badge| badge.get("kind"))
+                .and_then(serde_json::Value::as_str),
+            Some("workspace_outside_allowed_roots")
+        );
+    }
+
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn codex_start_runtime_rejects_symlink_workspace_escape() {
+        let allowed_root = std::env::temp_dir().join(format!("uprava-allowed-{}", Uuid::new_v4()));
+        let outside_root = std::env::temp_dir().join(format!("uprava-outside-{}", Uuid::new_v4()));
+        std::fs::create_dir_all(&allowed_root).expect("allowed root creates");
+        std::fs::create_dir_all(&outside_root).expect("outside root creates");
+        let escaped_workspace = allowed_root.join("escaped");
+        std::os::unix::fs::symlink(&outside_root, &escaped_workspace)
+            .expect("escaped workspace symlink creates");
+        let mut config = config_fixture();
+        config.workspace_paths = vec![allowed_root.clone()];
+        let mut command = command_fixture(
+            "command-codex-start-symlink-escape",
+            CommandKind::StartRuntime,
+        );
+        command.payload = JsonValue(serde_json::json!({
+            "provider": "codex",
+            "workspace_path": escaped_workspace.display().to_string(),
+        }));
+        let mut local_state = NodeLocalState::default();
+
+        let outcome = prepare_command_dispatch(&config, &mut local_state, &command).await;
+
+        std::fs::remove_dir_all(&allowed_root).expect("allowed root removes");
+        std::fs::remove_dir_all(&outside_root).expect("outside root removes");
+        assert_eq!(outcome.status, CommandState::Failed);
+        assert_eq!(
+            event_kinds(&outcome.events_to_send),
+            vec![EventKind::RuntimeError]
+        );
+        assert!(local_state.runtime_workspace_paths.is_empty());
+        assert_eq!(
+            outcome.events_to_send[0]
+                .payload
+                .0
+                .get("code")
+                .and_then(serde_json::Value::as_str),
+            Some("workspace.outside_allowed_roots")
+        );
+    }
+
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn codex_send_turn_rechecks_cached_workspace_against_allowed_roots() {
+        let allowed_root = std::env::temp_dir().join(format!("uprava-allowed-{}", Uuid::new_v4()));
+        let outside_root = std::env::temp_dir().join(format!("uprava-outside-{}", Uuid::new_v4()));
+        std::fs::create_dir_all(&allowed_root).expect("allowed root creates");
+        std::fs::create_dir_all(&outside_root).expect("outside root creates");
+        let escaped_workspace = allowed_root.join("escaped");
+        std::os::unix::fs::symlink(&outside_root, &escaped_workspace)
+            .expect("escaped workspace symlink creates");
+        let mut config = config_fixture();
+        config.workspace_paths = vec![allowed_root.clone()];
+        let command = command_fixture("command-codex-send-symlink-escape", CommandKind::SendTurn);
+        let mut local_state = NodeLocalState::default();
+        local_state
+            .runtime_providers
+            .insert("runtime-1".to_owned(), "codex".to_owned());
+        local_state.runtime_workspace_paths.insert(
+            "runtime-1".to_owned(),
+            escaped_workspace.display().to_string(),
+        );
+
+        let outcome = prepare_command_dispatch(&config, &mut local_state, &command).await;
+
+        std::fs::remove_dir_all(&allowed_root).expect("allowed root removes");
+        std::fs::remove_dir_all(&outside_root).expect("outside root removes");
+        assert_eq!(outcome.status, CommandState::Failed);
+        assert_eq!(
+            event_kinds(&outcome.events_to_send),
+            vec![
+                EventKind::RuntimeRunning,
+                EventKind::TurnStarted,
+                EventKind::RuntimeError
+            ]
+        );
+        assert_eq!(
+            outcome.events_to_send[2]
+                .payload
+                .0
+                .get("code")
+                .and_then(serde_json::Value::as_str),
+            Some("workspace.outside_allowed_roots")
+        );
+    }
+
     #[tokio::test]
     async fn refresh_resource_snapshot_command_emits_placement_scoped_event() {
         let config = config_fixture();
@@ -4970,6 +5378,47 @@ mod tests {
 
         assert_eq!(outcome.status, CommandState::Completed);
         assert_eq!(response.metadata.status, WorkspaceEntryStatus::Readable);
+        assert_eq!(response.content.as_deref(), Some("hello inspector"));
+    }
+
+    #[tokio::test]
+    async fn read_workspace_file_command_replays_payload_after_restart() {
+        let config = config_fixture();
+        let workspace_path =
+            std::env::temp_dir().join(format!("uprava-node-inspector-{}", Uuid::new_v4()));
+        let state_path = std::env::temp_dir().join(format!("uprava-node-{}.json", Uuid::new_v4()));
+        std::fs::create_dir_all(&workspace_path).expect("workspace fixture creates");
+        std::fs::write(workspace_path.join("README.md"), "hello inspector")
+            .expect("text fixture writes");
+        let mut command = placement_command_fixture(
+            "command-read-file-replay",
+            "placement-read-file-replay",
+            "workspace",
+            &workspace_path.display().to_string(),
+        );
+        command.kind = CommandKind::ReadWorkspaceFile;
+        command.payload = JsonValue(serde_json::json!({
+            "workspace_path": workspace_path.display().to_string(),
+            "path": "README.md",
+        }));
+        let mut local_state = NodeLocalState::default();
+        let first = prepare_command_dispatch(&config, &mut local_state, &command).await;
+        let first_payload = first.result_payload.clone();
+        local_state
+            .save(&state_path)
+            .expect("node state with result payload saves");
+
+        let mut reloaded_state = NodeLocalState::load(&state_path).expect("node state reloads");
+        let second = prepare_command_dispatch(&config, &mut reloaded_state, &command).await;
+        let response =
+            serde_json::from_value::<WorkspaceFileContentResponse>(second.result_payload.0.clone())
+                .expect("replayed workspace file response decodes");
+
+        std::fs::remove_file(&state_path).expect("state fixture removes");
+        std::fs::remove_dir_all(&workspace_path).expect("workspace fixture removes");
+        assert_eq!(second.status, CommandState::Completed);
+        assert!(!second.state_changed);
+        assert_eq!(second.result_payload.0, first_payload.0);
         assert_eq!(response.content.as_deref(), Some("hello inspector"));
     }
 
@@ -5076,6 +5525,49 @@ mod tests {
         assert_eq!(outcome.status, CommandState::Completed);
         assert_eq!(response.path, "README.md");
         assert_eq!(written, "after");
+    }
+
+    #[tokio::test]
+    async fn write_workspace_file_command_replays_payload_after_restart_without_rewriting() {
+        let config = config_fixture();
+        let workspace_path =
+            std::env::temp_dir().join(format!("uprava-node-inspector-{}", Uuid::new_v4()));
+        let state_path = std::env::temp_dir().join(format!("uprava-node-{}.json", Uuid::new_v4()));
+        std::fs::create_dir_all(&workspace_path).expect("workspace fixture creates");
+        std::fs::write(workspace_path.join("README.md"), "before").expect("text fixture writes");
+        let mut command = placement_command_fixture(
+            "command-write-file-replay",
+            "placement-write-file-replay",
+            "workspace",
+            &workspace_path.display().to_string(),
+        );
+        command.kind = CommandKind::WriteWorkspaceFile;
+        command.payload = JsonValue(serde_json::json!({
+            "workspace_path": workspace_path.display().to_string(),
+            "path": "README.md",
+            "content": "after",
+            "expected_content": "before",
+        }));
+        let mut local_state = NodeLocalState::default();
+        let first = prepare_command_dispatch(&config, &mut local_state, &command).await;
+        let first_payload = first.result_payload.clone();
+        local_state
+            .save(&state_path)
+            .expect("node state with write result payload saves");
+        std::fs::write(workspace_path.join("README.md"), "external change")
+            .expect("post-command file fixture changes");
+
+        let mut reloaded_state = NodeLocalState::load(&state_path).expect("node state reloads");
+        let second = prepare_command_dispatch(&config, &mut reloaded_state, &command).await;
+        let written =
+            std::fs::read_to_string(workspace_path.join("README.md")).expect("written file reads");
+
+        std::fs::remove_file(&state_path).expect("state fixture removes");
+        std::fs::remove_dir_all(&workspace_path).expect("workspace fixture removes");
+        assert_eq!(second.status, CommandState::Completed);
+        assert!(!second.state_changed);
+        assert_eq!(second.result_payload.0, first_payload.0);
+        assert_eq!(written, "external change");
     }
 
     #[tokio::test]
@@ -5188,6 +5680,59 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn run_workspace_command_rejects_disallowed_executable() {
+        let config = config_fixture();
+        let workspace_path =
+            std::env::temp_dir().join(format!("uprava-node-inspector-{}", Uuid::new_v4()));
+        std::fs::create_dir_all(&workspace_path).expect("workspace fixture creates");
+        let mut command = placement_command_fixture(
+            "command-run-disallowed",
+            "placement-run-disallowed",
+            "workspace",
+            &workspace_path.display().to_string(),
+        );
+        command.kind = CommandKind::RunWorkspaceCommand;
+        command.payload = JsonValue(serde_json::json!({
+            "workspace_path": workspace_path.display().to_string(),
+            "command": "sh",
+            "args": ["-c", "echo blocked"],
+            "intent": "command",
+            "label": null,
+            "timeout_seconds": 30,
+        }));
+        let mut local_state = NodeLocalState::default();
+
+        let outcome = prepare_command_dispatch(&config, &mut local_state, &command).await;
+        let error_code = outcome
+            .result_payload
+            .0
+            .get("error_code")
+            .and_then(serde_json::Value::as_str)
+            .map(ToOwned::to_owned);
+        std::fs::remove_dir_all(&workspace_path).expect("workspace fixture removes");
+
+        assert_eq!(outcome.status, CommandState::Failed);
+        assert_eq!(error_code.as_deref(), Some("workspace.command_not_allowed"));
+    }
+
+    #[tokio::test]
+    async fn run_workspace_process_caps_stdout_during_execution() {
+        let output = run_workspace_process(
+            &std::env::temp_dir(),
+            "rustc",
+            &["--print".to_owned(), "target-list".to_owned()],
+            Duration::from_secs(30),
+            64,
+            64,
+        )
+        .await;
+
+        assert!(output.success, "stderr: {}", output.stderr);
+        assert!(output.stdout.len() <= 64);
+        assert!(output.stdout_truncated);
+    }
+
+    #[tokio::test]
     async fn read_workspace_diff_command_returns_git_diff() {
         let config = config_fixture();
         let workspace_path =
@@ -5280,7 +5825,12 @@ mod tests {
     #[tokio::test]
     async fn codex_start_runtime_records_provider_and_workspace_metadata() {
         let config = config_fixture();
-        let workspace_path = std::env::temp_dir().display().to_string();
+        let workspace_path_buf = std::env::temp_dir();
+        let workspace_path = workspace_path_buf.display().to_string();
+        let canonical_workspace_path = std::fs::canonicalize(&workspace_path_buf)
+            .expect("temp dir canonicalizes")
+            .display()
+            .to_string();
         let mut command = command_fixture("command-codex-start", CommandKind::StartRuntime);
         command.payload = JsonValue(serde_json::json!({
             "provider": "codex",
@@ -5306,7 +5856,7 @@ mod tests {
                 .runtime_workspace_paths
                 .get("runtime-1")
                 .map(String::as_str),
-            Some(workspace_path.as_str())
+            Some(canonical_workspace_path.as_str())
         );
         assert_eq!(
             local_state
@@ -5694,7 +6244,7 @@ mod tests {
         assert!(local_state
             .runtime_transcripts
             .get("runtime-1")
-            .map_or(true, Vec::is_empty));
+            .is_none_or(Vec::is_empty));
     }
 
     #[test]

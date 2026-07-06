@@ -8,7 +8,7 @@ provider adapter.
 
 ## Prerequisites
 
-- Rust toolchain with `cargo`, `rustfmt` and `clippy`.
+- Rust `1.88` or newer with `cargo`, `rustfmt` and `clippy`.
 - Node.js and npm for `apps/web`.
 - Docker Compose for the all-in-compose profile.
 - `curl`, `grep` and `node` for `make compose-smoke`.
@@ -452,6 +452,9 @@ installed and authenticated.
 - Host Node workspace summaries are still reported through heartbeat snapshots
   for paths in `UPRAVA_NODE_WORKSPACES`; explicit UI-created placement
   validation now runs through a Node `ValidateWorkspace` command.
+- Workspace command execution is no-shell and limited to the controlled-dev
+  allow-list `cargo`, `git`, `make`, `node`, `npm`, `pnpm`, `bun` and `rustc`;
+  other executables are rejected by Node policy.
 - The Codex provider adapter is the V01 exec/resume mode with bounded local
   transcript continuity plus provider-native non-interactive resume when a
   provider session id is available. Persistent interactive process ownership,

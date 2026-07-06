@@ -280,6 +280,7 @@ export type EventEnvelope = {
   session_thread_id: string | null;
   turn_id: string | null;
   seq: number;
+  session_projection_seq?: number | null;
   kind: string;
   happened_at: string;
   source_refs: UpravaRef[];

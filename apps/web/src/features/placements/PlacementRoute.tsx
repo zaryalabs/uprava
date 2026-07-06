@@ -73,6 +73,12 @@ export function PlacementRoute() {
       }),
   });
 
+  if (placement.isError) {
+    return (
+      <ErrorNotice error={placement.error} title="Workspace load failed" />
+    );
+  }
+
   if (!placement.data) {
     return <div className="text-sm text-[#536257]">Loading workspace</div>;
   }
@@ -166,6 +172,18 @@ export function PlacementRoute() {
           error={deleteMutation.error}
           title="Workspace delete failed"
         />
+      ) : null}
+      {mutation.isError ? (
+        <ErrorNotice error={mutation.error} title="Session start failed" />
+      ) : null}
+      {refreshMutation.isError ? (
+        <ErrorNotice
+          error={refreshMutation.error}
+          title="Workspace refresh failed"
+        />
+      ) : null}
+      {inventory.isError ? (
+        <ErrorNotice error={inventory.error} title="Inventory load failed" />
       ) : null}
       <div className="flex flex-wrap gap-2">
         <Badge tone="good">{placement.data.state}</Badge>

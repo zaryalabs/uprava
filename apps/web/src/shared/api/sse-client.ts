@@ -13,7 +13,29 @@ export function openSessionStream(
   )}/stream?after_seq=${afterSeq}`;
   const source = new EventSource(url, { withCredentials: true });
   source.addEventListener("uprava.event", (event) => {
-    onEvent(JSON.parse((event as MessageEvent).data) as EventEnvelope);
+    try {
+      onEvent(JSON.parse((event as MessageEvent).data) as EventEnvelope);
+    } catch (error) {
+      logClientEvent(
+        "error",
+        "web.sse",
+        "session stream payload parse failed",
+        {
+          session_thread_id: sessionThreadId,
+          after_seq: afterSeq,
+          error: error instanceof Error ? error.message : String(error),
+        },
+      );
+      onError();
+    }
+  });
+  source.addEventListener("uprava.reload", (event) => {
+    logClientEvent("warn", "web.sse", "session stream requested reload", {
+      session_thread_id: sessionThreadId,
+      after_seq: afterSeq,
+      reason: (event as MessageEvent).data,
+    });
+    onError();
   });
   source.onerror = () => {
     logClientEvent("warn", "web.sse", "session stream error", {

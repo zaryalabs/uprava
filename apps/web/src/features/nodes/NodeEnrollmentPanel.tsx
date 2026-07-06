@@ -122,12 +122,17 @@ function EnrollmentRow({
 
 export function isEnrollmentApprovable(enrollment: NodeEnrollmentSummary) {
   return (
-    enrollment.status === "pending_user_approval" && !enrollment.approved_at
+    enrollment.status === "pending_user_approval" &&
+    !enrollment.approved_at &&
+    !isEnrollmentTerminal(enrollment)
   );
 }
 
 export function isEnrollmentApproved(enrollment: NodeEnrollmentSummary) {
-  return enrollment.status === "approved" || Boolean(enrollment.approved_at);
+  return (
+    !isEnrollmentTerminal(enrollment) &&
+    (enrollment.status === "approved" || Boolean(enrollment.approved_at))
+  );
 }
 
 export function enrollmentStatusText(enrollment: NodeEnrollmentSummary) {
@@ -136,19 +141,27 @@ export function enrollmentStatusText(enrollment: NodeEnrollmentSummary) {
       ? `Claimed by ${enrollment.claimed_node_id}`
       : "Claimed";
   }
-  if (isEnrollmentApproved(enrollment)) {
-    return "Approved; waiting for claim";
-  }
   if (enrollment.status === "expired") return "Expired before claim";
   if (enrollment.status === "revoked") return "Revoked";
   if (enrollment.status === "rejected") return "Rejected";
+  if (isEnrollmentApproved(enrollment)) {
+    return "Approved; waiting for claim";
+  }
   return `Expires ${new Date(enrollment.expires_at).toLocaleString()}`;
 }
 
 function enrollmentTone(enrollment: NodeEnrollmentSummary) {
   if (enrollment.status === "registered") return "good";
-  if (enrollment.status === "expired" || enrollment.status === "revoked") {
+  if (isEnrollmentTerminal(enrollment)) {
     return "bad";
   }
   return isEnrollmentApproved(enrollment) ? "info" : "warn";
+}
+
+function isEnrollmentTerminal(enrollment: NodeEnrollmentSummary) {
+  return (
+    enrollment.status === "expired" ||
+    enrollment.status === "revoked" ||
+    enrollment.status === "rejected"
+  );
 }

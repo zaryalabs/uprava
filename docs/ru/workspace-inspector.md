@@ -83,7 +83,9 @@ classification, generated/ignored stop-points and permission-denied states.
 Implemented intervention layer добавляет:
 
 - lightweight text editing with explicit save/apply semantics;
-- workspace-scoped no-shell command runner with bounded timeout and output;
+- workspace-scoped no-shell command runner with bounded timeout, bounded output
+  and explicit controlled-dev executable allow-list: `cargo`, `git`, `make`,
+  `node`, `npm`, `pnpm`, `bun` and `rustc`;
 - persisted command/output history tied to placement-scoped commands;
 - basic diff view for workspace changes;
 - basic check/test result entry points;

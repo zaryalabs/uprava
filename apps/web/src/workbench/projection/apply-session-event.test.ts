@@ -74,9 +74,21 @@ describe("applySessionEvent", () => {
 
     expect(result).toEqual({ kind: "gap", expectedSeq: 2, receivedSeq: 3 });
   });
+
+  it("uses session projection seq when raw event seqs come from different scopes", () => {
+    const result = applySessionEvent(
+      detailWithSeq(5, 1),
+      eventWithSeq(1, "coordination.warning_acknowledged", {}, 2),
+    );
+
+    expect(result.kind).toBe("applied");
+  });
 });
 
-function detailWithSeq(seq: number): SessionDetail {
+function detailWithSeq(
+  seq: number,
+  sessionProjectionSeq?: number,
+): SessionDetail {
   return {
     session: {
       session_thread_id: "session-1",
@@ -106,7 +118,7 @@ function detailWithSeq(seq: number): SessionDetail {
       last_validated_at: null,
     },
     messages: [],
-    events: [eventWithSeq(seq)],
+    events: [eventWithSeq(seq, "runtime.ready", {}, sessionProjectionSeq)],
   };
 }
 
@@ -114,6 +126,7 @@ function eventWithSeq(
   seq: number,
   kind = "runtime.ready",
   payload: unknown = {},
+  sessionProjectionSeq?: number,
 ): EventEnvelope {
   return {
     event_id: `event-${seq}`,
@@ -125,6 +138,7 @@ function eventWithSeq(
     session_thread_id: "session-1",
     turn_id: null,
     seq,
+    session_projection_seq: sessionProjectionSeq,
     kind,
     happened_at: "2026-06-17T00:00:00Z",
     source_refs: [],

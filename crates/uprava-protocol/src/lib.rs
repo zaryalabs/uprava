@@ -339,6 +339,8 @@ pub struct EventEnvelope {
     pub session_thread_id: Option<SessionThreadId>,
     pub turn_id: Option<TurnId>,
     pub seq: i64,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub session_projection_seq: Option<i64>,
     pub kind: EventKind,
     pub happened_at: DateTime<Utc>,
     #[serde(default)]
@@ -1138,6 +1140,7 @@ mod tests {
             session_thread_id: Some(SessionThreadId::from("session-1")),
             turn_id: Some(TurnId::from("turn-1")),
             seq: 1,
+            session_projection_seq: Some(1),
             kind: EventKind::ProviderMessageCompleted,
             happened_at: Utc::now(),
             source_refs: vec![],
@@ -1194,6 +1197,7 @@ mod tests {
             session_thread_id: Some(SessionThreadId::from("session-1")),
             turn_id: Some(TurnId::from("turn-1")),
             seq: 2,
+            session_projection_seq: Some(2),
             kind: EventKind::ProviderOutputDelta,
             happened_at: Utc::now(),
             source_refs: vec![UpravaRef::Command {

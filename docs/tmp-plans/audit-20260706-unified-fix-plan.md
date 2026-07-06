@@ -2,12 +2,28 @@
 
 Date: 2026-07-06
 
-Status: `active`
+Status: `implemented-with-followups`
 
 Purpose: объединить результаты deep audit и локального Clawpatch report
 `.clawpatch/reports/20260706T131325-7b77ff.md` в один рабочий план без
 дублирующихся задач. Этот документ заменяет два прежних temporary plan:
 `deep-audit-20260706-fix-plan.md` и `clawpatch-20260706-fix-plan.md`.
+
+Implementation outcome: the behavior, security, durability, quality-gate,
+operator-feedback, healthcheck/logging and release-baseline fixes landed as
+the `0.1.6` unified audit hardening baseline. Broad mechanical refactors that
+do not change shipped behavior - Core/Node module splitting, generated protocol
+contracts, and an async workspace command API - are intentionally deferred to
+feature queue item 17.
+
+Verification update, 2026-07-06: the remaining current-blocker implementation
+gaps are closed. Node runtime workspace paths are canonicalized through
+`UPRAVA_NODE_WORKSPACES` on `StartRuntime`/`ResumeRuntime` and rechecked before
+Codex `SendTurn`; duplicate workspace command replay persists and returns typed
+result payloads after restart; Core HTTP routing has bounded request body and
+timeout layers. Regression coverage was added for the workspace escape,
+runtime reauthorization, duplicate replay and oversized-body cases, and
+`make c` passes.
 
 ## Related Docs
 
@@ -17,15 +33,15 @@ Purpose: объединить результаты deep audit и локальн�
   `0.1.0`, trusted development deployment, session/runtime lifecycle и visible
   error/offline states.
 - [`docs/en/versioning.md`](../en/versioning.md) - SemVer rules and current
-  `0.1.5` release baseline.
+  `0.1.6` release baseline.
 - [`docs/en/releases.md`](../en/releases.md) - shipped implementation slices
-  from `0.1.0` through `0.1.5`.
+  from `0.1.0` through `0.1.6`.
 - [`docs/en/tech-stack.md`](../en/tech-stack.md) - Rust/Axum/Tokio/SQLite,
   React/Vite/TypeScript и ожидаемые local quality gates.
 - [`docs/en/design/003-distributed-runtime-coordination.md`](../en/design/003-distributed-runtime-coordination.md)
   - idempotent commands, ordered runtime/session events и reconnect semantics.
 - [`docs/en/workspace-inspector.md`](../en/workspace-inspector.md) - workspace
-  inspector direction and the surface that has now shipped through `0.1.5`.
+  inspector direction and the surface that has now shipped through `0.1.6`.
 - [`docs/en/runbooks/v01-local-dev.md`](../en/runbooks/v01-local-dev.md) -
   controlled dev security, node auth, control channel и local `0.1.x` checks.
 
@@ -42,7 +58,7 @@ In scope:
 - Сделать `make c` и связанные quality targets честными: scaffolded проверки
   не должны silently skip или возвращать false success.
 - Синхронизировать Rust MSRV contract с `Cargo.lock` и local/CI checks.
-- Синхронизировать current `0.1.5` baseline с фактически реализованным
+- Синхронизировать current `0.1.6` baseline с фактически реализованным
   Workspace Inspector and command runner.
 - Исправить Web Control Panel states, где ошибки скрываются как loading/not
   found или теряется пользовательский ввод.
@@ -344,7 +360,7 @@ Completion criteria:
 ## Slice 6: Workspace Inspector Release Baseline And Tool Policy
 
 Goal: зафиксировать Workspace Inspector/command runner as shipped post-`0.1.0`
-capabilities in the current `0.1.5` baseline, and align docs, routing,
+capabilities in the current `0.1.6` baseline, and align docs, routing,
 permissions and UI with that fact.
 
 Findings:
@@ -369,7 +385,7 @@ Plan:
      history and diff/check entry points.
 3. Update runbook and architecture notes only where they describe current
    implementation behavior, not historical `V01` scope.
-4. Define allowed command policy for the current `0.1.5` controlled-dev
+4. Define allowed command policy for the current `0.1.6` controlled-dev
    baseline.
 5. Record every workspace command/write as command plus event/audit entry.
 6. Show command/write risk clearly in UI without relying on hidden agent text.
@@ -382,7 +398,7 @@ Plan:
 
 Completion criteria:
 
-- Docs and implementation agree that workspace tools are current `0.1.5`
+- Docs and implementation agree that workspace tools are current `0.1.6`
   capabilities, not part of historical `0.1.0`/`V01` scope.
 - Command execution is bounded by an explicit policy, not only string cleanup.
 - Workspace commands and writes are visible as traceable system actions.
@@ -407,7 +423,7 @@ Plan:
    process handling and streamed stdout/stderr capped during execution.
 2. Ensure timeout kills the process and capped buffers do not keep growing.
 3. Add Axum/Tower request timeout and body-size limits appropriate for the
-   current `0.1.5` controlled-dev baseline.
+   current `0.1.6` controlled-dev baseline.
 4. Decide which workspace operations remain synchronous and which become
    accepted-command plus poll/SSE.
 5. Return explicit timeout/cancel states to Web instead of ambiguous failures.
@@ -564,10 +580,11 @@ This temporary plan is complete when:
   workspace symlink race.
 - User-visible web error/draft-loss findings cannot reproduce.
 - Medium command/idempotency/resource findings have regression coverage.
-- Current `0.1.5` docs and implemented workspace capabilities no longer
+- Current `0.1.6` docs and implemented workspace capabilities no longer
   contradict each other.
-- Core/Node module boundaries make command lifecycle, events and state-store
-  code independently reviewable.
+- Broad Core/Node module-boundary cleanup, generated protocol contracts and
+  async workspace command API are either complete or explicitly moved to the
+  feature queue with rationale.
 - Remaining low findings are either fixed or moved to the feature queue with an
   explicit reason.
 - Durable decisions, especially MSRV policy, Workspace Inspector release scope

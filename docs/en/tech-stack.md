@@ -71,6 +71,10 @@ is installed.
 
 ## Rust Stack
 
+The current implementation baseline uses Rust `1.88` as the minimum supported
+Rust version. This follows the locked dependency graph rather than pinning
+transitive dependencies back to the older provisional toolchain.
+
 ### Core Backend
 
 Preliminary choice:

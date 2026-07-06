@@ -68,6 +68,18 @@ describe("applySessionStreamEventToCache", () => {
     ).toBe(true);
     expect(isInvalidated(queryClient, queryKeys.inventory)).toBe(true);
   });
+
+  it("applies projected contiguous events when raw seq moves backward", async () => {
+    const queryClient = queryClientWithSnapshots(detailWithSeq(5, 1));
+
+    const result = await applySessionStreamEventToCache(
+      queryClient,
+      "session-1",
+      eventWithSeq(1, "coordination.warning_acknowledged", {}, 2),
+    );
+
+    expect(result).toEqual({ kind: "applied" });
+  });
 });
 
 function queryClientWithSnapshots(detail: SessionDetail) {
@@ -89,7 +101,10 @@ function isInvalidated(queryClient: QueryClient, queryKey: readonly unknown[]) {
   return queryClient.getQueryState(queryKey)?.isInvalidated ?? false;
 }
 
-function detailWithSeq(seq: number): SessionDetail {
+function detailWithSeq(
+  seq: number,
+  sessionProjectionSeq?: number,
+): SessionDetail {
   return {
     session: {
       session_thread_id: "session-1",
@@ -119,7 +134,7 @@ function detailWithSeq(seq: number): SessionDetail {
       last_validated_at: null,
     },
     messages: [],
-    events: [eventWithSeq(seq)],
+    events: [eventWithSeq(seq, "runtime.ready", {}, sessionProjectionSeq)],
   };
 }
 
@@ -127,6 +142,7 @@ function eventWithSeq(
   seq: number,
   kind = "runtime.ready",
   payload: unknown = {},
+  sessionProjectionSeq?: number,
 ): EventEnvelope {
   return {
     event_id: `event-${seq}`,
@@ -138,6 +154,7 @@ function eventWithSeq(
     session_thread_id: "session-1",
     turn_id: null,
     seq,
+    session_projection_seq: sessionProjectionSeq,
     kind,
     happened_at: "2026-06-17T00:00:00Z",
     source_refs: [],

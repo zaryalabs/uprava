@@ -63,6 +63,13 @@ describe("PlacementNewRoute", () => {
       "/tmp/my-app",
     ]);
   });
+
+  it("falls back when slugifying current or parent directory names", () => {
+    expect(workspacePathSuggestions(".", [])).toContain("/workspace/workspace");
+    expect(workspacePathSuggestions("..", [])).toContain(
+      "/workspace/workspace",
+    );
+  });
 });
 
 function renderRoute() {

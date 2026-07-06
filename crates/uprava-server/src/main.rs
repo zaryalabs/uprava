@@ -96,10 +96,28 @@ async fn wait_for_shutdown(mut shutdown_rx: tokio::sync::watch::Receiver<bool>) 
 }
 
 fn run_healthcheck(address: &str) -> anyhow::Result<()> {
-    let mut addrs = address.to_socket_addrs()?;
-    let Some(address) = addrs.next() else {
+    let addrs: Vec<_> = address.to_socket_addrs()?.collect();
+    if addrs.is_empty() {
         anyhow::bail!("healthcheck address did not resolve");
-    };
+    }
+    run_healthcheck_addrs(addrs)
+}
+
+fn run_healthcheck_addrs(addrs: impl IntoIterator<Item = SocketAddr>) -> anyhow::Result<()> {
+    let mut errors = Vec::new();
+    for address in addrs {
+        match run_healthcheck_addr(address) {
+            Ok(()) => return Ok(()),
+            Err(error) => errors.push(format!("{address}: {error}")),
+        }
+    }
+    anyhow::bail!(
+        "healthcheck failed for all resolved addresses: {}",
+        errors.join("; ")
+    );
+}
+
+fn run_healthcheck_addr(address: SocketAddr) -> anyhow::Result<()> {
     let mut stream = TcpStream::connect_timeout(&address, Duration::from_secs(2))?;
     stream.set_read_timeout(Some(Duration::from_secs(2)))?;
     stream.set_write_timeout(Some(Duration::from_secs(2)))?;
@@ -129,4 +147,27 @@ fn ensure_sqlite_parent_dir(database_url: &str) -> anyhow::Result<()> {
         std::fs::create_dir_all(parent)?;
     }
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn healthcheck_tries_later_address_after_failed_first_address() {
+        let listener = std::net::TcpListener::bind("127.0.0.1:0").expect("listener binds");
+        let good_address = listener.local_addr().expect("local address reads");
+        let server = std::thread::spawn(move || {
+            let (mut stream, _) = listener.accept().expect("healthcheck connects");
+            let mut request = [0_u8; 256];
+            let _ = stream.read(&mut request).expect("request reads");
+            stream
+                .write_all(b"HTTP/1.1 200 OK\r\nContent-Length: 0\r\n\r\n")
+                .expect("response writes");
+        });
+
+        run_healthcheck_addrs([SocketAddr::from(([127, 0, 0, 1], 9)), good_address])
+            .expect("second address succeeds");
+        server.join().expect("server thread joins");
+    }
 }
