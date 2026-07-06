@@ -26,6 +26,29 @@ export type PlacementState =
   | "error";
 export type WarningSeverity = "info" | "warning" | "hard_block";
 export type ClientLogLevel = "debug" | "info" | "warn" | "error";
+export type CommandState =
+  | "recorded"
+  | "pending_dispatch"
+  | "dispatched"
+  | "acknowledged"
+  | "completed"
+  | "failed"
+  | "blocked"
+  | "expired";
+export type CommandKind =
+  | "StartRuntime"
+  | "ResumeRuntime"
+  | "SendTurn"
+  | "ResolveApproval"
+  | "InterruptRuntime"
+  | "StopRuntime"
+  | "ValidateWorkspace"
+  | "RefreshResourceSnapshot"
+  | "ListWorkspaceTree"
+  | "ReadWorkspaceFile"
+  | "WriteWorkspaceFile"
+  | "RunWorkspaceCommand"
+  | "ReadWorkspaceDiff";
 export type MessageRole =
   | "user"
   | "assistant"
@@ -144,6 +167,74 @@ export type WorkspaceFileContentResponse = {
   metadata: WorkspaceEntry;
   content: string | null;
   truncated: boolean;
+  generated_at: string;
+};
+
+export type WorkspaceFileWriteRequest = {
+  path: string;
+  content: string;
+  expected_content: string | null;
+};
+
+export type WorkspaceFileWriteResponse = {
+  placement_id: string;
+  path: string;
+  metadata: WorkspaceEntry;
+  edit_id: string;
+  written_at: string;
+};
+
+export type WorkspaceCommandIntent = "command" | "check";
+
+export type WorkspaceCommandRunRequest = {
+  command: string;
+  args: string[];
+  intent: WorkspaceCommandIntent;
+  label: string | null;
+  timeout_seconds: number | null;
+};
+
+export type WorkspaceCommandRunResponse = {
+  placement_id: string;
+  terminal_command_id: string;
+  command: string;
+  args: string[];
+  intent: WorkspaceCommandIntent;
+  label: string | null;
+  exit_code: number | null;
+  success: boolean;
+  stdout: string;
+  stderr: string;
+  stdout_truncated: boolean;
+  stderr_truncated: boolean;
+  duration_ms: number;
+  started_at: string;
+  completed_at: string;
+};
+
+export type WorkspaceDiffResponse = {
+  placement_id: string;
+  diff_id: string;
+  summary: string;
+  diff: string;
+  summary_truncated: boolean;
+  diff_truncated: boolean;
+  generated_at: string;
+};
+
+export type WorkspaceCommandHistoryItem = {
+  command_id: string;
+  kind: CommandKind;
+  state: CommandState;
+  created_at: string;
+  completed_at: string | null;
+  payload: unknown;
+  result_payload: unknown | null;
+};
+
+export type WorkspaceCommandHistoryResponse = {
+  placement_id: string;
+  commands: WorkspaceCommandHistoryItem[];
   generated_at: string;
 };
 

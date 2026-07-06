@@ -22,7 +22,13 @@ import type {
   WebAuthSetupRequest,
   WebAuthStatusResponse,
   WarningAcknowledgementResponse,
+  WorkspaceCommandHistoryResponse,
+  WorkspaceCommandRunRequest,
+  WorkspaceCommandRunResponse,
+  WorkspaceDiffResponse,
   WorkspaceFileContentResponse,
+  WorkspaceFileWriteRequest,
+  WorkspaceFileWriteResponse,
   WorkspaceTreeResponse,
 } from "../protocol/types";
 import { apiBase } from "./config";
@@ -148,6 +154,32 @@ export const coreApi = {
       `/placements/${encodeURIComponent(
         placementId,
       )}/workspace/file?path=${encodeURIComponent(path)}`,
+    ),
+  writeWorkspaceFile: (
+    placementId: string,
+    request: WorkspaceFileWriteRequest,
+  ) =>
+    apiPost<WorkspaceFileWriteResponse>(
+      `/placements/${encodeURIComponent(placementId)}/workspace/file`,
+      request,
+    ),
+  runWorkspaceCommand: (
+    placementId: string,
+    request: WorkspaceCommandRunRequest,
+  ) =>
+    apiPost<WorkspaceCommandRunResponse>(
+      `/placements/${encodeURIComponent(placementId)}/workspace/commands`,
+      request,
+    ),
+  workspaceCommandHistory: (placementId: string, limit = 20) =>
+    apiGet<WorkspaceCommandHistoryResponse>(
+      `/placements/${encodeURIComponent(
+        placementId,
+      )}/workspace/commands?limit=${encodeURIComponent(String(limit))}`,
+    ),
+  workspaceDiff: (placementId: string) =>
+    apiGet<WorkspaceDiffResponse>(
+      `/placements/${encodeURIComponent(placementId)}/workspace/diff`,
     ),
   validatePlacement: (request: CreatePlacementRequest) =>
     apiPost<import("../protocol/types").ProjectPlacementSummary>(

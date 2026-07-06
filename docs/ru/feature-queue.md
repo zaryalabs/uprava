@@ -44,7 +44,7 @@ dependency, complexity, risk and value. Позиции могут двигать
 | 2 | + | Runtime/session hardening | Robust lifecycle, resume, stop, blocked, stale states | V01 runtime path | Medium |
 | 3 | + | Workspace shell and reference model | Stable refs and routes for future workspace evidence | V01 entity/session model | Medium |
 | 4 | + | Read-only Project Workspace Inspector | File tree, metadata, safe text viewer | Workspace refs, Node file reads | Medium |
-| 5 | - | Workspace intervention layer | Lightweight editor, terminal, command history, diff/check entry points | Read-only inspector, events | High |
+| 5 | + | Workspace intervention layer | Lightweight editor, terminal, command history, diff/check entry points | Read-only inspector, events | High |
 | 6 | - | Causality and trace UX | Coarse source/cause links with raw fallback | Workspace refs, event log | Medium |
 | 7 | - | Git and review basics | Better diff, branch/worktree awareness, check results | Workspace intervention, trace | Medium |
 | 8 | - | Tool Registry v1 | Real tool metadata, permissions, routing and audit policy | V01 capability model, events | High |
@@ -165,6 +165,16 @@ terminal, diff, checks, artifacts and trace links.
 **First useful slice:** Controlled text writes or patch applies, workspace
 terminal/PTY or command runner, command/output history, session-level diff and
 basic check/test entry points.
+
+**Current implementation note:** Первый intervention slice расширяет Project
+Workspace Inspector явным save для text files, bounded workspace command runner,
+отображением command/check results, persisted command result history и git diff
+snapshot entry point. Core routes these actions через placement-scoped commands
+and persists command-result payloads; Node enforces allowed workspace roots,
+path normalization, protected generated/ignored paths, text-size caps, no-shell
+command execution, timeout limits and bounded output. Web Control Panel exposes
+save, `make l`, `make c`, custom command, diff and history controls в workspace
+surface. Full interactive PTY lifecycle остается future work.
 
 **Target direction:** Lightweight developer workbench ergonomics без превращения
 в full browser IDE.

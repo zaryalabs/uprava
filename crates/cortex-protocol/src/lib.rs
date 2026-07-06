@@ -260,6 +260,9 @@ pub enum CommandKind {
     RefreshResourceSnapshot,
     ListWorkspaceTree,
     ReadWorkspaceFile,
+    WriteWorkspaceFile,
+    RunWorkspaceCommand,
+    ReadWorkspaceDiff,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -551,6 +554,88 @@ pub struct WorkspaceFileContentResponse {
     pub metadata: WorkspaceEntry,
     pub content: Option<String>,
     pub truncated: bool,
+    pub generated_at: DateTime<Utc>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct WorkspaceFileWriteRequest {
+    pub path: String,
+    pub content: String,
+    pub expected_content: Option<String>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct WorkspaceFileWriteResponse {
+    pub placement_id: ProjectPlacementId,
+    pub path: String,
+    pub metadata: WorkspaceEntry,
+    pub edit_id: String,
+    pub written_at: DateTime<Utc>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum WorkspaceCommandIntent {
+    Command,
+    Check,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct WorkspaceCommandRunRequest {
+    pub command: String,
+    #[serde(default)]
+    pub args: Vec<String>,
+    pub intent: WorkspaceCommandIntent,
+    pub label: Option<String>,
+    pub timeout_seconds: Option<u64>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct WorkspaceCommandRunResponse {
+    pub placement_id: ProjectPlacementId,
+    pub terminal_command_id: String,
+    pub command: String,
+    #[serde(default)]
+    pub args: Vec<String>,
+    pub intent: WorkspaceCommandIntent,
+    pub label: Option<String>,
+    pub exit_code: Option<i32>,
+    pub success: bool,
+    pub stdout: String,
+    pub stderr: String,
+    pub stdout_truncated: bool,
+    pub stderr_truncated: bool,
+    pub duration_ms: u64,
+    pub started_at: DateTime<Utc>,
+    pub completed_at: DateTime<Utc>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct WorkspaceDiffResponse {
+    pub placement_id: ProjectPlacementId,
+    pub diff_id: String,
+    pub summary: String,
+    pub diff: String,
+    pub summary_truncated: bool,
+    pub diff_truncated: bool,
+    pub generated_at: DateTime<Utc>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct WorkspaceCommandHistoryItem {
+    pub command_id: CommandId,
+    pub kind: CommandKind,
+    pub state: CommandState,
+    pub created_at: DateTime<Utc>,
+    pub completed_at: Option<DateTime<Utc>>,
+    pub payload: serde_json_value::JsonValue,
+    pub result_payload: Option<serde_json_value::JsonValue>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct WorkspaceCommandHistoryResponse {
+    pub placement_id: ProjectPlacementId,
+    pub commands: Vec<WorkspaceCommandHistoryItem>,
     pub generated_at: DateTime<Utc>,
 }
 

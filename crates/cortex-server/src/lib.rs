@@ -44,7 +44,10 @@ use cortex_protocol::{
     SendTurnRequest, SessionDetail, SessionSummary, SessionThreadId, SessionThreadState, SleepHint,
     TurnId, TurnState, VersionResponse, WarningAcknowledgementResponse, WarningSeverity,
     WebAuthLoginRequest, WebAuthResponse, WebAuthSetupRequest, WebAuthStatusResponse,
-    WorkspaceFileContentResponse, WorkspaceSnapshot, WorkspaceTreeResponse,
+    WorkspaceCommandHistoryItem, WorkspaceCommandHistoryResponse, WorkspaceCommandRunRequest,
+    WorkspaceCommandRunResponse, WorkspaceDiffResponse, WorkspaceFileContentResponse,
+    WorkspaceFileWriteRequest, WorkspaceFileWriteResponse, WorkspaceSnapshot,
+    WorkspaceTreeResponse,
 };
 use futures_util::{SinkExt, Stream, StreamExt};
 use serde::{de::DeserializeOwned, Deserialize};
@@ -73,6 +76,7 @@ const MIN_LOCAL_PASSWORD_CHARS: usize = 12;
 const AUTH_FAILURE_LIMIT: usize = 10;
 const AUTH_FAILURE_WINDOW_SECONDS: i64 = 60;
 const WORKSPACE_COMMAND_TIMEOUT: Duration = Duration::from_secs(5);
+const WORKSPACE_INTERVENTION_TIMEOUT: Duration = Duration::from_secs(120);
 
 #[derive(Debug, Clone)]
 pub struct AppConfig {
@@ -277,6 +281,7 @@ impl AppState {
             "alter table commands add column source_refs_json text",
             "alter table commands add column cause_refs_json text",
             "alter table commands add column payload_json text",
+            "alter table commands add column result_payload_json text",
             "alter table commands add column dedupe_key text",
         ] {
             let _ = sqlx::query(statement).execute(&self.pool).await;
@@ -347,7 +352,15 @@ pub fn build_router(state: Arc<AppState>) -> Router {
         )
         .route(
             "/placements/{placement_id}/workspace/file",
-            get(workspace_file_route),
+            get(workspace_file_route).post(workspace_file_write_route),
+        )
+        .route(
+            "/placements/{placement_id}/workspace/commands",
+            get(workspace_command_history_route).post(workspace_command_run_route),
+        )
+        .route(
+            "/placements/{placement_id}/workspace/diff",
+            get(workspace_diff_route),
         )
         .route("/sessions", post(create_session_route))
         .route("/sessions/{session_thread_id}", get(session_detail))
@@ -1586,7 +1599,7 @@ async fn handle_node_control_frame(
                 command_state = ?status,
                 "node command result received"
             );
-            update_command_state(state, &command_id, status).await?;
+            update_command_result(state, &command_id, status, &payload).await?;
             let _ = state.command_result_tx.send(CommandResultNotice {
                 command_id,
                 status,
@@ -2047,6 +2060,11 @@ struct WorkspacePathQuery {
     path: Option<String>,
 }
 
+#[derive(Debug, Deserialize)]
+struct WorkspaceHistoryQuery {
+    limit: Option<i64>,
+}
+
 async fn workspace_tree_route(
     State(state): State<Arc<AppState>>,
     headers: HeaderMap,
@@ -2079,6 +2097,62 @@ async fn workspace_file_route(
     .map(Json)
 }
 
+async fn workspace_file_write_route(
+    State(state): State<Arc<AppState>>,
+    headers: HeaderMap,
+    Path(placement_id): Path<String>,
+    Json(request): Json<WorkspaceFileWriteRequest>,
+) -> Result<Json<WorkspaceFileWriteResponse>, AppError> {
+    workspace_file_write_with_correlation(
+        &state,
+        ProjectPlacementId::from(placement_id),
+        request,
+        request_correlation_id(&headers),
+    )
+    .await
+    .map(Json)
+}
+
+async fn workspace_command_run_route(
+    State(state): State<Arc<AppState>>,
+    headers: HeaderMap,
+    Path(placement_id): Path<String>,
+    Json(request): Json<WorkspaceCommandRunRequest>,
+) -> Result<Json<WorkspaceCommandRunResponse>, AppError> {
+    workspace_command_run_with_correlation(
+        &state,
+        ProjectPlacementId::from(placement_id),
+        request,
+        request_correlation_id(&headers),
+    )
+    .await
+    .map(Json)
+}
+
+async fn workspace_diff_route(
+    State(state): State<Arc<AppState>>,
+    headers: HeaderMap,
+    Path(placement_id): Path<String>,
+) -> Result<Json<WorkspaceDiffResponse>, AppError> {
+    workspace_diff_with_correlation(
+        &state,
+        ProjectPlacementId::from(placement_id),
+        request_correlation_id(&headers),
+    )
+    .await
+    .map(Json)
+}
+
+async fn workspace_command_history_route(
+    State(state): State<Arc<AppState>>,
+    Path(placement_id): Path<String>,
+    Query(query): Query<WorkspaceHistoryQuery>,
+) -> Result<Json<WorkspaceCommandHistoryResponse>, AppError> {
+    workspace_command_history(&state, ProjectPlacementId::from(placement_id), query.limit)
+        .await
+        .map(Json)
+}
+
 async fn workspace_tree_with_correlation(
     state: &AppState,
     placement_id: ProjectPlacementId,
@@ -2086,12 +2160,18 @@ async fn workspace_tree_with_correlation(
     correlation_id: CorrelationId,
 ) -> Result<WorkspaceTreeResponse, AppError> {
     let placement = load_placement(state, &placement_id).await?;
-    dispatch_workspace_inspector_command(
+    dispatch_workspace_command(
         state,
         &placement,
         CommandKind::ListWorkspaceTree,
-        path,
+        json!({
+            "path": path,
+        }),
+        vec![CortexRef::Workspace {
+            placement_id: placement.project_placement_id.clone(),
+        }],
         correlation_id,
+        WORKSPACE_COMMAND_TIMEOUT,
     )
     .await
 }
@@ -2103,22 +2183,157 @@ async fn workspace_file_with_correlation(
     correlation_id: CorrelationId,
 ) -> Result<WorkspaceFileContentResponse, AppError> {
     let placement = load_placement(state, &placement_id).await?;
-    dispatch_workspace_inspector_command(
+    dispatch_workspace_command(
         state,
         &placement,
         CommandKind::ReadWorkspaceFile,
-        path,
+        json!({
+            "path": path,
+        }),
+        vec![
+            CortexRef::Workspace {
+                placement_id: placement.project_placement_id.clone(),
+            },
+            CortexRef::File {
+                placement_id: placement.project_placement_id.clone(),
+                path,
+                version: None,
+            },
+        ],
         correlation_id,
+        WORKSPACE_COMMAND_TIMEOUT,
     )
     .await
 }
 
-async fn dispatch_workspace_inspector_command<T>(
+async fn workspace_file_write_with_correlation(
+    state: &AppState,
+    placement_id: ProjectPlacementId,
+    request: WorkspaceFileWriteRequest,
+    correlation_id: CorrelationId,
+) -> Result<WorkspaceFileWriteResponse, AppError> {
+    let placement = load_placement(state, &placement_id).await?;
+    ensure_placement_intervention_allowed(&placement)?;
+    let path = request.path.clone();
+    dispatch_workspace_command(
+        state,
+        &placement,
+        CommandKind::WriteWorkspaceFile,
+        serde_json::to_value(request)?,
+        vec![
+            CortexRef::Workspace {
+                placement_id: placement.project_placement_id.clone(),
+            },
+            CortexRef::File {
+                placement_id: placement.project_placement_id.clone(),
+                path,
+                version: None,
+            },
+        ],
+        correlation_id,
+        WORKSPACE_INTERVENTION_TIMEOUT,
+    )
+    .await
+}
+
+async fn workspace_command_run_with_correlation(
+    state: &AppState,
+    placement_id: ProjectPlacementId,
+    request: WorkspaceCommandRunRequest,
+    correlation_id: CorrelationId,
+) -> Result<WorkspaceCommandRunResponse, AppError> {
+    let placement = load_placement(state, &placement_id).await?;
+    ensure_placement_intervention_allowed(&placement)?;
+    dispatch_workspace_command(
+        state,
+        &placement,
+        CommandKind::RunWorkspaceCommand,
+        serde_json::to_value(request)?,
+        vec![CortexRef::Workspace {
+            placement_id: placement.project_placement_id.clone(),
+        }],
+        correlation_id,
+        WORKSPACE_INTERVENTION_TIMEOUT,
+    )
+    .await
+}
+
+async fn workspace_diff_with_correlation(
+    state: &AppState,
+    placement_id: ProjectPlacementId,
+    correlation_id: CorrelationId,
+) -> Result<WorkspaceDiffResponse, AppError> {
+    let placement = load_placement(state, &placement_id).await?;
+    ensure_placement_inspectable(&placement)?;
+    dispatch_workspace_command(
+        state,
+        &placement,
+        CommandKind::ReadWorkspaceDiff,
+        json!({}),
+        vec![CortexRef::Workspace {
+            placement_id: placement.project_placement_id.clone(),
+        }],
+        correlation_id,
+        WORKSPACE_INTERVENTION_TIMEOUT,
+    )
+    .await
+}
+
+async fn workspace_command_history(
+    state: &AppState,
+    placement_id: ProjectPlacementId,
+    limit: Option<i64>,
+) -> Result<WorkspaceCommandHistoryResponse, AppError> {
+    let placement = load_placement(state, &placement_id).await?;
+    ensure_placement_inspectable(&placement)?;
+    let limit = limit.unwrap_or(20).clamp(1, 100);
+    let rows = sqlx::query(
+        r#"
+        select command_id, kind, state, payload_json, result_payload_json, created_at, completed_at
+        from commands
+        where project_placement_id = ?1
+          and kind in ('WriteWorkspaceFile', 'RunWorkspaceCommand', 'ReadWorkspaceDiff')
+        order by created_at desc
+        limit ?2
+        "#,
+    )
+    .bind(placement.project_placement_id.as_str())
+    .bind(limit)
+    .fetch_all(&state.pool)
+    .await?;
+    let mut commands = Vec::with_capacity(rows.len());
+    for row in rows {
+        let kind: String = row.try_get("kind")?;
+        let state_value: String = row.try_get("state")?;
+        let payload_json: String = row.try_get("payload_json")?;
+        let result_payload_json: Option<String> = row.try_get("result_payload_json")?;
+        commands.push(WorkspaceCommandHistoryItem {
+            command_id: CommandId::from(row.try_get::<String, _>("command_id")?),
+            kind: parse_command_kind(&kind),
+            state: parse_command_state(&state_value),
+            created_at: row.try_get("created_at")?,
+            completed_at: row.try_get("completed_at")?,
+            payload: serde_json::from_str(&payload_json)?,
+            result_payload: result_payload_json
+                .map(|payload| serde_json::from_str(&payload))
+                .transpose()?,
+        });
+    }
+    Ok(WorkspaceCommandHistoryResponse {
+        placement_id: placement.project_placement_id,
+        commands,
+        generated_at: Utc::now(),
+    })
+}
+
+async fn dispatch_workspace_command<T>(
     state: &AppState,
     placement: &ProjectPlacementSummary,
     kind: CommandKind,
-    path: String,
+    payload: serde_json::Value,
+    source_refs: Vec<CortexRef>,
     correlation_id: CorrelationId,
+    timeout: Duration,
 ) -> Result<T, AppError>
 where
     T: DeserializeOwned,
@@ -2127,6 +2342,14 @@ where
     ensure_node_commandable(state, &placement.node_id).await?;
     let command_id = CommandId::new();
     let mut command_results = state.command_result_tx.subscribe();
+    let mut payload = match payload {
+        serde_json::Value::Object(payload) => payload,
+        _ => serde_json::Map::new(),
+    };
+    payload.insert(
+        "workspace_path".to_owned(),
+        serde_json::Value::String(placement.workspace_path.clone()),
+    );
     record_and_dispatch_command(
         state,
         CommandEnvelope {
@@ -2137,20 +2360,15 @@ where
             session_thread_id: None,
             runtime_session_id: None,
             project_placement_id: Some(placement.project_placement_id.clone()),
-            source_refs: vec![CortexRef::Workspace {
-                placement_id: placement.project_placement_id.clone(),
-            }],
+            source_refs,
             cause_refs: vec![],
             issued_at: Utc::now(),
             correlation_id,
-            payload: JsonValue(json!({
-                "workspace_path": placement.workspace_path,
-                "path": path,
-            })),
+            payload: JsonValue(serde_json::Value::Object(payload)),
         },
     )
     .await?;
-    let result = wait_for_command_result(&mut command_results, &command_id).await?;
+    let result = wait_for_command_result(&mut command_results, &command_id, timeout).await?;
     if result.status == CommandState::Completed {
         return serde_json::from_value::<T>(result.payload.0).map_err(AppError::from);
     }
@@ -2170,11 +2388,24 @@ fn ensure_placement_inspectable(placement: &ProjectPlacementSummary) -> Result<(
     ))
 }
 
+fn ensure_placement_intervention_allowed(
+    placement: &ProjectPlacementSummary,
+) -> Result<(), AppError> {
+    if placement.state == PlacementState::Validated {
+        return Ok(());
+    }
+    Err(AppError::bad_request(
+        "placement.not_writable",
+        "Workspace placement is not writable",
+    ))
+}
+
 async fn wait_for_command_result(
     command_results: &mut broadcast::Receiver<CommandResultNotice>,
     command_id: &CommandId,
+    timeout_duration: Duration,
 ) -> Result<CommandResultNotice, AppError> {
-    tokio::time::timeout(WORKSPACE_COMMAND_TIMEOUT, async {
+    tokio::time::timeout(timeout_duration, async {
         loop {
             match command_results.recv().await {
                 Ok(result) if result.command_id == *command_id => return Ok(result),
@@ -2993,6 +3224,43 @@ async fn update_command_state(
         command_id = %command_id,
         command_state = ?command_state,
         "command state updated"
+    );
+    Ok(())
+}
+
+async fn update_command_result(
+    state: &AppState,
+    command_id: &CommandId,
+    command_state: CommandState,
+    result_payload: &JsonValue,
+) -> Result<(), AppError> {
+    let completed_at = matches!(
+        command_state,
+        CommandState::Completed
+            | CommandState::Failed
+            | CommandState::Blocked
+            | CommandState::Expired
+    )
+    .then(Utc::now);
+    sqlx::query(
+        r#"
+        update commands
+        set state = ?1,
+            completed_at = coalesce(?2, completed_at),
+            result_payload_json = ?3
+        where command_id = ?4
+        "#,
+    )
+    .bind(format_command_state(command_state))
+    .bind(completed_at)
+    .bind(serde_json::to_string(result_payload)?)
+    .bind(command_id.as_str())
+    .execute(&state.pool)
+    .await?;
+    tracing::debug!(
+        command_id = %command_id,
+        command_state = ?command_state,
+        "command result stored"
     );
     Ok(())
 }
@@ -4069,7 +4337,10 @@ fn ensure_runtime_accepts_command(
         | CommandKind::ValidateWorkspace
         | CommandKind::RefreshResourceSnapshot
         | CommandKind::ListWorkspaceTree
-        | CommandKind::ReadWorkspaceFile => true,
+        | CommandKind::ReadWorkspaceFile
+        | CommandKind::WriteWorkspaceFile
+        | CommandKind::RunWorkspaceCommand
+        | CommandKind::ReadWorkspaceDiff => true,
     };
     if accepts {
         return Ok(());
@@ -6224,6 +6495,39 @@ fn format_approval_state(value: ApprovalState) -> &'static str {
     }
 }
 
+fn parse_command_kind(value: &str) -> CommandKind {
+    match value {
+        "StartRuntime" => CommandKind::StartRuntime,
+        "ResumeRuntime" => CommandKind::ResumeRuntime,
+        "SendTurn" => CommandKind::SendTurn,
+        "ResolveApproval" => CommandKind::ResolveApproval,
+        "InterruptRuntime" => CommandKind::InterruptRuntime,
+        "StopRuntime" => CommandKind::StopRuntime,
+        "ValidateWorkspace" => CommandKind::ValidateWorkspace,
+        "RefreshResourceSnapshot" => CommandKind::RefreshResourceSnapshot,
+        "ListWorkspaceTree" => CommandKind::ListWorkspaceTree,
+        "ReadWorkspaceFile" => CommandKind::ReadWorkspaceFile,
+        "WriteWorkspaceFile" => CommandKind::WriteWorkspaceFile,
+        "RunWorkspaceCommand" => CommandKind::RunWorkspaceCommand,
+        "ReadWorkspaceDiff" => CommandKind::ReadWorkspaceDiff,
+        _ => CommandKind::RefreshResourceSnapshot,
+    }
+}
+
+fn parse_command_state(value: &str) -> CommandState {
+    match value {
+        "recorded" => CommandState::Recorded,
+        "pending_dispatch" => CommandState::PendingDispatch,
+        "dispatched" => CommandState::Dispatched,
+        "acknowledged" => CommandState::Acknowledged,
+        "completed" => CommandState::Completed,
+        "failed" => CommandState::Failed,
+        "blocked" => CommandState::Blocked,
+        "expired" => CommandState::Expired,
+        _ => CommandState::Recorded,
+    }
+}
+
 fn format_command_state(value: CommandState) -> &'static str {
     match value {
         CommandState::Recorded => "recorded",
@@ -6551,6 +6855,7 @@ const MIGRATIONS: &[&str] = &[
         source_refs_json text not null,
         cause_refs_json text not null,
         payload_json text not null,
+        result_payload_json text,
         dedupe_key text,
         command_json text not null,
         created_at text not null,
@@ -8693,6 +8998,116 @@ mod tests {
             Some("README.md")
         );
         assert_eq!(response.content.as_deref(), Some("hello"));
+    }
+
+    #[tokio::test]
+    async fn workspace_command_route_persists_result_payload_for_history() {
+        let state = test_state().await;
+        let claim = enroll_test_node(&state).await;
+        let node_id = claim.node_id.clone().expect("node id returned");
+        heartbeat_test_node(&state, node_id.clone(), claim.credential.clone()).await;
+        let workspace_path = std::env::temp_dir().join(format!("cortex-test-{}", Uuid::new_v4()));
+        std::fs::create_dir_all(&workspace_path).expect("workspace dir creates");
+        let placement = validate_placement(
+            State(state.clone()),
+            Json(CreatePlacementRequest {
+                node_id: node_id.clone(),
+                display_name: "workspace".to_owned(),
+                workspace_path: workspace_path.display().to_string(),
+            }),
+        )
+        .await
+        .expect("placement validates")
+        .0;
+        accept_workspace_validation_event(
+            &state,
+            &placement,
+            node_id.clone(),
+            PlacementState::Validated,
+            vec![],
+        )
+        .await;
+        sqlx::query("delete from commands")
+            .execute(&state.pool)
+            .await
+            .expect("setup commands clear");
+        let (tx, mut rx) = mpsc::unbounded_channel();
+        state
+            .control_channels
+            .write()
+            .await
+            .insert(node_id.to_string(), tx);
+        let state_for_route = state.clone();
+        let placement_id = placement.project_placement_id.clone();
+        let route_task = tokio::spawn(async move {
+            workspace_command_run_with_correlation(
+                &state_for_route,
+                placement_id,
+                WorkspaceCommandRunRequest {
+                    command: "rustc".to_owned(),
+                    args: vec!["--version".to_owned()],
+                    intent: cortex_protocol::WorkspaceCommandIntent::Command,
+                    label: None,
+                    timeout_seconds: Some(30),
+                },
+                CorrelationId::from("correlation-workspace-command"),
+            )
+            .await
+        });
+
+        let dispatched = tokio::time::timeout(std::time::Duration::from_secs(1), rx.recv())
+            .await
+            .expect("workspace command dispatch is sent")
+            .expect("channel stays open");
+        let ControlFrame::CommandDispatch { command, .. } = dispatched else {
+            panic!("expected command dispatch");
+        };
+        let response_payload = JsonValue(json!({
+            "placement_id": placement.project_placement_id.as_str(),
+            "terminal_command_id": "terminal-command-test",
+            "command": "rustc",
+            "args": ["--version"],
+            "intent": "command",
+            "label": null,
+            "exit_code": 0,
+            "success": true,
+            "stdout": "rustc 1.0.0\n",
+            "stderr": "",
+            "stdout_truncated": false,
+            "stderr_truncated": false,
+            "duration_ms": 10,
+            "started_at": "2026-06-17T00:00:00Z",
+            "completed_at": "2026-06-17T00:00:01Z"
+        }));
+        handle_node_control_frame(
+            &state,
+            &node_id,
+            ControlFrame::CommandResult {
+                frame_id: "workspace-command-result-frame".to_owned(),
+                protocol_version: API_VERSION.to_owned(),
+                sent_at: Utc::now(),
+                command_id: command.command_id.clone(),
+                status: CommandState::Completed,
+                payload: response_payload,
+            },
+        )
+        .await
+        .expect("node command result accepts");
+        let response = route_task
+            .await
+            .expect("route task joins")
+            .expect("workspace command route succeeds");
+        let history =
+            workspace_command_history(&state, placement.project_placement_id.clone(), Some(10))
+                .await
+                .expect("workspace command history loads");
+        std::fs::remove_dir_all(&workspace_path).expect("workspace dir removes");
+
+        assert_eq!(command.kind, CommandKind::RunWorkspaceCommand);
+        assert_eq!(response.stdout, "rustc 1.0.0\n");
+        assert_eq!(history.commands.len(), 1);
+        assert_eq!(history.commands[0].command_id, command.command_id);
+        assert!(history.commands[0].result_payload.is_some());
     }
 
     #[tokio::test]

@@ -79,15 +79,18 @@ path normalization and local filesystem access, including workspace boundary
 checks, allowed-root checks, symlink stop-points, text-size caps, binary/large
 classification, generated/ignored stop-points, and permission-denied states.
 
-The following intervention layer should add:
+The implemented intervention layer adds:
 
 - lightweight text editing with explicit save/apply semantics;
-- workspace-scoped terminal/PTY sessions with attach, detach, resize, and close;
-- command/output history tied to terminal sessions and agent events;
+- workspace-scoped no-shell command runner with bounded timeout and output;
+- persisted command/output history tied to placement-scoped commands;
 - basic diff view for workspace changes;
 - basic check/test result entry points;
 - addressable references to terminal sessions, commands, output ranges, diffs,
   checks, and edits.
+
+Full workspace-scoped terminal/PTY sessions with attach, detach, resize, close,
+and replay semantics remain a later step.
 
 ## Explicit Non-Goals
 
