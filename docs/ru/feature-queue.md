@@ -83,11 +83,12 @@ rules, revoke/rotate basics, local web auth/session handling, origin/CSRF checks
 where relevant, token redaction and minimal security/audit events.
 
 **Current implementation note:** `controlled_dev` with `CORTEX_WEB_AUTH=auto`
-enables local password setup/login, session and CSRF cookies, protected browser
-routes, origin checks, node bearer credentials for heartbeat/control, node
-revoke/rotate, private Node state-file permissions where supported, token
-redaction and minimal `security_audit_events` records. `local_trusted` remains
-available for loopback-only V01 development and keeps the warning banner.
+is the supported V01 profile. It enables local password setup/login, session
+and CSRF cookies, protected browser routes, origin checks, node bearer
+credentials for heartbeat/control, node revoke/rotate, private Node state-file
+permissions where supported, token redaction and minimal
+`security_audit_events` records. `local_trusted`, disabled browser auth and
+auto-approved enrollment are rejected at startup.
 
 **Target direction:** Дорасти до permissions, secrets handling, stronger audit,
 mTLS or request signing, keychain-backed credentials, team RBAC and managed

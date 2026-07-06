@@ -101,7 +101,8 @@ Rust tooling: cargo, rust-analyzer, rustfmt, clippy, bacon, nextest, audit, deny
 Next.js is not the required V01 runtime. It remains an option for cloud/web frontend, BFF, SSR, public pages, or SaaS needs if those become strong enough reasons.
 
 Local development should have a Docker Compose profile that starts the stable
-Core/Web/fake-provider path with predictable ports, volumes, and reset behavior.
+Core/Web/Node path with predictable ports, volumes, enrollment, and reset
+behavior.
 UI verification should use Playwright in two modes: automated E2E tests and
 agent/operator inspection through `playwright-cli` against the same local setup.
 
@@ -113,7 +114,7 @@ The `0.1` implementation scaffold now includes:
   Node Daemon;
 - Vite React Web Control Panel under `apps/web`;
 - SQLite-backed Core skeleton with health, inventory, heartbeat, placement,
-  session, fake-provider turn, artifact tree and agent projection APIs;
+  session, Codex provider, artifact tree and agent projection APIs;
 - Docker Compose local profile for Core, Web and a synthetic Node Daemon.
 
 Start the local stack from separate terminals:
@@ -124,6 +125,10 @@ make core-r
 make node-r
 make web-r
 ```
+
+`make node-r` defaults the Node workspace allow-list to this repository root.
+Set `CORTEX_NODE_WORKSPACES=/path/to/workspace-root` before running it when the
+Node should manage a different local workspace tree.
 
 Or use the Compose profile:
 

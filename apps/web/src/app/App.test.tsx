@@ -104,23 +104,23 @@ function responseForPath(pathname: string) {
         auth_required: false,
         setup_required: false,
         authenticated: true,
-        profile: "local_trusted",
+        profile: "controlled_dev",
         security: {
-          mode: "local_trusted",
+          mode: "controlled_dev",
           web_auth_required: false,
           web_auth_configured: false,
           cookie_secure: false,
         },
       };
     case "/api/v1/health":
-      return { status: "ok", profile: "local_trusted" };
+      return { status: "ok", profile: "controlled_dev" };
     case "/api/v1/version":
       return {
         name: "cortex-core",
         version: "0.1.0",
         api_version: "v1",
         schema_version: 1,
-        profile: "local_trusted",
+        profile: "controlled_dev",
       };
     case "/api/v1/inventory":
       return inventory;
@@ -141,7 +141,7 @@ function responseForPath(pathname: string) {
 
 const runtime = {
   runtime_session_id: "runtime-1",
-  provider: "fake",
+  provider: "codex",
   state: "blocked",
   resume_supported: true,
   degraded_reason: null,
@@ -181,7 +181,7 @@ const inventory = {
       sleep_hint: "unknown",
       heartbeat_age_seconds: 4,
       active_runtime_count: 1,
-      capabilities: [{ key: "provider.fake", value: { configured: true } }],
+      capabilities: [{ key: "provider.codex", value: { configured: true } }],
       diagnostics: "ok",
     },
   ],

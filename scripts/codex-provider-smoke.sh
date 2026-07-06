@@ -19,6 +19,9 @@ CODEX_TIMEOUT_SECONDS="${CODEX_SMOKE_CODEX_TIMEOUT_SECONDS:-180}"
 SMOKE_RETRIES="${SMOKE_RETRIES:-60}"
 SMOKE_DELAY_SECONDS="${SMOKE_DELAY_SECONDS:-1}"
 CODEX_BINARY="${CORTEX_CODEX_BINARY:-${CODEX_SMOKE_CODEX_BINARY:-}}"
+WEB_PASSWORD="${CODEX_SMOKE_WEB_PASSWORD:-cortex-smoke-password}"
+COOKIE_JAR="$STATE_DIR/cookies.txt"
+CSRF_TOKEN=""
 PIDS=""
 
 case ",${NO_PROXY:-}," in
@@ -48,6 +51,79 @@ require_command() {
 
 fetch() {
   curl -fsS --noproxy 127.0.0.1,localhost "$1"
+}
+
+auth_get() {
+  curl -fsS --noproxy 127.0.0.1,localhost -b "$COOKIE_JAR" "$1"
+}
+
+auth_post_json() {
+  url="$1"
+  body="$2"
+  if [ -n "$CSRF_TOKEN" ]; then
+    curl -fsS \
+      --noproxy 127.0.0.1,localhost \
+      -b "$COOKIE_JAR" \
+      -c "$COOKIE_JAR" \
+      -H "content-type: application/json" \
+      -H "x-cortex-csrf: $CSRF_TOKEN" \
+      -X POST \
+      --data "$body" \
+      "$url"
+  else
+    curl -fsS \
+      --noproxy 127.0.0.1,localhost \
+      -b "$COOKIE_JAR" \
+      -c "$COOKIE_JAR" \
+      -H "content-type: application/json" \
+      -X POST \
+      --data "$body" \
+      "$url"
+  fi
+}
+
+json_select() {
+  selector="$1"
+  shift
+  node -e '
+const selector = process.argv[1];
+const args = process.argv.slice(2);
+let input = "";
+process.stdin.setEncoding("utf8");
+process.stdin.on("data", (chunk) => {
+  input += chunk;
+});
+process.stdin.on("end", () => {
+  try {
+    const data = JSON.parse(input);
+    let value;
+    if (selector === "field") {
+      value = data[args[0]];
+    } else if (selector === "enrollment_id") {
+      const [expectedNode] = args;
+      const enrollment = data.find((candidate) =>
+        candidate.display_name === expectedNode &&
+        candidate.status === "pending_user_approval"
+      );
+      value = enrollment && enrollment.enrollment_id;
+    } else if (selector === "has_node") {
+      const [expectedNode] = args;
+      value = data.nodes.some((candidate) => candidate.display_name === expectedNode)
+        ? "true"
+        : "false";
+    } else {
+      throw new Error(`unknown selector ${selector}`);
+    }
+    if (value === undefined || value === null || value === "") {
+      throw new Error(`selector ${selector} returned no value`);
+    }
+    process.stdout.write(String(value));
+  } catch (error) {
+    console.error(error.message);
+    process.exit(1);
+  }
+});
+' "$selector" "$@"
 }
 
 print_logs() {
@@ -99,6 +175,84 @@ wait_for_contains() {
   fail "$label failed: did not find '$expected' at $url"
 }
 
+wait_for_auth_contains() {
+  label="$1"
+  url="$2"
+  expected="$3"
+  attempt=1
+
+  while [ "$attempt" -le "$SMOKE_RETRIES" ]; do
+    body="$(auth_get "$url" 2>/dev/null || true)"
+    if printf '%s' "$body" | grep -F "$expected" >/dev/null 2>&1; then
+      printf '%s ok\n' "$label"
+      return 0
+    fi
+    sleep "$SMOKE_DELAY_SECONDS"
+    attempt=$((attempt + 1))
+  done
+
+  if [ -n "${body:-}" ]; then
+    printf '%s\n' "$body" >&2
+  fi
+  fail "$label failed: did not find '$expected' at $url"
+}
+
+authenticate() {
+  status="$(fetch "$CORE_URL/api/v1/auth/status")"
+  setup_required="$(printf '%s' "$status" | json_select field setup_required)"
+  authenticated="$(printf '%s' "$status" | json_select field authenticated)"
+  if [ "$setup_required" = "true" ]; then
+    response="$(auth_post_json "$CORE_URL/api/v1/auth/setup" "{\"password\":\"$WEB_PASSWORD\"}")"
+    CSRF_TOKEN="$(printf '%s' "$response" | json_select field csrf_token)"
+    printf '%s ok\n' "codex core auth setup"
+    return 0
+  fi
+  if [ "$authenticated" != "true" ]; then
+    response="$(auth_post_json "$CORE_URL/api/v1/auth/login" "{\"password\":\"$WEB_PASSWORD\"}")"
+    CSRF_TOKEN="$(printf '%s' "$response" | json_select field csrf_token)"
+    printf '%s ok\n' "codex core auth login"
+    return 0
+  fi
+  fail "codex core auth already authenticated but CSRF token is unavailable"
+}
+
+approve_pending_enrollment() {
+  attempt=1
+  while [ "$attempt" -le "$SMOKE_RETRIES" ]; do
+    body="$(auth_get "$CORE_URL/api/v1/node-enrollments" 2>/dev/null || true)"
+    enrollment_id="$(
+      printf '%s' "$body" |
+        json_select enrollment_id "$EXPECTED_NODE" 2>/dev/null || true
+    )"
+    if [ -n "$enrollment_id" ]; then
+      auth_post_json "$CORE_URL/api/v1/node-enrollments/$enrollment_id/approve" "{}" >/dev/null
+      printf '%s ok\n' "codex node enrollment approved"
+      return 0
+    fi
+    sleep "$SMOKE_DELAY_SECONDS"
+    attempt=$((attempt + 1))
+  done
+  fail "codex node enrollment approval failed for $EXPECTED_NODE"
+}
+
+wait_for_node_inventory() {
+  attempt=1
+  while [ "$attempt" -le "$SMOKE_RETRIES" ]; do
+    body="$(auth_get "$CORE_URL/api/v1/inventory" 2>/dev/null || true)"
+    has_node="$(
+      printf '%s' "$body" |
+        json_select has_node "$EXPECTED_NODE" 2>/dev/null || true
+    )"
+    if [ "$has_node" = "true" ]; then
+      printf '%s ok\n' "codex node inventory"
+      return 0
+    fi
+    sleep "$SMOKE_DELAY_SECONDS"
+    attempt=$((attempt + 1))
+  done
+  fail "codex node inventory failed"
+}
+
 require_command cargo
 require_command curl
 require_command git
@@ -123,8 +277,7 @@ fi
   cd "$ROOT_DIR"
   CORTEX_CORE_BIND="127.0.0.1:$CORE_PORT" \
     CORTEX_DATABASE_URL="$CORE_DATABASE_URL" \
-    CORTEX_DEPLOYMENT_PROFILE="local_trusted" \
-    CORTEX_AUTO_APPROVE_ENROLLMENTS="true" \
+    CORTEX_DEPLOYMENT_PROFILE="controlled_dev" \
     CORTEX_ALLOWED_ORIGINS="$WEB_URL,http://localhost:$WEB_PORT" \
     RUST_LOG="info,cortex_server=debug" \
     cargo run -p cortex-server
@@ -132,6 +285,7 @@ fi
 PIDS="$PIDS $!"
 
 wait_for_contains "codex core health" "$CORE_URL/api/v1/health" '"status":"ok"'
+authenticate
 
 (
   cd "$ROOT_DIR"
@@ -146,6 +300,7 @@ wait_for_contains "codex core health" "$CORE_URL/api/v1/health" '"status":"ok"'
     cargo run -p cortex-node
 ) >"$STATE_DIR/node.log" 2>&1 &
 PIDS="$PIDS $!"
+approve_pending_enrollment
 
 (
   cd "$ROOT_DIR/apps/web"
@@ -155,8 +310,8 @@ PIDS="$PIDS $!"
 PIDS="$PIDS $!"
 
 wait_for_contains "codex web entrypoint" "$WEB_URL/" '<title>Cortex</title>'
-wait_for_contains "codex node inventory" "$CORE_URL/api/v1/inventory" "$EXPECTED_NODE"
-wait_for_contains "codex provider capability" "$CORE_URL/api/v1/inventory" '"provider.codex"'
+wait_for_node_inventory
+wait_for_auth_contains "codex provider capability" "$CORE_URL/api/v1/inventory" '"provider.codex"'
 
 (
   cd "$ROOT_DIR"
@@ -168,6 +323,7 @@ wait_for_contains "codex provider capability" "$CORE_URL/api/v1/inventory" '"pro
     CORTEX_E2E_SESSION_TITLE="$SESSION_TITLE" \
     CORTEX_E2E_TURN_CONTENT="$TURN_CONTENT" \
     CORTEX_E2E_EXPECTED_ASSISTANT_CONTENT="$EXPECTED_ASSISTANT_CONTENT" \
+    CORTEX_E2E_WEB_PASSWORD="$WEB_PASSWORD" \
     CORTEX_E2E_TURN_TIMEOUT_MS="$((CODEX_TIMEOUT_SECONDS * 1000))" \
     CORTEX_E2E_TEST_TIMEOUT_MS="$(((CODEX_TIMEOUT_SECONDS + 30) * 1000))" \
     PLAYWRIGHT_BASE_URL="$WEB_URL" \

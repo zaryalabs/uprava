@@ -99,7 +99,7 @@ const snapshot: InventorySnapshot = {
       state: "active",
       runtime: {
         runtime_session_id: "runtime-1",
-        provider: "fake",
+        provider: "codex",
         state: "ready",
         resume_supported: true,
         degraded_reason: null,
@@ -116,7 +116,7 @@ const snapshot: InventorySnapshot = {
       state: "degraded",
       runtime: {
         runtime_session_id: "runtime-2",
-        provider: "fake",
+        provider: "codex",
         state: "error",
         resume_supported: true,
         degraded_reason: "provider.failed",

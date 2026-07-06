@@ -96,18 +96,19 @@ Pairing-code не является постоянным секретом. Это
 - все дальнейшие heartbeat/control requests проходят с node credential;
 - Core может в любой момент revoke/suspend node credential.
 
-Первый post-V01 security baseline должен включать:
+V01 controlled-development security baseline включает:
 
 - remote deployment: только `HTTPS/WSS`;
 - local dev/single-user loopback: `HTTP/WS` допустим только на `127.0.0.1`;
 - Node Daemon auth: random high-entropy bearer token;
 - Core storage: token hash at rest;
-- stream access: bearer token плюс short-lived scoped connection lease;
-- browser/client auth: server-side session cookie, not browser JWT.
+- heartbeat/control access: bearer token;
+- browser/client auth: server-side session cookie with CSRF checks, not browser
+  JWT.
 
 Ed25519 request signing, mTLS, per-message signatures and full PKI не нужны как
-обязательный минимум первого security baseline. Архитектурно протокол должен оставлять путь к
-`auth_kind = token | signed_request | mtls`, key rotation and
+обязательный минимум V01 baseline. Архитектурно протокол должен оставлять путь
+к `auth_kind = token | signed_request | mtls`, key rotation and
 hardware/keychain-backed storage, но первая реализация должна быть проще.
 
 ### Пользовательские сценарии
@@ -184,11 +185,13 @@ channel или то, что эта machine является одной из но
 Для Distributed Agent Control Panel достаточно:
 
 - один Core URL;
-- Docker Compose local profile for reproducible Core/Web/fake-provider startup,
-  with an explicit host-node option for real local workspace access;
+- Docker Compose local profile for reproducible hardened Core/Web/Node startup,
+  with an explicit host-node option for real local workspace access and
+  `codex-smoke` for real provider execution;
 - Playwright verification against that local profile, split into automated E2E
   tests and agent/operator inspection through `playwright-cli`;
-- Node Daemon с outbound registration в trusted/local/dev profile;
+- Node Daemon с outbound registration and explicit enrollment in the
+  `controlled_dev` profile;
 - development node identity/enrollment metadata;
 - explicit non-production warning for remote node usage before security baseline;
 - configurable heartbeat interval, default около 5 секунд;

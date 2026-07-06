@@ -1,4 +1,4 @@
-export type DeploymentProfile = "local_trusted" | "controlled_dev";
+export type DeploymentProfile = "controlled_dev";
 export type NodePresence = "reachable" | "stale" | "offline" | "revoked";
 export type RuntimeSessionState =
   | "starting"
@@ -55,7 +55,7 @@ export type VersionResponse = {
   security?: SecurityStatus;
 };
 
-export type SecurityMode = "local_trusted" | "hardened";
+export type SecurityMode = "hardened";
 
 export type SecurityStatus = {
   mode: SecurityMode;
@@ -197,7 +197,7 @@ export type CreatePlacementRequest = {
 export type CreateSessionRequest = {
   project_placement_id: string;
   title?: string;
-  provider?: string;
+  provider: string;
 };
 
 export type SendTurnRequest = {

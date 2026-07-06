@@ -7,18 +7,9 @@ SMOKE_RETRIES="${SMOKE_RETRIES:-30}"
 SMOKE_DELAY_SECONDS="${SMOKE_DELAY_SECONDS:-2}"
 EXPECTED_NODE="${EXPECTED_NODE:-Compose Node}"
 WORKSPACE_PATH="${WORKSPACE_PATH:-/workspace}"
-SMOKE_SESSION_TITLE="${SMOKE_SESSION_TITLE:-Compose smoke session}"
-SMOKE_TURN_CONTENT="${SMOKE_TURN_CONTENT:-compose smoke}"
-SMOKE_APPROVAL_TURN_CONTENT="${SMOKE_APPROVAL_TURN_CONTENT:-/approval compose smoke approval}"
-SMOKE_INTERRUPT_TURN_CONTENT="${SMOKE_INTERRUPT_TURN_CONTENT:-/approval compose smoke interrupt}"
-SMOKE_RESUMED_TURN_CONTENT="${SMOKE_RESUMED_TURN_CONTENT:-compose smoke after resume}"
-SMOKE_SECOND_TURN_CONTENT="${SMOKE_SECOND_TURN_CONTENT:-compose smoke after node restart}"
-SMOKE_ERROR_TURN_CONTENT="${SMOKE_ERROR_TURN_CONTENT:-/error compose smoke provider crash}"
-SMOKE_LIFECYCLE_CHECK="${SMOKE_LIFECYCLE_CHECK:-1}"
-SMOKE_CORE_RESTART_CHECK="${SMOKE_CORE_RESTART_CHECK:-1}"
-SMOKE_NODE_RESTART_CHECK="${SMOKE_NODE_RESTART_CHECK:-1}"
-SMOKE_PROVIDER_ERROR_CHECK="${SMOKE_PROVIDER_ERROR_CHECK:-1}"
-SMOKE_COMPOSE_FILE="${SMOKE_COMPOSE_FILE:-compose.yaml}"
+SMOKE_WEB_PASSWORD="${SMOKE_WEB_PASSWORD:-cortex-smoke-password}"
+SMOKE_COOKIE_JAR="${SMOKE_COOKIE_JAR:-${TMPDIR:-/tmp}/cortex-compose-smoke-cookies-$$}"
+CSRF_TOKEN=""
 
 case ",${NO_PROXY:-}," in
   *,127.0.0.1,*) ;;
@@ -38,6 +29,11 @@ case ",${no_proxy:-}," in
 esac
 export NO_PROXY no_proxy
 
+cleanup() {
+  rm -f "$SMOKE_COOKIE_JAR"
+}
+trap cleanup EXIT
+
 require_command() {
   if ! command -v "$1" >/dev/null 2>&1; then
     echo "$1 is required for compose smoke checks" >&2
@@ -49,36 +45,33 @@ fetch() {
   curl -fsS --noproxy 127.0.0.1,localhost "$1"
 }
 
-post_json() {
-  curl -fsS \
-    --noproxy 127.0.0.1,localhost \
-    -H "content-type: application/json" \
-    -X POST \
-    --data "$2" \
-    "$1"
+auth_get() {
+  curl -fsS --noproxy 127.0.0.1,localhost -b "$SMOKE_COOKIE_JAR" "$1"
 }
 
-expect_post_json_status() {
-  label="$1"
-  url="$2"
-  body="$3"
-  expected_status="$4"
-  status="$(
-    curl -sS \
+auth_post_json() {
+  url="$1"
+  body="$2"
+  if [ -n "$CSRF_TOKEN" ]; then
+    curl -fsS \
       --noproxy 127.0.0.1,localhost \
-      -o /dev/null \
-      -w "%{http_code}" \
+      -b "$SMOKE_COOKIE_JAR" \
+      -c "$SMOKE_COOKIE_JAR" \
+      -H "content-type: application/json" \
+      -H "x-cortex-csrf: $CSRF_TOKEN" \
+      -X POST \
+      --data "$body" \
+      "$url"
+  else
+    curl -fsS \
+      --noproxy 127.0.0.1,localhost \
+      -b "$SMOKE_COOKIE_JAR" \
+      -c "$SMOKE_COOKIE_JAR" \
       -H "content-type: application/json" \
       -X POST \
       --data "$body" \
-      "$url" || printf '000'
-  )"
-  if [ "$status" = "$expected_status" ]; then
-    printf '%s ok\n' "$label"
-    return 0
+      "$url"
   fi
-  echo "$label failed: expected HTTP $expected_status, got $status at $url" >&2
-  return 1
 }
 
 json_select() {
@@ -96,7 +89,20 @@ process.stdin.on("end", () => {
   try {
     const data = JSON.parse(input);
     let value;
-    if (selector === "placement_id") {
+    if (selector === "field") {
+      value = data[args[0]];
+    } else if (selector === "enrollment_id") {
+      const [expectedNode] = args;
+      const enrollment = data.find((candidate) =>
+        candidate.display_name === expectedNode &&
+        candidate.status === "pending_user_approval"
+      );
+      value = enrollment && enrollment.enrollment_id;
+    } else if (selector === "node_presence") {
+      const [expectedNode] = args;
+      const node = data.nodes.find((candidate) => candidate.display_name === expectedNode);
+      value = node && node.presence;
+    } else if (selector === "placement_id") {
       const [expectedNode, workspacePath] = args;
       const node = data.nodes.find((candidate) => candidate.display_name === expectedNode);
       if (!node) throw new Error(`node ${expectedNode} not found`);
@@ -105,55 +111,14 @@ process.stdin.on("end", () => {
         candidate.workspace_path === workspacePath &&
         candidate.state === "validated"
       );
-      if (!placement) throw new Error(`validated placement ${workspacePath} not found`);
-      value = placement.project_placement_id;
-    } else if (selector === "session_id") {
-      value = data.session && data.session.session_thread_id;
-    } else if (selector === "runtime_id") {
-      value = data.session && data.session.runtime && data.session.runtime.runtime_session_id;
-    } else if (selector === "session_state") {
-      value = data.session && data.session.state;
-    } else if (selector === "node_presence") {
+      value = placement && placement.project_placement_id;
+    } else if (selector === "provider_capability") {
       const [expectedNode] = args;
       const node = data.nodes.find((candidate) => candidate.display_name === expectedNode);
-      value = node && node.presence;
-    } else if (selector === "runtime_state") {
-      value = data.session && data.session.runtime && data.session.runtime.state;
-    } else if (selector === "has_assistant_content") {
-      const [expectedContent] = args;
-      value = Array.isArray(data.messages) &&
-        data.messages.some((message) =>
-          message.role === "assistant" &&
-          typeof message.content === "string" &&
-          message.content.includes(expectedContent)
-        )
-        ? "true"
-        : "false";
-    } else if (selector === "has_message_content") {
-      const [expectedRole, expectedContent] = args;
-      value = Array.isArray(data.messages) &&
-        data.messages.some((message) =>
-          message.role === expectedRole &&
-          typeof message.content === "string" &&
-          message.content.includes(expectedContent)
-        )
-        ? "true"
-        : "false";
-    } else if (selector === "approval_id") {
-      const events = Array.isArray(data.events) ? [...data.events].reverse() : [];
-      const event = events.find((candidate) =>
-        candidate &&
-        candidate.kind === "approval.requested" &&
-        candidate.payload &&
-        typeof candidate.payload.approval_id === "string"
+      const capability = node && node.capabilities.find((candidate) =>
+        candidate.key === "provider.codex"
       );
-      value = event && event.payload.approval_id;
-    } else if (selector === "has_event_kind") {
-      const [expectedKind] = args;
-      value = Array.isArray(data.events) &&
-        data.events.some((event) => event.kind === expectedKind)
-        ? "true"
-        : "false";
+      value = capability ? "present" : "";
     } else {
       throw new Error(`unknown selector ${selector}`);
     }
@@ -167,30 +132,6 @@ process.stdin.on("end", () => {
   }
 });
 ' "$selector" "$@"
-}
-
-json_body() {
-  body_kind="$1"
-  shift
-  node -e '
-const bodyKind = process.argv[1];
-const args = process.argv.slice(2);
-let body;
-if (bodyKind === "session") {
-  const [placementId, title] = args;
-  body = {
-    project_placement_id: placementId,
-    title,
-    provider: "fake",
-  };
-} else if (bodyKind === "turn") {
-  const [content] = args;
-  body = { content };
-} else {
-  throw new Error(`unknown body kind ${bodyKind}`);
-}
-process.stdout.write(JSON.stringify(body));
-' "$body_kind" "$@"
 }
 
 wait_for_contains() {
@@ -216,32 +157,7 @@ wait_for_contains() {
   return 1
 }
 
-wait_for_placement_id() {
-  attempt=1
-
-  while [ "$attempt" -le "$SMOKE_RETRIES" ]; do
-    body="$(fetch "$CORE_URL/api/v1/inventory" 2>/dev/null || true)"
-    placement_id="$(
-      printf '%s' "$body" |
-        json_select placement_id "$EXPECTED_NODE" "$WORKSPACE_PATH" 2>/dev/null || true
-    )"
-    if [ -n "$placement_id" ]; then
-      printf '%s ok\n' "compose validated placement" >&2
-      printf '%s\n' "$placement_id"
-      return 0
-    fi
-    sleep "$SMOKE_DELAY_SECONDS"
-    attempt=$((attempt + 1))
-  done
-
-  echo "compose validated placement failed for $EXPECTED_NODE at $WORKSPACE_PATH" >&2
-  if [ -n "${body:-}" ]; then
-    printf '%s\n' "$body" >&2
-  fi
-  return 1
-}
-
-wait_for_json_value() {
+wait_for_auth_value() {
   label="$1"
   url="$2"
   selector="$3"
@@ -250,7 +166,7 @@ wait_for_json_value() {
   attempt=1
 
   while [ "$attempt" -le "$SMOKE_RETRIES" ]; do
-    body="$(fetch "$url" 2>/dev/null || true)"
+    body="$(auth_get "$url" 2>/dev/null || true)"
     value="$(
       printf '%s' "$body" |
         json_select "$selector" "$@" 2>/dev/null || true
@@ -270,137 +186,100 @@ wait_for_json_value() {
   return 1
 }
 
+wait_for_placement_id() {
+  attempt=1
+  while [ "$attempt" -le "$SMOKE_RETRIES" ]; do
+    body="$(auth_get "$CORE_URL/api/v1/inventory" 2>/dev/null || true)"
+    placement_id="$(
+      printf '%s' "$body" |
+        json_select placement_id "$EXPECTED_NODE" "$WORKSPACE_PATH" 2>/dev/null || true
+    )"
+    if [ -n "$placement_id" ]; then
+      printf '%s ok\n' "compose validated placement"
+      return 0
+    fi
+    sleep "$SMOKE_DELAY_SECONDS"
+    attempt=$((attempt + 1))
+  done
+
+  echo "compose validated placement failed for $EXPECTED_NODE at $WORKSPACE_PATH" >&2
+  if [ -n "${body:-}" ]; then
+    printf '%s\n' "$body" >&2
+  fi
+  return 1
+}
+
+authenticate() {
+  status="$(fetch "$CORE_URL/api/v1/auth/status")"
+  auth_required="$(printf '%s' "$status" | json_select field auth_required)"
+  if [ "$auth_required" != "true" ]; then
+    printf '%s ok\n' "compose auth disabled"
+    return 0
+  fi
+
+  setup_required="$(printf '%s' "$status" | json_select field setup_required)"
+  authenticated="$(printf '%s' "$status" | json_select field authenticated)"
+  if [ "$setup_required" = "true" ]; then
+    response="$(auth_post_json "$CORE_URL/api/v1/auth/setup" "{\"password\":\"$SMOKE_WEB_PASSWORD\"}")"
+    CSRF_TOKEN="$(printf '%s' "$response" | json_select field csrf_token)"
+    printf '%s ok\n' "compose auth setup"
+    return 0
+  fi
+  if [ "$authenticated" != "true" ]; then
+    response="$(auth_post_json "$CORE_URL/api/v1/auth/login" "{\"password\":\"$SMOKE_WEB_PASSWORD\"}")"
+    CSRF_TOKEN="$(printf '%s' "$response" | json_select field csrf_token)"
+    printf '%s ok\n' "compose auth login"
+    return 0
+  fi
+
+  echo "compose auth already authenticated but CSRF token is unavailable" >&2
+  return 1
+}
+
+approve_pending_enrollment() {
+  attempt=1
+  while [ "$attempt" -le "$SMOKE_RETRIES" ]; do
+    body="$(auth_get "$CORE_URL/api/v1/node-enrollments" 2>/dev/null || true)"
+    enrollment_id="$(
+      printf '%s' "$body" |
+        json_select enrollment_id "$EXPECTED_NODE" 2>/dev/null || true
+    )"
+    if [ -n "$enrollment_id" ]; then
+      auth_post_json "$CORE_URL/api/v1/node-enrollments/$enrollment_id/approve" "{}" >/dev/null
+      printf '%s ok\n' "compose node enrollment approved"
+      return 0
+    fi
+    sleep "$SMOKE_DELAY_SECONDS"
+    attempt=$((attempt + 1))
+  done
+
+  echo "compose node enrollment approval failed for $EXPECTED_NODE" >&2
+  if [ -n "${body:-}" ]; then
+    printf '%s\n' "$body" >&2
+  fi
+  return 1
+}
+
 require_command curl
 require_command grep
 require_command node
-if {
-  [ "$SMOKE_CORE_RESTART_CHECK" = "1" ] || [ "$SMOKE_NODE_RESTART_CHECK" = "1" ];
-} && [ "${SMOKE_SKIP_COMPOSE_UP:-0}" != "1" ]; then
-  require_command docker
-fi
 
 wait_for_contains "core health" "$CORE_URL/api/v1/health" '"status":"ok"'
 wait_for_contains "web entrypoint" "$WEB_URL/" '<title>Cortex</title>'
-wait_for_contains "compose node inventory" "$CORE_URL/api/v1/inventory" "$EXPECTED_NODE"
-
-placement_id="$(wait_for_placement_id)"
-session_body="$(json_body session "$placement_id" "$SMOKE_SESSION_TITLE")"
-session_response="$(post_json "$CORE_URL/api/v1/sessions" "$session_body")"
-session_id="$(printf '%s' "$session_response" | json_select session_id)"
-runtime_id="$(printf '%s' "$session_response" | json_select runtime_id)"
-session_url="$CORE_URL/api/v1/sessions/$session_id"
-runtime_url="$CORE_URL/api/v1/runtime-sessions/$runtime_id"
-
-wait_for_json_value "compose runtime start" "$session_url" runtime_state ready
-
-turn_body="$(json_body turn "$SMOKE_TURN_CONTENT")"
-post_json "$CORE_URL/api/v1/sessions/$session_id/turns" "$turn_body" >/dev/null
-wait_for_json_value \
-  "compose fake provider turn" \
-  "$session_url" \
-  has_assistant_content \
-  true \
-  "Fake provider accepted: $SMOKE_TURN_CONTENT"
-wait_for_json_value "compose runtime ready after turn" "$session_url" runtime_state ready
-
-if [ "$SMOKE_LIFECYCLE_CHECK" = "1" ]; then
-  post_json "$CORE_URL/api/v1/sessions/$session_id/detach" "{}" >/dev/null
-  wait_for_json_value "compose session detached" "$session_url" session_state detached
-  detached_turn_body="$(json_body turn "detached compose smoke should fail")"
-  expect_post_json_status \
-    "compose detached session rejects turn" \
-    "$CORE_URL/api/v1/sessions/$session_id/turns" \
-    "$detached_turn_body" \
-    400
-
-  post_json "$CORE_URL/api/v1/sessions/$session_id/attach" "{}" >/dev/null
-  wait_for_json_value "compose session attached" "$session_url" session_state active
-
-  approval_turn_body="$(json_body turn "$SMOKE_APPROVAL_TURN_CONTENT")"
-  post_json "$CORE_URL/api/v1/sessions/$session_id/turns" "$approval_turn_body" >/dev/null
-  wait_for_json_value "compose approval blocks runtime" "$session_url" runtime_state blocked
-  approval_id="$(fetch "$session_url" | json_select approval_id)"
-  approval_body='{"approved":true,"message":"compose smoke approval accepted"}'
-  post_json \
-    "$CORE_URL/api/v1/sessions/$session_id/approvals/$approval_id/resolve" \
-    "$approval_body" >/dev/null
-  wait_for_json_value "compose approval resolved event" "$session_url" has_event_kind true approval.resolved
-  wait_for_json_value "compose runtime ready after approval" "$session_url" runtime_state ready
-
-  interrupt_turn_body="$(json_body turn "$SMOKE_INTERRUPT_TURN_CONTENT")"
-  post_json "$CORE_URL/api/v1/sessions/$session_id/turns" "$interrupt_turn_body" >/dev/null
-  wait_for_json_value "compose interrupt setup blocks runtime" "$session_url" runtime_state blocked
-  post_json "$runtime_url/interrupt" "{}" >/dev/null
-  wait_for_json_value "compose interrupt event persisted" "$session_url" has_event_kind true turn.interrupted
-  wait_for_json_value "compose runtime ready after interrupt" "$session_url" runtime_state ready
-
-  post_json "$runtime_url/stop" "{}" >/dev/null
-  wait_for_json_value "compose runtime stopped" "$session_url" runtime_state stopped
-  wait_for_json_value "compose session stopped" "$session_url" session_state stopped
-  post_json "$runtime_url/resume" "{}" >/dev/null
-  wait_for_json_value "compose runtime resuming event persisted" "$session_url" has_event_kind true runtime.resuming
-  wait_for_json_value "compose runtime ready after resume" "$session_url" runtime_state ready
-  wait_for_json_value "compose session active after resume" "$session_url" session_state active
-
-  resumed_turn_body="$(json_body turn "$SMOKE_RESUMED_TURN_CONTENT")"
-  post_json "$CORE_URL/api/v1/sessions/$session_id/turns" "$resumed_turn_body" >/dev/null
-  wait_for_json_value \
-    "compose fake provider turn after resume" \
-    "$session_url" \
-    has_assistant_content \
-    true \
-    "Fake provider accepted: $SMOKE_RESUMED_TURN_CONTENT"
-  wait_for_json_value "compose runtime ready after resumed turn" "$session_url" runtime_state ready
-fi
-
-if [ "$SMOKE_CORE_RESTART_CHECK" = "1" ] && [ "${SMOKE_SKIP_COMPOSE_UP:-0}" != "1" ]; then
-  docker compose -f "$SMOKE_COMPOSE_FILE" restart core >/dev/null
-  wait_for_contains "compose core health after restart" "$CORE_URL/api/v1/health" '"status":"ok"'
-  wait_for_contains "compose node inventory after core restart" "$CORE_URL/api/v1/inventory" "$EXPECTED_NODE"
-  wait_for_json_value \
-    "compose session history after core restart" \
-    "$session_url" \
-    has_assistant_content \
-    true \
-    "Fake provider accepted: $SMOKE_TURN_CONTENT"
-  wait_for_json_value "compose runtime ready after core restart" "$session_url" runtime_state ready
-fi
-
-if [ "$SMOKE_NODE_RESTART_CHECK" = "1" ] && [ "${SMOKE_SKIP_COMPOSE_UP:-0}" != "1" ]; then
-  docker compose -f "$SMOKE_COMPOSE_FILE" restart node >/dev/null
-  wait_for_json_value \
-    "compose node reachable after node restart" \
-    "$CORE_URL/api/v1/inventory" \
-    node_presence \
-    reachable \
-    "$EXPECTED_NODE"
-  second_turn_body="$(json_body turn "$SMOKE_SECOND_TURN_CONTENT")"
-  post_json "$CORE_URL/api/v1/sessions/$session_id/turns" "$second_turn_body" >/dev/null
-  wait_for_json_value \
-    "compose fake provider turn after node restart" \
-    "$session_url" \
-    has_assistant_content \
-    true \
-    "Fake provider accepted: $SMOKE_SECOND_TURN_CONTENT"
-  wait_for_json_value "compose runtime ready after node restart turn" "$session_url" runtime_state ready
-fi
-
-if [ "$SMOKE_PROVIDER_ERROR_CHECK" = "1" ]; then
-  error_turn_body="$(json_body turn "$SMOKE_ERROR_TURN_CONTENT")"
-  post_json "$CORE_URL/api/v1/sessions/$session_id/turns" "$error_turn_body" >/dev/null
-  error_message="${SMOKE_ERROR_TURN_CONTENT#/error}"
-  error_message="${error_message# }"
-  if [ "$error_message" = "$SMOKE_ERROR_TURN_CONTENT" ] || [ -z "$error_message" ]; then
-    error_message="Fake provider runtime error"
-  fi
-  wait_for_json_value "compose fake provider runtime error" "$session_url" runtime_state error
-  wait_for_json_value \
-    "compose runtime error message persisted" \
-    "$session_url" \
-    has_message_content \
-    true \
-    runtime \
-    "$error_message"
-fi
+authenticate
+approve_pending_enrollment
+wait_for_auth_value \
+  "compose node reachable" \
+  "$CORE_URL/api/v1/inventory" \
+  node_presence \
+  reachable \
+  "$EXPECTED_NODE"
+wait_for_placement_id
+wait_for_auth_value \
+  "compose codex capability advertised" \
+  "$CORE_URL/api/v1/inventory" \
+  provider_capability \
+  present \
+  "$EXPECTED_NODE"
 
 echo "compose smoke passed"

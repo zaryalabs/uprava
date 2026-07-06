@@ -69,9 +69,9 @@ async function mockCoreApi(page: import("@playwright/test").Page) {
         auth_required: false,
         setup_required: false,
         authenticated: true,
-        profile: "local_trusted",
+        profile: "controlled_dev",
         security: {
-          mode: "local_trusted",
+          mode: "controlled_dev",
           web_auth_required: false,
           web_auth_configured: false,
           cookie_secure: false,
@@ -82,7 +82,7 @@ async function mockCoreApi(page: import("@playwright/test").Page) {
   await page.route("**/api/v1/health", async (route) => {
     await route.fulfill({
       contentType: "application/json",
-      body: JSON.stringify({ status: "ok", profile: "local_trusted" }),
+      body: JSON.stringify({ status: "ok", profile: "controlled_dev" }),
     });
   });
   await page.route("**/api/v1/inventory", async (route) => {
@@ -172,7 +172,7 @@ function json(value: unknown) {
 
 const runtime = {
   runtime_session_id: "runtime-1",
-  provider: "fake",
+  provider: "codex",
   state: "blocked",
   resume_supported: true,
   degraded_reason: null,
@@ -212,7 +212,7 @@ const inventory = {
       sleep_hint: "unknown",
       heartbeat_age_seconds: 75,
       active_runtime_count: 1,
-      capabilities: [{ key: "provider.fake", value: { configured: true } }],
+      capabilities: [{ key: "provider.codex", value: { configured: true } }],
       diagnostics: "last heartbeat stale",
     },
   ],

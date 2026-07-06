@@ -990,8 +990,8 @@ Node storage должен поддерживать:
 
 ### Permissions and safety
 
-Trusted V01 safety posture может быть простой and explicit. Формальная
-permission/security model относится к первому post-V01 security baseline.
+Controlled-development V01 safety posture может быть простой and explicit.
+Формальная per-tool permission/security model остается post-V01 work.
 
 - runtime scoped to one workspace binding;
 - provider process runs with Node-local permissions, not Core database access;

@@ -4,18 +4,18 @@ const realApiEnabled = process.env.CORTEX_E2E_REAL_API === "1";
 const coreUrl = process.env.CORTEX_E2E_CORE_URL ?? "http://127.0.0.1:8080";
 const expectedNode = process.env.CORTEX_E2E_EXPECTED_NODE ?? "Compose Node";
 const workspacePath = process.env.CORTEX_E2E_WORKSPACE_PATH ?? "/workspace";
-const provider = process.env.CORTEX_E2E_PROVIDER ?? "fake";
+const provider = process.env.CORTEX_E2E_PROVIDER ?? "codex";
+const webPassword =
+  process.env.CORTEX_E2E_WEB_PASSWORD ?? "cortex-smoke-password";
 const sessionTitle =
   process.env.CORTEX_E2E_SESSION_TITLE ?? "Playwright real profile";
 const turnContent =
-  process.env.CORTEX_E2E_TURN_CONTENT ?? "playwright real profile";
+  process.env.CORTEX_E2E_TURN_CONTENT ??
+  "Reply exactly CORTEX_CODEX_SMOKE_OK. Do not modify files.";
 const expectedAssistantContent =
-  process.env.CORTEX_E2E_EXPECTED_ASSISTANT_CONTENT ??
-  `Fake provider accepted: ${turnContent}`;
+  process.env.CORTEX_E2E_EXPECTED_ASSISTANT_CONTENT ?? "CORTEX_CODEX_SMOKE_OK";
 const turnTimeoutMs = Number(process.env.CORTEX_E2E_TURN_TIMEOUT_MS ?? "30000");
-const lifecycleEnabled =
-  process.env.CORTEX_E2E_LIFECYCLE === "1" ||
-  (process.env.CORTEX_E2E_LIFECYCLE !== "0" && provider === "fake");
+const lifecycleEnabled = process.env.CORTEX_E2E_LIFECYCLE === "1";
 const testTimeoutMs = Number(
   process.env.CORTEX_E2E_TEST_TIMEOUT_MS ??
     String(
@@ -31,11 +31,16 @@ test.describe("real local profile", () => {
 
   test("creates a provider session through Core and renders it in Web", async ({
     page,
-    request,
   }) => {
     test.setTimeout(testTimeoutMs);
+    const request = page.context().request;
+    const csrfToken = await authenticate(request);
     const placementId = await waitForPlacementId(request);
-    const session = await createProviderSession(request, placementId);
+    const session = await createProviderSession(
+      request,
+      placementId,
+      csrfToken,
+    );
     const sessionId = isRecord(session.session)
       ? stringField(session.session, "session_thread_id")
       : "";
@@ -43,7 +48,12 @@ test.describe("real local profile", () => {
     const sessionUrl = `${coreUrl}/api/v1/sessions/${encodeURIComponent(sessionId)}`;
 
     await waitForRuntimeState(request, sessionUrl, "ready");
-    await postJson(request, `${sessionUrl}/turns`, { content: turnContent });
+    await postJson(
+      request,
+      `${sessionUrl}/turns`,
+      { content: turnContent },
+      csrfToken,
+    );
     await waitForAssistantContent(
       request,
       sessionUrl,
@@ -84,7 +94,9 @@ test.describe("real local profile", () => {
       await expect(page.getByRole("button", { name: "Detach" })).toBeEnabled();
 
       const postResumeTurn = `${turnContent} after browser resume`;
-      const postResumeAssistant = `Fake provider accepted: ${postResumeTurn}`;
+      const postResumeAssistant =
+        process.env.CORTEX_E2E_POST_RESUME_EXPECTED_ASSISTANT_CONTENT ??
+        expectedAssistantContent;
       await page.getByPlaceholder("Send a turn").fill(postResumeTurn);
       await page.getByRole("button", { name: "Send" }).click();
       await waitForAssistantContent(request, sessionUrl, postResumeAssistant);
@@ -106,6 +118,34 @@ test.describe("real local profile", () => {
     }
   });
 });
+
+async function authenticate(request: APIRequestContext) {
+  const status = await getJson(request, `${coreUrl}/api/v1/auth/status`);
+  if (!isRecord(status) || status.auth_required !== true) {
+    return "";
+  }
+  if (status.authenticated === true) {
+    const csrfToken = await csrfTokenFromStorage(request);
+    if (csrfToken) {
+      return csrfToken;
+    }
+  }
+  const authPath =
+    status.setup_required === true
+      ? `${coreUrl}/api/v1/auth/setup`
+      : `${coreUrl}/api/v1/auth/login`;
+  const auth = await postJson(request, authPath, { password: webPassword });
+  const csrfToken = isRecord(auth) ? stringField(auth, "csrf_token") : "";
+  expect(csrfToken).not.toBe("");
+  return csrfToken;
+}
+
+async function csrfTokenFromStorage(request: APIRequestContext) {
+  const storage = await request.storageState();
+  return (
+    storage.cookies.find((cookie) => cookie.name === "cortex_csrf")?.value ?? ""
+  );
+}
 
 async function waitForPlacementId(request: APIRequestContext) {
   let lastInventory: unknown = null;
@@ -158,12 +198,18 @@ function placementIdFromInventory(value: unknown) {
 async function createProviderSession(
   request: APIRequestContext,
   placementId: string,
+  csrfToken: string,
 ) {
-  return postJson(request, `${coreUrl}/api/v1/sessions`, {
-    project_placement_id: placementId,
-    title: sessionTitle,
-    provider,
-  });
+  return postJson(
+    request,
+    `${coreUrl}/api/v1/sessions`,
+    {
+      project_placement_id: placementId,
+      title: sessionTitle,
+      provider,
+    },
+    csrfToken,
+  );
 }
 
 async function waitForRuntimeState(
@@ -224,8 +270,12 @@ async function postJson(
   request: APIRequestContext,
   url: string,
   body: unknown,
+  csrfToken = "",
 ) {
-  const response = await request.post(url, { data: body });
+  const response = await request.post(url, {
+    data: body,
+    headers: csrfToken ? { "x-cortex-csrf": csrfToken } : undefined,
+  });
   expect(response.ok()).toBe(true);
   return response.json() as Promise<Record<string, unknown>>;
 }

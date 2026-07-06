@@ -208,7 +208,7 @@ function detailWithApproval(): SessionDetail {
       state: "active",
       runtime: {
         runtime_session_id: "runtime-1",
-        provider: "fake",
+        provider: "codex",
         state: "blocked",
         resume_supported: true,
         degraded_reason: null,

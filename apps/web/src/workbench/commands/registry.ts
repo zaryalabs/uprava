@@ -198,7 +198,10 @@ const commands: UiCommand[] = [
       );
       const session = await coreApi.createSession({
         project_placement_id: placement.project_placement_id,
-        provider: context.provider ?? "fake",
+        provider: requireValue(
+          context.provider,
+          "session.start requires provider",
+        ),
       });
       await context.afterSuccess?.();
       context.navigate?.(`/sessions/${session.session.session_thread_id}`);

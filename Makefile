@@ -119,7 +119,7 @@ core-r: ## Run Core Backend locally when Cargo workspace exists
 
 node-r: ## Run Node Daemon locally when Cargo workspace exists
 	@if [ -f "$(RUST_MANIFEST)" ]; then \
-		cargo run -p cortex-node; \
+		CORTEX_NODE_WORKSPACES="$${CORTEX_NODE_WORKSPACES:-$(CURDIR)}" cargo run -p cortex-node; \
 	else \
 		echo "No Cargo.toml found; skipping Node run"; \
 	fi

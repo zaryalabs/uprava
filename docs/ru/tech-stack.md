@@ -45,14 +45,14 @@ Desktop Client      Tauri later, wraps Web Control Panel or talks to Core
 
 Docker Compose - canonical local bootstrap and smoke-test environment для V01
 development. Это не production deployment model, а инструмент стабильности:
-Core, Web, Node-facing protocol paths, fake provider flows and diagnostics
+Core, Web, Node-facing protocol paths, hardened enrollment/auth and diagnostics
 должны воспроизводимо стартовать на каждой машине.
 
 Базовый Compose setup должен давать:
 
 - predictable ports для Core and Web;
 - persistent but resettable SQLite/Core state volumes;
-- fake provider path, который работает без Codex;
+- hardened Core/Web/Node smoke path, который работает без Codex;
 - вариант запуска Node Daemon внутри Compose для synthetic workspaces;
 - вариант запуска Node Daemon на host, если он должен работать с реальными
   local workspaces and host credentials;
@@ -60,9 +60,9 @@ Core, Web, Node-facing protocol paths, fake provider flows and diagnostics
 - documented reset and log-collection commands.
 
 Для реального контроля local workspace может понадобиться Node Daemon на host.
-Compose все равно остается стабильным способом стартовать Core/Web and
-fake-provider smoke path, чтобы tests and agent checks не зависели от ad hoc
-terminal state.
+Compose все равно остается стабильным способом стартовать Core/Web/Node and
+infrastructure smoke path, while `make codex-smoke` covers real provider
+execution там, где Codex установлен.
 
 ## Rust stack
 
@@ -84,8 +84,8 @@ Core Backend отвечает за:
 
 - API for clients;
 - Web Control Panel delivery;
-- development/trusted deployment profile for V01;
-- hardened auth/session model in the post-V01 security baseline;
+- controlled-development deployment profile for V01;
+- local auth/session, CSRF and Node enrollment/credential lifecycle basics;
 - Node registry and discovery;
 - project registry;
 - agent sessions/runs registry;

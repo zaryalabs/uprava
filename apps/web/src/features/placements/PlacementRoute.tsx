@@ -19,7 +19,7 @@ export function PlacementRoute() {
   const { placementId } = useParams();
   const navigate = useNavigate();
   const queryClient = useQueryClient();
-  const [provider, setProvider] = useState<ProviderId>("fake");
+  const [provider, setProvider] = useState<ProviderId>("codex");
   const placement = useQuery({
     queryKey: queryKeys.placement(placementId ?? ""),
     queryFn: () => coreApi.placement(placementId ?? ""),
@@ -190,7 +190,7 @@ function confirmPlacementDelete(displayName: string) {
   );
 }
 
-type ProviderId = "fake" | "codex";
+type ProviderId = "codex";
 
 type ProviderChoiceOption = {
   id: ProviderId;
@@ -202,11 +202,6 @@ export function providerChoiceOptions(
   node: NodeSummary | undefined,
 ): ProviderChoiceOption[] {
   return [
-    {
-      id: "fake",
-      label: "Fake",
-      available: providerCapabilityAvailable(node, "fake"),
-    },
     {
       id: "codex",
       label: "Codex",
@@ -220,13 +215,13 @@ function providerCapabilityAvailable(
   provider: ProviderId,
 ): boolean {
   if (!node) {
-    return provider === "fake";
+    return false;
   }
   const capability = node.capabilities.find(
     (candidate) => candidate.key === `provider.${provider}`,
   );
   if (!capability) {
-    return provider === "fake";
+    return false;
   }
   return capabilityValueAvailable(capability.value);
 }

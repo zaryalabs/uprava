@@ -6,33 +6,24 @@ import { providerChoiceOptions } from "./PlacementRoute";
 describe("providerChoiceOptions", () => {
   it("enables Codex only when the node advertises an available provider capability", () => {
     expect(providerChoiceOptions(undefined)).toEqual([
-      { id: "fake", label: "Fake", available: true },
       { id: "codex", label: "Codex", available: false },
     ]);
 
     expect(
       providerChoiceOptions(
         nodeWithCapabilities([
-          { key: "provider.fake", value: { available: true } },
           { key: "provider.codex", value: { available: false } },
         ]),
       ),
-    ).toEqual([
-      { id: "fake", label: "Fake", available: true },
-      { id: "codex", label: "Codex", available: false },
-    ]);
+    ).toEqual([{ id: "codex", label: "Codex", available: false }]);
 
     expect(
       providerChoiceOptions(
         nodeWithCapabilities([
-          { key: "provider.fake", value: { available: true } },
           { key: "provider.codex", value: { available: true } },
         ]),
       ),
-    ).toEqual([
-      { id: "fake", label: "Fake", available: true },
-      { id: "codex", label: "Codex", available: true },
-    ]);
+    ).toEqual([{ id: "codex", label: "Codex", available: true }]);
   });
 });
 

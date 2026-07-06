@@ -148,7 +148,7 @@ describe("workbench command registry", () => {
 function runtimeWithState(state: RuntimeSummary["state"]): RuntimeSummary {
   return {
     runtime_session_id: "runtime-1",
-    provider: "fake",
+    provider: "codex",
     state,
     resume_supported: true,
     degraded_reason: null,

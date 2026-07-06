@@ -3,8 +3,8 @@
 Status: `draft`
 
 This runbook covers the current `0.1` scaffold: Rust Core Backend, Rust Node
-Daemon, Vite Web Control Panel, SQLite persistence, the fake-provider path and
-the first minimal Codex provider adapter.
+Daemon, Vite Web Control Panel, SQLite persistence and the first minimal Codex
+provider adapter.
 
 ## Prerequisites
 
@@ -21,6 +21,11 @@ make core-r
 make node-r
 make web-r
 ```
+
+`make node-r` defaults `CORTEX_NODE_WORKSPACES` to this repository root so the
+Node has an explicit workspace allow-list without reopening the old unrestricted
+workspace behavior. Set `CORTEX_NODE_WORKSPACES` before running the target when
+you want the host Node to manage a different local workspace tree.
 
 Default ports and paths:
 
@@ -45,14 +50,11 @@ includes a clean empty database and the previous dev `nodes` table shape without
 you need evidence, then delete the broken local state or use `make
 compose-reset` for the Compose volume.
 
-## Security Profiles
+## Security Profile
 
-`local_trusted` remains the default V01 development profile. It keeps browser
-auth disabled, shows the trusted-local warning banner in Web and is intended
-only for loopback or otherwise trusted development machines.
-
-`controlled_dev` enables the first security baseline when
-`CORTEX_WEB_AUTH=auto`:
+`controlled_dev` is the only supported V01 development profile. Browser auth is
+enabled by default with `CORTEX_WEB_AUTH=auto`; `local_trusted` and
+`CORTEX_WEB_AUTH=disabled` are rejected at startup.
 
 - Web shows first-run local password setup, then requires login.
 - Core issues an `HttpOnly`, `SameSite=Lax` session cookie and a CSRF cookie.
@@ -66,8 +68,8 @@ only for loopback or otherwise trusted development machines.
 
 For HTTPS or a TLS-terminating proxy, set `CORTEX_COOKIE_SECURE=true`. For
 local HTTP development, leave it disabled or the browser will not return the
-session cookie. `CORTEX_WEB_AUTH=local` forces auth in any profile;
-`CORTEX_WEB_AUTH=disabled` disables it explicitly.
+session cookie. Node enrollment always requires explicit approval; the old
+`CORTEX_AUTO_APPROVE_ENROLLMENTS=true` development shortcut is rejected.
 
 ## Docker Compose
 
@@ -89,16 +91,17 @@ make compose-reset
 ```
 
 The Compose profile starts Core, Web and a synthetic Node Daemon that heartbeats
-to Core. Host ports are bound to `127.0.0.1`. Compose enables
-`CORTEX_AUTO_APPROVE_ENROLLMENTS=true` for the synthetic Node only. The
-fake-provider path remains the deterministic default, so Compose does not
-require Codex.
+to Core. Host ports are bound to `127.0.0.1`. Compose uses the hardened
+`controlled_dev` profile and `scripts/compose-smoke.sh` performs first-run local
+auth setup/login before approving the synthetic Node enrollment. Compose does
+not require Codex; the Node advertises the real `provider.codex` capability with
+`available=false` when the Codex binary is absent in the container.
 
 Core rejects browser CORS origins outside `CORTEX_ALLOWED_ORIGINS`; the default
 allows the local Vite Web UI on `127.0.0.1` and `localhost`. For a controlled
 development host or forwarded port, set `CORTEX_ALLOWED_ORIGINS` to the exact
 comma-separated browser origins that should reach Core. Wildcard origins are
-rejected in this trusted-development profile.
+rejected.
 
 `make compose-smoke` starts the profile and then runs
 `scripts/compose-smoke.sh`. The script bypasses localhost HTTP proxies and
@@ -106,35 +109,26 @@ checks:
 
 - Core health at `http://127.0.0.1:8080/api/v1/health`;
 - Web entrypoint at `http://127.0.0.1:5173`;
+- local web auth setup/login and CSRF-protected client requests;
+- explicit approval of the synthetic Node enrollment;
 - Core inventory contains the synthetic `Compose Node`;
 - the synthetic Node has a validated `/workspace` placement;
-- Core can create a fake-provider session on that placement;
-- Node receives the start command, returns the runtime to `ready`, processes a
-  turn and persists a fake-provider assistant message;
-- Core can restart and reload the same session history and ready runtime state
-  from SQLite while the Compose Node remains running;
-- the Compose Node can restart, reconnect, and process another turn for the
-  same persisted session;
-- the fake provider can emit a deterministic runtime error, Core persists the
-  runtime message, and the session runtime state becomes `error`.
+- the synthetic Node advertises a `provider.codex` capability snapshot.
 
 Override `CORE_URL`, `WEB_URL`, `EXPECTED_NODE`, `WORKSPACE_PATH`,
-`SMOKE_SESSION_TITLE`, `SMOKE_TURN_CONTENT`, `SMOKE_SECOND_TURN_CONTENT`,
-`SMOKE_ERROR_TURN_CONTENT`, `SMOKE_RETRIES`, `SMOKE_DELAY_SECONDS`,
-`SMOKE_COMPOSE_FILE`, `SMOKE_CORE_RESTART_CHECK`, `SMOKE_NODE_RESTART_CHECK` or
-`SMOKE_PROVIDER_ERROR_CHECK` when running the same smoke check against a
-non-default local profile. Set `SMOKE_SKIP_COMPOSE_UP=1` when those endpoints
-are already running and should not be started by the Make target. Set
-`SMOKE_CORE_RESTART_CHECK=0`, `SMOKE_NODE_RESTART_CHECK=0` or
-`SMOKE_PROVIDER_ERROR_CHECK=0` when the script must not restart the target Core
-or Node service or must leave the smoke session in a ready runtime state.
+`SMOKE_WEB_PASSWORD`, `SMOKE_RETRIES` or `SMOKE_DELAY_SECONDS` when running the
+same smoke check against a non-default local profile. Set
+`SMOKE_SKIP_COMPOSE_UP=1` when those endpoints are already running and should
+not be started by the Make target.
 
 ## Node Enrollment
 
-For a host-running Node, leave `CORTEX_AUTO_APPROVE_ENROLLMENTS` disabled on
-Core. Start the Node:
+For a host-running Node that should manage a workspace outside this repository,
+set `CORTEX_NODE_WORKSPACES` to one or more explicit allowed workspace roots
+before starting the Node:
 
 ```sh
+export CORTEX_NODE_WORKSPACES=/path/to/workspace-root
 make node-r
 ```
 
@@ -178,18 +172,16 @@ Accepted events follow the same shape: Core stores the full event JSON and
 queryable actor, scope, correlation, source/evidence/cause/result refs and
 payload fields for ordered projections and inspection.
 
-The current fake-provider path executes through the Node-side Provider Adapter
-boundary for `StartRuntime`, `ResumeRuntime`, `SendTurn`, `InterruptRuntime`
-and `StopRuntime`. Fake `SendTurn` events mark the runtime running, emit turn
-and provider message events, then return the runtime to ready. Core persists
-accepted Node events and rebuilds assistant messages from
-`provider.message.completed`. Core also stores a durable `turns` row for every
-accepted user turn and advances that row from `turn.started`,
-`approval.requested`, `turn.completed`, `turn.interrupted` and runtime error
-events. Approval request and resolution events are also projected into the
-durable `approvals` table. Node keeps generated events in a local outbox until
-Core acknowledges their event ids, so reconnects can replay unaccepted
-fake-provider events without regenerating command output.
+The Codex provider path executes through the Node-side Provider Adapter
+boundary for `StartRuntime`, `ResumeRuntime`, `SendTurn`, `ResolveApproval`,
+`InterruptRuntime` and `StopRuntime`. Core persists accepted Node events and
+rebuilds assistant messages from `provider.message.completed`. Core also stores
+a durable `turns` row for every accepted user turn and advances that row from
+`turn.started`, `approval.requested`, `turn.completed`, `turn.interrupted` and
+runtime error events. Approval request and resolution events are also projected
+into the durable `approvals` table. Node keeps generated events in a local
+outbox until Core acknowledges their event ids, so reconnects can replay
+unaccepted provider events without regenerating command output.
 Node command dedupe stores the terminal `command.result` status: normal event
 batches complete the command, while provider/runtime error batches fail it and
 replay the same failed status for duplicate command delivery.
@@ -397,8 +389,7 @@ SSE event so the client can refetch the snapshot.
 2. Open `http://127.0.0.1:5173`.
 3. Open the reachable node.
 4. Register a workspace placement with an explicit path.
-5. Start a fake-provider session, or a Codex session where the Codex CLI is
-   available.
+5. Start a Codex session where the Codex CLI is available.
 6. Send a turn and verify that user, assistant and runtime event blocks appear.
 7. Stop or resume the runtime from the session header controls.
 8. Reload the browser and verify that inventory, placement, session messages,
@@ -413,13 +404,10 @@ make web-e2e
 make codex-smoke
 ```
 
-`make compose-smoke` covers the deterministic fake-provider path through
-Compose: session start, turn send, detach/attach, detached-turn rejection,
-approval resolve, interrupt from a blocked runtime, stop/resume, post-resume
-turn send, Core restart, Node restart and provider-error projection. Set
-`SMOKE_LIFECYCLE_CHECK=0`, `SMOKE_CORE_RESTART_CHECK=0`,
-`SMOKE_NODE_RESTART_CHECK=0` or `SMOKE_PROVIDER_ERROR_CHECK=0` only when
-narrowing a local investigation.
+`make compose-smoke` covers the deterministic infrastructure path through
+Compose: hardened local auth setup/login, explicit Node enrollment approval,
+inventory, workspace placement and Codex capability advertisement. It does not
+start a provider session.
 
 `make web-e2e` starts the Vite web server when `PLAYWRIGHT_BASE_URL` is not set.
 Set `PLAYWRIGHT_BASE_URL` to run the same checks against an already running
@@ -427,8 +415,8 @@ local profile.
 Use `PLAYWRIGHT_BASE_URL=http://127.0.0.1:5173 make web-e2e` for automated
 browser checks against the Compose Web service. The default E2E run uses
 mocked Core snapshots for deterministic UI warning/degraded-state assertions.
-To run the real Core/Web/Node fake-provider browser path against the same
-profile, first run `make compose-smoke`, then run:
+To run the real Core/Web/Node browser path against a profile with an available
+Codex provider, run:
 
 ```sh
 CORTEX_E2E_REAL_API=1 \
@@ -437,26 +425,27 @@ make web-e2e
 ```
 
 For agent/operator inspection, run the same Compose profile, open
-`http://127.0.0.1:5173` with `playwright-cli`, verify the trusted profile
+`http://127.0.0.1:5173` with `playwright-cli`, verify the hardened profile
 banner, inventory tree, workspace/session flow, warning/degraded states and
 inspector actions, then collect `make compose-logs` output if a defect needs
 debugging.
 
-`make codex-smoke` is the real-provider counterpart to the fake-provider
-Compose path. Run it only where Codex CLI is installed and authenticated.
+`make codex-smoke` starts host Core/Web/Node with a disposable writable
+workspace and runs the real Codex provider path. Run it only where Codex CLI is
+installed and authenticated.
 
 ## Known Limits
 
-- Control-channel event outbox persistence covers Node-generated fake-provider
-  and minimal Codex exec-mode events. Codex continuity uses a bounded
-  node-local transcript when no provider session id is known, and uses
+- Control-channel event outbox persistence covers Node-generated minimal Codex
+  exec-mode events. Codex continuity uses a bounded node-local transcript when
+  no provider session id is known, and uses
   `codex exec resume` when a provider session id is available. Full reconnect
   integration coverage and provider resume edge-case repair are still
   incomplete.
 - Warning acknowledgements are scoped by session and warning kind; future
   resource-specific acknowledgement expiry is not implemented yet.
-- Node enrollment credentials are development credentials only; this remains
-  trusted local or controlled-development.
+- Node enrollment credentials are development credentials only; this remains a
+  controlled-development profile.
 - Host Node workspace summaries are still reported through heartbeat snapshots
   for paths in `CORTEX_NODE_WORKSPACES`; explicit UI-created placement
   validation now runs through a Node `ValidateWorkspace` command.

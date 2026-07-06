@@ -72,14 +72,12 @@ id_type!(CorrelationId);
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum DeploymentProfile {
-    LocalTrusted,
     ControlledDev,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum SecurityMode {
-    LocalTrusted,
     Hardened,
 }
 
@@ -568,7 +566,7 @@ pub struct CreatePlacementRequest {
 pub struct CreateSessionRequest {
     pub project_placement_id: ProjectPlacementId,
     pub title: Option<String>,
-    pub provider: Option<String>,
+    pub provider: String,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -973,7 +971,7 @@ mod tests {
             command_id: Some(CommandId::from("command-1")),
             correlation_id: Some(CorrelationId::from("corr-1")),
             actor_ref: ActorRef::Provider {
-                provider: "fake".to_owned(),
+                provider: "codex".to_owned(),
             },
             scope_ref: ScopeRef::Runtime {
                 runtime_session_id: RuntimeSessionId::from("runtime-1"),

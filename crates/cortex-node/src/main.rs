@@ -149,17 +149,7 @@ impl NodeConfig {
         let state_path = std::env::var("CORTEX_NODE_STATE_PATH")
             .map(PathBuf::from)
             .unwrap_or_else(|_| default_state_path());
-        let workspace_paths = std::env::var("CORTEX_NODE_WORKSPACES")
-            .ok()
-            .map(|value| {
-                value
-                    .split(',')
-                    .map(str::trim)
-                    .filter(|value| !value.is_empty())
-                    .map(PathBuf::from)
-                    .collect::<Vec<_>>()
-            })
-            .unwrap_or_default();
+        let workspace_paths = parse_workspace_paths()?;
         let codex_binary =
             std::env::var("CORTEX_CODEX_BINARY").unwrap_or_else(|_| "codex".to_owned());
         let codex_timeout = parse_env_duration_seconds("CORTEX_CODEX_TIMEOUT_SECONDS", 120)?;
@@ -184,6 +174,21 @@ fn parse_env_duration_seconds(name: &str, fallback_seconds: u64) -> anyhow::Resu
             .with_context(|| format!("{name} must be an unsigned integer number of seconds")),
         Err(_) => Ok(Duration::from_secs(fallback_seconds)),
     }
+}
+
+fn parse_workspace_paths() -> anyhow::Result<Vec<PathBuf>> {
+    let value = std::env::var("CORTEX_NODE_WORKSPACES")
+        .context("CORTEX_NODE_WORKSPACES must list one or more allowed workspace roots")?;
+    let paths = value
+        .split(',')
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .map(PathBuf::from)
+        .collect::<Vec<_>>();
+    if paths.is_empty() {
+        anyhow::bail!("CORTEX_NODE_WORKSPACES must list one or more allowed workspace roots");
+    }
+    Ok(paths)
 }
 
 #[derive(Clone, Serialize, Deserialize)]
@@ -874,7 +879,6 @@ async fn prepare_command_dispatch_with_live_socket(
             remember_runtime_metadata(local_state, command);
             let provider_key = provider_for_command(local_state, command);
             let workspace_path = workspace_path_for_command(local_state, command);
-            let runtime_manager = RuntimeManager::for_provider(&provider_key, config);
             let mut live_event_sink = live_socket.map(|socket| {
                 NodeLiveEventSink::new(
                     socket,
@@ -882,16 +886,20 @@ async fn prepare_command_dispatch_with_live_socket(
                     &mut local_state.runtime_states,
                 )
             });
-            let events = runtime_manager
-                .execute_command(
-                    command,
-                    &mut local_state.runtime_seqs,
-                    workspace_path.as_deref(),
-                    &mut local_state.runtime_transcripts,
-                    &mut local_state.runtime_provider_resume_refs,
-                    live_event_sink.as_mut(),
-                )
-                .await;
+            let events = if let Some(provider_key) = provider_key {
+                RuntimeManager::for_provider(&provider_key, config)
+                    .execute_command(
+                        command,
+                        &mut local_state.runtime_seqs,
+                        workspace_path.as_deref(),
+                        &mut local_state.runtime_transcripts,
+                        &mut local_state.runtime_provider_resume_refs,
+                        live_event_sink.as_mut(),
+                    )
+                    .await
+            } else {
+                missing_provider_events_for_command(command, &mut local_state.runtime_seqs)
+            };
             if let Some(sink) = live_event_sink {
                 live_event_ids = sink.emitted_event_ids;
             }
@@ -1068,12 +1076,13 @@ fn remember_runtime_metadata(local_state: &mut NodeLocalState, command: &Command
     let mut changed = false;
 
     if matches!(command.kind, CommandKind::StartRuntime) {
-        let provider = command_payload_str(command, "provider").unwrap_or("fake");
-        changed |= insert_if_changed(
-            &mut local_state.runtime_providers,
-            runtime_key.clone(),
-            provider.to_owned(),
-        );
+        if let Some(provider) = command_payload_str(command, "provider") {
+            changed |= insert_if_changed(
+                &mut local_state.runtime_providers,
+                runtime_key.clone(),
+                provider.to_owned(),
+            );
+        }
     } else if matches!(command.kind, CommandKind::ResumeRuntime) {
         if let Some(provider) = command_payload_str(command, "provider") {
             changed |= insert_if_changed(
@@ -1107,7 +1116,7 @@ fn remember_runtime_metadata(local_state: &mut NodeLocalState, command: &Command
     changed
 }
 
-fn provider_for_command(local_state: &NodeLocalState, command: &CommandEnvelope) -> String {
+fn provider_for_command(local_state: &NodeLocalState, command: &CommandEnvelope) -> Option<String> {
     command_payload_str(command, "provider")
         .map(str::to_owned)
         .or_else(|| {
@@ -1121,7 +1130,6 @@ fn provider_for_command(local_state: &NodeLocalState, command: &CommandEnvelope)
                         .cloned()
                 })
         })
-        .unwrap_or_else(|| "fake".to_owned())
 }
 
 fn workspace_path_for_command(
@@ -1352,8 +1360,8 @@ fn validate_command_workspace(
 }
 
 fn workspace_path_allowed(config: &NodeConfig, path: &Path) -> bool {
-    config.workspace_paths.is_empty()
-        || config
+    !config.workspace_paths.is_empty()
+        && config
             .workspace_paths
             .iter()
             .any(|root| path.starts_with(root))
@@ -1405,7 +1413,6 @@ fn next_placement_seq(
 
 #[derive(Debug, Clone)]
 enum RuntimeManager {
-    Fake(FakeProviderAdapter),
     Codex(CodexProviderAdapter),
     Unsupported(UnsupportedProviderAdapter),
 }
@@ -1413,7 +1420,6 @@ enum RuntimeManager {
 impl RuntimeManager {
     fn for_provider(provider_key: &str, config: &NodeConfig) -> Self {
         match provider_key {
-            "" | "fake" => Self::Fake(FakeProviderAdapter),
             "codex" => Self::Codex(CodexProviderAdapter::new(config)),
             other => Self::Unsupported(UnsupportedProviderAdapter {
                 provider_key: other.to_owned(),
@@ -1431,7 +1437,6 @@ impl RuntimeManager {
         live_event_sink: Option<&mut NodeLiveEventSink<'_>>,
     ) -> Vec<EventEnvelope> {
         match self {
-            Self::Fake(provider) => provider.events_for_command(command, runtime_seqs),
             Self::Codex(provider) => {
                 provider
                     .events_for_command(
@@ -1445,267 +1450,6 @@ impl RuntimeManager {
                     .await
             }
             Self::Unsupported(provider) => provider.events_for_command(command, runtime_seqs),
-        }
-    }
-}
-
-#[derive(Debug, Clone, Copy)]
-struct FakeProviderAdapter;
-
-impl FakeProviderAdapter {
-    fn provider_key(&self) -> &'static str {
-        "fake"
-    }
-
-    fn events_for_command(
-        &self,
-        command: &CommandEnvelope,
-        runtime_seqs: &mut HashMap<String, i64>,
-    ) -> Vec<EventEnvelope> {
-        let Some(runtime_session_id) = command.runtime_session_id.clone() else {
-            return vec![];
-        };
-        match command.kind {
-            CommandKind::StartRuntime => vec![
-                event_for_command(
-                    self.provider_key(),
-                    command,
-                    runtime_seqs,
-                    runtime_session_id.clone(),
-                    None,
-                    EventKind::RuntimeStarting,
-                    serde_json::json!({ "provider": self.provider_key() }),
-                ),
-                event_for_command(
-                    self.provider_key(),
-                    command,
-                    runtime_seqs,
-                    runtime_session_id,
-                    None,
-                    EventKind::RuntimeReady,
-                    serde_json::json!({ "provider": self.provider_key() }),
-                ),
-            ],
-            CommandKind::ResumeRuntime => vec![
-                event_for_command(
-                    self.provider_key(),
-                    command,
-                    runtime_seqs,
-                    runtime_session_id.clone(),
-                    None,
-                    EventKind::RuntimeResuming,
-                    serde_json::json!({ "provider": self.provider_key() }),
-                ),
-                event_for_command(
-                    self.provider_key(),
-                    command,
-                    runtime_seqs,
-                    runtime_session_id,
-                    None,
-                    EventKind::RuntimeReady,
-                    serde_json::json!({ "provider": self.provider_key() }),
-                ),
-            ],
-            CommandKind::SendTurn => {
-                let turn_id = command
-                    .payload
-                    .0
-                    .get("turn_id")
-                    .and_then(serde_json::Value::as_str)
-                    .map(TurnId::from);
-                let content = command
-                    .payload
-                    .0
-                    .get("content")
-                    .and_then(serde_json::Value::as_str)
-                    .unwrap_or("");
-                let mut events = vec![
-                    event_for_command(
-                        self.provider_key(),
-                        command,
-                        runtime_seqs,
-                        runtime_session_id.clone(),
-                        None,
-                        EventKind::RuntimeRunning,
-                        serde_json::json!({ "provider": self.provider_key() }),
-                    ),
-                    event_for_command(
-                        self.provider_key(),
-                        command,
-                        runtime_seqs,
-                        runtime_session_id.clone(),
-                        turn_id.clone(),
-                        EventKind::TurnStarted,
-                        serde_json::json!({}),
-                    ),
-                ];
-                let trimmed_content = content.trim();
-                if trimmed_content.starts_with("/approval") {
-                    let approval_id = ApprovalId::new();
-                    let prompt = trimmed_content
-                        .strip_prefix("/approval")
-                        .map(str::trim)
-                        .filter(|value| !value.is_empty())
-                        .unwrap_or("Fake provider approval requested");
-                    events.push(event_for_command(
-                        self.provider_key(),
-                        command,
-                        runtime_seqs,
-                        runtime_session_id.clone(),
-                        turn_id,
-                        EventKind::ApprovalRequested,
-                        serde_json::json!({
-                            "approval_id": approval_id.as_str(),
-                            "prompt": prompt,
-                        }),
-                    ));
-                    events.push(event_for_command(
-                        self.provider_key(),
-                        command,
-                        runtime_seqs,
-                        runtime_session_id,
-                        None,
-                        EventKind::RuntimeBlocked,
-                        serde_json::json!({ "provider": self.provider_key() }),
-                    ));
-                    return events;
-                }
-                if trimmed_content.starts_with("/error") {
-                    let message = trimmed_content
-                        .strip_prefix("/error")
-                        .map(str::trim)
-                        .filter(|value| !value.is_empty())
-                        .unwrap_or("Fake provider runtime error");
-                    events.push(event_for_command(
-                        self.provider_key(),
-                        command,
-                        runtime_seqs,
-                        runtime_session_id,
-                        turn_id,
-                        EventKind::RuntimeError,
-                        serde_json::json!({ "message": message }),
-                    ));
-                    return events;
-                }
-                events.extend([
-                    event_for_command(
-                        self.provider_key(),
-                        command,
-                        runtime_seqs,
-                        runtime_session_id.clone(),
-                        turn_id.clone(),
-                        EventKind::ProviderOutputDelta,
-                        serde_json::json!({ "delta": format!("Fake provider accepted: {content}") }),
-                    ),
-                    event_for_command(
-                        self.provider_key(),
-                        command,
-                        runtime_seqs,
-                        runtime_session_id.clone(),
-                        turn_id.clone(),
-                        EventKind::ProviderMessageCompleted,
-                        serde_json::json!({ "content": format!("Fake provider accepted: {content}") }),
-                    ),
-                    event_for_command(
-                        self.provider_key(),
-                        command,
-                        runtime_seqs,
-                        runtime_session_id.clone(),
-                        turn_id,
-                        EventKind::TurnCompleted,
-                        serde_json::json!({}),
-                    ),
-                    event_for_command(
-                        self.provider_key(),
-                        command,
-                        runtime_seqs,
-                        runtime_session_id,
-                        None,
-                        EventKind::RuntimeReady,
-                        serde_json::json!({ "provider": self.provider_key() }),
-                    ),
-                ]);
-                events
-            }
-            CommandKind::ResolveApproval => {
-                let approved = command
-                    .payload
-                    .0
-                    .get("approved")
-                    .and_then(serde_json::Value::as_bool)
-                    .unwrap_or(false);
-                let approval_id = command
-                    .payload
-                    .0
-                    .get("approval_id")
-                    .and_then(serde_json::Value::as_str)
-                    .unwrap_or("unknown");
-                let default_message = if approved {
-                    "Approval accepted"
-                } else {
-                    "Approval denied"
-                };
-                let message = command
-                    .payload
-                    .0
-                    .get("message")
-                    .and_then(serde_json::Value::as_str)
-                    .unwrap_or(default_message);
-                vec![
-                    event_for_command(
-                        self.provider_key(),
-                        command,
-                        runtime_seqs,
-                        runtime_session_id.clone(),
-                        None,
-                        EventKind::ApprovalResolved,
-                        serde_json::json!({
-                            "approval_id": approval_id,
-                            "approved": approved,
-                            "message": message,
-                        }),
-                    ),
-                    event_for_command(
-                        self.provider_key(),
-                        command,
-                        runtime_seqs,
-                        runtime_session_id,
-                        None,
-                        EventKind::RuntimeReady,
-                        serde_json::json!({ "provider": self.provider_key() }),
-                    ),
-                ]
-            }
-            CommandKind::InterruptRuntime => vec![
-                event_for_command(
-                    self.provider_key(),
-                    command,
-                    runtime_seqs,
-                    runtime_session_id.clone(),
-                    None,
-                    EventKind::TurnInterrupted,
-                    serde_json::json!({}),
-                ),
-                event_for_command(
-                    self.provider_key(),
-                    command,
-                    runtime_seqs,
-                    runtime_session_id,
-                    None,
-                    EventKind::RuntimeReady,
-                    serde_json::json!({ "provider": self.provider_key() }),
-                ),
-            ],
-            CommandKind::StopRuntime => vec![event_for_command(
-                self.provider_key(),
-                command,
-                runtime_seqs,
-                runtime_session_id,
-                None,
-                EventKind::RuntimeStopped,
-                serde_json::json!({}),
-            )],
-            _ => vec![],
         }
     }
 }
@@ -2832,6 +2576,27 @@ struct UnsupportedProviderAdapter {
     provider_key: String,
 }
 
+fn missing_provider_events_for_command(
+    command: &CommandEnvelope,
+    runtime_seqs: &mut HashMap<String, i64>,
+) -> Vec<EventEnvelope> {
+    let Some(runtime_session_id) = command.runtime_session_id.clone() else {
+        return vec![];
+    };
+    vec![event_for_command(
+        "unknown",
+        command,
+        runtime_seqs,
+        runtime_session_id,
+        None,
+        EventKind::RuntimeError,
+        serde_json::json!({
+            "code": "provider.missing",
+            "message": "Runtime command is missing provider metadata",
+        }),
+    )]
+}
+
 impl UnsupportedProviderAdapter {
     fn events_for_command(
         &self,
@@ -2988,10 +2753,6 @@ fn control_url(core_url: &Url) -> anyhow::Result<Url> {
 fn capabilities(config: &NodeConfig) -> Vec<CapabilitySummary> {
     let codex_available = command_available(&config.codex_binary);
     vec![
-        CapabilitySummary {
-            key: "provider.fake".to_owned(),
-            value: JsonValue(serde_json::json!({ "available": true })),
-        },
         CapabilitySummary {
             key: "provider.codex".to_owned(),
             value: JsonValue(serde_json::json!({
@@ -3434,18 +3195,15 @@ mod tests {
     }
 
     #[test]
-    fn node_config_from_env_uses_documented_defaults() {
+    fn node_config_from_env_requires_workspace_roots() {
         let _lock = env_lock();
         let _env = EnvGuard::cleared(NODE_CONFIG_ENV_VARS);
 
-        let config = NodeConfig::from_env().expect("default node config parses");
+        let error = NodeConfig::from_env().expect_err("missing workspace roots should fail");
 
-        assert_eq!(config.core_url.as_str(), "http://127.0.0.1:8080/");
-        assert_eq!(config.display_name, "Local Node");
-        assert_eq!(config.heartbeat_interval, Duration::from_secs(5));
-        assert!(config.workspace_paths.is_empty());
-        assert_eq!(config.codex_binary, "codex");
-        assert_eq!(config.codex_timeout, Duration::from_secs(120));
+        assert!(error
+            .to_string()
+            .contains("CORTEX_NODE_WORKSPACES must list one or more allowed workspace roots"));
     }
 
     #[test]
@@ -3479,6 +3237,7 @@ mod tests {
     fn node_config_from_env_rejects_invalid_duration_values() {
         let _lock = env_lock();
         let _env = EnvGuard::cleared(NODE_CONFIG_ENV_VARS);
+        std::env::set_var("CORTEX_NODE_WORKSPACES", std::env::temp_dir());
         std::env::set_var("CORTEX_NODE_HEARTBEAT_SECONDS", "soon");
 
         let error = NodeConfig::from_env().expect_err("invalid heartbeat should fail");
@@ -3579,36 +3338,37 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn prepare_command_dispatch_persists_new_events_and_runtime_sequence() {
+    async fn prepare_command_dispatch_rejects_command_without_provider_metadata() {
         let config = config_fixture();
         let command = command_fixture("command-1", CommandKind::SendTurn);
         let mut local_state = NodeLocalState::default();
 
         let outcome = prepare_command_dispatch(&config, &mut local_state, &command).await;
 
-        assert_eq!(outcome.status, CommandState::Completed);
+        assert_eq!(outcome.status, CommandState::Failed);
         assert!(outcome.state_changed);
         assert_eq!(
             event_kinds(&outcome.events_to_send),
-            vec![
-                EventKind::RuntimeRunning,
-                EventKind::TurnStarted,
-                EventKind::ProviderOutputDelta,
-                EventKind::ProviderMessageCompleted,
-                EventKind::TurnCompleted,
-                EventKind::RuntimeReady,
-            ]
+            vec![EventKind::RuntimeError]
         );
-        assert_eq!(local_state.event_outbox.len(), 6);
-        assert_eq!(local_state.runtime_seqs.get("runtime-1").copied(), Some(6));
+        assert_eq!(local_state.event_outbox.len(), 1);
+        assert_eq!(local_state.runtime_seqs.get("runtime-1").copied(), Some(1));
         assert_eq!(
             local_state.runtime_states.get("runtime-1").copied(),
-            Some(RuntimeSessionState::Ready)
+            Some(RuntimeSessionState::Error)
         );
-        assert_eq!(active_runtime_count(&local_state), 1);
+        assert_eq!(active_runtime_count(&local_state), 0);
         assert_eq!(
             local_state.command_status.get("command-1").copied(),
-            Some(CommandState::Completed)
+            Some(CommandState::Failed)
+        );
+        assert_eq!(
+            outcome.events_to_send[0]
+                .payload
+                .0
+                .get("code")
+                .and_then(serde_json::Value::as_str),
+            Some("provider.missing")
         );
         assert!(outcome.events_to_send.iter().all(|event| event
             .correlation_id
@@ -3626,11 +3386,11 @@ mod tests {
 
         let second = prepare_command_dispatch(&config, &mut local_state, &command).await;
 
-        assert_eq!(second.status, CommandState::Completed);
+        assert_eq!(second.status, CommandState::Failed);
         assert!(!second.state_changed);
         assert_eq!(event_ids(&second.events_to_send), first_event_ids);
-        assert_eq!(local_state.runtime_seqs.get("runtime-1").copied(), Some(6));
-        assert_eq!(local_state.event_outbox.len(), 6);
+        assert_eq!(local_state.runtime_seqs.get("runtime-1").copied(), Some(1));
+        assert_eq!(local_state.event_outbox.len(), 1);
     }
 
     #[tokio::test]
@@ -3649,14 +3409,14 @@ mod tests {
         let second = prepare_command_dispatch(&config, &mut reloaded_state, &command).await;
         std::fs::remove_file(path).expect("node state fixture is removed");
 
-        assert_eq!(second.status, CommandState::Completed);
+        assert_eq!(second.status, CommandState::Failed);
         assert!(!second.state_changed);
         assert_eq!(event_ids(&second.events_to_send), first_event_ids);
         assert_eq!(
             reloaded_state.runtime_seqs.get("runtime-1").copied(),
-            Some(6)
+            Some(1)
         );
-        assert_eq!(reloaded_state.event_outbox.len(), 6);
+        assert_eq!(reloaded_state.event_outbox.len(), 1);
     }
 
     #[tokio::test]
@@ -3665,24 +3425,35 @@ mod tests {
         let command = command_fixture("command-1", CommandKind::SendTurn);
         let mut local_state = NodeLocalState::default();
         let outcome = prepare_command_dispatch(&config, &mut local_state, &command).await;
-        let accepted_event_id = outcome.events_to_send[1].event_id.clone();
+        let accepted_event_id = outcome.events_to_send[0].event_id.clone();
 
         let removed = remove_acked_events(&mut local_state.event_outbox, &[accepted_event_id]);
 
         assert_eq!(removed, 1);
-        assert_eq!(local_state.event_outbox.len(), 5);
-        assert_eq!(event_ids(&local_state.event_outbox).len(), 5);
+        assert_eq!(local_state.event_outbox.len(), 0);
+        assert!(event_ids(&local_state.event_outbox).is_empty());
     }
 
     #[tokio::test]
     async fn event_outbox_retention_emits_runtime_error_when_runtime_events_are_dropped() {
-        let config = config_fixture();
         let command = command_fixture("command-retention", CommandKind::SendTurn);
         let mut local_state = NodeLocalState {
             node_id: Some(NodeId::from("node-1")),
             ..NodeLocalState::default()
         };
-        let _ = prepare_command_dispatch(&config, &mut local_state, &command).await;
+        let runtime_session_id = RuntimeSessionId::from("runtime-1");
+        for _ in 0..6 {
+            let event = event_for_command(
+                "codex",
+                &command,
+                &mut local_state.runtime_seqs,
+                runtime_session_id.clone(),
+                None,
+                EventKind::RuntimeRunning,
+                serde_json::json!({ "provider": "codex" }),
+            );
+            local_state.event_outbox.push(event);
+        }
 
         let notices = enforce_event_outbox_retention(&mut local_state, 5);
 
@@ -3706,59 +3477,9 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn fake_provider_approval_turn_blocks_runtime() {
-        let config = config_fixture();
-        let command = command_fixture_with_content(
-            "command-approval",
-            CommandKind::SendTurn,
-            "/approval Allow test command",
-        );
-        let mut local_state = NodeLocalState::default();
-
-        let outcome = prepare_command_dispatch(&config, &mut local_state, &command).await;
-
-        assert_eq!(
-            event_kinds(&outcome.events_to_send),
-            vec![
-                EventKind::RuntimeRunning,
-                EventKind::TurnStarted,
-                EventKind::ApprovalRequested,
-                EventKind::RuntimeBlocked,
-            ]
-        );
-        assert_eq!(local_state.runtime_seqs.get("runtime-1").copied(), Some(4));
-    }
-
-    #[tokio::test]
-    async fn fake_provider_error_turn_marks_runtime_error() {
-        let config = config_fixture();
-        let command =
-            command_fixture_with_content("command-error", CommandKind::SendTurn, "/error boom");
-        let mut local_state = NodeLocalState::default();
-
-        let outcome = prepare_command_dispatch(&config, &mut local_state, &command).await;
-
-        assert_eq!(outcome.status, CommandState::Failed);
-        assert_eq!(
-            event_kinds(&outcome.events_to_send),
-            vec![
-                EventKind::RuntimeRunning,
-                EventKind::TurnStarted,
-                EventKind::RuntimeError,
-            ]
-        );
-        assert_eq!(local_state.runtime_seqs.get("runtime-1").copied(), Some(3));
-        assert_eq!(
-            local_state.command_status.get("command-error").copied(),
-            Some(CommandState::Failed)
-        );
-    }
-
-    #[tokio::test]
     async fn failed_command_dispatch_replays_failed_status_and_outbox_for_duplicate_command() {
         let config = config_fixture();
-        let command =
-            command_fixture_with_content("command-error", CommandKind::SendTurn, "/error boom");
+        let command = command_fixture("command-error", CommandKind::SendTurn);
         let mut local_state = NodeLocalState::default();
         let first = prepare_command_dispatch(&config, &mut local_state, &command).await;
         let first_event_ids = event_ids(&first.events_to_send);
@@ -3768,11 +3489,11 @@ mod tests {
         assert_eq!(second.status, CommandState::Failed);
         assert!(!second.state_changed);
         assert_eq!(event_ids(&second.events_to_send), first_event_ids);
-        assert_eq!(local_state.runtime_seqs.get("runtime-1").copied(), Some(3));
+        assert_eq!(local_state.runtime_seqs.get("runtime-1").copied(), Some(1));
     }
 
     #[tokio::test]
-    async fn fake_provider_resolve_approval_returns_runtime_to_ready() {
+    async fn codex_resolve_approval_returns_runtime_to_ready() {
         let config = config_fixture();
         let mut command = command_fixture("command-resolve", CommandKind::ResolveApproval);
         command.payload = JsonValue(serde_json::json!({
@@ -3788,6 +3509,9 @@ mod tests {
                 content: "stale context".to_owned(),
             }],
         );
+        local_state
+            .runtime_providers
+            .insert("runtime-1".to_owned(), "codex".to_owned());
 
         let outcome = prepare_command_dispatch(&config, &mut local_state, &command).await;
 
@@ -3806,6 +3530,9 @@ mod tests {
         local_state
             .runtime_states
             .insert("runtime-1".to_owned(), RuntimeSessionState::Ready);
+        local_state
+            .runtime_providers
+            .insert("runtime-1".to_owned(), "codex".to_owned());
 
         let outcome = prepare_command_dispatch(&config, &mut local_state, &command).await;
 
@@ -4835,7 +4562,7 @@ sleep 2
             display_name: "Test Node".to_owned(),
             heartbeat_interval: Duration::from_secs(5),
             state_path: std::env::temp_dir().join(format!("cortex-node-{}.json", Uuid::new_v4())),
-            workspace_paths: vec![],
+            workspace_paths: vec![std::env::temp_dir()],
             codex_binary: codex_binary.into(),
             codex_timeout: Duration::from_secs(5),
         }

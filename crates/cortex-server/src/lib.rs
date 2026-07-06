@@ -103,7 +103,7 @@ impl AppConfig {
             offline_after_seconds: parse_env_i64("CORTEX_HEARTBEAT_OFFLINE_SECONDS", 45)?,
             enrollment_ttl_seconds: parse_env_i64("CORTEX_ENROLLMENT_TTL_SECONDS", 600)?,
             runtime_expiry_seconds: parse_env_i64("CORTEX_RUNTIME_EXPIRY_SECONDS", 86_400)?,
-            auto_approve_enrollments: parse_env_bool("CORTEX_AUTO_APPROVE_ENROLLMENTS", false),
+            auto_approve_enrollments: parse_auto_approve_enrollments()?,
             client_log_file: std::env::var("CORTEX_CLIENT_LOG_FILE")
                 .map(PathBuf::from)
                 .unwrap_or_else(|_| PathBuf::from(".local/logs/client.log")),
@@ -130,6 +130,8 @@ pub enum ConfigError {
     WildcardOrigin,
     #[error("invalid web auth mode `{0}`")]
     InvalidWebAuthMode(String),
+    #[error("node enrollment auto-approval is not supported")]
+    AutoApproveEnrollments,
     #[error("invalid integer environment variable `{name}`")]
     InvalidInteger {
         name: String,
@@ -139,8 +141,7 @@ pub enum ConfigError {
 
 fn parse_profile(value: Option<String>) -> Result<DeploymentProfile, ConfigError> {
     match value.as_deref() {
-        Some("controlled_dev") => Ok(DeploymentProfile::ControlledDev),
-        Some("local_trusted") | None => Ok(DeploymentProfile::LocalTrusted),
+        Some("controlled_dev") | None => Ok(DeploymentProfile::ControlledDev),
         Some(other) => Err(ConfigError::InvalidProfile(other.to_owned())),
     }
 }
@@ -173,14 +174,23 @@ fn parse_allowed_origins(value: Option<String>) -> Result<Vec<HeaderValue>, Conf
 
 fn parse_web_auth_required(
     value: Option<String>,
-    profile: DeploymentProfile,
+    _profile: DeploymentProfile,
 ) -> Result<bool, ConfigError> {
     match value.as_deref() {
         Some("local") | Some("required") | Some("1") | Some("true") => Ok(true),
-        Some("disabled") | Some("off") | Some("0") | Some("false") => Ok(false),
-        Some("auto") | None => Ok(profile == DeploymentProfile::ControlledDev),
+        Some("auto") | None => Ok(true),
+        Some(other @ ("disabled" | "off" | "0" | "false")) => {
+            Err(ConfigError::InvalidWebAuthMode(other.to_owned()))
+        }
         Some(other) => Err(ConfigError::InvalidWebAuthMode(other.to_owned())),
     }
+}
+
+fn parse_auto_approve_enrollments() -> Result<bool, ConfigError> {
+    if parse_env_bool("CORTEX_AUTO_APPROVE_ENROLLMENTS", false) {
+        return Err(ConfigError::AutoApproveEnrollments);
+    }
+    Ok(false)
 }
 
 fn default_allowed_origins() -> Vec<HeaderValue> {
@@ -613,11 +623,7 @@ struct WebSessionTokens {
 
 async fn security_status(state: &AppState) -> SecurityStatus {
     SecurityStatus {
-        mode: if state.config.web_auth_required {
-            SecurityMode::Hardened
-        } else {
-            SecurityMode::LocalTrusted
-        },
+        mode: SecurityMode::Hardened,
         web_auth_required: state.config.web_auth_required,
         web_auth_configured: web_auth_configured(state).await.unwrap_or(false),
         cookie_secure: state.config.cookie_secure,
@@ -2029,7 +2035,13 @@ async fn create_session_with_correlation(
     correlation_id: CorrelationId,
 ) -> Result<SessionDetail, AppError> {
     let placement = load_placement(state, &request.project_placement_id).await?;
-    let provider = request.provider.unwrap_or_else(|| "fake".to_owned());
+    let provider = request.provider.trim().to_owned();
+    if provider.is_empty() {
+        return Err(AppError::bad_request(
+            "validation.provider_required",
+            "Provider is required",
+        ));
+    }
     ensure_node_commandable(state, &placement.node_id).await?;
     ensure_placement_startable(&placement)?;
     ensure_node_supports_provider(state, &placement.node_id, &provider).await?;
@@ -6456,7 +6468,7 @@ mod tests {
         AppConfig {
             bind_address: "127.0.0.1:0".to_owned(),
             database_url: "sqlite::memory:".to_owned(),
-            profile: DeploymentProfile::LocalTrusted,
+            profile: DeploymentProfile::ControlledDev,
             allowed_origins: default_allowed_origins(),
             stale_after_seconds: 15,
             offline_after_seconds: 45,
@@ -6537,7 +6549,7 @@ mod tests {
 
         assert_eq!(config.bind_address, "127.0.0.1:8080");
         assert_eq!(config.database_url, "sqlite://.local/state/core.sqlite");
-        assert_eq!(config.profile, DeploymentProfile::LocalTrusted);
+        assert_eq!(config.profile, DeploymentProfile::ControlledDev);
         assert_eq!(
             config
                 .allowed_origins
@@ -6555,7 +6567,7 @@ mod tests {
             config.client_log_file,
             PathBuf::from(".local/logs/client.log")
         );
-        assert!(!config.web_auth_required);
+        assert!(config.web_auth_required);
         assert_eq!(config.web_session_ttl_seconds, 86_400);
         assert!(!config.cookie_secure);
     }
@@ -6575,7 +6587,6 @@ mod tests {
         std::env::set_var("CORTEX_HEARTBEAT_OFFLINE_SECONDS", "9");
         std::env::set_var("CORTEX_ENROLLMENT_TTL_SECONDS", "30");
         std::env::set_var("CORTEX_RUNTIME_EXPIRY_SECONDS", "120");
-        std::env::set_var("CORTEX_AUTO_APPROVE_ENROLLMENTS", "yes");
         std::env::set_var("CORTEX_CLIENT_LOG_FILE", "/tmp/cortex-client.jsonl");
         std::env::set_var("CORTEX_WEB_SESSION_TTL_SECONDS", "3600");
         std::env::set_var("CORTEX_COOKIE_SECURE", "true");
@@ -6597,7 +6608,7 @@ mod tests {
         assert_eq!(config.offline_after_seconds, 9);
         assert_eq!(config.enrollment_ttl_seconds, 30);
         assert_eq!(config.runtime_expiry_seconds, 120);
-        assert!(config.auto_approve_enrollments);
+        assert!(!config.auto_approve_enrollments);
         assert_eq!(
             config.client_log_file,
             PathBuf::from("/tmp/cortex-client.jsonl")
@@ -6616,6 +6627,41 @@ mod tests {
         let error = AppConfig::from_env().expect_err("invalid profile should fail");
 
         assert!(matches!(error, ConfigError::InvalidProfile(profile) if profile == "production"));
+    }
+
+    #[test]
+    fn app_config_from_env_rejects_local_trusted_profile() {
+        let _lock = env_lock();
+        let _env = EnvGuard::cleared(CORE_CONFIG_ENV_VARS);
+        std::env::set_var("CORTEX_DEPLOYMENT_PROFILE", "local_trusted");
+
+        let error = AppConfig::from_env().expect_err("local_trusted profile should fail");
+
+        assert!(
+            matches!(error, ConfigError::InvalidProfile(profile) if profile == "local_trusted")
+        );
+    }
+
+    #[test]
+    fn app_config_from_env_rejects_disabled_web_auth() {
+        let _lock = env_lock();
+        let _env = EnvGuard::cleared(CORE_CONFIG_ENV_VARS);
+        std::env::set_var("CORTEX_WEB_AUTH", "disabled");
+
+        let error = AppConfig::from_env().expect_err("disabled web auth should fail");
+
+        assert!(matches!(error, ConfigError::InvalidWebAuthMode(mode) if mode == "disabled"));
+    }
+
+    #[test]
+    fn app_config_from_env_rejects_auto_approve_enrollments() {
+        let _lock = env_lock();
+        let _env = EnvGuard::cleared(CORE_CONFIG_ENV_VARS);
+        std::env::set_var("CORTEX_AUTO_APPROVE_ENROLLMENTS", "yes");
+
+        let error = AppConfig::from_env().expect_err("auto approval should fail");
+
+        assert!(matches!(error, ConfigError::AutoApproveEnrollments));
     }
 
     #[test]
@@ -7208,7 +7254,7 @@ mod tests {
             display_name: "Test node".to_owned(),
             daemon_version: "0.1.0".to_owned(),
             capabilities: vec![CapabilitySummary {
-                key: "provider.fake".to_owned(),
+                key: "provider.codex".to_owned(),
                 value: JsonValue(json!({ "available": true })),
             }],
             diagnostics: Some("daemon_installation_id=daemon-test".to_owned()),
@@ -7273,16 +7319,10 @@ mod tests {
             node_id: Some(node_id.clone()),
             display_name: "Test node".to_owned(),
             daemon_version: "0.1.0".to_owned(),
-            capabilities: vec![
-                CapabilitySummary {
-                    key: "provider.fake".to_owned(),
-                    value: JsonValue(json!({ "available": true })),
-                },
-                CapabilitySummary {
-                    key: "provider.codex".to_owned(),
-                    value: JsonValue(json!({ "available": true })),
-                },
-            ],
+            capabilities: vec![CapabilitySummary {
+                key: "provider.codex".to_owned(),
+                value: JsonValue(json!({ "available": true })),
+            }],
             diagnostics: None,
             active_runtime_count: 0,
             sleep_hint: SleepHint::Awake,
@@ -7296,7 +7336,7 @@ mod tests {
             display_name: "Test node".to_owned(),
             daemon_version: "0.1.0".to_owned(),
             capabilities: vec![CapabilitySummary {
-                key: "provider.fake".to_owned(),
+                key: "provider.codex".to_owned(),
                 value: JsonValue(json!({ "available": false })),
             }],
             diagnostics: None,
@@ -7322,18 +7362,18 @@ mod tests {
         .expect("capability rows load");
 
         assert_eq!(rows.len(), 1);
-        let fake_capability =
+        let codex_capability =
             serde_json::from_str::<JsonValue>(&rows[0].1).expect("capability value json decodes");
 
-        assert_eq!(rows[0].0, "provider.fake");
+        assert_eq!(rows[0].0, "provider.codex");
         assert_eq!(
-            fake_capability
+            codex_capability
                 .0
                 .get("available")
                 .and_then(serde_json::Value::as_bool),
             Some(false)
         );
-        assert!(!node_supports_provider(&state, &node_id, "fake")
+        assert!(!node_supports_provider(&state, &node_id, "codex")
             .await
             .expect("provider support checks"));
     }
@@ -8066,7 +8106,7 @@ mod tests {
             Json(CreateSessionRequest {
                 project_placement_id: first_detail.placement.project_placement_id,
                 title: Some("Second session".to_owned()),
-                provider: Some("fake".to_owned()),
+                provider: "codex".to_owned(),
             }),
         )
         .await
@@ -8166,8 +8206,8 @@ mod tests {
             State(state.clone()),
             Json(CreateSessionRequest {
                 project_placement_id: placement.project_placement_id,
-                title: Some("Codex session".to_owned()),
-                provider: Some("codex".to_owned()),
+                title: Some("Unsupported session".to_owned()),
+                provider: "opencode".to_owned(),
             }),
         )
         .await;
@@ -8807,7 +8847,7 @@ mod tests {
                 "detached-runtime-ready-1",
                 1,
                 EventKind::RuntimeReady,
-                json!({ "provider": "fake" }),
+                json!({ "provider": "codex" }),
             ),
         )
         .await
@@ -9281,7 +9321,7 @@ mod tests {
                 "projection-ready-before-offline",
                 1,
                 EventKind::RuntimeReady,
-                json!({ "provider": "fake" }),
+                json!({ "provider": "codex" }),
             ),
         )
         .await
@@ -9316,7 +9356,7 @@ mod tests {
                 "projection-ready-before-provider-missing",
                 1,
                 EventKind::RuntimeReady,
-                json!({ "provider": "fake" }),
+                json!({ "provider": "codex" }),
             ),
         )
         .await
@@ -9387,7 +9427,7 @@ mod tests {
                 "projection-running-1",
                 1,
                 EventKind::RuntimeRunning,
-                json!({ "provider": "fake" }),
+                json!({ "provider": "codex" }),
             ),
         )
         .await
@@ -9429,7 +9469,7 @@ mod tests {
                 "projection-blocked-1",
                 4,
                 EventKind::RuntimeBlocked,
-                json!({ "provider": "fake" }),
+                json!({ "provider": "codex" }),
             ),
         )
         .await
@@ -9495,7 +9535,7 @@ mod tests {
                 "projection-ready-2",
                 3,
                 EventKind::RuntimeReady,
-                json!({ "provider": "fake" }),
+                json!({ "provider": "codex" }),
             ),
         )
         .await
@@ -9801,7 +9841,7 @@ mod tests {
                 "runtime-ready-after-gap",
                 3,
                 EventKind::RuntimeReady,
-                json!({ "provider": "fake" }),
+                json!({ "provider": "codex" }),
             ),
         )
         .await
@@ -9823,7 +9863,7 @@ mod tests {
             "Test node",
             Some("0.1.0"),
             vec![CapabilitySummary {
-                key: "provider.fake".to_owned(),
+                key: "provider.codex".to_owned(),
                 value: JsonValue(json!({ "available": true })),
             }],
         )
@@ -9878,7 +9918,7 @@ mod tests {
             Json(CreateSessionRequest {
                 project_placement_id: placement.project_placement_id,
                 title: Some("Session".to_owned()),
-                provider: Some("fake".to_owned()),
+                provider: "codex".to_owned(),
             }),
         )
         .await
@@ -9911,7 +9951,7 @@ mod tests {
                 display_name: display_name.to_owned(),
                 daemon_version: "0.1.0".to_owned(),
                 capabilities: vec![CapabilitySummary {
-                    key: "provider.fake".to_owned(),
+                    key: "provider.codex".to_owned(),
                     value: JsonValue(json!({ "available": true })),
                 }],
                 diagnostics: None,
@@ -10104,7 +10144,7 @@ mod tests {
             command_id: None,
             correlation_id: None,
             actor_ref: ActorRef::Provider {
-                provider: "fake".to_owned(),
+                provider: "codex".to_owned(),
             },
             scope_ref: ScopeRef::Runtime {
                 runtime_session_id: runtime_session_id.clone(),
@@ -10213,7 +10253,7 @@ mod tests {
                 command_id: None,
                 correlation_id: Some(CorrelationId::from("correlation-event")),
                 actor_ref: ActorRef::Provider {
-                    provider: "fake".to_owned(),
+                    provider: "codex".to_owned(),
                 },
                 scope_ref: scope_ref.clone(),
                 node_id: Some(node_id),
@@ -10267,7 +10307,7 @@ mod tests {
         assert_eq!(
             actor_ref,
             ActorRef::Provider {
-                provider: "fake".to_owned()
+                provider: "codex".to_owned()
             }
         );
         assert_eq!(persisted_scope_ref, scope_ref);
@@ -10297,7 +10337,7 @@ mod tests {
                 command_id: Some(command_id),
                 correlation_id: None,
                 actor_ref: ActorRef::Provider {
-                    provider: "fake".to_owned(),
+                    provider: "codex".to_owned(),
                 },
                 scope_ref: ScopeRef::Runtime {
                     runtime_session_id: runtime_session_id.clone(),
@@ -10331,7 +10371,7 @@ mod tests {
             Some(CorrelationId::from("correlation-1"))
         );
         let actor_count: i64 = sqlx::query_scalar(
-            "select count(*) from actors where actor_key in ('local_user', 'provider:fake')",
+            "select count(*) from actors where actor_key in ('local_user', 'provider:codex')",
         )
         .fetch_one(&state.pool)
         .await
