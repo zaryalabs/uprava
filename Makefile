@@ -10,6 +10,7 @@ RUST_TOOL_TOML_FILES := Cargo.toml crates/*/Cargo.toml deny.toml taplo.toml
 # rsa is retained in Cargo.lock as an inactive optional dependency and
 # RUSTSEC-2023-0071 has no fixed release.
 CARGO_AUDIT_IGNORE := --ignore RUSTSEC-2023-0071
+CLAWPATCH ?= npx --yes clawpatch@0.3.0
 
 ifneq (,$(wildcard pnpm-lock.yaml))
 WEB_PM := pnpm
@@ -65,6 +66,30 @@ pc: ## Run pre-commit hooks on all files
 		echo "pre-commit is not installed; cannot run hooks"; \
 		exit 1; \
 	fi
+
+claw-doctor: ## Check Clawpatch and local Codex setup
+	$(CLAWPATCH) doctor
+
+claw-init: ## Initialize Clawpatch project state
+	$(CLAWPATCH) init
+
+claw-map: ## Build Clawpatch semantic feature map
+	$(CLAWPATCH) map
+
+claw-review: ## Run Clawpatch review. Usage: make claw-review [LIMIT=10] [JOBS=3]
+	$(CLAWPATCH) review --limit $(or $(LIMIT),10) --jobs $(or $(JOBS),3)
+
+claw-report: ## Generate Clawpatch findings report
+	$(CLAWPATCH) report
+
+claw-ci: ## Run Clawpatch CI-style review report. Usage: make claw-ci [SINCE=origin/main]
+	$(CLAWPATCH) ci --since $(or $(SINCE),origin/main) --output clawpatch-report.md
+
+claw-show: ## Show one Clawpatch finding. Usage: make claw-show FINDING=id
+	$(CLAWPATCH) show --finding $(FINDING)
+
+claw-fix: ## Apply one explicit Clawpatch fix. Usage: make claw-fix FINDING=id
+	$(CLAWPATCH) fix --finding $(FINDING)
 
 docs-fmt: ## Format/check docs when a formatter is available
 	@echo "No docs formatter configured yet; skipping docs format"
