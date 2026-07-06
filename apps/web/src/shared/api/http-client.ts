@@ -7,6 +7,7 @@ import type {
   CreatePlacementRequest,
   CreateSessionRequest,
   HealthResponse,
+  NodeCredentialRotationResponse,
   NodeDeletionResponse,
   NodeEnrollmentRequestedResponse,
   NodeEnrollmentSummary,
@@ -16,6 +17,10 @@ import type {
   SendTurnRequest,
   SessionDetail,
   VersionResponse,
+  WebAuthLoginRequest,
+  WebAuthResponse,
+  WebAuthSetupRequest,
+  WebAuthStatusResponse,
   WarningAcknowledgementResponse,
 } from "../protocol/types";
 import { apiBase } from "./config";
@@ -44,7 +49,17 @@ export async function apiDelete<T>(path: string): Promise<T> {
 }
 
 async function apiRequest<T>(path: string, init: RequestInit): Promise<T> {
-  const response = await fetch(`${apiBase}${path}`, init);
+  const headers = new Headers(init.headers);
+  const method = init.method?.toUpperCase() ?? "GET";
+  const csrf = readCookie("cortex_csrf");
+  if (csrf && !["GET", "HEAD", "OPTIONS"].includes(method)) {
+    headers.set("x-cortex-csrf", csrf);
+  }
+  const response = await fetch(`${apiBase}${path}`, {
+    ...init,
+    headers,
+    credentials: "include",
+  });
   if (!response.ok) {
     const fallback: ApiError = {
       error_code: "network.http",
@@ -64,9 +79,25 @@ async function apiRequest<T>(path: string, init: RequestInit): Promise<T> {
   return response.json() as Promise<T>;
 }
 
+function readCookie(name: string): string | null {
+  return (
+    document.cookie
+      .split(";")
+      .map((part) => part.trim())
+      .find((part) => part.startsWith(`${name}=`))
+      ?.slice(name.length + 1) ?? null
+  );
+}
+
 export const coreApi = {
   health: () => apiGet<HealthResponse>("/health"),
   version: () => apiGet<VersionResponse>("/version"),
+  authStatus: () => apiGet<WebAuthStatusResponse>("/auth/status"),
+  authSetup: (request: WebAuthSetupRequest) =>
+    apiPost<WebAuthResponse>("/auth/setup", request),
+  authLogin: (request: WebAuthLoginRequest) =>
+    apiPost<WebAuthResponse>("/auth/login", request),
+  authLogout: () => apiPost<WebAuthResponse>("/auth/logout"),
   inventory: () =>
     apiGet<import("../protocol/types").InventorySnapshot>("/inventory"),
   node: (nodeId: string) =>
@@ -83,6 +114,10 @@ export const coreApi = {
   revokeNode: (nodeId: string) =>
     apiPost<NodeRevocationResponse>(
       `/nodes/${encodeURIComponent(nodeId)}/revoke`,
+    ),
+  rotateNodeCredential: (nodeId: string) =>
+    apiPost<NodeCredentialRotationResponse>(
+      `/nodes/${encodeURIComponent(nodeId)}/rotate-credential`,
     ),
   deleteNode: (nodeId: string) =>
     apiDelete<NodeDeletionResponse>(`/nodes/${encodeURIComponent(nodeId)}`),

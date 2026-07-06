@@ -76,6 +76,13 @@ pub enum DeploymentProfile {
     ControlledDev,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum SecurityMode {
+    LocalTrusted,
+    Hardened,
+}
+
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "kind", rename_all = "snake_case")]
 pub enum ActorRef {
@@ -423,6 +430,7 @@ pub struct ApiError {
 pub struct HealthResponse {
     pub status: String,
     pub profile: DeploymentProfile,
+    pub security: SecurityStatus,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -432,6 +440,15 @@ pub struct VersionResponse {
     pub api_version: String,
     pub schema_version: i64,
     pub profile: DeploymentProfile,
+    pub security: SecurityStatus,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct SecurityStatus {
+    pub mode: SecurityMode,
+    pub web_auth_required: bool,
+    pub web_auth_configured: bool,
+    pub cookie_secure: bool,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -588,6 +605,33 @@ pub struct ClientLogResponse {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct WebAuthStatusResponse {
+    pub auth_required: bool,
+    pub setup_required: bool,
+    pub authenticated: bool,
+    pub profile: DeploymentProfile,
+    pub security: SecurityStatus,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct WebAuthSetupRequest {
+    pub password: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct WebAuthLoginRequest {
+    pub password: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct WebAuthResponse {
+    pub authenticated: bool,
+    pub setup_required: bool,
+    pub csrf_token: Option<String>,
+    pub security: SecurityStatus,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct CommandAcceptedResponse {
     pub command_id: CommandId,
     pub session: Option<SessionDetail>,
@@ -657,6 +701,13 @@ pub struct NodeRevocationResponse {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct NodeCredentialRotationResponse {
+    pub node_id: NodeId,
+    pub credential: String,
+    pub rotated_at: DateTime<Utc>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct NodeDeletionResponse {
     pub node_id: NodeId,
     pub deleted: bool,
@@ -671,7 +722,6 @@ pub struct PlacementDeletionResponse {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct NodeHeartbeatRequest {
     pub node_id: Option<NodeId>,
-    pub credential: Option<String>,
     pub display_name: String,
     pub daemon_version: String,
     pub capabilities: Vec<CapabilitySummary>,

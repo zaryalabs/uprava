@@ -1,10 +1,15 @@
 use std::{
     collections::{BTreeMap, HashMap, HashSet},
+    fs::OpenOptions,
     io::ErrorKind,
+    io::Write,
     path::{Path, PathBuf},
     process::{Command as StdCommand, ExitStatus, Stdio},
     time::Duration,
 };
+
+#[cfg(unix)]
+use std::os::unix::fs::{OpenOptionsExt, PermissionsExt};
 
 use anyhow::Context;
 use chrono::Utc;
@@ -300,10 +305,11 @@ impl NodeLocalState {
         if let Some(parent) = path.parent() {
             std::fs::create_dir_all(parent)
                 .with_context(|| format!("failed to create {}", parent.display()))?;
+            set_private_dir_permissions(parent);
         }
         let content =
             serde_json::to_string_pretty(self).context("failed to serialize node state")?;
-        std::fs::write(path, content)
+        write_private_file(path, content.as_bytes())
             .with_context(|| format!("failed to write node state {}", path.display()))
     }
 
@@ -321,6 +327,34 @@ impl NodeLocalState {
     fn clear_enrollment_attempt(&mut self) {
         self.enrollment_id = None;
         self.pairing_code = None;
+    }
+}
+
+fn write_private_file(path: &Path, content: &[u8]) -> anyhow::Result<()> {
+    let mut options = OpenOptions::new();
+    options.create(true).truncate(true).write(true);
+    #[cfg(unix)]
+    {
+        options.mode(0o600);
+    }
+    let mut file = options.open(path)?;
+    file.write_all(content)?;
+    file.flush()?;
+    #[cfg(unix)]
+    {
+        std::fs::set_permissions(path, PermissionsExt::from_mode(0o600))?;
+    }
+    Ok(())
+}
+
+fn set_private_dir_permissions(path: &Path) {
+    #[cfg(unix)]
+    {
+        let _ = std::fs::set_permissions(path, PermissionsExt::from_mode(0o700));
+    }
+    #[cfg(not(unix))]
+    {
+        let _ = path;
     }
 }
 
@@ -474,7 +508,6 @@ async fn send_heartbeat(
         .context("heartbeat URL should be valid")?;
     let request = NodeHeartbeatRequest {
         node_id: local_state.node_id.clone(),
-        credential: local_state.credential.clone(),
         display_name: config.display_name.clone(),
         daemon_version: env!("CARGO_PKG_VERSION").to_owned(),
         capabilities: capabilities(config),
@@ -490,6 +523,12 @@ async fn send_heartbeat(
 
     client
         .post(endpoint)
+        .bearer_auth(
+            local_state
+                .credential
+                .as_deref()
+                .context("local node credential missing")?,
+        )
         .json(&request)
         .send()
         .await
@@ -3217,6 +3256,31 @@ mod tests {
         std::fs::remove_file(path).expect("node state fixture is removed");
 
         assert_eq!(reloaded.daemon_installation_id, installation_id);
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn node_local_state_save_uses_private_file_permissions() {
+        let dir = std::env::temp_dir().join(format!("cortex-node-{}", Uuid::new_v4()));
+        let path = dir.join("node.json");
+        let local_state = NodeLocalState::default();
+        local_state.save(&path).expect("node state saves");
+
+        let file_mode = std::fs::metadata(&path)
+            .expect("state metadata loads")
+            .permissions()
+            .mode()
+            & 0o777;
+        let dir_mode = std::fs::metadata(&dir)
+            .expect("state dir metadata loads")
+            .permissions()
+            .mode()
+            & 0o777;
+        let _ = std::fs::remove_file(&path);
+        let _ = std::fs::remove_dir(&dir);
+
+        assert_eq!(file_mode, 0o600);
+        assert_eq!(dir_mode, 0o700);
     }
 
     #[test]

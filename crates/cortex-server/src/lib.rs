@@ -8,14 +8,19 @@ use std::{
 };
 
 use axum::{
+    body::Body,
     extract::{
         ws::{Message as WsMessage, WebSocket, WebSocketUpgrade},
-        Path, Query, State,
+        Path, Query, Request, State,
     },
     http::{
-        header::{HeaderName, HeaderValue, InvalidHeaderValue, AUTHORIZATION, CONTENT_TYPE},
-        HeaderMap, Method, StatusCode,
+        header::{
+            HeaderName, HeaderValue, InvalidHeaderValue, AUTHORIZATION, CONTENT_TYPE, COOKIE,
+            SET_COOKIE,
+        },
+        HeaderMap, Method, Response, StatusCode,
     },
+    middleware::{self, Next},
     response::{IntoResponse, Sse},
     routing::{get, post},
     Json, Router,
@@ -29,20 +34,23 @@ use cortex_protocol::{
     CommandKind, CommandState, ControlFrame, CorrelationId, CortexRef, CreatePlacementRequest,
     CreateSessionRequest, DeploymentProfile, EnrollmentId, EnrollmentState, EventEnvelope, EventId,
     EventKind, HealthResponse, InventorySnapshot, Message, MessageId, MessageRole,
-    NodeDeletionResponse, NodeEnrollmentClaimRequest, NodeEnrollmentClaimResponse,
-    NodeEnrollmentRequest, NodeEnrollmentRequestedResponse, NodeEnrollmentSummary,
-    NodeHeartbeatRequest, NodeHeartbeatResponse, NodeId, NodePresence, NodeRevocationResponse,
-    PlacementDeletionResponse, PlacementState, ProjectId, ProjectPlacementId,
-    ProjectPlacementSummary, ResolveApprovalRequest, ResourceBadge, RuntimeSessionId,
-    RuntimeSessionState, RuntimeSummary, ScopeRef, SendTurnRequest, SessionDetail, SessionSummary,
-    SessionThreadId, SessionThreadState, SleepHint, TurnId, TurnState, VersionResponse,
-    WarningAcknowledgementResponse, WarningSeverity, WorkspaceSnapshot,
+    NodeCredentialRotationResponse, NodeDeletionResponse, NodeEnrollmentClaimRequest,
+    NodeEnrollmentClaimResponse, NodeEnrollmentRequest, NodeEnrollmentRequestedResponse,
+    NodeEnrollmentSummary, NodeHeartbeatRequest, NodeHeartbeatResponse, NodeId, NodePresence,
+    NodeRevocationResponse, PlacementDeletionResponse, PlacementState, ProjectId,
+    ProjectPlacementId, ProjectPlacementSummary, ResolveApprovalRequest, ResourceBadge,
+    RuntimeSessionId, RuntimeSessionState, RuntimeSummary, ScopeRef, SecurityMode, SecurityStatus,
+    SendTurnRequest, SessionDetail, SessionSummary, SessionThreadId, SessionThreadState, SleepHint,
+    TurnId, TurnState, VersionResponse, WarningAcknowledgementResponse, WarningSeverity,
+    WebAuthLoginRequest, WebAuthResponse, WebAuthSetupRequest, WebAuthStatusResponse,
+    WorkspaceSnapshot,
 };
 use futures_util::{SinkExt, Stream, StreamExt};
 use serde::Deserialize;
 use serde_json::json;
 use sha2::{Digest, Sha256};
 use sqlx::{Row, SqlitePool};
+use subtle::ConstantTimeEq;
 use tokio::sync::{broadcast, mpsc, RwLock};
 use tower_http::{
     cors::{AllowOrigin, CorsLayer},
@@ -55,8 +63,14 @@ const APP_VERSION: &str = env!("CARGO_PKG_VERSION");
 const SCHEMA_VERSION: i64 = 1;
 const CORRELATION_ID_HEADER: &str = "x-correlation-id";
 const REQUEST_ID_HEADER: &str = "x-request-id";
+const CSRF_HEADER: &str = "x-cortex-csrf";
+const SESSION_COOKIE: &str = "cortex_session";
+const CSRF_COOKIE: &str = "cortex_csrf";
 const MAX_CLIENT_LOG_FIELD_CHARS: usize = 2_000;
 const MAX_CLIENT_LOG_DETAIL_CHARS: usize = 8_000;
+const MIN_LOCAL_PASSWORD_CHARS: usize = 12;
+const AUTH_FAILURE_LIMIT: usize = 10;
+const AUTH_FAILURE_WINDOW_SECONDS: i64 = 60;
 
 #[derive(Debug, Clone)]
 pub struct AppConfig {
@@ -70,16 +84,20 @@ pub struct AppConfig {
     pub runtime_expiry_seconds: i64,
     pub auto_approve_enrollments: bool,
     pub client_log_file: PathBuf,
+    pub web_auth_required: bool,
+    pub web_session_ttl_seconds: i64,
+    pub cookie_secure: bool,
 }
 
 impl AppConfig {
     pub fn from_env() -> Result<Self, ConfigError> {
+        let profile = parse_profile(std::env::var("CORTEX_DEPLOYMENT_PROFILE").ok())?;
         Ok(Self {
             bind_address: std::env::var("CORTEX_CORE_BIND")
                 .unwrap_or_else(|_| "127.0.0.1:8080".to_owned()),
             database_url: std::env::var("CORTEX_DATABASE_URL")
                 .unwrap_or_else(|_| "sqlite://.local/state/core.sqlite".to_owned()),
-            profile: parse_profile(std::env::var("CORTEX_DEPLOYMENT_PROFILE").ok())?,
+            profile,
             allowed_origins: parse_allowed_origins(std::env::var("CORTEX_ALLOWED_ORIGINS").ok())?,
             stale_after_seconds: parse_env_i64("CORTEX_HEARTBEAT_STALE_SECONDS", 15)?,
             offline_after_seconds: parse_env_i64("CORTEX_HEARTBEAT_OFFLINE_SECONDS", 45)?,
@@ -89,6 +107,12 @@ impl AppConfig {
             client_log_file: std::env::var("CORTEX_CLIENT_LOG_FILE")
                 .map(PathBuf::from)
                 .unwrap_or_else(|_| PathBuf::from(".local/logs/client.log")),
+            web_auth_required: parse_web_auth_required(
+                std::env::var("CORTEX_WEB_AUTH").ok(),
+                profile,
+            )?,
+            web_session_ttl_seconds: parse_env_i64("CORTEX_WEB_SESSION_TTL_SECONDS", 86_400)?,
+            cookie_secure: parse_env_bool("CORTEX_COOKIE_SECURE", false),
         })
     }
 }
@@ -104,6 +128,8 @@ pub enum ConfigError {
     },
     #[error("wildcard CORS origin is not allowed in trusted development profile")]
     WildcardOrigin,
+    #[error("invalid web auth mode `{0}`")]
+    InvalidWebAuthMode(String),
     #[error("invalid integer environment variable `{name}`")]
     InvalidInteger {
         name: String,
@@ -145,6 +171,18 @@ fn parse_allowed_origins(value: Option<String>) -> Result<Vec<HeaderValue>, Conf
     }
 }
 
+fn parse_web_auth_required(
+    value: Option<String>,
+    profile: DeploymentProfile,
+) -> Result<bool, ConfigError> {
+    match value.as_deref() {
+        Some("local") | Some("required") | Some("1") | Some("true") => Ok(true),
+        Some("disabled") | Some("off") | Some("0") | Some("false") => Ok(false),
+        Some("auto") | None => Ok(profile == DeploymentProfile::ControlledDev),
+        Some(other) => Err(ConfigError::InvalidWebAuthMode(other.to_owned())),
+    }
+}
+
 fn default_allowed_origins() -> Vec<HeaderValue> {
     vec![
         HeaderValue::from_static("http://127.0.0.1:5173"),
@@ -176,6 +214,7 @@ pub struct AppState {
     pool: SqlitePool,
     control_channels: RwLock<HashMap<String, mpsc::UnboundedSender<ControlFrame>>>,
     event_tx: broadcast::Sender<EventEnvelope>,
+    auth_failures: RwLock<HashMap<String, Vec<DateTime<Utc>>>>,
 }
 
 impl AppState {
@@ -185,6 +224,7 @@ impl AppState {
             pool,
             control_channels: RwLock::new(HashMap::new()),
             event_tx: broadcast::channel(256).0,
+            auth_failures: RwLock::new(HashMap::new()),
         });
         state.migrate().await?;
         Ok(state)
@@ -233,14 +273,28 @@ impl AppState {
 
 pub fn build_router(state: Arc<AppState>) -> Router {
     let cors = cors_layer(&state.config);
-    let api = Router::new()
+    let public_api = Router::new()
         .route("/health", get(health))
         .route("/version", get(version))
+        .route("/auth/status", get(auth_status))
+        .route("/auth/setup", post(auth_setup))
+        .route("/auth/login", post(auth_login))
+        .route("/auth/logout", post(auth_logout))
         .route("/client/logs", post(client_logs))
+        .route("/node/enrollment-requests", post(node_enrollment_request))
+        .route("/node/enrollment-claims", post(node_enrollment_claim))
+        .route("/node/heartbeat", post(node_heartbeat_route))
+        .route("/node/control", get(node_control));
+
+    let client_api = Router::new()
         .route("/inventory", get(inventory))
         .route("/nodes", get(nodes))
         .route("/nodes/{node_id}", get(node_detail).delete(delete_node))
         .route("/nodes/{node_id}/revoke", post(revoke_node))
+        .route(
+            "/nodes/{node_id}/rotate-credential",
+            post(rotate_node_credential),
+        )
         .route(
             "/node-enrollments",
             get(node_enrollments).post(create_client_node_enrollment),
@@ -249,10 +303,6 @@ pub fn build_router(state: Arc<AppState>) -> Router {
             "/node-enrollments/{enrollment_id}/approve",
             post(approve_node_enrollment),
         )
-        .route("/node/enrollment-requests", post(node_enrollment_request))
-        .route("/node/enrollment-claims", post(node_enrollment_claim))
-        .route("/node/heartbeat", post(node_heartbeat))
-        .route("/node/control", get(node_control))
         .route(
             "/project-placements/validate",
             post(validate_placement_route),
@@ -303,10 +353,14 @@ pub fn build_router(state: Arc<AppState>) -> Router {
         .route(
             "/runtime-sessions/{runtime_session_id}/resume",
             post(resume_runtime_route),
-        );
+        )
+        .route_layer(middleware::from_fn_with_state(
+            state.clone(),
+            require_web_auth,
+        ));
 
     Router::new()
-        .nest("/api/v1", api)
+        .nest("/api/v1", public_api.merge(client_api))
         .with_state(state)
         .layer(TraceLayer::new_for_http())
         .layer(cors)
@@ -320,9 +374,11 @@ fn cors_layer(config: &AppConfig) -> CorsLayer {
             AUTHORIZATION,
             CONTENT_TYPE,
             HeaderName::from_static("last-event-id"),
+            HeaderName::from_static(CSRF_HEADER),
             HeaderName::from_static(CORRELATION_ID_HEADER),
             HeaderName::from_static(REQUEST_ID_HEADER),
         ])
+        .allow_credentials(true)
 }
 
 pub async fn shutdown_signal() {
@@ -352,6 +408,7 @@ async fn health(State(state): State<Arc<AppState>>) -> Json<HealthResponse> {
     Json(HealthResponse {
         status: "ok".to_owned(),
         profile: state.config.profile,
+        security: security_status(&state).await,
     })
 }
 
@@ -362,7 +419,545 @@ async fn version(State(state): State<Arc<AppState>>) -> Json<VersionResponse> {
         api_version: API_VERSION.to_owned(),
         schema_version: SCHEMA_VERSION,
         profile: state.config.profile,
+        security: security_status(&state).await,
     })
+}
+
+async fn auth_status(
+    State(state): State<Arc<AppState>>,
+    headers: HeaderMap,
+) -> Result<Json<WebAuthStatusResponse>, AppError> {
+    let security = security_status(&state).await;
+    let authenticated = if state.config.web_auth_required {
+        authenticated_web_session(&state, &headers).await?.is_some()
+    } else {
+        true
+    };
+
+    Ok(Json(WebAuthStatusResponse {
+        auth_required: state.config.web_auth_required,
+        setup_required: state.config.web_auth_required && !web_auth_configured(&state).await?,
+        authenticated,
+        profile: state.config.profile,
+        security,
+    }))
+}
+
+async fn auth_setup(
+    State(state): State<Arc<AppState>>,
+    headers: HeaderMap,
+    Json(request): Json<WebAuthSetupRequest>,
+) -> Result<impl IntoResponse, AppError> {
+    ensure_allowed_request_origin(&state, &headers, "web.auth.setup").await?;
+    if !state.config.web_auth_required {
+        return Ok(auth_response_with_cookies(
+            &state,
+            WebAuthResponse {
+                authenticated: true,
+                setup_required: false,
+                csrf_token: None,
+                security: security_status(&state).await,
+            },
+            None,
+        ));
+    }
+    if web_auth_configured(&state).await? {
+        return Err(AppError::bad_request(
+            "auth.setup_unavailable",
+            "Local web auth is already configured",
+        ));
+    }
+    validate_local_password(&request.password)?;
+
+    let now = Utc::now();
+    let password_hash = hash_password(&request.password);
+    sqlx::query(
+        r#"
+        insert into web_admin (id, password_hash, created_at, updated_at)
+        values (1, ?1, ?2, ?2)
+        "#,
+    )
+    .bind(password_hash)
+    .bind(now)
+    .execute(&state.pool)
+    .await?;
+    audit_security_event(
+        &state,
+        "web.auth.setup",
+        None,
+        Some(header_value(&headers, "origin").unwrap_or_default()),
+        "accepted",
+        JsonValue(json!({})),
+    )
+    .await?;
+
+    let session = create_web_session(&state).await?;
+    Ok(auth_response_with_cookies(
+        &state,
+        WebAuthResponse {
+            authenticated: true,
+            setup_required: false,
+            csrf_token: Some(session.csrf_token.clone()),
+            security: security_status(&state).await,
+        },
+        Some(session),
+    ))
+}
+
+async fn auth_login(
+    State(state): State<Arc<AppState>>,
+    headers: HeaderMap,
+    Json(request): Json<WebAuthLoginRequest>,
+) -> Result<impl IntoResponse, AppError> {
+    ensure_allowed_request_origin(&state, &headers, "web.auth.login").await?;
+    if !state.config.web_auth_required {
+        return Ok(auth_response_with_cookies(
+            &state,
+            WebAuthResponse {
+                authenticated: true,
+                setup_required: false,
+                csrf_token: None,
+                security: security_status(&state).await,
+            },
+            None,
+        ));
+    }
+    reject_if_auth_rate_limited(&state, "web:login").await?;
+    let Some(stored_hash) =
+        sqlx::query_scalar::<_, String>("select password_hash from web_admin where id = 1")
+            .fetch_optional(&state.pool)
+            .await?
+    else {
+        return Err(AppError::auth(
+            "auth.setup_required",
+            "Local web auth setup is required",
+        ));
+    };
+    if !verify_password(&stored_hash, &request.password) {
+        audit_security_event(
+            &state,
+            "web.auth.login_failed",
+            None,
+            Some(header_value(&headers, "origin").unwrap_or_default()),
+            "rejected",
+            JsonValue(json!({ "reason": "invalid_password" })),
+        )
+        .await?;
+        record_auth_failure(&state, "web:login").await;
+        return Err(AppError::auth(
+            "auth.invalid_credentials",
+            "Password is invalid",
+        ));
+    }
+
+    clear_auth_failures(&state, "web:login").await;
+    let session = create_web_session(&state).await?;
+    audit_security_event(
+        &state,
+        "web.auth.login",
+        None,
+        Some(header_value(&headers, "origin").unwrap_or_default()),
+        "accepted",
+        JsonValue(json!({})),
+    )
+    .await?;
+    Ok(auth_response_with_cookies(
+        &state,
+        WebAuthResponse {
+            authenticated: true,
+            setup_required: false,
+            csrf_token: Some(session.csrf_token.clone()),
+            security: security_status(&state).await,
+        },
+        Some(session),
+    ))
+}
+
+async fn auth_logout(
+    State(state): State<Arc<AppState>>,
+    headers: HeaderMap,
+) -> Result<impl IntoResponse, AppError> {
+    ensure_allowed_request_origin(&state, &headers, "web.auth.logout").await?;
+    if let Some(session_token) = cookie_value(&headers, SESSION_COOKIE) {
+        sqlx::query("delete from web_sessions where session_hash = ?1")
+            .bind(hash_secret(&session_token))
+            .execute(&state.pool)
+            .await?;
+    }
+    audit_security_event(
+        &state,
+        "web.auth.logout",
+        None,
+        Some(header_value(&headers, "origin").unwrap_or_default()),
+        "accepted",
+        JsonValue(json!({})),
+    )
+    .await?;
+
+    let mut response = Json(WebAuthResponse {
+        authenticated: false,
+        setup_required: state.config.web_auth_required && !web_auth_configured(&state).await?,
+        csrf_token: None,
+        security: security_status(&state).await,
+    })
+    .into_response();
+    clear_auth_cookies(&state, response.headers_mut());
+    Ok(response)
+}
+
+#[derive(Debug, Clone)]
+struct WebSessionTokens {
+    session_token: String,
+    csrf_token: String,
+}
+
+async fn security_status(state: &AppState) -> SecurityStatus {
+    SecurityStatus {
+        mode: if state.config.web_auth_required {
+            SecurityMode::Hardened
+        } else {
+            SecurityMode::LocalTrusted
+        },
+        web_auth_required: state.config.web_auth_required,
+        web_auth_configured: web_auth_configured(state).await.unwrap_or(false),
+        cookie_secure: state.config.cookie_secure,
+    }
+}
+
+async fn web_auth_configured(state: &AppState) -> Result<bool, AppError> {
+    Ok(
+        sqlx::query_scalar::<_, i64>("select count(*) from web_admin where id = 1")
+            .fetch_one(&state.pool)
+            .await?
+            > 0,
+    )
+}
+
+async fn reject_if_auth_rate_limited(state: &AppState, key: &str) -> Result<(), AppError> {
+    let cutoff = Utc::now() - chrono::Duration::seconds(AUTH_FAILURE_WINDOW_SECONDS);
+    let mut failures = state.auth_failures.write().await;
+    let entries = failures.entry(key.to_owned()).or_default();
+    entries.retain(|timestamp| *timestamp > cutoff);
+    if entries.len() >= AUTH_FAILURE_LIMIT {
+        return Err(AppError::auth(
+            "auth.rate_limited",
+            "Too many authentication failures; retry later",
+        ));
+    }
+    Ok(())
+}
+
+async fn record_auth_failure(state: &AppState, key: &str) {
+    let cutoff = Utc::now() - chrono::Duration::seconds(AUTH_FAILURE_WINDOW_SECONDS);
+    let mut failures = state.auth_failures.write().await;
+    let entries = failures.entry(key.to_owned()).or_default();
+    entries.retain(|timestamp| *timestamp > cutoff);
+    entries.push(Utc::now());
+}
+
+async fn clear_auth_failures(state: &AppState, key: &str) {
+    state.auth_failures.write().await.remove(key);
+}
+
+async fn create_web_session(state: &AppState) -> Result<WebSessionTokens, AppError> {
+    let now = Utc::now();
+    let expires_at = now + chrono::Duration::seconds(state.config.web_session_ttl_seconds);
+    let tokens = WebSessionTokens {
+        session_token: new_secret("web-session"),
+        csrf_token: new_secret("csrf"),
+    };
+    sqlx::query(
+        r#"
+        insert into web_sessions (
+            session_hash, csrf_hash, created_at, last_seen_at, expires_at
+        )
+        values (?1, ?2, ?3, ?3, ?4)
+        "#,
+    )
+    .bind(hash_secret(&tokens.session_token))
+    .bind(hash_secret(&tokens.csrf_token))
+    .bind(now)
+    .bind(expires_at)
+    .execute(&state.pool)
+    .await?;
+    Ok(tokens)
+}
+
+async fn authenticated_web_session(
+    state: &AppState,
+    headers: &HeaderMap,
+) -> Result<Option<String>, AppError> {
+    let Some(session_token) = cookie_value(headers, SESSION_COOKIE) else {
+        return Ok(None);
+    };
+    let session_hash = hash_secret(&session_token);
+    let row = sqlx::query(
+        r#"
+        select expires_at
+        from web_sessions
+        where session_hash = ?1
+        "#,
+    )
+    .bind(&session_hash)
+    .fetch_optional(&state.pool)
+    .await?;
+    let Some(row) = row else {
+        return Ok(None);
+    };
+    let expires_at: DateTime<Utc> = row.try_get("expires_at")?;
+    let now = Utc::now();
+    if expires_at <= now {
+        sqlx::query("delete from web_sessions where session_hash = ?1")
+            .bind(&session_hash)
+            .execute(&state.pool)
+            .await?;
+        return Ok(None);
+    }
+    sqlx::query("update web_sessions set last_seen_at = ?1 where session_hash = ?2")
+        .bind(now)
+        .bind(&session_hash)
+        .execute(&state.pool)
+        .await?;
+    Ok(Some(session_hash))
+}
+
+async fn require_web_auth(
+    State(state): State<Arc<AppState>>,
+    headers: HeaderMap,
+    request: Request,
+    next: Next,
+) -> Result<Response<Body>, AppError> {
+    if !state.config.web_auth_required {
+        return Ok(next.run(request).await);
+    }
+    if !web_auth_configured(&state).await? {
+        return Err(AppError::auth(
+            "auth.setup_required",
+            "Local web auth setup is required",
+        ));
+    }
+
+    let method = request.method().clone();
+    let path = request.uri().path().to_owned();
+    let Some(session_hash) = authenticated_web_session(&state, &headers).await? else {
+        audit_security_event(
+            &state,
+            "web.auth.required",
+            None,
+            header_value(&headers, "origin"),
+            "rejected",
+            JsonValue(json!({ "path": path })),
+        )
+        .await?;
+        return Err(AppError::auth(
+            "auth.required",
+            "Authentication is required",
+        ));
+    };
+
+    if let Some(origin) = header_value(&headers, "origin") {
+        if !origin_allowed(&state.config, &origin) {
+            audit_security_event(
+                &state,
+                "web.auth.origin_rejected",
+                None,
+                Some(origin),
+                "rejected",
+                JsonValue(json!({ "path": path })),
+            )
+            .await?;
+            return Err(AppError::auth(
+                "auth.origin_rejected",
+                "Request origin is not allowed",
+            ));
+        }
+    }
+
+    if matches!(
+        method,
+        Method::POST | Method::PUT | Method::PATCH | Method::DELETE
+    ) {
+        verify_csrf(&state, &headers, &session_hash).await?;
+    }
+
+    Ok(next.run(request).await)
+}
+
+async fn verify_csrf(
+    state: &AppState,
+    headers: &HeaderMap,
+    session_hash: &str,
+) -> Result<(), AppError> {
+    let header_token = header_value(headers, CSRF_HEADER);
+    let cookie_token = cookie_value(headers, CSRF_COOKIE);
+    let Some(header_token) = header_token else {
+        audit_security_event(
+            state,
+            "web.auth.csrf_rejected",
+            None,
+            header_value(headers, "origin"),
+            "rejected",
+            JsonValue(json!({ "reason": "missing_header" })),
+        )
+        .await?;
+        return Err(AppError::auth(
+            "auth.csrf_required",
+            "CSRF token is required",
+        ));
+    };
+    let Some(cookie_token) = cookie_token else {
+        audit_security_event(
+            state,
+            "web.auth.csrf_rejected",
+            None,
+            header_value(headers, "origin"),
+            "rejected",
+            JsonValue(json!({ "reason": "missing_cookie" })),
+        )
+        .await?;
+        return Err(AppError::auth(
+            "auth.csrf_required",
+            "CSRF token is required",
+        ));
+    };
+    if !constant_time_eq(header_token.as_bytes(), cookie_token.as_bytes()) {
+        audit_security_event(
+            state,
+            "web.auth.csrf_rejected",
+            None,
+            header_value(headers, "origin"),
+            "rejected",
+            JsonValue(json!({ "reason": "header_cookie_mismatch" })),
+        )
+        .await?;
+        return Err(AppError::auth("auth.csrf_invalid", "CSRF token is invalid"));
+    }
+    let Some(stored_hash) = sqlx::query_scalar::<_, String>(
+        "select csrf_hash from web_sessions where session_hash = ?1",
+    )
+    .bind(session_hash)
+    .fetch_optional(&state.pool)
+    .await?
+    else {
+        return Err(AppError::auth(
+            "auth.required",
+            "Authentication is required",
+        ));
+    };
+    if !constant_time_eq(
+        stored_hash.as_bytes(),
+        hash_secret(&header_token).as_bytes(),
+    ) {
+        audit_security_event(
+            state,
+            "web.auth.csrf_rejected",
+            None,
+            header_value(headers, "origin"),
+            "rejected",
+            JsonValue(json!({ "reason": "stored_hash_mismatch" })),
+        )
+        .await?;
+        return Err(AppError::auth("auth.csrf_invalid", "CSRF token is invalid"));
+    }
+    Ok(())
+}
+
+async fn ensure_allowed_request_origin(
+    state: &AppState,
+    headers: &HeaderMap,
+    event_kind: &str,
+) -> Result<(), AppError> {
+    let Some(origin) = header_value(headers, "origin") else {
+        return Ok(());
+    };
+    if origin_allowed(&state.config, &origin) {
+        return Ok(());
+    }
+    audit_security_event(
+        state,
+        event_kind,
+        None,
+        Some(origin),
+        "rejected",
+        JsonValue(json!({ "reason": "origin_not_allowed" })),
+    )
+    .await?;
+    Err(AppError::auth(
+        "auth.origin_rejected",
+        "Request origin is not allowed",
+    ))
+}
+
+fn auth_response_with_cookies(
+    state: &AppState,
+    body: WebAuthResponse,
+    tokens: Option<WebSessionTokens>,
+) -> Response<Body> {
+    let mut response = Json(body).into_response();
+    if let Some(tokens) = tokens {
+        set_auth_cookies(state, response.headers_mut(), &tokens);
+    }
+    response
+}
+
+fn set_auth_cookies(state: &AppState, headers: &mut HeaderMap, tokens: &WebSessionTokens) {
+    append_set_cookie(
+        headers,
+        build_cookie(
+            SESSION_COOKIE,
+            &tokens.session_token,
+            true,
+            state.config.cookie_secure,
+            state.config.web_session_ttl_seconds,
+        ),
+    );
+    append_set_cookie(
+        headers,
+        build_cookie(
+            CSRF_COOKIE,
+            &tokens.csrf_token,
+            false,
+            state.config.cookie_secure,
+            state.config.web_session_ttl_seconds,
+        ),
+    );
+}
+
+fn clear_auth_cookies(state: &AppState, headers: &mut HeaderMap) {
+    append_set_cookie(
+        headers,
+        build_cookie(SESSION_COOKIE, "", true, state.config.cookie_secure, 0),
+    );
+    append_set_cookie(
+        headers,
+        build_cookie(CSRF_COOKIE, "", false, state.config.cookie_secure, 0),
+    );
+}
+
+fn append_set_cookie(headers: &mut HeaderMap, value: String) {
+    if let Ok(value) = HeaderValue::from_str(&value) {
+        headers.append(SET_COOKIE, value);
+    }
+}
+
+fn build_cookie(
+    name: &str,
+    value: &str,
+    http_only: bool,
+    secure: bool,
+    max_age_seconds: i64,
+) -> String {
+    let mut cookie = format!(
+        "{name}={value}; Path=/; Max-Age={}; SameSite=Lax",
+        max_age_seconds.max(0)
+    );
+    if http_only {
+        cookie.push_str("; HttpOnly");
+    }
+    if secure {
+        cookie.push_str("; Secure");
+    }
+    cookie
 }
 
 async fn client_logs(
@@ -521,10 +1116,63 @@ async fn revoke_node(
     if updated == 0 {
         return Err(AppError::not_found("node.not_found", "Node not found"));
     }
+    audit_security_event(
+        &state,
+        "node.credential.revoked",
+        Some(&node_id),
+        None,
+        "accepted",
+        JsonValue(json!({})),
+    )
+    .await?;
     tracing::warn!(node_id = %node_id, "node revoked");
     Ok(Json(NodeRevocationResponse {
         node_id,
         revoked: true,
+    }))
+}
+
+async fn rotate_node_credential(
+    State(state): State<Arc<AppState>>,
+    Path(node_id): Path<String>,
+) -> Result<Json<NodeCredentialRotationResponse>, AppError> {
+    let node_id = NodeId::from(node_id);
+    let now = Utc::now();
+    let credential = new_secret("node");
+    let credential_hash = hash_secret(&credential);
+    let updated = sqlx::query(
+        r#"
+        update nodes
+        set credential_hash = ?1, updated_at = ?2
+        where node_id = ?3 and presence != 'revoked'
+        "#,
+    )
+    .bind(credential_hash)
+    .bind(now)
+    .bind(node_id.as_str())
+    .execute(&state.pool)
+    .await?
+    .rows_affected();
+    if updated == 0 {
+        return Err(AppError::not_found(
+            "node.not_found_or_revoked",
+            "Node is missing or revoked",
+        ));
+    }
+    audit_security_event(
+        &state,
+        "node.credential.rotated",
+        Some(&node_id),
+        None,
+        "accepted",
+        JsonValue(json!({})),
+    )
+    .await?;
+    tracing::warn!(node_id = %node_id, "node credential rotated");
+    Ok(Json(NodeCredentialRotationResponse {
+        node_id,
+        credential,
+        rotated_at: now,
     }))
 }
 
@@ -668,15 +1316,30 @@ async fn delete_node(
     }))
 }
 
+async fn node_heartbeat_route(
+    State(state): State<Arc<AppState>>,
+    headers: HeaderMap,
+    Json(request): Json<NodeHeartbeatRequest>,
+) -> Result<Json<NodeHeartbeatResponse>, AppError> {
+    let credential = bearer_token(&headers).ok_or_else(|| {
+        AppError::auth(
+            "auth_dev.credential_required",
+            "Node credential is required",
+        )
+    })?;
+    node_heartbeat(State(state), Some(credential.as_str()), Json(request)).await
+}
+
 async fn node_heartbeat(
     State(state): State<Arc<AppState>>,
+    credential: Option<&str>,
     Json(request): Json<NodeHeartbeatRequest>,
 ) -> Result<Json<NodeHeartbeatResponse>, AppError> {
     let now = Utc::now();
     let node_id = request
         .node_id
         .ok_or_else(|| AppError::auth("auth_dev.node_id_required", "Node id is required"))?;
-    verify_node_credential(&state, &node_id, request.credential.as_deref()).await?;
+    verify_node_credential(&state, &node_id, credential).await?;
     let display_name = request.display_name;
     let daemon_version = request.daemon_version;
     let active_runtime_count = request.active_runtime_count;
@@ -2619,6 +3282,18 @@ async fn create_enrollment(
         expires_at = %expires_at,
         "node enrollment created"
     );
+    audit_security_event(
+        state,
+        "node.enrollment.created",
+        None,
+        None,
+        "accepted",
+        JsonValue(json!({
+            "enrollment_id": enrollment_id,
+            "auto_approved": approved_at.is_some(),
+        })),
+    )
+    .await?;
 
     Ok(NodeEnrollmentRequestedResponse {
         enrollment_id,
@@ -2664,11 +3339,26 @@ async fn claim_enrollment(
         });
     }
     let stored_pairing_hash: String = row.try_get("pairing_code_hash")?;
-    if stored_pairing_hash != hash_secret(&request.pairing_code) {
+    if !constant_time_eq(
+        stored_pairing_hash.as_bytes(),
+        hash_secret(&request.pairing_code).as_bytes(),
+    ) {
         tracing::warn!(
             enrollment_id = %request.enrollment_id,
             "node enrollment claim rejected because pairing code was invalid"
         );
+        audit_security_event(
+            state,
+            "node.enrollment.claim_rejected",
+            None,
+            None,
+            "rejected",
+            JsonValue(json!({
+                "enrollment_id": request.enrollment_id,
+                "reason": "invalid_pairing_code",
+            })),
+        )
+        .await?;
         return Err(AppError::auth(
             "auth_dev.invalid_pairing_code",
             "Pairing code is invalid",
@@ -2770,6 +3460,15 @@ async fn claim_enrollment(
         node_id = %node_id,
         "node enrollment claimed"
     );
+    audit_security_event(
+        state,
+        "node.enrollment.claimed",
+        Some(&node_id),
+        None,
+        "accepted",
+        JsonValue(json!({ "enrollment_id": request.enrollment_id })),
+    )
+    .await?;
 
     Ok(NodeEnrollmentClaimResponse {
         accepted: true,
@@ -2863,29 +3562,65 @@ async fn verify_node_credential(
                 "Node credential is required",
             )
         })?;
+    let auth_key = format!("node:{}", node_id.as_str());
+    reject_if_auth_rate_limited(state, &auth_key).await?;
     let row = sqlx::query("select presence, credential_hash from nodes where node_id = ?1")
         .bind(node_id.as_str())
         .fetch_optional(&state.pool)
         .await?
         .ok_or_else(|| AppError::auth("auth_dev.node_unknown", "Node is not enrolled"))?;
     if parse_presence(row.try_get::<String, _>("presence")?.as_str()) == NodePresence::Revoked {
+        audit_security_event(
+            state,
+            "node.auth.rejected",
+            Some(node_id),
+            None,
+            "rejected",
+            JsonValue(json!({ "reason": "revoked" })),
+        )
+        .await?;
+        record_auth_failure(state, &auth_key).await;
         return Err(AppError::auth(
             "auth_dev.node_revoked",
             "Node has been revoked",
         ));
     }
     let Some(credential_hash) = row.try_get::<Option<String>, _>("credential_hash")? else {
+        audit_security_event(
+            state,
+            "node.auth.rejected",
+            Some(node_id),
+            None,
+            "rejected",
+            JsonValue(json!({ "reason": "credential_missing" })),
+        )
+        .await?;
+        record_auth_failure(state, &auth_key).await;
         return Err(AppError::auth(
             "auth_dev.credential_missing",
             "Node credential is missing",
         ));
     };
-    if credential_hash != hash_secret(credential) {
+    if !constant_time_eq(
+        credential_hash.as_bytes(),
+        hash_secret(credential).as_bytes(),
+    ) {
+        audit_security_event(
+            state,
+            "node.auth.rejected",
+            Some(node_id),
+            None,
+            "rejected",
+            JsonValue(json!({ "reason": "credential_invalid" })),
+        )
+        .await?;
+        record_auth_failure(state, &auth_key).await;
         return Err(AppError::auth(
             "auth_dev.credential_invalid",
             "Node credential is invalid",
         ));
     }
+    clear_auth_failures(state, &auth_key).await;
     Ok(())
 }
 
@@ -4930,12 +5665,52 @@ fn stable_project_id(node_id: &NodeId, workspace_path: &str) -> ProjectId {
 }
 
 fn new_secret(prefix: &str) -> String {
-    format!("{prefix}-{}", Uuid::new_v4())
+    format!("{prefix}-{}-{}", Uuid::new_v4(), Uuid::new_v4())
 }
 
 fn hash_secret(secret: &str) -> String {
     let digest = Sha256::digest(secret.as_bytes());
     hex_prefix(&digest, digest.len())
+}
+
+fn hash_password(password: &str) -> String {
+    let salt = new_secret("pwd-salt");
+    let digest = hash_secret(&format!("{salt}:{password}"));
+    format!("pwd-sha256:{salt}:{digest}")
+}
+
+fn verify_password(stored: &str, password: &str) -> bool {
+    let mut parts = stored.splitn(3, ':');
+    let Some(version) = parts.next() else {
+        return false;
+    };
+    let Some(salt) = parts.next() else {
+        return false;
+    };
+    let Some(expected) = parts.next() else {
+        return false;
+    };
+    if version != "pwd-sha256" {
+        return false;
+    }
+    constant_time_eq(
+        expected.as_bytes(),
+        hash_secret(&format!("{salt}:{password}")).as_bytes(),
+    )
+}
+
+fn validate_local_password(password: &str) -> Result<(), AppError> {
+    if password.chars().count() < MIN_LOCAL_PASSWORD_CHARS {
+        return Err(AppError::bad_request(
+            "auth.password_too_short",
+            format!("Password must be at least {MIN_LOCAL_PASSWORD_CHARS} characters"),
+        ));
+    }
+    Ok(())
+}
+
+fn constant_time_eq(left: &[u8], right: &[u8]) -> bool {
+    left.len() == right.len() && left.ct_eq(right).into()
 }
 
 fn hex_prefix(bytes: &[u8], len: usize) -> String {
@@ -5028,6 +5803,43 @@ async fn append_jsonl_log(path: PathBuf, line: String) -> Result<(), AppError> {
     Ok(())
 }
 
+async fn audit_security_event(
+    state: &AppState,
+    kind: &str,
+    node_id: Option<&NodeId>,
+    origin: Option<String>,
+    outcome: &str,
+    metadata: JsonValue,
+) -> Result<(), AppError> {
+    let now = Utc::now();
+    let origin = origin.filter(|value| !value.is_empty());
+    sqlx::query(
+        r#"
+        insert into security_audit_events (
+            audit_event_id, kind, node_id, origin, outcome, metadata_json, happened_at
+        )
+        values (?1, ?2, ?3, ?4, ?5, ?6, ?7)
+        "#,
+    )
+    .bind(Uuid::new_v4().to_string())
+    .bind(kind)
+    .bind(node_id.map(NodeId::as_str))
+    .bind(origin.as_deref())
+    .bind(outcome)
+    .bind(serde_json::to_string(&metadata.0)?)
+    .bind(now)
+    .execute(&state.pool)
+    .await?;
+    tracing::info!(
+        security_event = kind,
+        node_id = node_id.map(NodeId::as_str).unwrap_or("none"),
+        origin = origin.as_deref().unwrap_or("none"),
+        outcome,
+        "security audit event recorded"
+    );
+    Ok(())
+}
+
 fn format_sleep_hint(value: SleepHint) -> &'static str {
     match value {
         SleepHint::Unknown => "unknown",
@@ -5044,6 +5856,25 @@ fn header_value(headers: &HeaderMap, name: &str) -> Option<String> {
         .and_then(|value| value.to_str().ok())
         .filter(|value| !value.is_empty())
         .map(ToOwned::to_owned)
+}
+
+fn cookie_value(headers: &HeaderMap, name: &str) -> Option<String> {
+    let cookie_header = headers.get(COOKIE)?.to_str().ok()?;
+    cookie_header
+        .split(';')
+        .filter_map(|part| {
+            let (cookie_name, cookie_value) = part.trim().split_once('=')?;
+            (cookie_name == name && !cookie_value.is_empty()).then(|| cookie_value.to_owned())
+        })
+        .next()
+}
+
+fn origin_allowed(config: &AppConfig, origin: &str) -> bool {
+    config
+        .allowed_origins
+        .iter()
+        .filter_map(|allowed| allowed.to_str().ok())
+        .any(|allowed| allowed == origin)
 }
 
 fn request_correlation_id(headers: &HeaderMap) -> CorrelationId {
@@ -5350,6 +6181,34 @@ const MIGRATIONS: &[&str] = &[
     )
     "#,
     r#"
+    create table if not exists web_admin (
+        id integer primary key check (id = 1),
+        password_hash text not null,
+        created_at text not null,
+        updated_at text not null
+    )
+    "#,
+    r#"
+    create table if not exists web_sessions (
+        session_hash text primary key,
+        csrf_hash text not null,
+        created_at text not null,
+        last_seen_at text not null,
+        expires_at text not null
+    )
+    "#,
+    r#"
+    create table if not exists security_audit_events (
+        audit_event_id text primary key,
+        kind text not null,
+        node_id text,
+        origin text,
+        outcome text not null,
+        metadata_json text not null,
+        happened_at text not null
+    )
+    "#,
+    r#"
     create table if not exists projects (
         project_id text primary key,
         display_name text not null,
@@ -5531,6 +6390,9 @@ mod tests {
         "CORTEX_RUNTIME_EXPIRY_SECONDS",
         "CORTEX_AUTO_APPROVE_ENROLLMENTS",
         "CORTEX_CLIENT_LOG_FILE",
+        "CORTEX_WEB_AUTH",
+        "CORTEX_WEB_SESSION_TTL_SECONDS",
+        "CORTEX_COOKIE_SECURE",
     ];
 
     async fn test_state() -> Arc<AppState> {
@@ -5542,6 +6404,14 @@ mod tests {
         AppState::new(test_config(runtime_expiry_seconds), pool)
             .await
             .expect("state migrates")
+    }
+
+    async fn test_state_with_web_auth() -> Arc<AppState> {
+        let pool = memory_pool().await;
+        let mut config = test_config(86_400);
+        config.profile = DeploymentProfile::ControlledDev;
+        config.web_auth_required = true;
+        AppState::new(config, pool).await.expect("state migrates")
     }
 
     async fn memory_pool() -> SqlitePool {
@@ -5595,7 +6465,29 @@ mod tests {
             auto_approve_enrollments: false,
             client_log_file: std::env::temp_dir()
                 .join(format!("cortex-client-log-{}.jsonl", Uuid::new_v4())),
+            web_auth_required: false,
+            web_session_ttl_seconds: 86_400,
+            cookie_secure: false,
         }
+    }
+
+    fn set_cookie_header(response: &axum::response::Response) -> String {
+        response
+            .headers()
+            .get_all(SET_COOKIE)
+            .iter()
+            .filter_map(|value| value.to_str().ok())
+            .filter_map(|value| value.split_once(';').map(|(cookie, _)| cookie.to_owned()))
+            .collect::<Vec<_>>()
+            .join("; ")
+    }
+
+    fn csrf_from_cookie_header(cookie_header: &str) -> String {
+        cookie_header
+            .split(';')
+            .filter_map(|cookie| cookie.trim().split_once('='))
+            .find_map(|(name, value)| (name == CSRF_COOKIE).then(|| value.to_owned()))
+            .expect("csrf cookie exists")
     }
 
     fn env_lock() -> MutexGuard<'static, ()> {
@@ -5663,6 +6555,9 @@ mod tests {
             config.client_log_file,
             PathBuf::from(".local/logs/client.log")
         );
+        assert!(!config.web_auth_required);
+        assert_eq!(config.web_session_ttl_seconds, 86_400);
+        assert!(!config.cookie_secure);
     }
 
     #[test]
@@ -5682,6 +6577,8 @@ mod tests {
         std::env::set_var("CORTEX_RUNTIME_EXPIRY_SECONDS", "120");
         std::env::set_var("CORTEX_AUTO_APPROVE_ENROLLMENTS", "yes");
         std::env::set_var("CORTEX_CLIENT_LOG_FILE", "/tmp/cortex-client.jsonl");
+        std::env::set_var("CORTEX_WEB_SESSION_TTL_SECONDS", "3600");
+        std::env::set_var("CORTEX_COOKIE_SECURE", "true");
 
         let config = AppConfig::from_env().expect("overridden core config parses");
 
@@ -5705,6 +6602,9 @@ mod tests {
             config.client_log_file,
             PathBuf::from("/tmp/cortex-client.jsonl")
         );
+        assert!(config.web_auth_required);
+        assert_eq!(config.web_session_ttl_seconds, 3600);
+        assert!(config.cookie_secure);
     }
 
     #[test]
@@ -6047,6 +6947,119 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn hardened_web_auth_requires_setup_before_client_routes() {
+        let app = build_router(test_state_with_web_auth().await);
+
+        let protected = app
+            .clone()
+            .oneshot(
+                Request::builder()
+                    .uri("/api/v1/inventory")
+                    .body(Body::empty())
+                    .expect("request builds"),
+            )
+            .await
+            .expect("router responds");
+        let status = app
+            .oneshot(
+                Request::builder()
+                    .uri("/api/v1/auth/status")
+                    .body(Body::empty())
+                    .expect("request builds"),
+            )
+            .await
+            .expect("router responds");
+        let body = to_bytes(status.into_body(), 64 * 1024)
+            .await
+            .expect("status body loads");
+        let auth_status: WebAuthStatusResponse =
+            serde_json::from_slice(&body).expect("auth status parses");
+
+        assert_eq!(protected.status(), StatusCode::UNAUTHORIZED);
+        assert!(auth_status.auth_required);
+        assert!(auth_status.setup_required);
+        assert!(!auth_status.authenticated);
+    }
+
+    #[tokio::test]
+    async fn hardened_web_auth_sets_session_and_enforces_csrf_for_mutations() {
+        let app = build_router(test_state_with_web_auth().await);
+        let setup = app
+            .clone()
+            .oneshot(
+                Request::builder()
+                    .method(Method::POST)
+                    .uri("/api/v1/auth/setup")
+                    .header(CONTENT_TYPE, "application/json")
+                    .body(Body::from(
+                        serde_json::to_vec(&WebAuthSetupRequest {
+                            password: "very-secure-local-password".to_owned(),
+                        })
+                        .expect("setup serializes"),
+                    ))
+                    .expect("request builds"),
+            )
+            .await
+            .expect("router responds");
+        let cookie_header = set_cookie_header(&setup);
+        let csrf_token = csrf_from_cookie_header(&cookie_header);
+
+        let read = app
+            .clone()
+            .oneshot(
+                Request::builder()
+                    .uri("/api/v1/inventory")
+                    .header(COOKIE, cookie_header.as_str())
+                    .body(Body::empty())
+                    .expect("request builds"),
+            )
+            .await
+            .expect("router responds");
+        let rejected_mutation = app
+            .clone()
+            .oneshot(
+                Request::builder()
+                    .method(Method::POST)
+                    .uri("/api/v1/node-enrollments")
+                    .header(COOKIE, cookie_header.as_str())
+                    .header(CONTENT_TYPE, "application/json")
+                    .body(Body::from(
+                        serde_json::to_vec(&ClientCreateNodeEnrollmentRequest {
+                            display_name: "Secure node".to_owned(),
+                        })
+                        .expect("enrollment serializes"),
+                    ))
+                    .expect("request builds"),
+            )
+            .await
+            .expect("router responds");
+        let accepted_mutation = app
+            .oneshot(
+                Request::builder()
+                    .method(Method::POST)
+                    .uri("/api/v1/node-enrollments")
+                    .header(COOKIE, cookie_header.as_str())
+                    .header(CSRF_HEADER, csrf_token)
+                    .header(CONTENT_TYPE, "application/json")
+                    .body(Body::from(
+                        serde_json::to_vec(&ClientCreateNodeEnrollmentRequest {
+                            display_name: "Secure node".to_owned(),
+                        })
+                        .expect("enrollment serializes"),
+                    ))
+                    .expect("request builds"),
+            )
+            .await
+            .expect("router responds");
+
+        assert_eq!(setup.status(), StatusCode::OK);
+        assert!(!cookie_header.is_empty());
+        assert_eq!(read.status(), StatusCode::OK);
+        assert_eq!(rejected_mutation.status(), StatusCode::UNAUTHORIZED);
+        assert_eq!(accepted_mutation.status(), StatusCode::OK);
+    }
+
+    #[tokio::test]
     async fn missing_resource_api_error_uses_safe_envelope_with_correlation_id() {
         let app = build_router(test_state().await);
         let response = app
@@ -6189,9 +7202,9 @@ mod tests {
     async fn heartbeat_appears_in_inventory() {
         let state = test_state().await;
         let claim = enroll_test_node(&state).await;
+        let credential = claim.credential.clone();
         let request = NodeHeartbeatRequest {
             node_id: claim.node_id.clone(),
-            credential: claim.credential.clone(),
             display_name: "Test node".to_owned(),
             daemon_version: "0.1.0".to_owned(),
             capabilities: vec![CapabilitySummary {
@@ -6204,7 +7217,7 @@ mod tests {
             workspace_summaries: vec![],
         };
 
-        let response = node_heartbeat(State(state.clone()), Json(request))
+        let response = node_heartbeat(State(state.clone()), credential.as_deref(), Json(request))
             .await
             .expect("heartbeat accepted");
         let inventory = load_inventory(&state).await.expect("inventory loads");
@@ -6216,13 +7229,48 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn heartbeat_route_rejects_credential_in_body_without_bearer() {
+        let state = test_state().await;
+        let claim = enroll_test_node(&state).await;
+        let node_id = claim.node_id.expect("node id returned");
+        let app = build_router(state);
+
+        let response = app
+            .oneshot(
+                Request::builder()
+                    .method(Method::POST)
+                    .uri("/api/v1/node/heartbeat")
+                    .header(CONTENT_TYPE, "application/json")
+                    .body(Body::from(
+                        serde_json::to_vec(&json!({
+                            "node_id": node_id,
+                            "credential": claim.credential,
+                            "display_name": "Test node",
+                            "daemon_version": "0.1.0",
+                            "capabilities": [],
+                            "diagnostics": null,
+                            "active_runtime_count": 0,
+                            "sleep_hint": "awake",
+                            "workspace_summaries": []
+                        }))
+                        .expect("heartbeat serializes"),
+                    ))
+                    .expect("request builds"),
+            )
+            .await
+            .expect("router responds");
+
+        assert_eq!(response.status(), StatusCode::UNAUTHORIZED);
+    }
+
+    #[tokio::test]
     async fn heartbeat_replaces_normalized_node_capabilities() {
         let state = test_state().await;
         let claim = enroll_test_node(&state).await;
         let node_id = claim.node_id.clone().expect("node id returned");
+        let credential = claim.credential.clone();
         let first = NodeHeartbeatRequest {
             node_id: Some(node_id.clone()),
-            credential: claim.credential.clone(),
             display_name: "Test node".to_owned(),
             daemon_version: "0.1.0".to_owned(),
             capabilities: vec![
@@ -6240,12 +7288,11 @@ mod tests {
             sleep_hint: SleepHint::Awake,
             workspace_summaries: vec![],
         };
-        let _ = node_heartbeat(State(state.clone()), Json(first))
+        let _ = node_heartbeat(State(state.clone()), credential.as_deref(), Json(first))
             .await
             .expect("first heartbeat accepted");
         let second = NodeHeartbeatRequest {
             node_id: Some(node_id.clone()),
-            credential: claim.credential,
             display_name: "Test node".to_owned(),
             daemon_version: "0.1.0".to_owned(),
             capabilities: vec![CapabilitySummary {
@@ -6258,7 +7305,7 @@ mod tests {
             workspace_summaries: vec![],
         };
 
-        let _ = node_heartbeat(State(state.clone()), Json(second))
+        let _ = node_heartbeat(State(state.clone()), credential.as_deref(), Json(second))
             .await
             .expect("second heartbeat accepted");
         let rows: Vec<(String, String)> = sqlx::query_as(
@@ -6383,9 +7430,9 @@ mod tests {
 
         let result = node_heartbeat(
             State(state),
+            claim.credential.as_deref(),
             Json(NodeHeartbeatRequest {
                 node_id: Some(node_id),
-                credential: claim.credential,
                 display_name: "Test node".to_owned(),
                 daemon_version: "0.1.0".to_owned(),
                 capabilities: vec![],
@@ -6398,6 +7445,101 @@ mod tests {
         .await;
 
         assert!(matches!(result, Err(AppError::Auth { .. })));
+    }
+
+    #[tokio::test]
+    async fn rotated_node_credential_replaces_previous_credential() {
+        let state = test_state().await;
+        let claim = enroll_test_node(&state).await;
+        let node_id = claim.node_id.clone().expect("node id returned");
+        let old_credential = claim.credential.clone();
+
+        let rotation = rotate_node_credential(State(state.clone()), Path(node_id.to_string()))
+            .await
+            .expect("credential rotates")
+            .0;
+        let old_result = node_heartbeat(
+            State(state.clone()),
+            old_credential.as_deref(),
+            Json(NodeHeartbeatRequest {
+                node_id: Some(node_id.clone()),
+                display_name: "Test node".to_owned(),
+                daemon_version: "0.1.0".to_owned(),
+                capabilities: vec![],
+                diagnostics: None,
+                active_runtime_count: 0,
+                sleep_hint: SleepHint::Awake,
+                workspace_summaries: vec![],
+            }),
+        )
+        .await;
+        let new_result = node_heartbeat(
+            State(state),
+            Some(rotation.credential.as_str()),
+            Json(NodeHeartbeatRequest {
+                node_id: Some(node_id),
+                display_name: "Test node".to_owned(),
+                daemon_version: "0.1.0".to_owned(),
+                capabilities: vec![],
+                diagnostics: None,
+                active_runtime_count: 0,
+                sleep_hint: SleepHint::Awake,
+                workspace_summaries: vec![],
+            }),
+        )
+        .await;
+
+        assert!(matches!(old_result, Err(AppError::Auth { .. })));
+        assert!(new_result.is_ok());
+    }
+
+    #[tokio::test]
+    async fn repeated_invalid_node_credentials_are_rate_limited() {
+        let state = test_state().await;
+        let claim = enroll_test_node(&state).await;
+        let node_id = claim.node_id.expect("node id returned");
+
+        for _ in 0..AUTH_FAILURE_LIMIT {
+            let _ = node_heartbeat(
+                State(state.clone()),
+                Some("wrong-credential"),
+                Json(NodeHeartbeatRequest {
+                    node_id: Some(node_id.clone()),
+                    display_name: "Test node".to_owned(),
+                    daemon_version: "0.1.0".to_owned(),
+                    capabilities: vec![],
+                    diagnostics: None,
+                    active_runtime_count: 0,
+                    sleep_hint: SleepHint::Awake,
+                    workspace_summaries: vec![],
+                }),
+            )
+            .await;
+        }
+        let error = node_heartbeat(
+            State(state),
+            claim.credential.as_deref(),
+            Json(NodeHeartbeatRequest {
+                node_id: Some(node_id),
+                display_name: "Test node".to_owned(),
+                daemon_version: "0.1.0".to_owned(),
+                capabilities: vec![],
+                diagnostics: None,
+                active_runtime_count: 0,
+                sleep_hint: SleepHint::Awake,
+                workspace_summaries: vec![],
+            }),
+        )
+        .await
+        .expect_err("valid credential is temporarily rate limited");
+
+        assert!(matches!(
+            error,
+            AppError::Auth {
+                code: "auth.rate_limited",
+                ..
+            }
+        ));
     }
 
     #[tokio::test]
@@ -6579,14 +7721,15 @@ mod tests {
     async fn heartbeat_upserts_node_reported_workspace() {
         let state = test_state().await;
         let claim = enroll_test_node(&state).await;
+        let credential = claim.credential.clone();
         let workspace_path = std::env::temp_dir().join(format!("cortex-test-{}", Uuid::new_v4()));
         std::fs::create_dir_all(&workspace_path).expect("workspace dir creates");
 
         let _ = node_heartbeat(
             State(state.clone()),
+            credential.as_deref(),
             Json(NodeHeartbeatRequest {
                 node_id: claim.node_id,
-                credential: claim.credential,
                 display_name: "Test node".to_owned(),
                 daemon_version: "0.1.0".to_owned(),
                 capabilities: vec![],
@@ -6629,6 +7772,7 @@ mod tests {
         let state = test_state().await;
         let claim = enroll_test_node(&state).await;
         let node_id = claim.node_id.clone().expect("node id returned");
+        let credential = claim.credential.clone();
         let workspace_path_buf =
             std::env::temp_dir().join(format!("cortex-test-{}", Uuid::new_v4()));
         let workspace_path = workspace_path_buf.display().to_string();
@@ -6636,9 +7780,9 @@ mod tests {
 
         let _ = node_heartbeat(
             State(state.clone()),
+            credential.as_deref(),
             Json(NodeHeartbeatRequest {
                 node_id: claim.node_id.clone(),
-                credential: claim.credential.clone(),
                 display_name: "Test node".to_owned(),
                 daemon_version: "0.1.0".to_owned(),
                 capabilities: vec![],
@@ -6679,9 +7823,9 @@ mod tests {
 
         let _ = node_heartbeat(
             State(state.clone()),
+            credential.as_deref(),
             Json(NodeHeartbeatRequest {
                 node_id: claim.node_id,
-                credential: claim.credential,
                 display_name: "Test node".to_owned(),
                 daemon_version: "0.1.0".to_owned(),
                 capabilities: vec![],
@@ -8761,9 +9905,9 @@ mod tests {
     ) {
         let _ = node_heartbeat(
             State(state.clone()),
+            credential.as_deref(),
             Json(NodeHeartbeatRequest {
                 node_id: Some(node_id),
-                credential,
                 display_name: display_name.to_owned(),
                 daemon_version: "0.1.0".to_owned(),
                 capabilities: vec![CapabilitySummary {

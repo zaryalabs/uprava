@@ -57,6 +57,7 @@ export function logClientEvent(
     method: "POST",
     headers: { "content-type": "application/json" },
     body,
+    credentials: "include",
     keepalive: true,
   }).catch(() => undefined);
 }

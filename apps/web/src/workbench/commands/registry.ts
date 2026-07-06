@@ -3,6 +3,7 @@ import {
   Check,
   Clipboard,
   FolderPlus,
+  KeyRound,
   LogIn,
   LogOut,
   Pause,
@@ -28,6 +29,7 @@ export type WorkbenchCommandId =
   | "node.createEnrollment"
   | "node.approveEnrollment"
   | "node.revoke"
+  | "node.rotateCredential"
   | "node.delete"
   | "placement.validate"
   | "placement.delete"
@@ -99,6 +101,19 @@ const commands: UiCommand[] = [
         "node.revoke requires nodeId",
       );
       return finishCommand(context, coreApi.revokeNode(nodeId));
+    },
+  },
+  {
+    id: "node.rotateCredential",
+    title: "Rotate node credential",
+    icon: KeyRound,
+    when: (context) => Boolean(context.nodeId),
+    run: async (context) => {
+      const nodeId = requireValue(
+        context.nodeId,
+        "node.rotateCredential requires nodeId",
+      );
+      return finishCommand(context, coreApi.rotateNodeCredential(nodeId));
     },
   },
   {

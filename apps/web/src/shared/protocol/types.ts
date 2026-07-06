@@ -43,6 +43,7 @@ export type EnrollmentState =
 export type HealthResponse = {
   status: string;
   profile: DeploymentProfile;
+  security?: SecurityStatus;
 };
 
 export type VersionResponse = {
@@ -51,6 +52,16 @@ export type VersionResponse = {
   api_version: string;
   schema_version: number;
   profile: DeploymentProfile;
+  security?: SecurityStatus;
+};
+
+export type SecurityMode = "local_trusted" | "hardened";
+
+export type SecurityStatus = {
+  mode: SecurityMode;
+  web_auth_required: boolean;
+  web_auth_configured: boolean;
+  cookie_secure: boolean;
 };
 
 export type ApiError = {
@@ -216,6 +227,29 @@ export type ClientLogResponse = {
   accepted: boolean;
 };
 
+export type WebAuthStatusResponse = {
+  auth_required: boolean;
+  setup_required: boolean;
+  authenticated: boolean;
+  profile: DeploymentProfile;
+  security: SecurityStatus;
+};
+
+export type WebAuthSetupRequest = {
+  password: string;
+};
+
+export type WebAuthLoginRequest = {
+  password: string;
+};
+
+export type WebAuthResponse = {
+  authenticated: boolean;
+  setup_required: boolean;
+  csrf_token: string | null;
+  security: SecurityStatus;
+};
+
 export type ClientCreateNodeEnrollmentRequest = {
   display_name: string;
 };
@@ -244,6 +278,12 @@ export type ApproveNodeEnrollmentResponse = {
 export type NodeRevocationResponse = {
   node_id: string;
   revoked: boolean;
+};
+
+export type NodeCredentialRotationResponse = {
+  node_id: string;
+  credential: string;
+  rotated_at: string;
 };
 
 export type NodeDeletionResponse = {

@@ -10,7 +10,7 @@ services:
       CORTEX_AUTO_APPROVE_ENROLLMENTS: "true"
       RUST_LOG: info,cortex_server=debug
     ports:
-      - "8080:8080"
+      - "127.0.0.1:8080:8080"
     volumes:
       - cortex-core-data:/data
     healthcheck:
@@ -41,7 +41,7 @@ services:
       context: apps/web
       dockerfile: Dockerfile
     ports:
-      - "5173:5173"
+      - "127.0.0.1:5173:5173"
     depends_on:
       core:
         condition: service_healthy

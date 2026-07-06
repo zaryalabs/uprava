@@ -34,6 +34,9 @@ Default ports and paths:
 - Runtime idle expiry: `CORTEX_RUNTIME_EXPIRY_SECONDS`, default `86400`
 - Browser CORS origins: `CORTEX_ALLOWED_ORIGINS`, default
   `http://127.0.0.1:5173,http://localhost:5173`
+- Web auth mode: `CORTEX_WEB_AUTH`, default `auto`
+- Web session TTL: `CORTEX_WEB_SESSION_TTL_SECONDS`, default `86400`
+- Secure cookie flag: `CORTEX_COOKIE_SECURE`, default `false` for local HTTP
 
 Core creates and migrates the SQLite schema on startup. Migration coverage
 includes a clean empty database and the previous dev `nodes` table shape without
@@ -41,6 +44,30 @@ includes a clean empty database and the previous dev `nodes` table shape without
 `.local/state/core.sqlite` and `~/.local/share/cortex-node/node.json` aside if
 you need evidence, then delete the broken local state or use `make
 compose-reset` for the Compose volume.
+
+## Security Profiles
+
+`local_trusted` remains the default V01 development profile. It keeps browser
+auth disabled, shows the trusted-local warning banner in Web and is intended
+only for loopback or otherwise trusted development machines.
+
+`controlled_dev` enables the first security baseline when
+`CORTEX_WEB_AUTH=auto`:
+
+- Web shows first-run local password setup, then requires login.
+- Core issues an `HttpOnly`, `SameSite=Lax` session cookie and a CSRF cookie.
+- Browser mutations must send `x-cortex-csrf`; the Web client does this from
+  the CSRF cookie.
+- Core checks configured browser origins and records security audit events for
+  setup/login/logout, rejected auth, CSRF failures, enrollment, revoke and
+  rotate.
+- Node heartbeat and control-channel auth use bearer credentials. Core stores
+  only credential hashes and verifies them with constant-time comparison.
+
+For HTTPS or a TLS-terminating proxy, set `CORTEX_COOKIE_SECURE=true`. For
+local HTTP development, leave it disabled or the browser will not return the
+session cookie. `CORTEX_WEB_AUTH=local` forces auth in any profile;
+`CORTEX_WEB_AUTH=disabled` disables it explicitly.
 
 ## Docker Compose
 
@@ -62,9 +89,10 @@ make compose-reset
 ```
 
 The Compose profile starts Core, Web and a synthetic Node Daemon that heartbeats
-to Core. Compose enables `CORTEX_AUTO_APPROVE_ENROLLMENTS=true` for the
-synthetic Node only. The fake-provider path remains the deterministic default,
-so Compose does not require Codex.
+to Core. Host ports are bound to `127.0.0.1`. Compose enables
+`CORTEX_AUTO_APPROVE_ENROLLMENTS=true` for the synthetic Node only. The
+fake-provider path remains the deterministic default, so Compose does not
+require Codex.
 
 Core rejects browser CORS origins outside `CORTEX_ALLOWED_ORIGINS`; the default
 allows the local Vite Web UI on `127.0.0.1` and `localhost`. For a controlled
@@ -121,11 +149,15 @@ curl -X POST http://127.0.0.1:8080/api/v1/node-enrollments/{enrollment_id}/appro
 ```
 
 The Node retries the claim, stores the returned development credential in its
-local state file and then heartbeats with that credential. Heartbeats include
+local state file with private file permissions where the OS supports them, and
+then heartbeats with that credential in the `Authorization: Bearer` header.
+Heartbeats include
 bounded Node diagnostics with the daemon installation id, local event outbox
 count and command cache count so the Core node detail can distinguish local
 state files during troubleshooting. Revoking a node clears the Core-side
-credential hash and rejects future heartbeats from that node.
+credential hash and rejects future heartbeats from that node. Rotating a node
+credential returns a new credential once; update the Node state before
+restarting that daemon or the old credential will be rejected.
 
 ## Control Channel
 

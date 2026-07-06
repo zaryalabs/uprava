@@ -62,6 +62,23 @@ test("renders warning badges and structured session blocks from snapshots", asyn
 
 async function mockCoreApi(page: import("@playwright/test").Page) {
   const state = { validationAttempts: 0, warningAcknowledged: false };
+  await page.route("**/api/v1/auth/status", async (route) => {
+    await route.fulfill({
+      contentType: "application/json",
+      body: JSON.stringify({
+        auth_required: false,
+        setup_required: false,
+        authenticated: true,
+        profile: "local_trusted",
+        security: {
+          mode: "local_trusted",
+          web_auth_required: false,
+          web_auth_configured: false,
+          cookie_secure: false,
+        },
+      }),
+    });
+  });
   await page.route("**/api/v1/health", async (route) => {
     await route.fulfill({
       contentType: "application/json",

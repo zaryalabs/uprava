@@ -1,5 +1,6 @@
+import { useState } from "react";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
-import { FolderPlus, ShieldOff, Trash2 } from "lucide-react";
+import { FolderPlus, KeyRound, ShieldOff, Trash2 } from "lucide-react";
 import { Link, useNavigate, useParams } from "react-router-dom";
 
 import { useInventory } from "../inventory/api";
@@ -9,6 +10,7 @@ import { queryKeys } from "../../shared/api/query-keys";
 import { Badge } from "../../shared/ui/badge";
 import { Button } from "../../shared/ui/button";
 import { ErrorNotice } from "../../shared/ui/error-notice";
+import type { NodeCredentialRotationResponse } from "../../shared/protocol/types";
 import {
   canRunCommand,
   runWorkbenchCommand,
@@ -19,6 +21,8 @@ export function NodeDetailRoute() {
   const { nodeId } = useParams();
   const navigate = useNavigate();
   const queryClient = useQueryClient();
+  const [rotatedCredential, setRotatedCredential] =
+    useState<NodeCredentialRotationResponse | null>(null);
   const inventory = useInventory();
   const node = inventory.data?.nodes.find(
     (candidate) => candidate.node_id === nodeId,
@@ -59,12 +63,34 @@ export function NodeDetailRoute() {
         },
       }),
   });
+  const rotateCredential = useMutation({
+    mutationFn: async () => {
+      const result = await runWorkbenchCommand("node.rotateCredential", {
+        nodeId,
+        afterSuccess: async () => {
+          await queryClient.invalidateQueries({
+            queryKey: queryKeys.inventory,
+          });
+          if (nodeId) {
+            await queryClient.invalidateQueries({
+              queryKey: queryKeys.node(nodeId),
+            });
+          }
+        },
+      });
+      return result as NodeCredentialRotationResponse;
+    },
+    onSuccess: setRotatedCredential,
+  });
 
   if (!node) {
     return <div className="text-sm text-[#536257]">Node not found</div>;
   }
 
   const canRevoke = canRunCommand("node.revoke", { nodeId: node.node_id });
+  const canRotate = canRunCommand("node.rotateCredential", {
+    nodeId: node.node_id,
+  });
   const canDelete = canRunCommand("node.delete", { nodeId: node.node_id });
 
   return (
@@ -91,6 +117,13 @@ export function NodeDetailRoute() {
             </Button>
           </Link>
           <Button
+            disabled={!canRotate || rotateCredential.isPending}
+            onClick={() => rotateCredential.mutate()}
+          >
+            <KeyRound size={16} />
+            Rotate
+          </Button>
+          <Button
             variant="danger"
             disabled={!canRevoke || revokeNode.isPending}
             onClick={() => revokeNode.mutate()}
@@ -114,6 +147,20 @@ export function NodeDetailRoute() {
       </div>
       {revokeNode.isError ? (
         <ErrorNotice error={revokeNode.error} title="Node revoke failed" />
+      ) : null}
+      {rotateCredential.isError ? (
+        <ErrorNotice
+          error={rotateCredential.error}
+          title="Credential rotation failed"
+        />
+      ) : null}
+      {rotatedCredential ? (
+        <section className="rounded-md border border-[#bfd8ce] bg-[#e3f4ed] p-3 text-sm text-[#173f35]">
+          <div className="font-medium">New node credential</div>
+          <div className="mt-2 overflow-x-auto rounded-md bg-white px-2 py-1 font-mono text-xs">
+            {rotatedCredential.credential}
+          </div>
+        </section>
       ) : null}
       {deleteNode.isError ? (
         <ErrorNotice error={deleteNode.error} title="Node delete failed" />

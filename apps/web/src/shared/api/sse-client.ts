@@ -11,7 +11,7 @@ export function openSessionStream(
   const url = `${apiBase}/sessions/${encodeURIComponent(
     sessionThreadId,
   )}/stream?after_seq=${afterSeq}`;
-  const source = new EventSource(url);
+  const source = new EventSource(url, { withCredentials: true });
   source.addEventListener("cortex.event", (event) => {
     onEvent(JSON.parse((event as MessageEvent).data) as EventEnvelope);
   });

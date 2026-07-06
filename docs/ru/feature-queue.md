@@ -37,25 +37,25 @@ dependency, complexity, risk and value. Позиции могут двигать
 
 ## Обзор очереди
 
-| Order | Mechanism / Feature Slice | First Useful Slice | Dependency | Complexity |
-| --- | --- | --- | --- | --- |
-| 0 | V01 Distributed Agent Control Panel | Multi-node chat/session control panel | Current design baseline | High |
-| 1 | Security baseline | Trusted-dev warning, node auth, local web auth, credential handling, audit minimum | V01 control path | High |
-| 2 | Runtime/session hardening | Robust lifecycle, resume, stop, blocked, stale states | V01 runtime path | Medium |
-| 3 | Workspace shell and reference model | Stable refs and routes for future workspace evidence | V01 entity/session model | Medium |
-| 4 | Read-only Project Workspace Inspector | File tree, metadata, safe text viewer | Workspace refs, Node file reads | Medium |
-| 5 | Workspace intervention layer | Lightweight editor, terminal, command history, diff/check entry points | Read-only inspector, events | High |
-| 6 | Causality and trace UX | Coarse source/cause links with raw fallback | Workspace refs, event log | Medium |
-| 7 | Git and review basics | Better diff, branch/worktree awareness, check results | Workspace intervention, trace | Medium |
-| 8 | Tool Registry v1 | Real tool metadata, permissions, routing and audit policy | V01 capability model, events | High |
-| 9 | Plugin Registry v1 | Installed plugin metadata, configuration, exposed tools and artifact types | Tool Registry v1 | High |
-| 10 | First external integrations | Git provider and task tracker integration slices | Tool/Plugin Registry | High |
-| 11 | Visual artifact system | Test reports, richer diffs, timelines, dashboards/forms as first-class artifacts | Trace, registry contracts | High |
-| 12 | Dynamic UI from agents | Schema/tool/plugin-rendered UI with safe fallbacks | Visual artifact system, plugins | High |
-| 13 | Task-based sandbox runtime | Bounded run contract, isolated workspace, expected evidence | Runtime, workspace, trace | Very high |
-| 14 | Hybrid managed sessions | Persistent session can spawn bounded runs and merge evidence back | Task runtime | Very high |
-| 15 | Team/cloud model | Users, roles, shared projects, managed Core/nodes | Mature personal workflow | Very high |
-| 16 | Beyond software development | Research, analytics, documents, finance, knowledge workflows | Mature artifact/plugin model | Very high |
+| Order | Done | Mechanism / Feature Slice | First Useful Slice | Dependency | Complexity |
+| --- | --- | --- | --- | --- | --- |
+| 0 | + | V01 Distributed Agent Control Panel | Multi-node chat/session control panel | Current design baseline | High |
+| 1 | + | Security baseline | Trusted-dev warning, node auth, local web auth, credential handling, audit minimum | V01 control path | High |
+| 2 | - | Runtime/session hardening | Robust lifecycle, resume, stop, blocked, stale states | V01 runtime path | Medium |
+| 3 | - | Workspace shell and reference model | Stable refs and routes for future workspace evidence | V01 entity/session model | Medium |
+| 4 | - | Read-only Project Workspace Inspector | File tree, metadata, safe text viewer | Workspace refs, Node file reads | Medium |
+| 5 | - | Workspace intervention layer | Lightweight editor, terminal, command history, diff/check entry points | Read-only inspector, events | High |
+| 6 | - | Causality and trace UX | Coarse source/cause links with raw fallback | Workspace refs, event log | Medium |
+| 7 | - | Git and review basics | Better diff, branch/worktree awareness, check results | Workspace intervention, trace | Medium |
+| 8 | - | Tool Registry v1 | Real tool metadata, permissions, routing and audit policy | V01 capability model, events | High |
+| 9 | - | Plugin Registry v1 | Installed plugin metadata, configuration, exposed tools and artifact types | Tool Registry v1 | High |
+| 10 | - | First external integrations | Git provider and task tracker integration slices | Tool/Plugin Registry | High |
+| 11 | - | Visual artifact system | Test reports, richer diffs, timelines, dashboards/forms as first-class artifacts | Trace, registry contracts | High |
+| 12 | - | Dynamic UI from agents | Schema/tool/plugin-rendered UI with safe fallbacks | Visual artifact system, plugins | High |
+| 13 | - | Task-based sandbox runtime | Bounded run contract, isolated workspace, expected evidence | Runtime, workspace, trace | Very high |
+| 14 | - | Hybrid managed sessions | Persistent session can spawn bounded runs and merge evidence back | Task runtime | Very high |
+| 15 | - | Team/cloud model | Users, roles, shared projects, managed Core/nodes | Mature personal workflow | Very high |
+| 16 | - | Beyond software development | Research, analytics, documents, finance, knowledge workflows | Mature artifact/plugin model | Very high |
 
 ## Детали очереди
 
@@ -81,6 +81,13 @@ security.
 warning until hardened mode is enabled, node enrollment/auth, credential storage
 rules, revoke/rotate basics, local web auth/session handling, origin/CSRF checks
 where relevant, token redaction and minimal security/audit events.
+
+**Current implementation note:** `controlled_dev` with `CORTEX_WEB_AUTH=auto`
+enables local password setup/login, session and CSRF cookies, protected browser
+routes, origin checks, node bearer credentials for heartbeat/control, node
+revoke/rotate, private Node state-file permissions where supported, token
+redaction and minimal `security_audit_events` records. `local_trusted` remains
+available for loopback-only V01 development and keeps the warning banner.
 
 **Target direction:** Дорасти до permissions, secrets handling, stronger audit,
 mTLS or request signing, keychain-backed credentials, team RBAC and managed

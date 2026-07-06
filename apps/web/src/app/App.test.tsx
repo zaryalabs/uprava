@@ -99,6 +99,19 @@ async function mockFetch(input: RequestInfo | URL) {
 
 function responseForPath(pathname: string) {
   switch (pathname) {
+    case "/api/v1/auth/status":
+      return {
+        auth_required: false,
+        setup_required: false,
+        authenticated: true,
+        profile: "local_trusted",
+        security: {
+          mode: "local_trusted",
+          web_auth_required: false,
+          web_auth_configured: false,
+          cookie_secure: false,
+        },
+      };
     case "/api/v1/health":
       return { status: "ok", profile: "local_trusted" };
     case "/api/v1/version":
