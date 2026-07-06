@@ -36,6 +36,9 @@ That belongs in [v01.md](v01.md).
 
 ## Queue Overview
 
+Current release baseline: `0.1.5`. Done items `0` through `5` correspond to
+the shipped versions recorded in [`releases.md`](releases.md).
+
 | Order | Done | Mechanism / Feature Slice | First Useful Slice | Dependency | Complexity |
 | --- | --- | --- | --- | --- | --- |
 | 0 | + | V01 Distributed Agent Control Panel | Multi-node chat/session control panel | Current design baseline | High |

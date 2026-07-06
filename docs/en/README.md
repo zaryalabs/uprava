@@ -16,6 +16,8 @@ Current documents:
 - [`vision.md`](vision.md) - product vision.
 - [`architecture.md`](architecture.md) - Core / Node Daemon / Clients architecture.
 - [`v01.md`](v01.md) - first usable product version.
+- [`versioning.md`](versioning.md) - SemVer rules and the current release baseline.
+- [`releases.md`](releases.md) - release ledger for shipped implementation slices.
 - [`feature-queue.md`](feature-queue.md) - ranked implementation queue.
 - [`product-evolution.md`](product-evolution.md) - product evolution model.
 - [`product-stages.md`](product-stages.md) - superseded historical stage model.

@@ -15,6 +15,8 @@ design docs.
 - [`vision.md`](vision.md) - draft vision продукта.
 - [`architecture.md`](architecture.md) - draft архитектуры Core / Node Daemon / Clients.
 - [`v01.md`](v01.md) - первая пригодная версия продукта.
+- [`versioning.md`](versioning.md) - правила SemVer and current release baseline.
+- [`releases.md`](releases.md) - release ledger для shipped implementation slices.
 - [`feature-queue.md`](feature-queue.md) - очередь реализационных срезов.
 - [`product-evolution.md`](product-evolution.md) - модель эволюции продукта без старой стадии-based нарезки.
 - [`product-stages.md`](product-stages.md) - superseded историческая модель стадий.

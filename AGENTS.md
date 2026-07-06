@@ -19,6 +19,16 @@ Quick guide for agents working in this repository.
 - Run `make c` before commits or handoff after code changes.
 - Run `make l` for a faster local check while iterating.
 
+## Versioning
+
+- Follow SemVer rules in `docs/en/versioning.md` and keep the Russian mirror in
+  `docs/ru/versioning.md` synchronized.
+- After a large completed work block, check whether the current implementation
+  version should be bumped, even if the work is not a named feature queue item.
+- When bumping the version, update package metadata, `docs/en/releases.md`,
+  `docs/ru/releases.md`, and any temporary plans that reference the previous
+  baseline.
+
 ## Project Shape
 
 - `docs/` - product, architecture, roadmap, and stack documentation.

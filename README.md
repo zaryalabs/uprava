@@ -21,13 +21,18 @@ Uprava should be a control plane and work surface for agent workloads:
 
 ## Current State
 
-The current repository state is product and architecture design.
+The current repository state is a working `0.1.5` implementation baseline plus
+product and architecture documentation. `V01` names the first product cut that
+shipped as `0.1.0`; the current implementation has moved through five completed
+feature queue slices after that baseline.
 
 Synchronized product and architecture docs:
 
 - [Vision](docs/en/vision.md)
 - [Architecture](docs/en/architecture.md)
 - [V01](docs/en/v01.md)
+- [Versioning](docs/en/versioning.md)
+- [Releases](docs/en/releases.md)
 - [Feature Queue](docs/en/feature-queue.md)
 - [Product Evolution](docs/en/product-evolution.md)
 - [Product Stages](docs/en/product-stages.md) - superseded historical stage model
@@ -77,6 +82,10 @@ slice.
 
 The detailed first-version scope lives in [V01](docs/en/v01.md). Follow-on work is tracked as an implementation queue in [Feature Queue](docs/en/feature-queue.md), not as a fixed phase-based roadmap.
 
+`V01` remains the historical first product cut. Current implementation version
+and shipped post-`0.1.0` slices are tracked in
+[`Versioning`](docs/en/versioning.md) and [`Releases`](docs/en/releases.md).
+
 ## Preliminary Tech Stack
 
 ```text
@@ -108,13 +117,15 @@ agent/operator inspection through `playwright-cli` against the same local setup.
 
 ## Local Development Scaffold
 
-The `0.1` implementation scaffold now includes:
+The `0.1.5` implementation baseline now includes:
 
 - Rust workspace crates for shared protocol/domain contracts, Core Backend and
   Node Daemon;
 - Vite React Web Control Panel under `apps/web`;
 - SQLite-backed Core skeleton with health, inventory, heartbeat, placement,
   session, Codex provider, artifact tree and agent projection APIs;
+- Project Workspace Inspector with safe file reads, text saves, bounded
+  workspace command execution, command history and diff/check entry points;
 - Docker Compose local profile for Core, Web and a synthetic Node Daemon.
 
 Start the local stack from separate terminals:

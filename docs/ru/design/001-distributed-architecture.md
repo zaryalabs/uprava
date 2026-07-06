@@ -697,7 +697,7 @@ semantics. Transport is an implementation layer that can vary by use case.
 ```json
 {
   "node_id": "node_123",
-  "daemon_version": "0.1.0",
+  "daemon_version": "0.1.5",
   "protocol_version": "node-protocol-v1",
   "sequence": 1042,
   "sent_at": "2026-06-16T10:20:30Z",

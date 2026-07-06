@@ -37,6 +37,10 @@ dependency, complexity, risk and value. Позиции могут двигать
 
 ## Обзор очереди
 
+Current release baseline: `0.1.5`. Закрытые пункты `0` through `5`
+соответствуют shipped versions, зафиксированным в
+[`releases.md`](releases.md).
+
 | Order | Done | Mechanism / Feature Slice | First Useful Slice | Dependency | Complexity |
 | --- | --- | --- | --- | --- | --- |
 | 0 | + | V01 Distributed Agent Control Panel | Multi-node chat/session control panel | Current design baseline | High |
