@@ -40,6 +40,8 @@ dependency, complexity, risk and value. Позиции могут двигать
 Current release baseline: `0.1.7`. Закрытые пункты `0` through `5`, unified
 audit hardening release и `5a` workspace renderer release соответствуют shipped
 versions, зафиксированным в [`releases.md`](releases.md).
+Следующий плановый пункт очереди - daily-use hardening and deployment readiness
+перед добавлением новых продуктовых механизмов.
 
 | Order | Done | Mechanism / Feature Slice | First Useful Slice | Dependency | Complexity |
 | --- | --- | --- | --- | --- | --- |
@@ -50,18 +52,19 @@ versions, зафиксированным в [`releases.md`](releases.md).
 | 4 | + | Read-only Project Workspace Inspector | File tree, metadata, safe text viewer | Workspace refs, Node file reads | Medium |
 | 5 | + | Workspace intervention layer | Lightweight editor, terminal, command history, diff/check entry points | Read-only inspector, events | High |
 | 5a | + | Workspace renderer and PTY terminal layer | Monaco file/diff renderers and xterm-backed interactive PTY sessions | Workspace intervention, Core/Node control channel | High |
-| 6 | - | Causality and trace UX | Coarse source/cause links with raw fallback | Workspace refs, event log | Medium |
-| 7 | - | Git and review basics | Better diff, branch/worktree awareness, check results | Workspace intervention, trace | Medium |
-| 8 | - | Tool Registry v1 | Real tool metadata, permissions, routing and audit policy | V01 capability model, events | High |
-| 9 | - | Plugin Registry v1 | Installed plugin metadata, configuration, exposed tools and artifact types | Tool Registry v1 | High |
-| 10 | - | First external integrations | Git provider and task tracker integration slices | Tool/Plugin Registry | High |
-| 11 | - | Visual artifact system | Test reports, richer diffs, timelines, dashboards/forms as first-class artifacts | Trace, registry contracts | High |
-| 12 | - | Dynamic UI from agents | Schema/tool/plugin-rendered UI with safe fallbacks | Visual artifact system, plugins | High |
-| 13 | - | Task-based sandbox runtime | Bounded run contract, isolated workspace, expected evidence | Runtime, workspace, trace | Very high |
-| 14 | - | Hybrid managed sessions | Persistent session can spawn bounded runs and merge evidence back | Task runtime | Very high |
-| 15 | - | Team/cloud model | Users, roles, shared projects, managed Core/nodes | Mature personal workflow | Very high |
-| 16 | - | Beyond software development | Research, analytics, documents, finance, knowledge workflows | Mature artifact/plugin model | Very high |
-| 17 | - | Audit follow-up refactors | Core/Node module split, generated protocol contracts, async workspace command API | `0.1.6` audit hardening | Medium |
+| 6 | - | Daily-use hardening and deployment readiness | Stable panel layout, product polish, server deploy path, CI/CD baseline | `0.1.7` workbench, security baseline | High |
+| 7 | - | Causality and trace UX | Coarse source/cause links with raw fallback | Workspace refs, event log | Medium |
+| 8 | - | Git and review basics | Better diff, branch/worktree awareness, check results | Workspace intervention, trace | Medium |
+| 9 | - | Tool Registry v1 | Real tool metadata, permissions, routing and audit policy | V01 capability model, events | High |
+| 10 | - | Plugin Registry v1 | Installed plugin metadata, configuration, exposed tools and artifact types | Tool Registry v1 | High |
+| 11 | - | First external integrations | Git provider and task tracker integration slices | Tool/Plugin Registry | High |
+| 12 | - | Visual artifact system | Test reports, richer diffs, timelines, dashboards/forms as first-class artifacts | Trace, registry contracts | High |
+| 13 | - | Dynamic UI from agents | Schema/tool/plugin-rendered UI with safe fallbacks | Visual artifact system, plugins | High |
+| 14 | - | Task-based sandbox runtime | Bounded run contract, isolated workspace, expected evidence | Runtime, workspace, trace | Very high |
+| 15 | - | Hybrid managed sessions | Persistent session can spawn bounded runs and merge evidence back | Task runtime | Very high |
+| 16 | - | Team/cloud model | Users, roles, shared projects, managed Core/nodes | Mature personal workflow | Very high |
+| 17 | - | Beyond software development | Research, analytics, documents, finance, knowledge workflows | Mature artifact/plugin model | Very high |
+| 18 | - | Audit follow-up refactors | Core/Node module split, generated protocol contracts, async workspace command API | `0.1.6` audit hardening | Medium |
 
 ## Детали очереди
 
@@ -207,7 +210,35 @@ first-class renderers.
 search/copy ergonomics, review decorations, selection/range actions and richer
 diff/review workflows без ослабления Core/Node authority boundary.
 
-### 6. Causality and trace UX
+### 6. Daily-use hardening and deployment readiness
+
+**Value:** Core workbench path уже достаточно полезен, чтобы следующий срез
+сделал его удобным и надежным для постоянной работы, а не только
+feature-complete в отдельных flows.
+
+**Dependency:** `0.1.7` workspace renderer/PTY baseline, controlled-dev security
+baseline and current Core/Web/Node local profile.
+
+**First useful slice:** Переработать Web Control Panel под длительное
+использование: расположение панелей, информационную плотность, навигационный
+ритм, переключение workspace/session, terminal/editor/diff ergonomics and
+empty/loading/error states. Сделать визуальный design pass, чтобы текущая
+функциональность ощущалась связной и пригодной для continuous use. Добавить
+реальный server deployment path с documented environment settings,
+reverse-proxy/TLS assumptions, persistent volumes, logs, backup/restore
+expectations and CI/CD baseline, который запускает quality gates and can deploy
+the controlled instance.
+
+**Risk:** Этот срез легко расползается в redesign будущих поверхностей или в
+притворство, что продукт уже является multi-user production release. Scope
+нужно держать вокруг текущего single-user or controlled deployment, а детальный
+checklist уточнять по actual daily use.
+
+**Target direction:** Создать стабильный personal/server operating mode,
+которым можно пользоваться постоянно, пока строятся trace, git/review,
+registries, plugins, artifacts and task-runtime work.
+
+### 7. Causality and trace UX
 
 **Value:** Снижает стоимость review, связывая result с evidence без выгрузки raw
 logs в пользовательский интерфейс.
@@ -219,7 +250,7 @@ fallbacks.
 **Target direction:** Более богатый cause graph and trace timeline после
 стабилизации event quality and artifact semantics.
 
-### 7. Git and review basics
+### 8. Git and review basics
 
 **Value:** Developer work требует changed-file awareness and review ergonomics.
 
@@ -229,7 +260,7 @@ check entry points, warning badges for risky workspace state.
 **Target direction:** Git provider integration, PR/MR comment import, review
 queues, CI follow-up loops and review-ready task outputs.
 
-### 8. Tool Registry v1
+### 9. Tool Registry v1
 
 **Value:** Tools становятся системными capabilities с permissions, routing,
 schemas, UI contracts and audit policy, а не скрытым agent behavior.
@@ -240,7 +271,7 @@ tools and Node capabilities.
 **Target direction:** External providers, MCP/native/hybrid adapters, tool call
 trace and agent-readable capability discovery.
 
-### 9. Plugin Registry v1
+### 10. Plugin Registry v1
 
 **Value:** Uprava становится extensible без hardcoding каждого tool, block and
 integration внутри workbench.
@@ -251,7 +282,7 @@ requested permissions, exposed tools, artifact types and compatibility.
 **Target direction:** Plugin-provided commands, renderers, link handlers,
 workflow templates and governed extension surfaces.
 
-### 10. First external integrations
+### 11. First external integrations
 
 **Value:** Agent work должен подключаться к реальным development systems, не
 скрывая integration behavior за текстом.
@@ -262,7 +293,7 @@ objects, actions, trace and permission checks.
 **Target direction:** Native, MCP, Node-local, external-provider and hybrid
 integration adapters.
 
-### 11. Visual artifact system
+### 12. Visual artifact system
 
 **Value:** Results such as diffs, checks, timelines, reports, diagrams and
 dashboards должны быть inspectable UI objects, а не только chat text.
@@ -273,7 +304,7 @@ timeline with source references and fallbacks.
 **Target direction:** Artifact gallery, richer visual review, dashboards, UML,
 forms and embedded external views.
 
-### 12. Dynamic UI from agents
+### 13. Dynamic UI from agents
 
 **Value:** Agents and tools могут возвращать structured interactive surfaces там,
 где text имеет неправильную форму.
@@ -284,7 +315,7 @@ sanitized snapshots, source refs, permissions and markdown/table fallback.
 **Target direction:** Plugin-rendered blocks, controlled embeds, generated UI
 sandboxing and agent-readable UI state.
 
-### 13. Task-based sandbox runtime
+### 14. Task-based sandbox runtime
 
 **Value:** Uprava может запускать bounded background work with explicit scope,
 isolation, evidence and review-ready output.
@@ -295,7 +326,7 @@ package, event log, expected evidence and result package.
 **Target direction:** Durable workflow state, queues, CI/webhook wakeups, PR/MR
 flow and reproducible review packages.
 
-### 14. Hybrid managed sessions
+### 15. Hybrid managed sessions
 
 **Value:** Live sessions and background tasks становятся одним work loop вместо
 отдельных продуктов.
@@ -306,7 +337,7 @@ evidence back into session trace/review model.
 **Target direction:** Orchestrated workflows, semi-deterministic pipelines,
 handoff between live and bounded work and review debt visibility.
 
-### 15. Team/cloud model
+### 16. Team/cloud model
 
 **Value:** Uprava расширяется от personal workbench до shared distributed Agent
 OS.
@@ -317,7 +348,7 @@ audit trail and managed Core deployment path.
 **Target direction:** Managed cloud nodes, node pools, organization-level
 plugin/integration governance, stronger secrets model and billing if needed.
 
-### 16. Beyond software development
+### 17. Beyond software development
 
 **Value:** Та же node, agent, tool, artifact, trace and workflow model может
 поддерживать broader knowledge work.
@@ -328,7 +359,7 @@ developer artifact/plugin model станет достаточно сильной
 **Target direction:** Research, analytics, documents, presentations, finance,
 monitoring and knowledge-base workflows.
 
-### 17. Audit follow-up refactors
+### 18. Audit follow-up refactors
 
 **Value:** Сохраняет `0.1.6` audit fixes reviewable, contract-backed and ready
 for longer-running tools, не смешивая broad mechanical work с behavior
@@ -348,10 +379,8 @@ area.
 
 - Насколько строгим должен быть первый security baseline, прежде чем
   рекомендовать non-local node?
-- Сколько workspace reference model нужно реализовать до первого read-only
-  inspector UI?
-- Должен ли first intervention layer начинаться с terminal, editor или
-  diff/check?
+- Какие daily-use hardening items обязательны до первого continuously used
+  server deployment, а что может подождать следующих feature slices?
 - Должны ли git/review basics идти до Tool Registry v1, или registry contracts
   нужно посадить раньше, чтобы не получить hardcoded integration path?
 - Какая integration лучше как первый proof: GitHub/GitLab, Linear, MCP or
