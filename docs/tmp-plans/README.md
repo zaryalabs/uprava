@@ -28,6 +28,6 @@ coordination document.
 
 ## Current Plans
 
-- [`v0.1-implementation-plan.md`](v0.1-implementation-plan.md) - detailed
-  implementation plan for the first `0.1` version based on the V01 product
-  slice.
+- [`codex-jsonl-turn-activity-streaming.md`](codex-jsonl-turn-activity-streaming.md)
+  - plan for live Codex JSONL streaming into collapsible turn activity blocks
+  in the session dialogue.
