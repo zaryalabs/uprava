@@ -7110,6 +7110,44 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn provider_activity_event_persists_without_creating_message() {
+        let state = test_state().await;
+        let (node_id, detail, workspace_path) = create_test_session(&state).await;
+        let message_count_before = session_message_count(&state, &detail).await;
+        let event = node_event_fixture(
+            &detail,
+            node_id,
+            "provider-activity-1",
+            1,
+            EventKind::ProviderActivity,
+            json!({
+                "provider": "codex",
+                "source": "codex.exec.jsonl",
+                "provider_event_type": "item.completed",
+                "raw_event": {
+                    "type": "item.completed",
+                    "unknown_future_field": true
+                }
+            }),
+        );
+
+        accept_node_event(&state, event)
+            .await
+            .expect("provider activity event accepts");
+        let persisted_events: i64 = sqlx::query_scalar(
+            "select count(*) from events where event_id = 'provider-activity-1'",
+        )
+        .fetch_one(&state.pool)
+        .await
+        .expect("provider activity event count loads");
+        let message_count_after = session_message_count(&state, &detail).await;
+        std::fs::remove_dir_all(&workspace_path).expect("workspace dir removes");
+
+        assert_eq!(persisted_events, 1);
+        assert_eq!(message_count_after, message_count_before);
+    }
+
+    #[tokio::test]
     async fn pending_command_requests_control_channel_and_dispatches_after_connect() {
         let state = test_state().await;
         let claim = enroll_test_node(&state).await;

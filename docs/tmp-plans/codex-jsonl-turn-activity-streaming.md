@@ -2,7 +2,7 @@
 
 Date: 2026-07-06
 
-Status: `active`
+Status: `implemented`
 
 Purpose: implement live visibility into Codex work by streaming all available
 `codex exec --json` JSONL events from Node Daemon through Core to the Web

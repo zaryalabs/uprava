@@ -24,6 +24,15 @@ export function buildSessionTimelineBlocks(
   const eventById = new Map(
     detail.events.map((event) => [event.event_id, event]),
   );
+  const activityGroups = turnActivityGroups(detail.events);
+  const groupedActivityEventIds = new Set(
+    activityGroups.flatMap((group) =>
+      group.events.map((event) => event.event_id),
+    ),
+  );
+  const groupedActivityTurnIds = new Set(
+    activityGroups.map((group) => group.turnId),
+  );
   const messageSourceEventIds = new Set(
     detail.messages
       .map((message) => message.source_event_id)
@@ -40,18 +49,31 @@ export function buildSessionTimelineBlocks(
       sourceIndex,
     );
   });
+  const activityBlocks = activityGroups.map((group, sourceIndex) =>
+    orderedTimelineBlockItem(
+      { block: blockFromTurnActivity(group, detail.events) },
+      group.events[0]?.happened_at ?? group.startedAt ?? "",
+      group.events[0]?.seq ?? 0,
+      detail.messages.length + sourceIndex,
+    ),
+  );
   const eventBlocks = detail.events
-    .filter((event) => !messageSourceEventIds.has(event.event_id))
+    .filter(
+      (event) =>
+        !messageSourceEventIds.has(event.event_id) &&
+        !groupedActivityEventIds.has(event.event_id) &&
+        !isGroupedTurnBoundaryEvent(event, groupedActivityTurnIds),
+    )
     .map((event, sourceIndex) =>
       orderedTimelineBlockItem(
         blockFromEvent(event),
         event.happened_at,
         event.seq,
-        detail.messages.length + sourceIndex,
+        detail.messages.length + activityBlocks.length + sourceIndex,
       ),
     );
 
-  return [...messageBlocks, ...eventBlocks]
+  return [...messageBlocks, ...activityBlocks, ...eventBlocks]
     .sort(compareTimelineBlockItems)
     .map(({ item }) => item);
 }
@@ -130,6 +152,163 @@ export function blockFromEvent(event: EventEnvelope): TimelineBlockItem {
       fallbackText: `${event.kind} seq ${event.seq}`,
     }),
   };
+}
+
+type TurnActivityGroup = {
+  turnId: string;
+  startedAt?: string;
+  completedAt?: string;
+  events: EventEnvelope[];
+};
+
+function turnActivityGroups(events: EventEnvelope[]): TurnActivityGroup[] {
+  const byTurn = new Map<string, EventEnvelope[]>();
+  for (const event of events) {
+    if (event.kind !== "provider.activity" || !event.turn_id) continue;
+    const group = byTurn.get(event.turn_id) ?? [];
+    group.push(event);
+    byTurn.set(event.turn_id, group);
+  }
+
+  return Array.from(byTurn.entries())
+    .map(([turnId, groupEvents]) => {
+      const sortedEvents = [...groupEvents].sort(compareEvents);
+      return {
+        turnId,
+        startedAt: eventTime(events, turnId, "turn.started"),
+        completedAt: eventTime(events, turnId, "turn.completed"),
+        events: sortedEvents,
+      };
+    })
+    .sort((left, right) => compareEvents(left.events[0]!, right.events[0]!));
+}
+
+function blockFromTurnActivity(
+  group: TurnActivityGroup,
+  allEvents: EventEnvelope[],
+): UiBlock {
+  const rows = group.events.map(turnActivityRow);
+  const counts = turnActivityCounts(rows);
+  const durationMs =
+    group.startedAt && group.completedAt
+      ? new Date(group.completedAt).getTime() -
+        new Date(group.startedAt).getTime()
+      : null;
+
+  return baseBlock({
+    blockId: `turn-activity:${group.turnId}`,
+    type: "core.turn-activity",
+    primaryRef: { kind: "turn", turn_id: group.turnId },
+    sourceRefs: group.events.map(eventRef),
+    causeRefs: allEvents
+      .filter(
+        (event) =>
+          event.turn_id === group.turnId &&
+          (event.kind === "turn.started" || event.kind === "turn.completed"),
+      )
+      .map(eventRef),
+    data: {
+      turnId: group.turnId,
+      startedAt: group.startedAt ?? null,
+      completedAt: group.completedAt ?? null,
+      completed: Boolean(group.completedAt),
+      durationMs: durationMs !== null && durationMs >= 0 ? durationMs : null,
+      eventCount: rows.length,
+      commandCount: counts.commandCount,
+      fileChangeCount: counts.fileChangeCount,
+      reasoningCount: counts.reasoningCount,
+      warningErrorCount: counts.warningErrorCount,
+      rows,
+    },
+    fallbackText: `${rows.length} provider activity events`,
+  });
+}
+
+function isGroupedTurnBoundaryEvent(
+  event: EventEnvelope,
+  groupedActivityTurnIds: Set<string>,
+) {
+  return Boolean(
+    event.turn_id &&
+    groupedActivityTurnIds.has(event.turn_id) &&
+    (event.kind === "turn.started" || event.kind === "turn.completed"),
+  );
+}
+
+function turnActivityRow(event: EventEnvelope) {
+  const payload = isRecord(event.payload) ? event.payload : {};
+  const providerEventType = stringValue(
+    payload.provider_event_type,
+    "provider.activity",
+  );
+  const providerItemType = optionalString(payload.provider_item_type);
+  const providerItemId = optionalString(payload.provider_item_id);
+  const phase = optionalString(payload.phase);
+  const status = optionalString(payload.status);
+  const summary = stringValue(payload.summary, providerEventType);
+
+  return {
+    eventId: event.event_id,
+    seq: event.seq,
+    happenedAt: event.happened_at,
+    providerEventType,
+    providerItemType,
+    providerItemId,
+    phase,
+    status,
+    summary,
+    rawEvent: payload.raw_event,
+    rawEventPreview: optionalString(payload.raw_event_preview),
+    rawEventTruncated: payload.raw_event_truncated === true,
+  };
+}
+
+function turnActivityCounts(rows: ReturnType<typeof turnActivityRow>[]) {
+  return rows.reduce(
+    (counts, row) => {
+      const searchable = [
+        row.providerEventType,
+        row.providerItemType,
+        row.phase,
+        row.status,
+        row.summary,
+      ]
+        .filter(Boolean)
+        .join(" ")
+        .toLowerCase();
+      if (
+        searchable.includes("command") ||
+        searchable.includes("tool") ||
+        searchable.includes("exec")
+      ) {
+        counts.commandCount += 1;
+      }
+      if (
+        searchable.includes("file") ||
+        searchable.includes("patch") ||
+        searchable.includes("diff")
+      ) {
+        counts.fileChangeCount += 1;
+      }
+      if (searchable.includes("reason")) counts.reasoningCount += 1;
+      if (
+        searchable.includes("warn") ||
+        searchable.includes("error") ||
+        searchable.includes("failed") ||
+        searchable.includes("parse_error") ||
+        searchable.includes("stderr")
+      ) {
+        counts.warningErrorCount += 1;
+      }
+      return counts;
+    },
+    {
+      commandCount: 0,
+      fileChangeCount: 0,
+      reasoningCount: 0,
+      warningErrorCount: 0,
+    },
+  );
 }
 
 export function approvalIdFromEvent(event: EventEnvelope) {
@@ -237,6 +416,25 @@ function payloadSummary(payload: unknown) {
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null;
+}
+
+function optionalString(value: unknown) {
+  return typeof value === "string" && value.length > 0 ? value : undefined;
+}
+
+function stringValue(value: unknown, fallback: string) {
+  return typeof value === "string" && value.length > 0 ? value : fallback;
+}
+
+function eventTime(events: EventEnvelope[], turnId: string, kind: string) {
+  return events.find((event) => event.turn_id === turnId && event.kind === kind)
+    ?.happened_at;
+}
+
+function compareEvents(left: EventEnvelope, right: EventEnvelope) {
+  const timestampComparison = left.happened_at.localeCompare(right.happened_at);
+  if (timestampComparison !== 0) return timestampComparison;
+  return left.seq - right.seq;
 }
 
 function orderedTimelineBlockItem(

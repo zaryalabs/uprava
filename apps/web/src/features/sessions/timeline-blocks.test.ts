@@ -86,7 +86,105 @@ describe("session timeline blocks", () => {
     ]);
   });
 
+  it("groups provider activity events into one turn block before the assistant message", () => {
+    const providerMessage = {
+      ...eventWithPayload("provider.message.completed", {
+        content: "Done",
+      }),
+      event_id: "event-assistant",
+      turn_id: "turn-1",
+      seq: 5,
+      happened_at: "2026-06-17T00:00:04Z",
+    };
+    const detail = {
+      ...detailWithApproval(),
+      messages: [
+        {
+          message_id: "message-user",
+          session_thread_id: "session-1",
+          turn_id: "turn-1",
+          role: "user" as const,
+          content: "Run checks",
+          created_at: "2026-06-17T00:00:00Z",
+          completed_at: "2026-06-17T00:00:00Z",
+          source_event_id: null,
+        },
+        {
+          message_id: "message-assistant",
+          session_thread_id: "session-1",
+          turn_id: "turn-1",
+          role: "assistant" as const,
+          content: "Done",
+          created_at: "2026-06-17T00:00:04Z",
+          completed_at: "2026-06-17T00:00:04Z",
+          source_event_id: "event-assistant",
+        },
+      ],
+      events: [
+        {
+          ...eventWithPayload("turn.started", {}),
+          event_id: "event-turn-started",
+          turn_id: "turn-1",
+          seq: 2,
+          happened_at: "2026-06-17T00:00:01Z",
+        },
+        {
+          ...eventWithPayload("provider.activity", {
+            provider_event_type: "item.completed",
+            provider_item_type: "command_execution",
+            status: "completed",
+            summary: "make c",
+            raw_event: {
+              type: "item.completed",
+              unknown_future_field: true,
+            },
+          }),
+          event_id: "event-activity-1",
+          turn_id: "turn-1",
+          seq: 3,
+          happened_at: "2026-06-17T00:00:02Z",
+        },
+        {
+          ...eventWithPayload("provider.activity", {
+            provider_event_type: "stderr",
+            status: "warning",
+            summary: "warning",
+          }),
+          event_id: "event-activity-2",
+          turn_id: "turn-1",
+          seq: 4,
+          happened_at: "2026-06-17T00:00:03Z",
+        },
+        providerMessage,
+        {
+          ...eventWithPayload("turn.completed", {}),
+          event_id: "event-turn-completed",
+          turn_id: "turn-1",
+          seq: 6,
+          happened_at: "2026-06-17T00:00:05Z",
+        },
+      ],
+    };
+
+    const blocks = buildSessionTimelineBlocks(detail);
+
+    expect(blocks.map((item) => item.block.block_id)).toEqual([
+      "message:message-user",
+      "turn-activity:turn-1",
+      "message:message-assistant",
+    ]);
+    expect(blocks[1].block.type).toBe("core.turn-activity");
+    expect(blocks[1].block.data).toMatchObject({
+      turnId: "turn-1",
+      eventCount: 2,
+      commandCount: 1,
+      warningErrorCount: 1,
+      completed: true,
+    });
+  });
+
   it("keeps the v01 renderer registry explicit", () => {
+    expect(registeredTimelineBlockTypes()).toContain("core.turn-activity");
     expect(registeredTimelineBlockTypes()).toContain("core.approval-request");
     expect(registeredTimelineBlockTypes()).toContain("core.unknown");
   });

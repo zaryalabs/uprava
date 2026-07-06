@@ -280,6 +280,8 @@ pub enum EventKind {
     TurnCompleted,
     #[serde(rename = "turn.interrupted")]
     TurnInterrupted,
+    #[serde(rename = "provider.activity")]
+    ProviderActivity,
     #[serde(rename = "provider.output.delta")]
     ProviderOutputDelta,
     #[serde(rename = "provider.message.completed")]

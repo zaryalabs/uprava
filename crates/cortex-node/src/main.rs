@@ -2,7 +2,7 @@ use std::{
     collections::{BTreeMap, HashMap, HashSet},
     io::ErrorKind,
     path::{Path, PathBuf},
-    process::{Command as StdCommand, Output},
+    process::{Command as StdCommand, ExitStatus, Stdio},
     time::Duration,
 };
 
@@ -21,7 +21,11 @@ use cortex_protocol::{
 use futures_util::{SinkExt, StreamExt};
 use reqwest::Url;
 use serde::{Deserialize, Serialize};
-use tokio::{process::Command as TokioCommand, time::timeout};
+use tokio::{
+    io::{AsyncBufReadExt, BufReader},
+    process::Command as TokioCommand,
+    time::timeout,
+};
 use tokio_tungstenite::{
     connect_async,
     tungstenite::{client::IntoClientRequest, http::HeaderValue, Message as WsMessage},
@@ -35,6 +39,9 @@ const API_VERSION: &str = "v1";
 const MAX_EVENT_OUTBOX_EVENTS: usize = 1024;
 const MAX_CODEX_TRANSCRIPT_MESSAGES: usize = 20;
 const MAX_CODEX_TRANSCRIPT_CHARS: usize = 12_000;
+const MAX_PROVIDER_ACTIVITY_RAW_CHARS: usize = 16_000;
+const MAX_PROVIDER_ACTIVITY_SUMMARY_CHARS: usize = 1_200;
+const MAX_PROVIDER_ACTIVITY_LINE_CHARS: usize = 4_000;
 
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
@@ -624,7 +631,9 @@ async fn handle_command_dispatch(
     )
     .await?;
 
-    let outcome = prepare_command_dispatch(config, local_state, &command).await;
+    let outcome =
+        prepare_command_dispatch_with_live_socket(config, local_state, &command, Some(socket))
+            .await;
     if outcome.state_changed {
         local_state.save(&config.state_path)?;
     }
@@ -755,10 +764,49 @@ struct CommandDispatchOutcome {
     state_changed: bool,
 }
 
+struct NodeLiveEventSink<'a> {
+    socket: &'a mut ControlSocket,
+    event_outbox: &'a mut Vec<EventEnvelope>,
+    runtime_states: &'a mut HashMap<String, RuntimeSessionState>,
+    emitted_event_ids: HashSet<String>,
+}
+
+impl<'a> NodeLiveEventSink<'a> {
+    fn new(
+        socket: &'a mut ControlSocket,
+        event_outbox: &'a mut Vec<EventEnvelope>,
+        runtime_states: &'a mut HashMap<String, RuntimeSessionState>,
+    ) -> Self {
+        Self {
+            socket,
+            event_outbox,
+            runtime_states,
+            emitted_event_ids: HashSet::new(),
+        }
+    }
+
+    async fn emit(&mut self, event: &EventEnvelope) -> anyhow::Result<()> {
+        apply_runtime_state_projection_for_event(self.runtime_states, event);
+        self.event_outbox.push(event.clone());
+        self.emitted_event_ids.insert(event.event_id.to_string());
+        send_event_batch(self.socket, vec![event.clone()]).await
+    }
+}
+
+#[cfg(test)]
 async fn prepare_command_dispatch(
     config: &NodeConfig,
     local_state: &mut NodeLocalState,
     command: &CommandEnvelope,
+) -> CommandDispatchOutcome {
+    prepare_command_dispatch_with_live_socket(config, local_state, command, None).await
+}
+
+async fn prepare_command_dispatch_with_live_socket(
+    config: &NodeConfig,
+    local_state: &mut NodeLocalState,
+    command: &CommandEnvelope,
+    live_socket: Option<&mut ControlSocket>,
 ) -> CommandDispatchOutcome {
     if let Some(status) = local_state
         .command_status
@@ -775,6 +823,7 @@ async fn prepare_command_dispatch(
         };
     }
 
+    let mut live_event_ids = HashSet::new();
     let events = match command.kind {
         CommandKind::ValidateWorkspace => {
             workspace_validation_events(config, command, &mut local_state.placement_seqs)
@@ -787,25 +836,44 @@ async fn prepare_command_dispatch(
             let provider_key = provider_for_command(local_state, command);
             let workspace_path = workspace_path_for_command(local_state, command);
             let runtime_manager = RuntimeManager::for_provider(&provider_key, config);
-            runtime_manager
+            let mut live_event_sink = live_socket.map(|socket| {
+                NodeLiveEventSink::new(
+                    socket,
+                    &mut local_state.event_outbox,
+                    &mut local_state.runtime_states,
+                )
+            });
+            let events = runtime_manager
                 .execute_command(
                     command,
                     &mut local_state.runtime_seqs,
                     workspace_path.as_deref(),
                     &mut local_state.runtime_transcripts,
                     &mut local_state.runtime_provider_resume_refs,
+                    live_event_sink.as_mut(),
                 )
-                .await
+                .await;
+            if let Some(sink) = live_event_sink {
+                live_event_ids = sink.emitted_event_ids;
+            }
+            events
         }
     };
-    apply_runtime_state_projection(local_state, &events);
-    local_state.event_outbox.extend(events.iter().cloned());
+    let unsent_events = events
+        .iter()
+        .filter(|event| !live_event_ids.contains(event.event_id.as_str()))
+        .cloned()
+        .collect::<Vec<_>>();
+    apply_runtime_state_projection(local_state, &unsent_events);
+    local_state
+        .event_outbox
+        .extend(unsent_events.iter().cloned());
     let retention_notices = enforce_event_outbox_retention(local_state, MAX_EVENT_OUTBOX_EVENTS);
     let status = command_status_for_events(&events);
     local_state
         .command_status
         .insert(command.command_id.to_string(), status);
-    let mut events_to_send = events;
+    let mut events_to_send = unsent_events;
     events_to_send.extend(retention_notices);
 
     CommandDispatchOutcome {
@@ -1104,16 +1172,21 @@ fn provider_resume_ref_json(resume_ref: &ProviderResumeRef) -> serde_json::Value
 
 fn apply_runtime_state_projection(local_state: &mut NodeLocalState, events: &[EventEnvelope]) {
     for event in events {
-        let Some(runtime_session_id) = &event.runtime_session_id else {
-            continue;
-        };
-        let Some(state) = runtime_state_for_event(event.kind.clone()) else {
-            continue;
-        };
-        local_state
-            .runtime_states
-            .insert(runtime_session_id.to_string(), state);
+        apply_runtime_state_projection_for_event(&mut local_state.runtime_states, event);
     }
+}
+
+fn apply_runtime_state_projection_for_event(
+    runtime_states: &mut HashMap<String, RuntimeSessionState>,
+    event: &EventEnvelope,
+) {
+    let Some(runtime_session_id) = &event.runtime_session_id else {
+        return;
+    };
+    let Some(state) = runtime_state_for_event(event.kind.clone()) else {
+        return;
+    };
+    runtime_states.insert(runtime_session_id.to_string(), state);
 }
 
 fn runtime_state_for_event(kind: EventKind) -> Option<RuntimeSessionState> {
@@ -1316,6 +1389,7 @@ impl RuntimeManager {
         workspace_path: Option<&str>,
         runtime_transcripts: &mut HashMap<String, Vec<ProviderTranscriptMessage>>,
         runtime_provider_resume_refs: &mut HashMap<String, ProviderResumeRef>,
+        live_event_sink: Option<&mut NodeLiveEventSink<'_>>,
     ) -> Vec<EventEnvelope> {
         match self {
             Self::Fake(provider) => provider.events_for_command(command, runtime_seqs),
@@ -1327,6 +1401,7 @@ impl RuntimeManager {
                         workspace_path,
                         runtime_transcripts,
                         runtime_provider_resume_refs,
+                        live_event_sink,
                     )
                     .await
             }
@@ -1608,6 +1683,13 @@ struct ProviderStartFailure {
     message: String,
 }
 
+struct CodexProcessOutput {
+    status: ExitStatus,
+    stdout: Vec<u8>,
+    stderr: Vec<u8>,
+    activity_events: Vec<EventEnvelope>,
+}
+
 impl ProviderStartFailure {
     fn new(code: &'static str, message: impl Into<String>) -> Self {
         Self {
@@ -1636,6 +1718,7 @@ impl CodexProviderAdapter {
         workspace_path: Option<&str>,
         runtime_transcripts: &mut HashMap<String, Vec<ProviderTranscriptMessage>>,
         runtime_provider_resume_refs: &mut HashMap<String, ProviderResumeRef>,
+        live_event_sink: Option<&mut NodeLiveEventSink<'_>>,
     ) -> Vec<EventEnvelope> {
         let Some(runtime_session_id) = command.runtime_session_id.clone() else {
             return vec![];
@@ -1746,6 +1829,7 @@ impl CodexProviderAdapter {
                     workspace_path,
                     runtime_transcripts,
                     runtime_provider_resume_refs,
+                    live_event_sink,
                 )
                 .await
             }
@@ -1823,6 +1907,10 @@ impl CodexProviderAdapter {
         }
     }
 
+    #[expect(
+        clippy::too_many_arguments,
+        reason = "provider turn execution carries command, runtime, transcript, resume, and live stream state"
+    )]
     async fn send_turn_events(
         &self,
         command: &CommandEnvelope,
@@ -1831,6 +1919,7 @@ impl CodexProviderAdapter {
         workspace_path: Option<&str>,
         runtime_transcripts: &mut HashMap<String, Vec<ProviderTranscriptMessage>>,
         runtime_provider_resume_refs: &mut HashMap<String, ProviderResumeRef>,
+        live_event_sink: Option<&mut NodeLiveEventSink<'_>>,
     ) -> Vec<EventEnvelope> {
         let turn_id = command
             .payload
@@ -1891,6 +1980,11 @@ impl CodexProviderAdapter {
                 provider_session_id,
                 content,
                 &last_message_path,
+                command,
+                runtime_seqs,
+                &runtime_session_id,
+                turn_id.clone(),
+                live_event_sink,
             )
             .await
         } else {
@@ -1901,14 +1995,24 @@ impl CodexProviderAdapter {
                     .map(Vec::as_slice)
                     .unwrap_or(&[]),
             );
-            self.run_codex_exec(workspace_path, &prompt, &last_message_path)
-                .await
+            self.run_codex_exec(
+                workspace_path,
+                &prompt,
+                &last_message_path,
+                command,
+                runtime_seqs,
+                &runtime_session_id,
+                turn_id.clone(),
+                live_event_sink,
+            )
+            .await
         };
         let last_message = std::fs::read_to_string(&last_message_path).unwrap_or_default();
         let _ = std::fs::remove_file(&last_message_path);
 
         match output {
             Ok(output) if output.status.success() => {
+                events.extend(output.activity_events.iter().cloned());
                 let approval_requests = codex_approval_requests_from_output(&output);
                 let provider_resume_ref = codex_resume_ref_from_output(&output);
                 if let Some(provider_resume_ref) = provider_resume_ref
@@ -1932,7 +2036,7 @@ impl CodexProviderAdapter {
                                 "prompt": approval_request.prompt,
                                 "provider": self.provider_key(),
                                 "provider_event_type": approval_request.provider_event_type,
-                                "source": "codex_json_stdout",
+                                "source": "codex.exec.jsonl",
                             }),
                         ));
                     }
@@ -1977,15 +2081,6 @@ impl CodexProviderAdapter {
                             runtime_seqs,
                             runtime_session_id.clone(),
                             turn_id.clone(),
-                            EventKind::ProviderOutputDelta,
-                            serde_json::json!({ "delta": assistant_content }),
-                        ),
-                        event_for_command(
-                            self.provider_key(),
-                            command,
-                            runtime_seqs,
-                            runtime_session_id.clone(),
-                            turn_id.clone(),
                             EventKind::ProviderMessageCompleted,
                             serde_json::json!({ "content": assistant_content }),
                         ),
@@ -2011,6 +2106,7 @@ impl CodexProviderAdapter {
                 }
             }
             Ok(output) => {
+                events.extend(output.activity_events.iter().cloned());
                 events.push(runtime_error_event(
                     self.provider_key(),
                     command,
@@ -2036,12 +2132,21 @@ impl CodexProviderAdapter {
         events
     }
 
+    #[expect(
+        clippy::too_many_arguments,
+        reason = "Codex process launch needs workspace, output file, runtime, and live stream context"
+    )]
     async fn run_codex_exec(
         &self,
         workspace_path: &str,
         content: &str,
         last_message_path: &Path,
-    ) -> Result<Output, ProviderStartFailure> {
+        command_context: &CommandEnvelope,
+        runtime_seqs: &mut HashMap<String, i64>,
+        runtime_session_id: &RuntimeSessionId,
+        turn_id: Option<TurnId>,
+        live_event_sink: Option<&mut NodeLiveEventSink<'_>>,
+    ) -> Result<CodexProcessOutput, ProviderStartFailure> {
         let mut command = TokioCommand::new(&self.codex_binary);
         command
             .arg("exec")
@@ -2052,41 +2157,38 @@ impl CodexProviderAdapter {
             .arg(last_message_path)
             .arg(content)
             .current_dir(workspace_path)
+            .stdout(Stdio::piped())
+            .stderr(Stdio::piped())
             .kill_on_drop(true);
 
-        match timeout(self.timeout, command.output()).await {
-            Ok(Ok(output)) => Ok(output),
-            Ok(Err(error)) => {
-                let code = if error.kind() == ErrorKind::NotFound {
-                    "provider.missing_binary"
-                } else {
-                    "provider.start_failed"
-                };
-                Err(ProviderStartFailure::new(
-                    code,
-                    format!(
-                        "Codex exec could not start using `{}`: {error}",
-                        self.codex_binary
-                    ),
-                ))
-            }
-            Err(_) => Err(ProviderStartFailure::new(
-                "provider.start_timeout",
-                format!(
-                    "Codex exec timed out after {} seconds",
-                    self.timeout.as_secs()
-                ),
-            )),
-        }
+        self.run_codex_command(
+            command,
+            "Codex exec",
+            command_context,
+            runtime_seqs,
+            runtime_session_id,
+            turn_id,
+            live_event_sink,
+        )
+        .await
     }
 
+    #[expect(
+        clippy::too_many_arguments,
+        reason = "Codex resume launch needs resume id plus the same runtime and live stream context"
+    )]
     async fn run_codex_exec_resume(
         &self,
         workspace_path: &str,
         provider_session_id: &str,
         content: &str,
         last_message_path: &Path,
-    ) -> Result<Output, ProviderStartFailure> {
+        command_context: &CommandEnvelope,
+        runtime_seqs: &mut HashMap<String, i64>,
+        runtime_session_id: &RuntimeSessionId,
+        turn_id: Option<TurnId>,
+        live_event_sink: Option<&mut NodeLiveEventSink<'_>>,
+    ) -> Result<CodexProcessOutput, ProviderStartFailure> {
         let mut command = TokioCommand::new(&self.codex_binary);
         command
             .arg("exec")
@@ -2097,33 +2199,391 @@ impl CodexProviderAdapter {
             .arg(provider_session_id)
             .arg(content)
             .current_dir(workspace_path)
+            .stdout(Stdio::piped())
+            .stderr(Stdio::piped())
             .kill_on_drop(true);
 
-        match timeout(self.timeout, command.output()).await {
-            Ok(Ok(output)) => Ok(output),
-            Ok(Err(error)) => {
-                let code = if error.kind() == ErrorKind::NotFound {
-                    "provider.missing_binary"
-                } else {
-                    "provider.start_failed"
-                };
-                Err(ProviderStartFailure::new(
-                    code,
-                    format!(
-                        "Codex exec resume could not start using `{}`: {error}",
-                        self.codex_binary
-                    ),
-                ))
+        self.run_codex_command(
+            command,
+            "Codex exec resume",
+            command_context,
+            runtime_seqs,
+            runtime_session_id,
+            turn_id,
+            live_event_sink,
+        )
+        .await
+    }
+
+    #[expect(
+        clippy::too_many_arguments,
+        reason = "shared child-process reader carries command, runtime sequence, turn, and live sink context"
+    )]
+    async fn run_codex_command(
+        &self,
+        mut command: TokioCommand,
+        command_label: &'static str,
+        command_context: &CommandEnvelope,
+        runtime_seqs: &mut HashMap<String, i64>,
+        runtime_session_id: &RuntimeSessionId,
+        turn_id: Option<TurnId>,
+        mut live_event_sink: Option<&mut NodeLiveEventSink<'_>>,
+    ) -> Result<CodexProcessOutput, ProviderStartFailure> {
+        let mut child = command.spawn().map_err(|error| {
+            let code = if error.kind() == ErrorKind::NotFound {
+                "provider.missing_binary"
+            } else {
+                "provider.start_failed"
+            };
+            ProviderStartFailure::new(
+                code,
+                format!(
+                    "{command_label} could not start using `{}`: {error}",
+                    self.codex_binary
+                ),
+            )
+        })?;
+
+        let stdout = child.stdout.take().ok_or_else(|| {
+            ProviderStartFailure::new(
+                "provider.start_failed",
+                format!("{command_label} did not expose stdout"),
+            )
+        })?;
+        let stderr = child.stderr.take().ok_or_else(|| {
+            ProviderStartFailure::new(
+                "provider.start_failed",
+                format!("{command_label} did not expose stderr"),
+            )
+        })?;
+
+        let run = async {
+            let mut stdout_lines = BufReader::new(stdout).lines();
+            let mut stderr_lines = BufReader::new(stderr).lines();
+            let mut stdout = Vec::new();
+            let mut stderr = Vec::new();
+            let mut activity_events = Vec::new();
+            let mut stdout_done = false;
+            let mut stderr_done = false;
+            let mut status = None;
+            let wait = child.wait();
+            tokio::pin!(wait);
+
+            loop {
+                if status.is_some() && stdout_done && stderr_done {
+                    break;
+                }
+
+                tokio::select! {
+                    line = stdout_lines.next_line(), if !stdout_done => {
+                        match line {
+                            Ok(Some(line)) => {
+                                stdout.extend_from_slice(line.as_bytes());
+                                stdout.push(b'\n');
+                                let event = codex_stdout_activity_event(
+                                    self.provider_key(),
+                                    command_context,
+                                    runtime_seqs,
+                                    runtime_session_id.clone(),
+                                    turn_id.clone(),
+                                    &line,
+                                );
+                                emit_codex_activity_event(
+                                    &mut activity_events,
+                                    event,
+                                    &mut live_event_sink,
+                                )
+                                .await?;
+                            }
+                            Ok(None) => stdout_done = true,
+                            Err(error) => {
+                                return Err(ProviderStartFailure::new(
+                                    "provider.stdout_read_failed",
+                                    format!("{command_label} stdout could not be read: {error}"),
+                                ));
+                            }
+                        }
+                    }
+                    line = stderr_lines.next_line(), if !stderr_done => {
+                        match line {
+                            Ok(Some(line)) => {
+                                stderr.extend_from_slice(line.as_bytes());
+                                stderr.push(b'\n');
+                                let event = codex_stderr_activity_event(
+                                    self.provider_key(),
+                                    command_context,
+                                    runtime_seqs,
+                                    runtime_session_id.clone(),
+                                    turn_id.clone(),
+                                    &line,
+                                );
+                                emit_codex_activity_event(
+                                    &mut activity_events,
+                                    event,
+                                    &mut live_event_sink,
+                                )
+                                .await?;
+                            }
+                            Ok(None) => stderr_done = true,
+                            Err(error) => {
+                                return Err(ProviderStartFailure::new(
+                                    "provider.stderr_read_failed",
+                                    format!("{command_label} stderr could not be read: {error}"),
+                                ));
+                            }
+                        }
+                    }
+                    wait_result = &mut wait, if status.is_none() => {
+                        status = Some(wait_result.map_err(|error| {
+                            ProviderStartFailure::new(
+                                "provider.wait_failed",
+                                format!("{command_label} wait failed: {error}"),
+                            )
+                        })?);
+                    }
+                }
             }
+
+            let status = status.ok_or_else(|| {
+                ProviderStartFailure::new(
+                    "provider.wait_failed",
+                    format!("{command_label} exited without a status"),
+                )
+            })?;
+
+            Ok(CodexProcessOutput {
+                status,
+                stdout,
+                stderr,
+                activity_events,
+            })
+        };
+
+        match timeout(self.timeout, run).await {
+            Ok(result) => result,
             Err(_) => Err(ProviderStartFailure::new(
                 "provider.start_timeout",
                 format!(
-                    "Codex exec resume timed out after {} seconds",
+                    "{command_label} timed out after {} seconds",
                     self.timeout.as_secs()
                 ),
             )),
         }
     }
+}
+
+async fn emit_codex_activity_event(
+    activity_events: &mut Vec<EventEnvelope>,
+    event: EventEnvelope,
+    live_event_sink: &mut Option<&mut NodeLiveEventSink<'_>>,
+) -> Result<(), ProviderStartFailure> {
+    if let Some(sink) = live_event_sink.as_mut() {
+        sink.emit(&event).await.map_err(|error| {
+            ProviderStartFailure::new(
+                "provider.activity_stream_failed",
+                format!("Codex activity event could not be streamed: {error}"),
+            )
+        })?;
+    }
+    activity_events.push(event);
+    Ok(())
+}
+
+fn codex_stdout_activity_event(
+    provider_key: &str,
+    command: &CommandEnvelope,
+    runtime_seqs: &mut HashMap<String, i64>,
+    runtime_session_id: RuntimeSessionId,
+    turn_id: Option<TurnId>,
+    line: &str,
+) -> EventEnvelope {
+    match serde_json::from_str::<serde_json::Value>(line) {
+        Ok(value) => provider_activity_event(
+            provider_key,
+            command,
+            runtime_seqs,
+            runtime_session_id,
+            turn_id,
+            codex_activity_payload_from_json(provider_key, value),
+        ),
+        Err(error) => provider_activity_event(
+            provider_key,
+            command,
+            runtime_seqs,
+            runtime_session_id,
+            turn_id,
+            serde_json::json!({
+                "provider": provider_key,
+                "source": "codex.exec.jsonl",
+                "provider_event_type": "parse_error",
+                "phase": "error",
+                "status": "error",
+                "summary": format!("Codex JSONL parse error: {error}"),
+                "raw_line_preview": bounded_text(line, MAX_PROVIDER_ACTIVITY_LINE_CHARS),
+                "raw_line_truncated": line.chars().count() > MAX_PROVIDER_ACTIVITY_LINE_CHARS,
+                "raw_line_original_chars": line.chars().count(),
+                "parse_error": error.to_string(),
+            }),
+        ),
+    }
+}
+
+fn codex_stderr_activity_event(
+    provider_key: &str,
+    command: &CommandEnvelope,
+    runtime_seqs: &mut HashMap<String, i64>,
+    runtime_session_id: RuntimeSessionId,
+    turn_id: Option<TurnId>,
+    line: &str,
+) -> EventEnvelope {
+    provider_activity_event(
+        provider_key,
+        command,
+        runtime_seqs,
+        runtime_session_id,
+        turn_id,
+        serde_json::json!({
+            "provider": provider_key,
+            "source": "codex.exec.stderr",
+            "provider_event_type": "stderr",
+            "phase": "warning",
+            "status": "warning",
+            "summary": bounded_text(line.trim(), MAX_PROVIDER_ACTIVITY_SUMMARY_CHARS),
+            "raw_event": {
+                "stream": "stderr",
+                "line": bounded_text(line, MAX_PROVIDER_ACTIVITY_LINE_CHARS),
+            },
+            "raw_event_truncated": line.chars().count() > MAX_PROVIDER_ACTIVITY_LINE_CHARS,
+            "raw_event_original_chars": line.chars().count(),
+        }),
+    )
+}
+
+fn provider_activity_event(
+    provider_key: &str,
+    command: &CommandEnvelope,
+    runtime_seqs: &mut HashMap<String, i64>,
+    runtime_session_id: RuntimeSessionId,
+    turn_id: Option<TurnId>,
+    payload: serde_json::Value,
+) -> EventEnvelope {
+    event_for_command(
+        provider_key,
+        command,
+        runtime_seqs,
+        runtime_session_id,
+        turn_id,
+        EventKind::ProviderActivity,
+        payload,
+    )
+}
+
+fn codex_activity_payload_from_json(
+    provider_key: &str,
+    value: serde_json::Value,
+) -> serde_json::Value {
+    let provider_event_type = top_level_json_string(&value, &["type", "event", "kind"])
+        .unwrap_or_else(|| "unknown".to_owned());
+    let provider_item = value.get("item");
+    let provider_item_id = provider_item
+        .and_then(|item| item.get("id"))
+        .and_then(serde_json::Value::as_str)
+        .or_else(|| value.get("item_id").and_then(serde_json::Value::as_str))
+        .map(|text| bounded_text(text, 512));
+    let provider_item_type = provider_item
+        .and_then(|item| item.get("type"))
+        .and_then(serde_json::Value::as_str)
+        .or_else(|| value.get("item_type").and_then(serde_json::Value::as_str))
+        .map(|text| bounded_text(text, 512));
+    let status = first_json_string_for_keys(&value, &["status", "state"])
+        .map(|text| bounded_text(text.trim(), MAX_PROVIDER_ACTIVITY_SUMMARY_CHARS));
+    let phase = codex_activity_phase(&provider_event_type, status.as_deref());
+    let summary = codex_activity_summary(&value).unwrap_or_else(|| provider_event_type.clone());
+
+    let mut payload = serde_json::json!({
+        "provider": provider_key,
+        "source": "codex.exec.jsonl",
+        "provider_event_type": provider_event_type,
+        "phase": phase,
+        "summary": summary,
+    });
+    if let Some(provider_item_id) = provider_item_id {
+        payload["provider_item_id"] = serde_json::Value::String(provider_item_id);
+    }
+    if let Some(provider_item_type) = provider_item_type {
+        payload["provider_item_type"] = serde_json::Value::String(provider_item_type);
+    }
+    if let Some(status) = status {
+        payload["status"] = serde_json::Value::String(status);
+    }
+    append_bounded_raw_event(&mut payload, value);
+    payload
+}
+
+fn codex_activity_phase(provider_event_type: &str, status: Option<&str>) -> String {
+    let normalized_type = provider_event_type.to_ascii_lowercase();
+    if normalized_type.contains("failed") || normalized_type.contains("error") {
+        return "error".to_owned();
+    }
+    if normalized_type.contains("completed") || normalized_type.contains("done") {
+        return "completed".to_owned();
+    }
+    if normalized_type.contains("started") || normalized_type.contains("created") {
+        return "started".to_owned();
+    }
+    if normalized_type.contains("delta") || normalized_type.contains("output") {
+        return "running".to_owned();
+    }
+    if let Some(status) = status {
+        let normalized_status = status.to_ascii_lowercase();
+        if normalized_status.contains("failed") || normalized_status.contains("error") {
+            return "error".to_owned();
+        }
+        if normalized_status.contains("completed") || normalized_status.contains("done") {
+            return "completed".to_owned();
+        }
+        if normalized_status.contains("running") || normalized_status.contains("started") {
+            return "running".to_owned();
+        }
+    }
+    "observed".to_owned()
+}
+
+fn codex_activity_summary(value: &serde_json::Value) -> Option<String> {
+    first_json_string_for_keys(
+        value,
+        &[
+            "command",
+            "summary",
+            "message",
+            "text",
+            "content",
+            "delta",
+            "reason",
+            "description",
+            "path",
+        ],
+    )
+    .map(|text| bounded_text(text.trim(), MAX_PROVIDER_ACTIVITY_SUMMARY_CHARS))
+    .filter(|text| !text.is_empty())
+}
+
+fn append_bounded_raw_event(payload: &mut serde_json::Value, raw_event: serde_json::Value) {
+    let raw_event_chars = serde_json::to_string(&raw_event)
+        .map(|text| text.chars().count())
+        .unwrap_or(0);
+    if raw_event_chars <= MAX_PROVIDER_ACTIVITY_RAW_CHARS {
+        payload["raw_event"] = raw_event;
+        payload["raw_event_truncated"] = serde_json::Value::Bool(false);
+        return;
+    }
+    let preview = serde_json::to_string(&raw_event)
+        .map(|text| bounded_text(&text, MAX_PROVIDER_ACTIVITY_RAW_CHARS))
+        .unwrap_or_else(|_| "<unserializable provider event>".to_owned());
+    payload["raw_event_truncated"] = serde_json::Value::Bool(true);
+    payload["raw_event_original_chars"] =
+        serde_json::Value::Number(serde_json::Number::from(raw_event_chars));
+    payload["raw_event_preview"] = serde_json::Value::String(preview);
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -2133,7 +2593,7 @@ struct CodexApprovalRequest {
     provider_event_type: Option<String>,
 }
 
-fn codex_approval_requests_from_output(output: &Output) -> Vec<CodexApprovalRequest> {
+fn codex_approval_requests_from_output(output: &CodexProcessOutput) -> Vec<CodexApprovalRequest> {
     String::from_utf8_lossy(&output.stdout)
         .lines()
         .filter_map(codex_approval_request_from_json_line)
@@ -2204,7 +2664,7 @@ fn first_json_string_for_keys(value: &serde_json::Value, keys: &[&str]) -> Optio
     }
 }
 
-fn codex_resume_ref_from_output(output: &Output) -> Option<serde_json::Value> {
+fn codex_resume_ref_from_output(output: &CodexProcessOutput) -> Option<serde_json::Value> {
     String::from_utf8_lossy(&output.stdout)
         .lines()
         .filter_map(|line| serde_json::from_str::<serde_json::Value>(line).ok())
@@ -2401,7 +2861,7 @@ fn sanitize_filename_segment(value: &str) -> String {
         .collect()
 }
 
-fn codex_failure_message(output: &Output) -> String {
+fn codex_failure_message(output: &CodexProcessOutput) -> String {
     let status = output
         .status
         .code()
@@ -3625,7 +4085,7 @@ mod tests {
             vec![
                 EventKind::RuntimeRunning,
                 EventKind::TurnStarted,
-                EventKind::ProviderOutputDelta,
+                EventKind::ProviderActivity,
                 EventKind::ProviderMessageCompleted,
                 EventKind::TurnCompleted,
                 EventKind::RuntimeReady,
@@ -3638,6 +4098,23 @@ mod tests {
                 .get("content")
                 .and_then(serde_json::Value::as_str),
             Some("Codex fake accepted")
+        );
+        assert_eq!(
+            outcome.events_to_send[2]
+                .payload
+                .0
+                .get("provider_event_type")
+                .and_then(serde_json::Value::as_str),
+            Some("response.completed")
+        );
+        assert_eq!(
+            outcome.events_to_send[2]
+                .payload
+                .0
+                .get("raw_event")
+                .and_then(|value| value.get("session_id"))
+                .and_then(serde_json::Value::as_str),
+            Some("codex-session-1")
         );
         assert_eq!(
             local_state.runtime_states.get("runtime-1").copied(),
@@ -3830,12 +4307,13 @@ mod tests {
             vec![
                 EventKind::RuntimeRunning,
                 EventKind::TurnStarted,
+                EventKind::ProviderActivity,
                 EventKind::ApprovalRequested,
                 EventKind::RuntimeBlocked,
             ]
         );
         assert_eq!(
-            outcome.events_to_send[2]
+            outcome.events_to_send[3]
                 .payload
                 .0
                 .get("approval_id")
@@ -3843,7 +4321,7 @@ mod tests {
             Some("approval-codex-1")
         );
         assert_eq!(
-            outcome.events_to_send[2]
+            outcome.events_to_send[3]
                 .payload
                 .0
                 .get("prompt")
@@ -3851,12 +4329,21 @@ mod tests {
             Some("Allow file edit?")
         );
         assert_eq!(
-            outcome.events_to_send[2]
+            outcome.events_to_send[3]
                 .payload
                 .0
                 .get("source")
                 .and_then(serde_json::Value::as_str),
-            Some("codex_json_stdout")
+            Some("codex.exec.jsonl")
+        );
+        assert_eq!(
+            outcome.events_to_send[2]
+                .payload
+                .0
+                .get("raw_event")
+                .and_then(|value| value.get("approval_id"))
+                .and_then(serde_json::Value::as_str),
+            Some("approval-codex-1")
         );
         assert_eq!(
             local_state.runtime_states.get("runtime-1").copied(),
@@ -3881,6 +4368,71 @@ mod tests {
             request.provider_event_type.as_deref(),
             Some("provider.user_input.requested")
         );
+    }
+
+    #[test]
+    fn codex_activity_payload_preserves_unknown_raw_json_fields() {
+        let payload = codex_activity_payload_from_json(
+            "codex",
+            serde_json::json!({
+                "type": "item.completed",
+                "item": {
+                    "id": "item-1",
+                    "type": "command_execution",
+                    "command": "make c",
+                    "status": "completed",
+                    "future_field": { "kept": true }
+                }
+            }),
+        );
+
+        assert_eq!(
+            payload
+                .get("provider_event_type")
+                .and_then(serde_json::Value::as_str),
+            Some("item.completed")
+        );
+        assert_eq!(
+            payload
+                .get("provider_item_type")
+                .and_then(serde_json::Value::as_str),
+            Some("command_execution")
+        );
+        assert_eq!(
+            payload
+                .get("raw_event")
+                .and_then(|raw| raw.get("item"))
+                .and_then(|item| item.get("future_field"))
+                .and_then(|field| field.get("kept"))
+                .and_then(serde_json::Value::as_bool),
+            Some(true)
+        );
+    }
+
+    #[test]
+    fn codex_stdout_activity_event_records_malformed_jsonl_as_parse_error() {
+        let command = command_fixture("command-codex-parse-error", CommandKind::SendTurn);
+        let mut runtime_seqs = HashMap::new();
+
+        let event = codex_stdout_activity_event(
+            "codex",
+            &command,
+            &mut runtime_seqs,
+            RuntimeSessionId::from("runtime-1"),
+            Some(TurnId::from("turn-1")),
+            "{bad json",
+        );
+
+        assert_eq!(event.kind, EventKind::ProviderActivity);
+        assert_eq!(
+            event
+                .payload
+                .0
+                .get("provider_event_type")
+                .and_then(serde_json::Value::as_str),
+            Some("parse_error")
+        );
+        assert_eq!(runtime_seqs.get("runtime-1").copied(), Some(1));
     }
 
     #[tokio::test]
@@ -3958,18 +4510,27 @@ mod tests {
             vec![
                 EventKind::RuntimeRunning,
                 EventKind::TurnStarted,
+                EventKind::ProviderActivity,
                 EventKind::RuntimeError,
             ]
         );
         assert_eq!(
-            outcome.events_to_send[2]
+            outcome.events_to_send[3]
                 .payload
                 .0
                 .get("code")
                 .and_then(serde_json::Value::as_str),
             Some("provider.exec_failed")
         );
-        assert!(outcome.events_to_send[2]
+        assert_eq!(
+            outcome.events_to_send[2]
+                .payload
+                .0
+                .get("provider_event_type")
+                .and_then(serde_json::Value::as_str),
+            Some("stderr")
+        );
+        assert!(outcome.events_to_send[3]
             .payload
             .0
             .get("message")

@@ -1,8 +1,11 @@
-import type { ComponentType, ReactNode } from "react";
+import { useState, type ComponentType, type ReactNode } from "react";
 import {
+  Activity,
   AlertTriangle,
   Bot,
   CheckCircle2,
+  ChevronDown,
+  ChevronRight,
   CircleDot,
   HelpCircle,
   User,
@@ -31,6 +34,7 @@ export type BlockRendererRegistration = {
 const rendererRegistrations: BlockRendererRegistration[] = [
   register("core.user-message", MessageBlock),
   register("core.assistant-message", MessageBlock),
+  register("core.turn-activity", TurnActivityBlock),
   register("core.provider-output-stream", EventBlock),
   register("core.runtime-event", EventBlock),
   register("core.workspace-validation", EventBlock),
@@ -138,6 +142,126 @@ function ApprovalBlock({ block, actions }: BlockRendererProps) {
       </p>
       <BlockActions actions={actions} />
     </article>
+  );
+}
+
+function TurnActivityBlock({ block, actions }: BlockRendererProps) {
+  const data = blockData(block);
+  const rows = arrayField(data, "rows").filter(isRecord);
+  const completed = booleanField(data, "completed", false);
+  const [manualExpanded, setManualExpanded] = useState<boolean | null>(null);
+  const expanded = manualExpanded ?? !completed;
+  const durationMs = numberField(data, "durationMs", 0);
+
+  return (
+    <article className="rounded-md border border-[#ccd5d8] bg-[#f5f7f8] p-3">
+      <div className="flex flex-wrap items-center justify-between gap-2">
+        <div className="flex min-w-0 items-center gap-2">
+          <button
+            type="button"
+            aria-label={expanded ? "Collapse activity" : "Expand activity"}
+            className="grid h-7 w-7 shrink-0 place-items-center rounded border border-[#b9c5c9] bg-white text-[#536257]"
+            onClick={() => setManualExpanded(!expanded)}
+          >
+            {expanded ? <ChevronDown size={16} /> : <ChevronRight size={16} />}
+          </button>
+          <div className="min-w-0">
+            <div className="flex items-center gap-1.5 text-xs font-semibold uppercase tracking-normal text-[#536257]">
+              <Activity size={14} />
+              Turn Activity
+            </div>
+            <div className="truncate font-mono text-xs text-[#667268]">
+              {stringField(data, "turnId", "turn")}
+            </div>
+          </div>
+        </div>
+        <div className="flex flex-wrap items-center gap-1.5">
+          <ActivityCounter label="events" value={rows.length} />
+          <ActivityCounter
+            label="commands"
+            value={numberField(data, "commandCount", 0)}
+          />
+          <ActivityCounter
+            label="files"
+            value={numberField(data, "fileChangeCount", 0)}
+          />
+          <ActivityCounter
+            label="reasoning"
+            value={numberField(data, "reasoningCount", 0)}
+          />
+          <ActivityCounter
+            label="warnings"
+            value={numberField(data, "warningErrorCount", 0)}
+          />
+          {durationMs > 0 ? (
+            <ActivityCounter label="time" value={formatDuration(durationMs)} />
+          ) : null}
+        </div>
+      </div>
+      {expanded ? (
+        <div className="mt-3 max-h-80 overflow-y-auto border-t border-[#d8e0e2] pt-2">
+          <div className="space-y-2">
+            {rows.map((row, index) => (
+              <ActivityRow
+                key={stringField(row, "eventId", `activity-row-${index}`)}
+                row={row}
+              />
+            ))}
+          </div>
+        </div>
+      ) : null}
+      <BlockActions actions={actions} />
+    </article>
+  );
+}
+
+function ActivityCounter({
+  label,
+  value,
+}: {
+  label: string;
+  value: number | string;
+}) {
+  return (
+    <span className="rounded border border-[#cbd5d8] bg-white px-1.5 py-0.5 text-xs text-[#536257]">
+      <span className="font-mono">{value}</span> {label}
+    </span>
+  );
+}
+
+function ActivityRow({ row }: { row: Record<string, unknown> }) {
+  const phase = stringField(row, "phase", "observed");
+  const status = stringField(row, "status", phase);
+  const rawText = rawActivityText(row);
+
+  return (
+    <div className="grid gap-1 border-b border-[#dfe5e7] pb-2 last:border-b-0">
+      <div className="flex flex-wrap items-center gap-2 text-xs">
+        <span className="font-mono text-[#667268]">
+          seq {numberField(row, "seq", 0)}
+        </span>
+        <Badge tone={activityTone(status)}>
+          {stringField(row, "providerEventType", "provider.activity")}
+        </Badge>
+        <span className="text-[#667268]">{status}</span>
+        {stringField(row, "providerItemType", "") ? (
+          <span className="font-mono text-[#667268]">
+            {stringField(row, "providerItemType", "")}
+          </span>
+        ) : null}
+      </div>
+      <div className="break-words text-sm text-[#37453d]">
+        {stringField(row, "summary", "Provider activity")}
+      </div>
+      {rawText ? (
+        <details className="text-xs text-[#536257]">
+          <summary className="cursor-pointer select-none">Raw</summary>
+          <pre className="mt-1 max-h-56 overflow-auto rounded border border-[#d8e0e2] bg-white p-2 font-mono text-[11px] leading-4 text-[#17211c]">
+            {rawText}
+          </pre>
+        </details>
+      ) : null}
+    </div>
   );
 }
 
@@ -252,4 +376,60 @@ function numberField(
 ) {
   const value = data[field];
   return typeof value === "number" ? value : fallback;
+}
+
+function booleanField(
+  data: Record<string, unknown>,
+  field: string,
+  fallback: boolean,
+) {
+  const value = data[field];
+  return typeof value === "boolean" ? value : fallback;
+}
+
+function arrayField(data: Record<string, unknown>, field: string) {
+  const value = data[field];
+  return Array.isArray(value) ? value : [];
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null;
+}
+
+function activityTone(status: string): BadgeTone {
+  const normalized = status.toLowerCase();
+  if (
+    normalized.includes("error") ||
+    normalized.includes("failed") ||
+    normalized.includes("warning")
+  ) {
+    return normalized.includes("warning") ? "warn" : "bad";
+  }
+  if (normalized.includes("completed")) return "good";
+  return "info";
+}
+
+function rawActivityText(row: Record<string, unknown>) {
+  const rawEvent = row.rawEvent;
+  if (rawEvent !== undefined) return formatRawValue(rawEvent);
+  const preview = row.rawEventPreview;
+  return typeof preview === "string" ? preview : null;
+}
+
+function formatRawValue(value: unknown) {
+  if (typeof value === "string") return value;
+  try {
+    return JSON.stringify(value, null, 2);
+  } catch {
+    return String(value);
+  }
+}
+
+function formatDuration(durationMs: number) {
+  if (durationMs < 1000) return `${durationMs}ms`;
+  const seconds = durationMs / 1000;
+  if (seconds < 60) return `${seconds.toFixed(seconds < 10 ? 1 : 0)}s`;
+  const minutes = Math.floor(seconds / 60);
+  const remainingSeconds = Math.round(seconds % 60);
+  return `${minutes}m ${remainingSeconds}s`;
 }
