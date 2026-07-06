@@ -82,25 +82,34 @@ classification, generated/ignored stop-points and permission-denied states.
 
 Implemented intervention layer добавляет:
 
-- lightweight text editing with explicit save/apply semantics;
+- Monaco-backed lightweight text editing with explicit save/apply semantics;
 - workspace-scoped no-shell command runner with bounded timeout, bounded output
   and explicit controlled-dev executable allow-list: `cargo`, `git`, `make`,
   `node`, `npm`, `pnpm`, `bun` and `rustc`;
 - persisted command/output history tied to placement-scoped commands;
-- basic diff view for workspace changes;
+- Monaco-backed diff view for workspace changes;
 - basic check/test result entry points;
 - addressable references to terminal sessions, commands, output ranges, diffs,
   checks and edits.
 
-Full workspace-scoped terminal/PTY sessions with attach, detach, resize, close
-and replay semantics остаются later step.
+Implemented renderer and PTY slice добавляет:
+
+- first-class Monaco renderers для file editing and diff viewing;
+- first-class xterm.js terminal tabs для interactive workspace PTY sessions;
+- Core terminal APIs для open, list, attach/stream, resize, input and close;
+- Node-owned PTY lifecycle scoped to the validated workspace cwd, with
+  shell-profile policy, resize handling, close/cleanup, status/exit frames and
+  bounded replay.
+
+Command runner остается отдельным от xterm. Он все еще нужен для traceable,
+bounded and policy-controlled checks вроде `make l` and `make c`.
 
 ## Explicit Non-Goals
 
 Первые inspector and intervention slices не должны пытаться стать полноценной
 IDE:
 
-- нет требования full code editor;
+- нет требования full IDE;
 - нет требования language server;
 - нет требования rich refactoring, debugger or VS Code extension compatibility;
 - нет arbitrary plugin-controlled workbench layout before Plugin Registry exists;
@@ -225,13 +234,12 @@ model.
 
 ## Открытые вопросы
 
-- Должен ли first intervention terminal быть fully interactive PTY, command
-  runner или обоими?
 - Должен ли first intervention editor сохранять whole files, применять patches
   или поддерживать оба пути?
 - Как должен работать file search: Node-local search first, indexed search или
   оба?
 - Какая minimal reference schema нужна для path, range, command, output, diff,
   edit and check objects?
-- Как различать session terminals and agent-owned terminals в UI and trace?
+- Как различать session terminals, user-owned workspace terminals and
+  agent-owned terminals в UI and trace?
 - Какие files должны быть hidden or redacted by default?

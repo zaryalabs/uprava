@@ -81,24 +81,33 @@ classification, generated/ignored stop-points, and permission-denied states.
 
 The implemented intervention layer adds:
 
-- lightweight text editing with explicit save/apply semantics;
+- Monaco-backed lightweight text editing with explicit save/apply semantics;
 - workspace-scoped no-shell command runner with bounded timeout, bounded output
   and an explicit controlled-dev executable allow-list: `cargo`, `git`, `make`,
   `node`, `npm`, `pnpm`, `bun` and `rustc`;
 - persisted command/output history tied to placement-scoped commands;
-- basic diff view for workspace changes;
+- Monaco-backed diff view for workspace changes;
 - basic check/test result entry points;
 - addressable references to terminal sessions, commands, output ranges, diffs,
   checks, and edits.
 
-Full workspace-scoped terminal/PTY sessions with attach, detach, resize, close,
-and replay semantics remain a later step.
+The implemented renderer and PTY slice adds:
+
+- first-class Monaco renderers for file editing and diff viewing;
+- first-class xterm.js terminal tabs for interactive workspace PTY sessions;
+- Core terminal APIs for open, list, attach/stream, resize, input and close;
+- Node-owned PTY lifecycle scoped to the validated workspace cwd, with
+  shell-profile policy, resize handling, close/cleanup, status/exit frames and
+  bounded replay.
+
+The command runner remains separate from xterm. It is still the right path for
+traceable, bounded and policy-controlled checks such as `make l` and `make c`.
 
 ## Explicit Non-Goals
 
 The first inspector and intervention slices should not try to become a full IDE:
 
-- no full code editor requirement;
+- no full IDE requirement;
 - no language server requirement;
 - no rich refactoring, debugger, or VS Code extension compatibility requirement;
 - no arbitrary plugin-controlled workbench layout before Plugin Registry exists;
@@ -220,13 +229,11 @@ connect their workspace evidence back into the same review and trace model.
 
 ## Open Questions
 
-- Should the first intervention terminal be a fully interactive PTY, a command
-  runner, or both?
 - Should the first intervention editor save whole files, apply patches, or
   support both?
 - How should file search work: Node-local search first, indexed search, or both?
 - What is the minimal reference schema for path, range, command, output, diff,
   edit, and check objects?
-- How should session terminals and agent-owned terminals be distinguished in UI
-  and trace?
+- How should session terminals, user-owned workspace terminals and agent-owned
+  terminals be distinguished in UI and trace?
 - Which files should be hidden or redacted by default?

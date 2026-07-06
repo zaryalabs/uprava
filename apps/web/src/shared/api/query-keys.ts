@@ -13,6 +13,8 @@ export const queryKeys = {
     ["placement", placementId, "workspace-command-history"] as const,
   workspaceDiff: (placementId: string) =>
     ["placement", placementId, "workspace-diff"] as const,
+  workspaceTerminals: (placementId: string) =>
+    ["placement", placementId, "workspace-terminals"] as const,
   session: (sessionThreadId: string) => ["session", sessionThreadId] as const,
   artifactTree: (sessionThreadId: string) =>
     ["session", sessionThreadId, "artifact-tree"] as const,

@@ -93,7 +93,7 @@ open project on node
 open workspace terminal
 -> Core checks permission
 -> Node Daemon creates PTY inside workspace
--> Web renders xterm-like panel
+-> Web renders xterm.js panel
 -> input/output/resize stream through Core
 -> command/output can be referenced from trace/review
 ```
@@ -114,9 +114,10 @@ open workspace terminal
 
 3. **Terminal intervention**
 
-   Пользователь открывает workspace terminal, запускает конкретную команду или
-   проверку. Output становится частью event/history surface, а не теряется как
-   локальная вкладка терминала.
+   Пользователь открывает interactive workspace terminal for exploratory shell
+   work, or runs a controlled check through the command runner. PTY output,
+   status and exit frames stay attached to the workspace surface instead of
+   being lost in a local terminal tab.
 
 4. **Ask agent about selected evidence**
 
@@ -304,11 +305,15 @@ CreateTerminal(workspace_binding_id, shell/profile)
 -> Close/detach preserves explicit terminal status
 ```
 
-Важная развилка: полноценный interactive PTY или command runner. Для первого
-workspace surface slice нужно оставить оба пути архитектурно возможными:
+Решенная развилка: полноценный interactive PTY and command runner both exist,
+but they have different jobs:
 
 - interactive PTY нужен для привычной работы;
 - command runner проще трассировать и безопаснее для controlled checks.
+
+The implementation line is explicit: xterm renders an interactive PTY lifecycle,
+not command-runner output. Controlled checks such as `make l` and `make c`
+continue through the bounded command runner.
 
 ### Addressability
 
@@ -383,10 +388,10 @@ CheckPanel
 WorkspaceRefLink
 ```
 
-Possible libraries:
+Chosen first-party renderers:
 
-- CodeMirror or Monaco for file viewer/editor/diff;
-- xterm.js-style component for terminal rendering;
+- Monaco for file viewer/editor/diff;
+- xterm.js for interactive terminal rendering;
 - code-server/OpenVSCode/Theia as optional sidecar providers later.
 
 Library choice is not the key mechanic. The key mechanic is the contract:

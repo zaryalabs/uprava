@@ -29,9 +29,12 @@ import type {
   WorkspaceFileContentResponse,
   WorkspaceFileWriteRequest,
   WorkspaceFileWriteResponse,
+  WorkspaceTerminalListResponse,
+  WorkspaceTerminalOpenRequest,
+  WorkspaceTerminalOpenResponse,
   WorkspaceTreeResponse,
 } from "../protocol/types";
-import { apiBase } from "./config";
+import { apiBase, apiWsBase } from "./config";
 import { logClientEvent } from "../logging/client-logger";
 
 export class UpravaApiError extends Error {
@@ -181,6 +184,22 @@ export const coreApi = {
     apiGet<WorkspaceDiffResponse>(
       `/placements/${encodeURIComponent(placementId)}/workspace/diff`,
     ),
+  workspaceTerminals: (placementId: string) =>
+    apiGet<WorkspaceTerminalListResponse>(
+      `/placements/${encodeURIComponent(placementId)}/workspace/terminals`,
+    ),
+  openWorkspaceTerminal: (
+    placementId: string,
+    request: WorkspaceTerminalOpenRequest,
+  ) =>
+    apiPost<WorkspaceTerminalOpenResponse>(
+      `/placements/${encodeURIComponent(placementId)}/workspace/terminals`,
+      request,
+    ),
+  workspaceTerminalStreamUrl: (placementId: string, terminalId: string) =>
+    `${apiWsBase}/placements/${encodeURIComponent(
+      placementId,
+    )}/workspace/terminals/${encodeURIComponent(terminalId)}/stream`,
   validatePlacement: (request: CreatePlacementRequest) =>
     apiPost<import("../protocol/types").ProjectPlacementSummary>(
       "/project-placements/validate",

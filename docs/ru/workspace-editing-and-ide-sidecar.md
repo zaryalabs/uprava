@@ -118,22 +118,25 @@ offer safe alternatives such as open externally or ask agent, when allowed.
 
 ## Component Strategy
 
-UI должен использовать proven browser editor component за локальной abstraction.
+Web Control Panel теперь использует proven browser components за локальными
+abstractions:
 
-Вероятные кандидаты:
+- **Monaco Editor** powers `FileEditor` and `DiffViewer`, давая workspace
+  surface code-oriented editing, models, syntax highlighting, diff rendering and
+  future room for selections, range actions and review decorations.
+- **xterm.js** powers interactive workspace terminal rendering. Это только
+  browser terminal renderer: Core routes the stream, а Node Daemon owns the
+  actual PTY/process lifecycle.
 
-- **CodeMirror 6** - lighter, modular, хорошо подходит для embedded text editing
-  and custom workbench UI.
-- **Monaco Editor** - ближе к VS Code behavior, силен для code viewing,
-  diffing, models and line decorations, но heavier and more IDE-shaped.
+Uprava должен продолжать скрывать эти libraries за local components such as
+`FileViewer`, `FileEditor`, `DiffViewer`, `TerminalTabs` and
+`XtermTerminalPanel`, чтобы остальной продукт не был coupled to editor or
+terminal library APIs.
 
-Implementation choice должен оставаться open до появления web scaffold. Какой бы
-component ни был выбран, Uprava должен wrapped it in local components such as
-`FileViewer`, `FileEditor` and `DiffViewer`, чтобы остальной продукт не был
-coupled to a specific editor library.
-
-Terminal rendering также должен использовать proven browser terminal component,
-скорее всего xterm.js, while Node Daemon owns the actual PTY/process lifecycle.
+Command runner остается отдельной controlled surface для bounded,
+policy-controlled and traceable checks. Его не нужно collapse into xterm,
+потому что xterm представляет interactive PTY lifecycle, а не structured command
+execution record.
 
 ## IDE Sidecar
 
@@ -167,7 +170,6 @@ traceability and review.
   поддерживать оба пути?
 - Должны ли edits быть allowed directly, require diff preview или depend on path
   risk?
-- Какой editor component использовать первым: CodeMirror or Monaco?
 - Сколько diff UI нужно до save versus after save?
 - Как различать user edits and agent edits in trace and review?
 - Когда должен появиться "open full IDE" sidecar: workspace-surface experiment

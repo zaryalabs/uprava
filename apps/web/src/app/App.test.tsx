@@ -43,7 +43,9 @@ describe("App routes", () => {
     ).toBeVisible();
     expect(await screen.findByText("Workspace Inspector")).toBeVisible();
     expect((await screen.findAllByText("README.md")).length).toBeGreaterThan(0);
-    expect(await screen.findByText("# Uprava")).toBeVisible();
+    expect(
+      await screen.findByRole("region", { name: "File editor README.md" }),
+    ).toBeVisible();
 
     renderApp("/projects/project-1");
 
@@ -70,7 +72,7 @@ describe("App routes", () => {
     expect(
       await screen.findByRole("heading", { name: "Runtime Settings" }),
     ).toBeVisible();
-    expect(await screen.findByText("uprava-core 0.1.6")).toBeVisible();
+    expect(await screen.findByText("uprava-core 0.1.7")).toBeVisible();
     expect(screen.getByText("v1")).toBeVisible();
     expect(screen.getByText("1")).toBeVisible();
   });
@@ -137,7 +139,7 @@ function responseForPath(pathname: string) {
     case "/api/v1/version":
       return {
         name: "uprava-core",
-        version: "0.1.6",
+        version: "0.1.7",
         api_version: "v1",
         schema_version: 1,
         profile: "controlled_dev",
@@ -152,6 +154,8 @@ function responseForPath(pathname: string) {
       return workspaceTree;
     case "/api/v1/placements/placement-1/workspace/file":
       return workspaceFile;
+    case "/api/v1/placements/placement-1/workspace/terminals":
+      return workspaceTerminals;
     case "/api/v1/sessions/session-1":
       return sessionDetail;
     case "/api/v1/sessions/session-1/artifact-tree":
@@ -252,6 +256,12 @@ const workspaceFile = {
   },
   content: "# Uprava",
   truncated: false,
+  generated_at: "2026-06-17T00:00:00Z",
+};
+
+const workspaceTerminals = {
+  placement_id: "placement-1",
+  terminals: [],
   generated_at: "2026-06-17T00:00:00Z",
 };
 

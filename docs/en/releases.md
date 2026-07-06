@@ -2,7 +2,7 @@
 
 Status: `active`
 
-Current release baseline: `0.1.6`.
+Current release baseline: `0.1.7`.
 
 This ledger records implementation baselines. It does not replace
 [`feature-queue.md`](feature-queue.md), which remains the ranked list of future
@@ -18,13 +18,14 @@ work.
 | `0.1.3` | 2026-07-06 | shipped | Workspace shell and reference model |
 | `0.1.4` | 2026-07-06 | shipped | Read-only Project Workspace Inspector |
 | `0.1.5` | 2026-07-06 | shipped | Workspace intervention layer |
-| `0.1.6` | 2026-07-06 | current | Unified audit hardening |
+| `0.1.6` | 2026-07-06 | shipped | Unified audit hardening |
+| `0.1.7` | 2026-07-06 | current | Workspace renderer and PTY terminal layer |
 
 ## Current Baseline
 
-`0.1.6` includes the first working distributed control panel, the five
-completed feature queue slices after `0.1.0`, and a unified audit hardening
-slice:
+`0.1.7` includes the first working distributed control panel, the five
+completed feature queue slices after `0.1.0`, the unified audit hardening slice,
+and the workspace renderer/PTY terminal layer:
 
 - controlled-development security baseline;
 - runtime/session hardening;
@@ -40,6 +41,16 @@ slice:
 - visible web error states, send draft preservation and terminal enrollment
   status handling;
 - healthcheck and logging failure hardening.
+- Monaco-backed file editing and diff rendering in the Web Control Panel;
+- Core workspace terminal APIs for open, list, attach/stream, resize, input and
+  close;
+- Node Daemon PTY lifecycle management with workspace cwd enforcement,
+  shell-profile policy, resize/input handling, status/exit frames and bounded
+  replay;
+- xterm.js terminal tabs with WebSocket attach, fit resize and interactive
+  input/output streaming;
+- retained bounded command runner for traceable controlled checks such as
+  `make l` and `make c`.
 
 New audits and temporary plans should treat these as current implementation
 facts. They may still refer to `V01` when discussing the historical first

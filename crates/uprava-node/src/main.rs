@@ -1,9 +1,10 @@
 use std::{
-    collections::{BTreeMap, HashMap, HashSet},
+    collections::{BTreeMap, HashMap, HashSet, VecDeque},
     fs::{self, OpenOptions},
     io::{ErrorKind, Read, Seek, SeekFrom, Write},
     path::{Path, PathBuf},
     process::{Command as StdCommand, ExitStatus, Stdio},
+    sync::Arc,
     time::{Duration, Instant},
 };
 
@@ -13,11 +14,13 @@ use std::os::unix::fs::{OpenOptionsExt, PermissionsExt};
 use anyhow::Context;
 use chrono::{DateTime, Utc};
 use futures_util::{SinkExt, StreamExt};
+use pty_process::{Command as PtyCommand, Size as PtySize};
 use reqwest::Url;
 use serde::{Deserialize, Serialize};
 use tokio::{
-    io::{AsyncBufReadExt, AsyncRead, AsyncReadExt, BufReader},
+    io::{AsyncBufReadExt, AsyncRead, AsyncReadExt, AsyncWriteExt, BufReader},
     process::Command as TokioCommand,
+    sync::{mpsc, RwLock},
     time::timeout,
 };
 use tokio_tungstenite::{
@@ -32,15 +35,16 @@ use uprava_protocol::{
     NodeEnrollmentClaimResponse, NodeEnrollmentRequest, NodeEnrollmentRequestedResponse,
     NodeHeartbeatRequest, NodeHeartbeatResponse, NodeId, PlacementState, ProjectPlacementId,
     ResourceBadge, RuntimeSessionId, RuntimeSessionState, ScopeRef, SessionThreadId, SleepHint,
-    TurnId, WarningSeverity, WorkspaceCommandRunRequest, WorkspaceCommandRunResponse,
+    TerminalId, TurnId, WarningSeverity, WorkspaceCommandRunRequest, WorkspaceCommandRunResponse,
     WorkspaceDiffResponse, WorkspaceEntry, WorkspaceEntryKind, WorkspaceEntryStatus,
     WorkspaceFileContentResponse, WorkspaceFileWriteRequest, WorkspaceFileWriteResponse,
-    WorkspaceSnapshot, WorkspaceTreeResponse,
+    WorkspaceSnapshot, WorkspaceTerminalOpenRequest, WorkspaceTerminalOpenResponse,
+    WorkspaceTerminalOutputFrame, WorkspaceTerminalState, WorkspaceTerminalSummary,
+    WorkspaceTreeResponse,
 };
 use uuid::Uuid;
 
-type ControlSocket =
-    tokio_tungstenite::WebSocketStream<tokio_tungstenite::MaybeTlsStream<tokio::net::TcpStream>>;
+type ControlFrameSender = mpsc::UnboundedSender<ControlFrame>;
 
 const API_VERSION: &str = "v1";
 const MAX_EVENT_OUTBOX_EVENTS: usize = 1024;
@@ -57,6 +61,13 @@ const ALLOWED_WORKSPACE_COMMANDS: &[&str] = &[
 ];
 const WORKSPACE_DIFF_STAT_BYTES: usize = 16 * 1024;
 const WORKSPACE_DIFF_BYTES: usize = 128 * 1024;
+const MAX_WORKSPACE_TERMINAL_REPLAY_FRAMES: usize = 256;
+const MAX_WORKSPACE_TERMINAL_INPUT_CHARS: usize = 16_384;
+const WORKSPACE_TERMINAL_READ_BYTES: usize = 4 * 1024;
+const MIN_WORKSPACE_TERMINAL_COLS: u16 = 20;
+const MAX_WORKSPACE_TERMINAL_COLS: u16 = 300;
+const MIN_WORKSPACE_TERMINAL_ROWS: u16 = 5;
+const MAX_WORKSPACE_TERMINAL_ROWS: u16 = 120;
 const MAX_CODEX_TRANSCRIPT_CHARS: usize = 12_000;
 const MAX_PROVIDER_ACTIVITY_RAW_CHARS: usize = 16_000;
 const MAX_PROVIDER_ACTIVITY_SUMMARY_CHARS: usize = 1_200;
@@ -653,12 +664,28 @@ async fn run_control_channel(
             .context("authorization header should be valid")?,
     );
 
-    let (mut socket, _) = connect_async(request)
+    let (socket, _) = connect_async(request)
         .await
         .context("control channel connection failed")?;
+    let (mut socket_sender, mut socket_receiver) = socket.split();
+    let (outbound_tx, mut outbound_rx) = mpsc::unbounded_channel::<ControlFrame>();
+    let send_task = tokio::spawn(async move {
+        while let Some(frame) = outbound_rx.recv().await {
+            let Ok(text) = serde_json::to_string(&frame) else {
+                continue;
+            };
+            if socket_sender
+                .send(WsMessage::Text(text.into()))
+                .await
+                .is_err()
+            {
+                break;
+            }
+        }
+    });
     tracing::info!(node_id = %node_id, "control channel connected");
     send_frame(
-        &mut socket,
+        &outbound_tx,
         ControlFrame::Hello {
             frame_id: Uuid::new_v4().to_string(),
             protocol_version: API_VERSION.to_owned(),
@@ -670,9 +697,10 @@ async fn run_control_channel(
     )
     .await?;
 
-    replay_event_outbox(&mut socket, &local_state.event_outbox).await?;
+    replay_event_outbox(&outbound_tx, &local_state.event_outbox).await?;
 
-    while let Some(message) = socket.next().await {
+    let mut terminal_manager = WorkspaceTerminalManager::default();
+    while let Some(message) = socket_receiver.next().await {
         let message = message.context("control channel read failed")?;
         let WsMessage::Text(text) = message else {
             continue;
@@ -680,16 +708,23 @@ async fn run_control_channel(
         let frame = serde_json::from_str::<ControlFrame>(&text)
             .context("control frame was not valid JSON")?;
         if let Some(error_frame) = control_frame_protocol_error(&frame) {
-            send_frame(&mut socket, error_frame).await?;
+            send_frame(&outbound_tx, error_frame).await?;
             continue;
         }
         match frame {
             ControlFrame::CommandDispatch { command, .. } => {
-                handle_command_dispatch(config, &mut socket, command, local_state).await?;
+                handle_command_dispatch(
+                    config,
+                    &outbound_tx,
+                    command,
+                    local_state,
+                    &mut terminal_manager,
+                )
+                .await?;
             }
             ControlFrame::Ping { frame_id, .. } => {
                 send_frame(
-                    &mut socket,
+                    &outbound_tx,
                     ControlFrame::Pong {
                         frame_id,
                         protocol_version: API_VERSION.to_owned(),
@@ -713,20 +748,41 @@ async fn run_control_channel(
                 }
             }
             ControlFrame::HelloAck { .. } => {}
+            ControlFrame::WorkspaceTerminalAttach { terminal_id, .. } => {
+                terminal_manager.attach(&outbound_tx, &terminal_id).await;
+            }
+            ControlFrame::WorkspaceTerminalInput {
+                terminal_id, data, ..
+            } => {
+                terminal_manager.input(&terminal_id, data);
+            }
+            ControlFrame::WorkspaceTerminalResize {
+                terminal_id,
+                cols,
+                rows,
+                ..
+            } => {
+                terminal_manager.resize(&terminal_id, cols, rows);
+            }
+            ControlFrame::WorkspaceTerminalClose { terminal_id, .. } => {
+                terminal_manager.close(&terminal_id);
+            }
             _ => {}
         }
     }
+    send_task.abort();
     Ok(())
 }
 
 async fn handle_command_dispatch(
     config: &NodeConfig,
-    socket: &mut ControlSocket,
+    sender: &ControlFrameSender,
     command: CommandEnvelope,
     local_state: &mut NodeLocalState,
+    terminal_manager: &mut WorkspaceTerminalManager,
 ) -> anyhow::Result<()> {
     send_frame(
-        socket,
+        sender,
         ControlFrame::CommandAck {
             frame_id: Uuid::new_v4().to_string(),
             protocol_version: API_VERSION.to_owned(),
@@ -737,16 +793,21 @@ async fn handle_command_dispatch(
     )
     .await?;
 
-    let outcome =
-        prepare_command_dispatch_with_live_socket(config, local_state, &command, Some(socket))
-            .await;
+    let outcome = prepare_command_dispatch_with_live_socket(
+        config,
+        local_state,
+        &command,
+        Some(sender),
+        Some(terminal_manager),
+    )
+    .await;
     if outcome.state_changed {
         local_state.save(&config.state_path)?;
     }
 
-    send_event_batch(socket, outcome.events_to_send).await?;
+    send_event_batch(sender, outcome.events_to_send).await?;
     send_command_result(
-        socket,
+        sender,
         &command.command_id,
         outcome.status,
         outcome.result_payload,
@@ -755,13 +816,13 @@ async fn handle_command_dispatch(
 }
 
 async fn send_command_result(
-    socket: &mut ControlSocket,
+    sender: &ControlFrameSender,
     command_id: &CommandId,
     status: CommandState,
     payload: JsonValue,
 ) -> anyhow::Result<()> {
     send_frame(
-        socket,
+        sender,
         ControlFrame::CommandResult {
             frame_id: Uuid::new_v4().to_string(),
             protocol_version: API_VERSION.to_owned(),
@@ -775,25 +836,25 @@ async fn send_command_result(
 }
 
 async fn replay_event_outbox(
-    socket: &mut ControlSocket,
+    sender: &ControlFrameSender,
     events: &[EventEnvelope],
 ) -> anyhow::Result<()> {
     if events.is_empty() {
         return Ok(());
     }
     tracing::info!(events = events.len(), "replaying control event outbox");
-    send_event_batch(socket, events.to_vec()).await
+    send_event_batch(sender, events.to_vec()).await
 }
 
 async fn send_event_batch(
-    socket: &mut ControlSocket,
+    sender: &ControlFrameSender,
     events: Vec<EventEnvelope>,
 ) -> anyhow::Result<()> {
     if events.is_empty() {
         return Ok(());
     }
     send_frame(
-        socket,
+        sender,
         ControlFrame::EventBatch {
             frame_id: Uuid::new_v4().to_string(),
             protocol_version: API_VERSION.to_owned(),
@@ -804,12 +865,8 @@ async fn send_event_batch(
     .await
 }
 
-async fn send_frame(socket: &mut ControlSocket, frame: ControlFrame) -> anyhow::Result<()> {
-    let text = serde_json::to_string(&frame).context("control frame should serialize")?;
-    socket
-        .send(WsMessage::Text(text.into()))
-        .await
-        .context("control frame send failed")
+async fn send_frame(sender: &ControlFrameSender, frame: ControlFrame) -> anyhow::Result<()> {
+    sender.send(frame).context("control frame send failed")
 }
 
 fn control_frame_protocol_error(frame: &ControlFrame) -> Option<ControlFrame> {
@@ -858,6 +915,24 @@ fn control_frame_protocol_version(frame: &ControlFrame) -> &str {
         | ControlFrame::EventBatchAck {
             protocol_version, ..
         }
+        | ControlFrame::WorkspaceTerminalAttach {
+            protocol_version, ..
+        }
+        | ControlFrame::WorkspaceTerminalInput {
+            protocol_version, ..
+        }
+        | ControlFrame::WorkspaceTerminalResize {
+            protocol_version, ..
+        }
+        | ControlFrame::WorkspaceTerminalClose {
+            protocol_version, ..
+        }
+        | ControlFrame::WorkspaceTerminalOutput {
+            protocol_version, ..
+        }
+        | ControlFrame::WorkspaceTerminalStatus {
+            protocol_version, ..
+        }
         | ControlFrame::Ping {
             protocol_version, ..
         }
@@ -878,8 +953,324 @@ struct CommandDispatchOutcome {
     state_changed: bool,
 }
 
+#[derive(Default)]
+struct WorkspaceTerminalManager {
+    terminals: HashMap<String, WorkspaceTerminalHandle>,
+}
+
+struct WorkspaceTerminalHandle {
+    replay: Arc<RwLock<VecDeque<WorkspaceTerminalOutputFrame>>>,
+    control_tx: mpsc::UnboundedSender<WorkspaceTerminalControl>,
+}
+
+enum WorkspaceTerminalControl {
+    Input(String),
+    Resize { cols: u16, rows: u16 },
+    Close,
+}
+
+impl WorkspaceTerminalManager {
+    async fn open(
+        &mut self,
+        config: &NodeConfig,
+        command: &CommandEnvelope,
+        sender: &ControlFrameSender,
+    ) -> Result<WorkspaceTerminalOpenResponse, WorkspaceInspectError> {
+        let request = workspace_command_payload::<WorkspaceTerminalOpenRequest>(command)?;
+        let placement_id = workspace_command_placement_id(command)?;
+        let workspace_root = canonical_workspace_root(config, workspace_command_path(command)?)?;
+        let shell = select_workspace_shell(request.shell_profile.as_deref())?;
+        let cols = request
+            .cols
+            .clamp(MIN_WORKSPACE_TERMINAL_COLS, MAX_WORKSPACE_TERMINAL_COLS);
+        let rows = request
+            .rows
+            .clamp(MIN_WORKSPACE_TERMINAL_ROWS, MAX_WORKSPACE_TERMINAL_ROWS);
+        let terminal_id = TerminalId::from(format!("terminal-{}", command.command_id.as_str()));
+        let (pty, pts) = pty_process::open()
+            .map_err(|error| workspace_terminal_error("workspace_terminal.open_failed", error))?;
+        pty.resize(PtySize::new(rows, cols))
+            .map_err(|error| workspace_terminal_error("workspace_terminal.resize_failed", error))?;
+        let child = PtyCommand::new(&shell)
+            .current_dir(&workspace_root)
+            .kill_on_drop(true)
+            .spawn(pts)
+            .map_err(|error| workspace_terminal_error("workspace_terminal.spawn_failed", error))?;
+        let (control_tx, control_rx) = mpsc::unbounded_channel();
+        let replay = Arc::new(RwLock::new(VecDeque::new()));
+        let now = Utc::now();
+        let summary = WorkspaceTerminalSummary {
+            placement_id: placement_id.clone(),
+            terminal_id: terminal_id.clone(),
+            title: workspace_root
+                .file_name()
+                .and_then(|name| name.to_str())
+                .unwrap_or("workspace")
+                .to_owned(),
+            cwd: workspace_root.display().to_string(),
+            shell: shell.clone(),
+            cols,
+            rows,
+            state: WorkspaceTerminalState::Running,
+            exit_code: None,
+            created_at: now,
+            updated_at: now,
+        };
+        self.terminals.insert(
+            terminal_id.to_string(),
+            WorkspaceTerminalHandle {
+                replay: replay.clone(),
+                control_tx,
+            },
+        );
+        tokio::spawn(run_workspace_terminal(
+            pty,
+            child,
+            control_rx,
+            sender.clone(),
+            terminal_id.clone(),
+            replay,
+        ));
+        send_terminal_status(
+            sender,
+            &terminal_id,
+            WorkspaceTerminalState::Running,
+            None,
+            Some("terminal started".to_owned()),
+        )
+        .await;
+        Ok(WorkspaceTerminalOpenResponse {
+            placement_id,
+            terminal: summary,
+            replay: vec![],
+        })
+    }
+
+    async fn attach(&self, sender: &ControlFrameSender, terminal_id: &TerminalId) {
+        let Some(handle) = self.terminals.get(terminal_id.as_str()) else {
+            send_terminal_status(
+                sender,
+                terminal_id,
+                WorkspaceTerminalState::Error,
+                None,
+                Some("terminal not found".to_owned()),
+            )
+            .await;
+            return;
+        };
+        let replay = handle.replay.read().await;
+        for frame in replay.iter() {
+            let _ = send_frame(
+                sender,
+                ControlFrame::WorkspaceTerminalOutput {
+                    frame_id: Uuid::new_v4().to_string(),
+                    protocol_version: API_VERSION.to_owned(),
+                    sent_at: frame.sent_at,
+                    terminal_id: frame.terminal_id.clone(),
+                    seq: frame.seq,
+                    data: frame.data.clone(),
+                },
+            )
+            .await;
+        }
+    }
+
+    fn input(&self, terminal_id: &TerminalId, data: String) {
+        if data.chars().count() > MAX_WORKSPACE_TERMINAL_INPUT_CHARS {
+            return;
+        }
+        if let Some(handle) = self.terminals.get(terminal_id.as_str()) {
+            let _ = handle
+                .control_tx
+                .send(WorkspaceTerminalControl::Input(data));
+        }
+    }
+
+    fn resize(&self, terminal_id: &TerminalId, cols: u16, rows: u16) {
+        if let Some(handle) = self.terminals.get(terminal_id.as_str()) {
+            let _ = handle.control_tx.send(WorkspaceTerminalControl::Resize {
+                cols: cols.clamp(MIN_WORKSPACE_TERMINAL_COLS, MAX_WORKSPACE_TERMINAL_COLS),
+                rows: rows.clamp(MIN_WORKSPACE_TERMINAL_ROWS, MAX_WORKSPACE_TERMINAL_ROWS),
+            });
+        }
+    }
+
+    fn close(&mut self, terminal_id: &TerminalId) {
+        if let Some(handle) = self.terminals.remove(terminal_id.as_str()) {
+            let _ = handle.control_tx.send(WorkspaceTerminalControl::Close);
+        }
+    }
+}
+
+async fn run_workspace_terminal(
+    mut pty: pty_process::Pty,
+    mut child: tokio::process::Child,
+    mut control_rx: mpsc::UnboundedReceiver<WorkspaceTerminalControl>,
+    sender: ControlFrameSender,
+    terminal_id: TerminalId,
+    replay: Arc<RwLock<VecDeque<WorkspaceTerminalOutputFrame>>>,
+) {
+    let mut seq = 0_u64;
+    let mut read_buffer = vec![0_u8; WORKSPACE_TERMINAL_READ_BYTES];
+    loop {
+        tokio::select! {
+            control = control_rx.recv() => {
+                let Some(control) = control else {
+                    break;
+                };
+                match control {
+                    WorkspaceTerminalControl::Input(data) => {
+                        if pty.write_all(data.as_bytes()).await.is_err() {
+                            break;
+                        }
+                        let _ = pty.flush().await;
+                    }
+                    WorkspaceTerminalControl::Resize { cols, rows } => {
+                        if let Err(error) = pty.resize(PtySize::new(rows, cols)) {
+                            send_terminal_status(
+                                &sender,
+                                &terminal_id,
+                                WorkspaceTerminalState::Error,
+                                None,
+                                Some(format!("resize failed: {error}")),
+                            )
+                            .await;
+                        }
+                    }
+                    WorkspaceTerminalControl::Close => {
+                        let _ = child.start_kill();
+                        let _ = child.wait().await;
+                        send_terminal_status(
+                            &sender,
+                            &terminal_id,
+                            WorkspaceTerminalState::Closed,
+                            None,
+                            Some("terminal closed".to_owned()),
+                        )
+                        .await;
+                        return;
+                    }
+                }
+            }
+            read_result = pty.read(&mut read_buffer) => {
+                match read_result {
+                    Ok(0) => break,
+                    Ok(read) => {
+                        seq = seq.saturating_add(1);
+                        let data = String::from_utf8_lossy(&read_buffer[..read]).into_owned();
+                        let sent_at = Utc::now();
+                        record_terminal_replay(
+                            &replay,
+                            WorkspaceTerminalOutputFrame {
+                                terminal_id: terminal_id.clone(),
+                                seq,
+                                data: data.clone(),
+                                sent_at,
+                            },
+                        ).await;
+                        let _ = send_frame(
+                            &sender,
+                            ControlFrame::WorkspaceTerminalOutput {
+                                frame_id: Uuid::new_v4().to_string(),
+                                protocol_version: API_VERSION.to_owned(),
+                                sent_at,
+                                terminal_id: terminal_id.clone(),
+                                seq,
+                                data,
+                            },
+                        ).await;
+                    }
+                    Err(error) if error.kind() == ErrorKind::Interrupted => {}
+                    Err(_) => break,
+                }
+            }
+        }
+    }
+    let exit_code = child.wait().await.ok().and_then(|status| status.code());
+    send_terminal_status(
+        &sender,
+        &terminal_id,
+        WorkspaceTerminalState::Exited,
+        exit_code,
+        Some("terminal exited".to_owned()),
+    )
+    .await;
+}
+
+async fn record_terminal_replay(
+    replay: &Arc<RwLock<VecDeque<WorkspaceTerminalOutputFrame>>>,
+    frame: WorkspaceTerminalOutputFrame,
+) {
+    let mut replay = replay.write().await;
+    replay.push_back(frame);
+    while replay.len() > MAX_WORKSPACE_TERMINAL_REPLAY_FRAMES {
+        replay.pop_front();
+    }
+}
+
+async fn send_terminal_status(
+    sender: &ControlFrameSender,
+    terminal_id: &TerminalId,
+    state: WorkspaceTerminalState,
+    exit_code: Option<i32>,
+    message: Option<String>,
+) {
+    let _ = send_frame(
+        sender,
+        ControlFrame::WorkspaceTerminalStatus {
+            frame_id: Uuid::new_v4().to_string(),
+            protocol_version: API_VERSION.to_owned(),
+            sent_at: Utc::now(),
+            terminal_id: terminal_id.clone(),
+            state,
+            exit_code,
+            message,
+        },
+    )
+    .await;
+}
+
+fn workspace_terminal_error(
+    code: &'static str,
+    error: impl std::fmt::Display,
+) -> WorkspaceInspectError {
+    WorkspaceInspectError::new(code, format!("Workspace terminal failed: {error}"))
+}
+
+fn select_workspace_shell(profile: Option<&str>) -> Result<String, WorkspaceInspectError> {
+    match profile.unwrap_or("default").trim() {
+        "" | "default" => Ok(default_workspace_shell()),
+        "sh" => Ok(shell_path("sh")),
+        "bash" => Ok(shell_path("bash")),
+        "zsh" => Ok(shell_path("zsh")),
+        _ => Err(WorkspaceInspectError::new(
+            "workspace_terminal.shell_denied",
+            "Workspace terminal shell profile is not allowed by node policy",
+        )),
+    }
+}
+
+fn default_workspace_shell() -> String {
+    std::env::var("SHELL")
+        .ok()
+        .and_then(|shell| {
+            let name = Path::new(&shell).file_name()?.to_str()?;
+            matches!(name, "sh" | "bash" | "zsh").then_some(shell)
+        })
+        .unwrap_or_else(|| shell_path("sh"))
+}
+
+fn shell_path(name: &str) -> String {
+    ["/bin", "/usr/bin"]
+        .iter()
+        .map(|prefix| Path::new(prefix).join(name))
+        .find(|path| path.exists())
+        .map(|path| path.display().to_string())
+        .unwrap_or_else(|| name.to_owned())
+}
+
 struct NodeLiveEventSink<'a> {
-    socket: &'a mut ControlSocket,
+    sender: &'a ControlFrameSender,
     event_outbox: &'a mut Vec<EventEnvelope>,
     runtime_states: &'a mut HashMap<String, RuntimeSessionState>,
     emitted_event_ids: HashSet<String>,
@@ -887,12 +1278,12 @@ struct NodeLiveEventSink<'a> {
 
 impl<'a> NodeLiveEventSink<'a> {
     fn new(
-        socket: &'a mut ControlSocket,
+        sender: &'a ControlFrameSender,
         event_outbox: &'a mut Vec<EventEnvelope>,
         runtime_states: &'a mut HashMap<String, RuntimeSessionState>,
     ) -> Self {
         Self {
-            socket,
+            sender,
             event_outbox,
             runtime_states,
             emitted_event_ids: HashSet::new(),
@@ -903,7 +1294,7 @@ impl<'a> NodeLiveEventSink<'a> {
         apply_runtime_state_projection_for_event(self.runtime_states, event);
         self.event_outbox.push(event.clone());
         self.emitted_event_ids.insert(event.event_id.to_string());
-        send_event_batch(self.socket, vec![event.clone()]).await
+        send_event_batch(self.sender, vec![event.clone()]).await
     }
 }
 
@@ -913,14 +1304,15 @@ async fn prepare_command_dispatch(
     local_state: &mut NodeLocalState,
     command: &CommandEnvelope,
 ) -> CommandDispatchOutcome {
-    prepare_command_dispatch_with_live_socket(config, local_state, command, None).await
+    prepare_command_dispatch_with_live_socket(config, local_state, command, None, None).await
 }
 
 async fn prepare_command_dispatch_with_live_socket(
     config: &NodeConfig,
     local_state: &mut NodeLocalState,
     command: &CommandEnvelope,
-    live_socket: Option<&mut ControlSocket>,
+    live_sender: Option<&ControlFrameSender>,
+    terminal_manager: Option<&mut WorkspaceTerminalManager>,
 ) -> CommandDispatchOutcome {
     if let Some(status) = local_state
         .command_status
@@ -1001,6 +1393,22 @@ async fn prepare_command_dispatch_with_live_socket(
                 state_changed: true,
             };
         }
+        CommandKind::OpenWorkspaceTerminal => {
+            let (status, payload) = workspace_terminal_open_command_result(
+                config,
+                command,
+                live_sender,
+                terminal_manager,
+            )
+            .await;
+            record_command_result_payload(local_state, command, status, &payload);
+            return CommandDispatchOutcome {
+                status,
+                events_to_send: vec![],
+                result_payload: payload,
+                state_changed: true,
+            };
+        }
         _ => {
             let provider_key =
                 provider_for_command(local_state, command).unwrap_or_else(|| "unknown".to_owned());
@@ -1014,9 +1422,9 @@ async fn prepare_command_dispatch_with_live_socket(
             } else {
                 let provider_key = provider_for_command(local_state, command);
                 let workspace_path = workspace_path_for_command(local_state, command);
-                let mut live_event_sink = live_socket.map(|socket| {
+                let mut live_event_sink = live_sender.map(|sender| {
                     NodeLiveEventSink::new(
-                        socket,
+                        sender,
                         &mut local_state.event_outbox,
                         &mut local_state.runtime_states,
                     )
@@ -1581,6 +1989,38 @@ async fn workspace_diff_command_result(
     command: &CommandEnvelope,
 ) -> (CommandState, JsonValue) {
     match build_workspace_diff_response(config, command).await {
+        Ok(response) => workspace_success_payload(response),
+        Err(error) => (CommandState::Failed, error.into_payload()),
+    }
+}
+
+async fn workspace_terminal_open_command_result(
+    config: &NodeConfig,
+    command: &CommandEnvelope,
+    live_sender: Option<&ControlFrameSender>,
+    terminal_manager: Option<&mut WorkspaceTerminalManager>,
+) -> (CommandState, JsonValue) {
+    let Some(sender) = live_sender else {
+        return (
+            CommandState::Failed,
+            WorkspaceInspectError::new(
+                "workspace_terminal.control_unavailable",
+                "Workspace terminal requires a live node control channel",
+            )
+            .into_payload(),
+        );
+    };
+    let Some(manager) = terminal_manager else {
+        return (
+            CommandState::Failed,
+            WorkspaceInspectError::new(
+                "workspace_terminal.manager_unavailable",
+                "Workspace terminal manager is unavailable",
+            )
+            .into_payload(),
+        );
+    };
+    match manager.open(config, command, sender).await {
         Ok(response) => workspace_success_payload(response),
         Err(error) => (CommandState::Failed, error.into_payload()),
     }

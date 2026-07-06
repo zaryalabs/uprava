@@ -113,8 +113,8 @@ Core Backend отвечает за:
 - persistent agent sessions;
 - output/event streaming;
 - workspace binding validation for V01;
-- PTY/terminal support in later workspace slices;
-- file operations in later workspace slices;
+- workspace file operations;
+- PTY/terminal lifecycle for interactive workspace terminals;
 - local tool execution in later Tool Registry slices.
 
 Node Daemon должен быть максимально переносимым. V01 ориентируется на desktop/server nodes, но архитектура должна не блокировать future cloud nodes, sandboxes and microVM hosts.

@@ -118,8 +118,8 @@ Preliminary choice:
 - persistent agent sessions;
 - output/event streaming;
 - workspace binding validation for V01;
-- PTY/terminal support in later workspace slices;
-- file operations in later workspace slices;
+- workspace file operations;
+- PTY/terminal lifecycle for interactive workspace terminals;
 - local tool execution in later Tool Registry slices.
 
 Node Daemon should be maximally portable. V01 targets desktop/server nodes, but

@@ -28,7 +28,7 @@ use axum::{
 };
 use chrono::{DateTime, Utc};
 use futures_util::{SinkExt, Stream, StreamExt};
-use serde::{de::DeserializeOwned, Deserialize};
+use serde::{de::DeserializeOwned, Deserialize, Serialize};
 use serde_json::json;
 use sha2::{Digest, Sha256};
 use sqlx::{Row, SqlitePool};
@@ -55,12 +55,14 @@ use uprava_protocol::{
     ProjectPlacementId, ProjectPlacementSummary, ResolveApprovalRequest, ResourceBadge,
     RuntimeSessionId, RuntimeSessionState, RuntimeSummary, ScopeRef, SecurityMode, SecurityStatus,
     SendTurnRequest, SessionDetail, SessionSummary, SessionThreadId, SessionThreadState, SleepHint,
-    TurnId, TurnState, UpravaRef, VersionResponse, WarningAcknowledgementResponse, WarningSeverity,
-    WebAuthLoginRequest, WebAuthResponse, WebAuthSetupRequest, WebAuthStatusResponse,
-    WorkspaceCommandHistoryItem, WorkspaceCommandHistoryResponse, WorkspaceCommandRunRequest,
-    WorkspaceCommandRunResponse, WorkspaceDiffResponse, WorkspaceFileContentResponse,
-    WorkspaceFileWriteRequest, WorkspaceFileWriteResponse, WorkspaceSnapshot,
-    WorkspaceTreeResponse,
+    TerminalId, TurnId, TurnState, UpravaRef, VersionResponse, WarningAcknowledgementResponse,
+    WarningSeverity, WebAuthLoginRequest, WebAuthResponse, WebAuthSetupRequest,
+    WebAuthStatusResponse, WorkspaceCommandHistoryItem, WorkspaceCommandHistoryResponse,
+    WorkspaceCommandRunRequest, WorkspaceCommandRunResponse, WorkspaceDiffResponse,
+    WorkspaceFileContentResponse, WorkspaceFileWriteRequest, WorkspaceFileWriteResponse,
+    WorkspaceSnapshot, WorkspaceTerminalClientFrame, WorkspaceTerminalListResponse,
+    WorkspaceTerminalOpenRequest, WorkspaceTerminalOpenResponse, WorkspaceTerminalState,
+    WorkspaceTerminalStreamFrame, WorkspaceTerminalSummary, WorkspaceTreeResponse,
 };
 use uuid::Uuid;
 
@@ -79,6 +81,11 @@ const AUTH_FAILURE_LIMIT: usize = 10;
 const AUTH_FAILURE_WINDOW_SECONDS: i64 = 60;
 const WORKSPACE_COMMAND_TIMEOUT: Duration = Duration::from_secs(5);
 const WORKSPACE_INTERVENTION_TIMEOUT: Duration = Duration::from_secs(120);
+const MAX_TERMINAL_INPUT_CHARS: usize = 16_384;
+const MIN_TERMINAL_COLS: u16 = 20;
+const MAX_TERMINAL_COLS: u16 = 300;
+const MIN_TERMINAL_ROWS: u16 = 5;
+const MAX_TERMINAL_ROWS: u16 = 120;
 const HTTP_REQUEST_TIMEOUT: Duration = Duration::from_secs(130);
 const MAX_HTTP_REQUEST_BODY_BYTES: usize = 1024 * 1024;
 
@@ -240,6 +247,8 @@ pub struct AppState {
     control_channels: RwLock<HashMap<String, mpsc::UnboundedSender<ControlFrame>>>,
     event_tx: broadcast::Sender<EventEnvelope>,
     command_result_tx: broadcast::Sender<CommandResultNotice>,
+    terminal_tx: broadcast::Sender<TerminalFrameNotice>,
+    workspace_terminals: RwLock<HashMap<String, WorkspaceTerminalSummary>>,
     auth_failures: RwLock<HashMap<String, Vec<DateTime<Utc>>>>,
 }
 
@@ -250,6 +259,23 @@ struct CommandResultNotice {
     payload: JsonValue,
 }
 
+#[derive(Debug, Clone)]
+enum TerminalFrameNotice {
+    Output {
+        terminal_id: TerminalId,
+        seq: u64,
+        data: String,
+        sent_at: DateTime<Utc>,
+    },
+    Status {
+        terminal_id: TerminalId,
+        state: WorkspaceTerminalState,
+        exit_code: Option<i32>,
+        message: Option<String>,
+        sent_at: DateTime<Utc>,
+    },
+}
+
 impl AppState {
     pub async fn new(config: AppConfig, pool: SqlitePool) -> Result<Arc<Self>, AppError> {
         let state = Arc::new(Self {
@@ -258,6 +284,8 @@ impl AppState {
             control_channels: RwLock::new(HashMap::new()),
             event_tx: broadcast::channel(256).0,
             command_result_tx: broadcast::channel(256).0,
+            terminal_tx: broadcast::channel(1024).0,
+            workspace_terminals: RwLock::new(HashMap::new()),
             auth_failures: RwLock::new(HashMap::new()),
         });
         state.migrate().await?;
@@ -404,6 +432,14 @@ pub fn build_router(state: Arc<AppState>) -> Router {
         .route(
             "/placements/{placement_id}/workspace/diff",
             get(workspace_diff_route),
+        )
+        .route(
+            "/placements/{placement_id}/workspace/terminals",
+            get(workspace_terminal_list_route).post(workspace_terminal_open_route),
+        )
+        .route(
+            "/placements/{placement_id}/workspace/terminals/{terminal_id}/stream",
+            get(workspace_terminal_stream_route),
         )
         .route("/sessions", post(create_session_route))
         .route("/sessions/{session_thread_id}", get(session_detail))
@@ -1678,6 +1714,48 @@ async fn handle_node_control_frame(
             );
             Ok(())
         }
+        ControlFrame::WorkspaceTerminalOutput {
+            terminal_id,
+            seq,
+            data,
+            sent_at,
+            ..
+        } => {
+            let _ = state.terminal_tx.send(TerminalFrameNotice::Output {
+                terminal_id,
+                seq,
+                data,
+                sent_at,
+            });
+            Ok(())
+        }
+        ControlFrame::WorkspaceTerminalStatus {
+            terminal_id,
+            state: terminal_state,
+            exit_code,
+            message,
+            sent_at,
+            ..
+        } => {
+            if let Some(terminal) = state
+                .workspace_terminals
+                .write()
+                .await
+                .get_mut(terminal_id.as_str())
+            {
+                terminal.state = terminal_state;
+                terminal.exit_code = exit_code;
+                terminal.updated_at = sent_at;
+            }
+            let _ = state.terminal_tx.send(TerminalFrameNotice::Status {
+                terminal_id,
+                state: terminal_state,
+                exit_code,
+                message,
+                sent_at,
+            });
+            Ok(())
+        }
         _ => Ok(()),
     }
 }
@@ -1720,6 +1798,217 @@ async fn send_control_frame(state: &AppState, node_id: &NodeId, frame: ControlFr
         .unwrap_or(false)
 }
 
+async fn handle_workspace_terminal_stream(
+    state: Arc<AppState>,
+    node_id: NodeId,
+    terminal_id: TerminalId,
+    socket: WebSocket,
+) {
+    let (mut sender, mut receiver) = socket.split();
+    let mut terminal_rx = state.terminal_tx.subscribe();
+    if !send_control_frame(
+        &state,
+        &node_id,
+        ControlFrame::WorkspaceTerminalAttach {
+            frame_id: Uuid::new_v4().to_string(),
+            protocol_version: API_VERSION.to_owned(),
+            sent_at: Utc::now(),
+            terminal_id: terminal_id.clone(),
+        },
+    )
+    .await
+    {
+        let _ = send_ws_json(
+            &mut sender,
+            WorkspaceTerminalStreamFrame::Error {
+                terminal_id,
+                message: "Node control channel is unavailable".to_owned(),
+                sent_at: Utc::now(),
+            },
+        )
+        .await;
+        return;
+    }
+
+    loop {
+        tokio::select! {
+            message = receiver.next() => {
+                let Some(Ok(message)) = message else {
+                    break;
+                };
+                match message {
+                    WsMessage::Text(text) => {
+                        if handle_terminal_client_frame(&state, &node_id, &terminal_id, &mut sender, &text).await.is_err() {
+                            break;
+                        }
+                    }
+                    WsMessage::Close(_) => break,
+                    _ => {}
+                }
+            }
+            notice = terminal_rx.recv() => {
+                match notice {
+                    Ok(notice) => {
+                        let Some(frame) = terminal_notice_to_stream_frame(notice, &terminal_id) else {
+                            continue;
+                        };
+                        if send_ws_json(&mut sender, frame).await.is_err() {
+                            break;
+                        }
+                    }
+                    Err(broadcast::error::RecvError::Lagged(_)) => {}
+                    Err(broadcast::error::RecvError::Closed) => break,
+                }
+            }
+        }
+    }
+}
+
+async fn handle_terminal_client_frame(
+    state: &AppState,
+    node_id: &NodeId,
+    terminal_id: &TerminalId,
+    sender: &mut futures_util::stream::SplitSink<WebSocket, WsMessage>,
+    text: &str,
+) -> Result<(), ()> {
+    let frame = match serde_json::from_str::<WorkspaceTerminalClientFrame>(text) {
+        Ok(frame) => frame,
+        Err(error) => {
+            send_ws_json(
+                sender,
+                WorkspaceTerminalStreamFrame::Error {
+                    terminal_id: terminal_id.clone(),
+                    message: format!("Invalid terminal frame: {error}"),
+                    sent_at: Utc::now(),
+                },
+            )
+            .await?;
+            return Ok(());
+        }
+    };
+    match frame {
+        WorkspaceTerminalClientFrame::Input { data } => {
+            if data.chars().count() > MAX_TERMINAL_INPUT_CHARS {
+                send_ws_json(
+                    sender,
+                    WorkspaceTerminalStreamFrame::Error {
+                        terminal_id: terminal_id.clone(),
+                        message: "Terminal input frame is too large".to_owned(),
+                        sent_at: Utc::now(),
+                    },
+                )
+                .await?;
+                return Ok(());
+            }
+            forward_terminal_control_frame(
+                state,
+                node_id,
+                ControlFrame::WorkspaceTerminalInput {
+                    frame_id: Uuid::new_v4().to_string(),
+                    protocol_version: API_VERSION.to_owned(),
+                    sent_at: Utc::now(),
+                    terminal_id: terminal_id.clone(),
+                    data,
+                },
+            )
+            .await
+        }
+        WorkspaceTerminalClientFrame::Resize { cols, rows } => {
+            forward_terminal_control_frame(
+                state,
+                node_id,
+                ControlFrame::WorkspaceTerminalResize {
+                    frame_id: Uuid::new_v4().to_string(),
+                    protocol_version: API_VERSION.to_owned(),
+                    sent_at: Utc::now(),
+                    terminal_id: terminal_id.clone(),
+                    cols: cols.clamp(MIN_TERMINAL_COLS, MAX_TERMINAL_COLS),
+                    rows: rows.clamp(MIN_TERMINAL_ROWS, MAX_TERMINAL_ROWS),
+                },
+            )
+            .await
+        }
+        WorkspaceTerminalClientFrame::Close => {
+            forward_terminal_control_frame(
+                state,
+                node_id,
+                ControlFrame::WorkspaceTerminalClose {
+                    frame_id: Uuid::new_v4().to_string(),
+                    protocol_version: API_VERSION.to_owned(),
+                    sent_at: Utc::now(),
+                    terminal_id: terminal_id.clone(),
+                },
+            )
+            .await
+        }
+        WorkspaceTerminalClientFrame::Ping => {
+            send_ws_json(
+                sender,
+                WorkspaceTerminalStreamFrame::Pong {
+                    sent_at: Utc::now(),
+                },
+            )
+            .await
+        }
+    }
+}
+
+async fn forward_terminal_control_frame(
+    state: &AppState,
+    node_id: &NodeId,
+    frame: ControlFrame,
+) -> Result<(), ()> {
+    if send_control_frame(state, node_id, frame).await {
+        Ok(())
+    } else {
+        Err(())
+    }
+}
+
+fn terminal_notice_to_stream_frame(
+    notice: TerminalFrameNotice,
+    expected_terminal_id: &TerminalId,
+) -> Option<WorkspaceTerminalStreamFrame> {
+    match notice {
+        TerminalFrameNotice::Output {
+            terminal_id,
+            seq,
+            data,
+            sent_at,
+        } if terminal_id == *expected_terminal_id => Some(WorkspaceTerminalStreamFrame::Output {
+            terminal_id,
+            seq,
+            data,
+            sent_at,
+        }),
+        TerminalFrameNotice::Status {
+            terminal_id,
+            state,
+            exit_code,
+            message,
+            sent_at,
+        } if terminal_id == *expected_terminal_id => Some(WorkspaceTerminalStreamFrame::Status {
+            terminal_id,
+            state,
+            exit_code,
+            message,
+            sent_at,
+        }),
+        _ => None,
+    }
+}
+
+async fn send_ws_json<T: Serialize>(
+    sender: &mut futures_util::stream::SplitSink<WebSocket, WsMessage>,
+    value: T,
+) -> Result<(), ()> {
+    let text = serde_json::to_string(&value).map_err(|_| ())?;
+    sender
+        .send(WsMessage::Text(text.into()))
+        .await
+        .map_err(|_| ())
+}
+
 fn control_frame_protocol_version(frame: &ControlFrame) -> &str {
     match frame {
         ControlFrame::Hello {
@@ -1741,6 +2030,24 @@ fn control_frame_protocol_version(frame: &ControlFrame) -> &str {
             protocol_version, ..
         }
         | ControlFrame::EventBatchAck {
+            protocol_version, ..
+        }
+        | ControlFrame::WorkspaceTerminalAttach {
+            protocol_version, ..
+        }
+        | ControlFrame::WorkspaceTerminalInput {
+            protocol_version, ..
+        }
+        | ControlFrame::WorkspaceTerminalResize {
+            protocol_version, ..
+        }
+        | ControlFrame::WorkspaceTerminalClose {
+            protocol_version, ..
+        }
+        | ControlFrame::WorkspaceTerminalOutput {
+            protocol_version, ..
+        }
+        | ControlFrame::WorkspaceTerminalStatus {
             protocol_version, ..
         }
         | ControlFrame::Ping {
@@ -2201,6 +2508,47 @@ async fn workspace_command_history_route(
         .map(Json)
 }
 
+async fn workspace_terminal_open_route(
+    State(state): State<Arc<AppState>>,
+    headers: HeaderMap,
+    Path(placement_id): Path<String>,
+    Json(request): Json<WorkspaceTerminalOpenRequest>,
+) -> Result<Json<WorkspaceTerminalOpenResponse>, AppError> {
+    workspace_terminal_open_with_correlation(
+        &state,
+        ProjectPlacementId::from(placement_id),
+        request,
+        request_correlation_id(&headers),
+    )
+    .await
+    .map(Json)
+}
+
+async fn workspace_terminal_list_route(
+    State(state): State<Arc<AppState>>,
+    Path(placement_id): Path<String>,
+) -> Result<Json<WorkspaceTerminalListResponse>, AppError> {
+    workspace_terminal_list(&state, ProjectPlacementId::from(placement_id))
+        .await
+        .map(Json)
+}
+
+async fn workspace_terminal_stream_route(
+    State(state): State<Arc<AppState>>,
+    Path((placement_id, terminal_id)): Path<(String, String)>,
+    ws: WebSocketUpgrade,
+) -> Result<impl IntoResponse, AppError> {
+    let placement_id = ProjectPlacementId::from(placement_id);
+    let terminal_id = TerminalId::from(terminal_id);
+    let placement = load_placement(&state, &placement_id).await?;
+    ensure_placement_intervention_allowed(&placement)?;
+    ensure_node_commandable(&state, &placement.node_id).await?;
+    ensure_terminal_belongs_to_placement(&state, &terminal_id, &placement_id).await?;
+    Ok(ws.on_upgrade(move |socket| {
+        handle_workspace_terminal_stream(state, placement.node_id, terminal_id, socket)
+    }))
+}
+
 async fn workspace_tree_with_correlation(
     state: &AppState,
     placement_id: ProjectPlacementId,
@@ -2325,6 +2673,77 @@ async fn workspace_diff_with_correlation(
         WORKSPACE_INTERVENTION_TIMEOUT,
     )
     .await
+}
+
+async fn workspace_terminal_open_with_correlation(
+    state: &AppState,
+    placement_id: ProjectPlacementId,
+    request: WorkspaceTerminalOpenRequest,
+    correlation_id: CorrelationId,
+) -> Result<WorkspaceTerminalOpenResponse, AppError> {
+    let placement = load_placement(state, &placement_id).await?;
+    ensure_placement_intervention_allowed(&placement)?;
+    let response = dispatch_workspace_command(
+        state,
+        &placement,
+        CommandKind::OpenWorkspaceTerminal,
+        serde_json::to_value(request)?,
+        vec![UpravaRef::Workspace {
+            placement_id: placement.project_placement_id.clone(),
+        }],
+        correlation_id,
+        WORKSPACE_INTERVENTION_TIMEOUT,
+    )
+    .await?;
+    let response: WorkspaceTerminalOpenResponse = response;
+    state.workspace_terminals.write().await.insert(
+        response.terminal.terminal_id.to_string(),
+        response.terminal.clone(),
+    );
+    Ok(response)
+}
+
+async fn workspace_terminal_list(
+    state: &AppState,
+    placement_id: ProjectPlacementId,
+) -> Result<WorkspaceTerminalListResponse, AppError> {
+    let placement = load_placement(state, &placement_id).await?;
+    ensure_placement_inspectable(&placement)?;
+    let mut terminals = state
+        .workspace_terminals
+        .read()
+        .await
+        .values()
+        .filter(|terminal| terminal.placement_id == placement.project_placement_id)
+        .cloned()
+        .collect::<Vec<_>>();
+    terminals.sort_by(|left, right| right.created_at.cmp(&left.created_at));
+    Ok(WorkspaceTerminalListResponse {
+        placement_id: placement.project_placement_id,
+        terminals,
+        generated_at: Utc::now(),
+    })
+}
+
+async fn ensure_terminal_belongs_to_placement(
+    state: &AppState,
+    terminal_id: &TerminalId,
+    placement_id: &ProjectPlacementId,
+) -> Result<(), AppError> {
+    let terminals = state.workspace_terminals.read().await;
+    let Some(terminal) = terminals.get(terminal_id.as_str()) else {
+        return Err(AppError::not_found(
+            "workspace_terminal.not_found",
+            "Workspace terminal was not found",
+        ));
+    };
+    if terminal.placement_id != *placement_id {
+        return Err(AppError::bad_request(
+            "workspace_terminal.placement_mismatch",
+            "Workspace terminal does not belong to this placement",
+        ));
+    }
+    Ok(())
 }
 
 async fn workspace_command_history(
@@ -4414,7 +4833,12 @@ fn ensure_runtime_accepts_command(
         | CommandKind::ReadWorkspaceFile
         | CommandKind::WriteWorkspaceFile
         | CommandKind::RunWorkspaceCommand
-        | CommandKind::ReadWorkspaceDiff => true,
+        | CommandKind::ReadWorkspaceDiff
+        | CommandKind::OpenWorkspaceTerminal
+        | CommandKind::AttachWorkspaceTerminal
+        | CommandKind::ResizeWorkspaceTerminal
+        | CommandKind::WriteWorkspaceTerminal
+        | CommandKind::CloseWorkspaceTerminal => true,
     };
     if accepts {
         return Ok(());
@@ -6592,6 +7016,11 @@ fn parse_command_kind(value: &str) -> CommandKind {
         "WriteWorkspaceFile" => CommandKind::WriteWorkspaceFile,
         "RunWorkspaceCommand" => CommandKind::RunWorkspaceCommand,
         "ReadWorkspaceDiff" => CommandKind::ReadWorkspaceDiff,
+        "OpenWorkspaceTerminal" => CommandKind::OpenWorkspaceTerminal,
+        "AttachWorkspaceTerminal" => CommandKind::AttachWorkspaceTerminal,
+        "ResizeWorkspaceTerminal" => CommandKind::ResizeWorkspaceTerminal,
+        "WriteWorkspaceTerminal" => CommandKind::WriteWorkspaceTerminal,
+        "CloseWorkspaceTerminal" => CommandKind::CloseWorkspaceTerminal,
         _ => CommandKind::RefreshResourceSnapshot,
     }
 }

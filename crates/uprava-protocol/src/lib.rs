@@ -63,6 +63,7 @@ id_type!(RuntimeSessionId);
 id_type!(TurnId);
 id_type!(MessageId);
 id_type!(CommandId);
+id_type!(TerminalId);
 id_type!(EventId);
 id_type!(ApprovalId);
 id_type!(ArtifactId);
@@ -263,6 +264,11 @@ pub enum CommandKind {
     WriteWorkspaceFile,
     RunWorkspaceCommand,
     ReadWorkspaceDiff,
+    OpenWorkspaceTerminal,
+    AttachWorkspaceTerminal,
+    ResizeWorkspaceTerminal,
+    WriteWorkspaceTerminal,
+    CloseWorkspaceTerminal,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -402,6 +408,50 @@ pub enum ControlFrame {
         protocol_version: String,
         sent_at: DateTime<Utc>,
         accepted_event_ids: Vec<EventId>,
+    },
+    WorkspaceTerminalAttach {
+        frame_id: String,
+        protocol_version: String,
+        sent_at: DateTime<Utc>,
+        terminal_id: TerminalId,
+    },
+    WorkspaceTerminalInput {
+        frame_id: String,
+        protocol_version: String,
+        sent_at: DateTime<Utc>,
+        terminal_id: TerminalId,
+        data: String,
+    },
+    WorkspaceTerminalResize {
+        frame_id: String,
+        protocol_version: String,
+        sent_at: DateTime<Utc>,
+        terminal_id: TerminalId,
+        cols: u16,
+        rows: u16,
+    },
+    WorkspaceTerminalClose {
+        frame_id: String,
+        protocol_version: String,
+        sent_at: DateTime<Utc>,
+        terminal_id: TerminalId,
+    },
+    WorkspaceTerminalOutput {
+        frame_id: String,
+        protocol_version: String,
+        sent_at: DateTime<Utc>,
+        terminal_id: TerminalId,
+        seq: u64,
+        data: String,
+    },
+    WorkspaceTerminalStatus {
+        frame_id: String,
+        protocol_version: String,
+        sent_at: DateTime<Utc>,
+        terminal_id: TerminalId,
+        state: WorkspaceTerminalState,
+        exit_code: Option<i32>,
+        message: Option<String>,
     },
     Ping {
         frame_id: String,
@@ -639,6 +689,120 @@ pub struct WorkspaceCommandHistoryResponse {
     pub placement_id: ProjectPlacementId,
     pub commands: Vec<WorkspaceCommandHistoryItem>,
     pub generated_at: DateTime<Utc>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum WorkspaceTerminalState {
+    Opening,
+    Running,
+    Detached,
+    Exited,
+    Closed,
+    Error,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct WorkspaceTerminalOpenRequest {
+    pub shell_profile: Option<String>,
+    pub cols: u16,
+    pub rows: u16,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct WorkspaceTerminalAttachRequest {
+    pub terminal_id: TerminalId,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct WorkspaceTerminalResizeRequest {
+    pub terminal_id: TerminalId,
+    pub cols: u16,
+    pub rows: u16,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct WorkspaceTerminalWriteRequest {
+    pub terminal_id: TerminalId,
+    pub data: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct WorkspaceTerminalCloseRequest {
+    pub terminal_id: TerminalId,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct WorkspaceTerminalSummary {
+    pub placement_id: ProjectPlacementId,
+    pub terminal_id: TerminalId,
+    pub title: String,
+    pub cwd: String,
+    pub shell: String,
+    pub cols: u16,
+    pub rows: u16,
+    pub state: WorkspaceTerminalState,
+    pub exit_code: Option<i32>,
+    pub created_at: DateTime<Utc>,
+    pub updated_at: DateTime<Utc>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct WorkspaceTerminalOutputFrame {
+    pub terminal_id: TerminalId,
+    pub seq: u64,
+    pub data: String,
+    pub sent_at: DateTime<Utc>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct WorkspaceTerminalOpenResponse {
+    pub placement_id: ProjectPlacementId,
+    pub terminal: WorkspaceTerminalSummary,
+    #[serde(default)]
+    pub replay: Vec<WorkspaceTerminalOutputFrame>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct WorkspaceTerminalListResponse {
+    pub placement_id: ProjectPlacementId,
+    pub terminals: Vec<WorkspaceTerminalSummary>,
+    pub generated_at: DateTime<Utc>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(tag = "kind", rename_all = "snake_case")]
+pub enum WorkspaceTerminalClientFrame {
+    Input { data: String },
+    Resize { cols: u16, rows: u16 },
+    Close,
+    Ping,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(tag = "kind", rename_all = "snake_case")]
+pub enum WorkspaceTerminalStreamFrame {
+    Output {
+        terminal_id: TerminalId,
+        seq: u64,
+        data: String,
+        sent_at: DateTime<Utc>,
+    },
+    Status {
+        terminal_id: TerminalId,
+        state: WorkspaceTerminalState,
+        exit_code: Option<i32>,
+        message: Option<String>,
+        sent_at: DateTime<Utc>,
+    },
+    Pong {
+        sent_at: DateTime<Utc>,
+    },
+    Error {
+        terminal_id: TerminalId,
+        message: String,
+        sent_at: DateTime<Utc>,
+    },
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]

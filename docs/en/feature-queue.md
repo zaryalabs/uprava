@@ -36,9 +36,9 @@ That belongs in [v01.md](v01.md).
 
 ## Queue Overview
 
-Current release baseline: `0.1.6`. Done items `0` through `5` plus the
-unified audit hardening release correspond to the shipped versions recorded in
-[`releases.md`](releases.md).
+Current release baseline: `0.1.7`. Done items `0` through `5`, the unified
+audit hardening release, and the `5a` workspace renderer release correspond to
+the shipped versions recorded in [`releases.md`](releases.md).
 
 | Order | Done | Mechanism / Feature Slice | First Useful Slice | Dependency | Complexity |
 | --- | --- | --- | --- | --- | --- |
@@ -48,6 +48,7 @@ unified audit hardening release correspond to the shipped versions recorded in
 | 3 | + | Workspace shell and reference model | Stable refs and routes for future workspace evidence | V01 entity/session model | Medium |
 | 4 | + | Read-only Project Workspace Inspector | File tree, metadata, safe text viewer | Workspace refs, Node file reads | Medium |
 | 5 | + | Workspace intervention layer | Lightweight editor, terminal, command history, diff/check entry points | Read-only inspector, events | High |
+| 5a | + | Workspace renderer and PTY terminal layer | Monaco file/diff renderers and xterm-backed interactive PTY sessions | Workspace intervention, Core/Node control channel | High |
 | 6 | - | Causality and trace UX | Coarse source/cause links with raw fallback | Workspace refs, event log | Medium |
 | 7 | - | Git and review basics | Better diff, branch/worktree awareness, check results | Workspace intervention, trace | Medium |
 | 8 | - | Tool Registry v1 | Real tool metadata, permissions, routing, and audit policy | V01 capability model, events | High |
@@ -176,11 +177,32 @@ placement-scoped commands and persists command-result payloads; Node enforces
 allowed workspace roots, path normalization, protected generated/ignored paths,
 text-size caps, no-shell command execution, timeout limits, and bounded output.
 The Web Control Panel exposes save, `make l`, `make c`, custom command, diff and
-history controls in the workspace surface. Full interactive PTY lifecycle
-remains future work.
+history controls in the workspace surface.
 
 **Target direction:** Lightweight developer workbench ergonomics without
 becoming a full browser IDE.
+
+### 5a. Workspace renderer and PTY terminal layer
+
+**Value:** Makes the workspace surface behave like a real developer workbench:
+Monaco renders code and diffs, while xterm renders an interactive PTY instead of
+pretending command-runner output is a terminal.
+
+**First useful slice:** Monaco-backed file editor and diff viewer; Core APIs for
+terminal open/list/stream/input/resize/close; Node Daemon PTY lifecycle scoped
+to the validated workspace; xterm terminal tabs with attach, resize, input,
+output, status and close handling. The bounded command runner remains separate
+for traceable controlled checks.
+
+**Current implementation note:** `0.1.7` adds shared protocol contracts for
+workspace terminal commands and stream frames, Core routes all terminal traffic
+through the node control channel and WebSocket client stream, Node owns PTY
+creation and cleanup inside the workspace cwd, and Web uses Monaco plus xterm.js
+as first-class renderers.
+
+**Target direction:** Add durable replay endpoints, terminal output refs,
+search/copy ergonomics, review decorations, selection/range actions, and richer
+diff/review workflows without weakening the Core/Node authority boundary.
 
 ### 6. Causality and trace UX
 

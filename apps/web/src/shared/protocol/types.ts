@@ -48,7 +48,12 @@ export type CommandKind =
   | "ReadWorkspaceFile"
   | "WriteWorkspaceFile"
   | "RunWorkspaceCommand"
-  | "ReadWorkspaceDiff";
+  | "ReadWorkspaceDiff"
+  | "OpenWorkspaceTerminal"
+  | "AttachWorkspaceTerminal"
+  | "ResizeWorkspaceTerminal"
+  | "WriteWorkspaceTerminal"
+  | "CloseWorkspaceTerminal";
 export type MessageRole =
   | "user"
   | "assistant"
@@ -237,6 +242,83 @@ export type WorkspaceCommandHistoryResponse = {
   commands: WorkspaceCommandHistoryItem[];
   generated_at: string;
 };
+
+export type WorkspaceTerminalState =
+  | "opening"
+  | "running"
+  | "detached"
+  | "exited"
+  | "closed"
+  | "error";
+
+export type WorkspaceTerminalOpenRequest = {
+  shell_profile: string | null;
+  cols: number;
+  rows: number;
+};
+
+export type WorkspaceTerminalSummary = {
+  placement_id: string;
+  terminal_id: string;
+  title: string;
+  cwd: string;
+  shell: string;
+  cols: number;
+  rows: number;
+  state: WorkspaceTerminalState;
+  exit_code: number | null;
+  created_at: string;
+  updated_at: string;
+};
+
+export type WorkspaceTerminalOutputFrame = {
+  terminal_id: string;
+  seq: number;
+  data: string;
+  sent_at: string;
+};
+
+export type WorkspaceTerminalOpenResponse = {
+  placement_id: string;
+  terminal: WorkspaceTerminalSummary;
+  replay: WorkspaceTerminalOutputFrame[];
+};
+
+export type WorkspaceTerminalListResponse = {
+  placement_id: string;
+  terminals: WorkspaceTerminalSummary[];
+  generated_at: string;
+};
+
+export type WorkspaceTerminalClientFrame =
+  | { kind: "input"; data: string }
+  | { kind: "resize"; cols: number; rows: number }
+  | { kind: "close" }
+  | { kind: "ping" };
+
+export type WorkspaceTerminalStreamFrame =
+  | {
+      kind: "output";
+      terminal_id: string;
+      seq: number;
+      data: string;
+      sent_at: string;
+    }
+  | {
+      kind: "status";
+      terminal_id: string;
+      state: WorkspaceTerminalState;
+      exit_code: number | null;
+      message: string | null;
+      sent_at: string;
+    }
+  | { kind: "pong"; sent_at: string }
+  | {
+      kind: "error";
+      terminal_id: string;
+      message: string;
+      sent_at: string;
+    };
 
 export type RuntimeSummary = {
   runtime_session_id: string;
