@@ -72,6 +72,14 @@ state" в developer workbench.
 safe text viewer уже проверяют следующий продуктовый шаг без затягивания editor,
 terminal, diff, checks, tools or plugins в V01.
 
+Implemented read-only slice использует существующий Core-to-Node command
+channel: Core authenticates Web request, records placement-scoped workspace
+command, dispatches it to Node Daemon, briefly waits for typed command result,
+and returns tree or file payload to Web Control Panel. Node Daemon owns path
+normalization and local filesystem access, including workspace boundary checks,
+allowed-root checks, symlink stop-points, text-size caps, binary/large
+classification, generated/ignored stop-points and permission-denied states.
+
 Следующий intervention layer должен добавить:
 
 - lightweight text editing with explicit save/apply semantics;

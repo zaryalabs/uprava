@@ -9,6 +9,7 @@ import type { NodeSummary } from "../../shared/protocol/types";
 import { Badge } from "../../shared/ui/badge";
 import { Button } from "../../shared/ui/button";
 import { ErrorNotice } from "../../shared/ui/error-notice";
+import { WorkspaceInspector } from "../workspace-inspector/WorkspaceInspector";
 import {
   canRunCommand,
   runWorkbenchCommand,
@@ -186,6 +187,10 @@ export function PlacementRoute() {
       >
         Open node
       </Link>
+      <WorkspaceInspector
+        placementId={placement.data.project_placement_id}
+        workspacePath={placement.data.workspace_path}
+      />
     </section>
   );
 }

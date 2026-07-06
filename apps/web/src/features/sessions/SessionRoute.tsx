@@ -1,6 +1,7 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { FolderOpen } from "lucide-react";
 import { useEffect } from "react";
-import { useParams } from "react-router-dom";
+import { Link, useParams } from "react-router-dom";
 
 import { coreApi } from "../../shared/api/http-client";
 import { queryKeys } from "../../shared/api/query-keys";
@@ -14,6 +15,7 @@ import { applySessionStreamEventToCache } from "../../workbench/projection/sessi
 import { ReferenceActions } from "../../workbench/references/ReferenceActions";
 import {
   projectRefForPlacement,
+  routeForRef,
   workspaceRefForPlacement,
 } from "../../workbench/references/refs";
 import { ArtifactTree } from "../artifacts/ArtifactTree";
@@ -79,6 +81,9 @@ export function SessionRoute() {
   });
   const projectRef = projectRefForPlacement(session.data.placement);
   const workspaceRef = workspaceRefForPlacement(session.data.placement);
+  const workspaceRoute =
+    routeForRef(workspaceRef) ??
+    `/workspaces/${session.data.placement.project_placement_id}`;
 
   return (
     <section className="grid gap-4 xl:grid-cols-[minmax(0,1fr)_280px]">
@@ -95,6 +100,13 @@ export function SessionRoute() {
               </div>
             </div>
             <div className="flex flex-wrap gap-2">
+              <Link
+                to={workspaceRoute}
+                className="inline-flex h-9 items-center justify-center gap-2 rounded-md border border-[#bfc8bc] bg-[#fbfcf8] px-3 text-sm font-medium text-[#17211c] transition hover:bg-[#edf1e9]"
+              >
+                <FolderOpen size={16} />
+                Workspace
+              </Link>
               <ReferenceActions reference={workspaceRef} />
               {projectRef ? <ReferenceActions reference={projectRef} /> : null}
               <ReferenceActions

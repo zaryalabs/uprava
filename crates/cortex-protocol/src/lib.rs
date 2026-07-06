@@ -258,6 +258,8 @@ pub enum CommandKind {
     StopRuntime,
     ValidateWorkspace,
     RefreshResourceSnapshot,
+    ListWorkspaceTree,
+    ReadWorkspaceFile,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -494,6 +496,62 @@ pub struct WorkspaceSnapshot {
     pub state: PlacementState,
     pub resource_badges: Vec<ResourceBadge>,
     pub last_validated_at: DateTime<Utc>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum WorkspaceEntryKind {
+    Directory,
+    File,
+    Symlink,
+    Other,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum WorkspaceEntryStatus {
+    Readable,
+    Directory,
+    Large,
+    Binary,
+    Ignored,
+    Generated,
+    PermissionDenied,
+    OutsideWorkspace,
+    Missing,
+    NotFile,
+    NotDirectory,
+    Symlink,
+    Error,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct WorkspaceEntry {
+    pub name: String,
+    pub path: String,
+    pub kind: WorkspaceEntryKind,
+    pub status: WorkspaceEntryStatus,
+    pub byte_len: Option<u64>,
+    pub modified_at: Option<DateTime<Utc>>,
+    #[serde(default)]
+    pub children: Vec<WorkspaceEntry>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct WorkspaceTreeResponse {
+    pub placement_id: ProjectPlacementId,
+    pub root: WorkspaceEntry,
+    pub generated_at: DateTime<Utc>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct WorkspaceFileContentResponse {
+    pub placement_id: ProjectPlacementId,
+    pub path: String,
+    pub metadata: WorkspaceEntry,
+    pub content: Option<String>,
+    pub truncated: bool,
+    pub generated_at: DateTime<Utc>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]

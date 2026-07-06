@@ -41,6 +41,9 @@ describe("App routes", () => {
     expect(
       await screen.findByRole("heading", { name: "Cortex" }),
     ).toBeVisible();
+    expect(await screen.findByText("Workspace Inspector")).toBeVisible();
+    expect((await screen.findAllByText("README.md")).length).toBeGreaterThan(0);
+    expect(await screen.findByText("# Cortex")).toBeVisible();
 
     renderApp("/projects/project-1");
 
@@ -55,6 +58,10 @@ describe("App routes", () => {
       await screen.findByRole("heading", { name: "Fix issue" }),
     ).toBeVisible();
     expect(screen.getAllByText("Assistant reply").length).toBeGreaterThan(0);
+    expect(screen.getByRole("link", { name: "Workspace" })).toHaveAttribute(
+      "href",
+      "/workspaces/placement-1",
+    );
     expect(await screen.findByText("Session-local index")).toBeVisible();
     expect(await screen.findByText("session.sendTurn")).toBeVisible();
 
@@ -141,6 +148,10 @@ function responseForPath(pathname: string) {
       return [];
     case "/api/v1/placements/placement-1":
       return placement;
+    case "/api/v1/placements/placement-1/workspace/tree":
+      return workspaceTree;
+    case "/api/v1/placements/placement-1/workspace/file":
+      return workspaceFile;
     case "/api/v1/sessions/session-1":
       return sessionDetail;
     case "/api/v1/sessions/session-1/artifact-tree":
@@ -200,6 +211,47 @@ const inventory = {
   ],
   placements: [placement],
   sessions: [session],
+  generated_at: "2026-06-17T00:00:00Z",
+};
+
+const workspaceTree = {
+  placement_id: "placement-1",
+  generated_at: "2026-06-17T00:00:00Z",
+  root: {
+    name: ".",
+    path: ".",
+    kind: "directory",
+    status: "directory",
+    byte_len: null,
+    modified_at: null,
+    children: [
+      {
+        name: "README.md",
+        path: "README.md",
+        kind: "file",
+        status: "readable",
+        byte_len: 12,
+        modified_at: "2026-06-17T00:00:00Z",
+        children: [],
+      },
+    ],
+  },
+};
+
+const workspaceFile = {
+  placement_id: "placement-1",
+  path: "README.md",
+  metadata: {
+    name: "README.md",
+    path: "README.md",
+    kind: "file",
+    status: "readable",
+    byte_len: 12,
+    modified_at: "2026-06-17T00:00:00Z",
+    children: [],
+  },
+  content: "# Cortex",
+  truncated: false,
   generated_at: "2026-06-17T00:00:00Z",
 };
 

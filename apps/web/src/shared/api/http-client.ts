@@ -22,6 +22,8 @@ import type {
   WebAuthSetupRequest,
   WebAuthStatusResponse,
   WarningAcknowledgementResponse,
+  WorkspaceFileContentResponse,
+  WorkspaceTreeResponse,
 } from "../protocol/types";
 import { apiBase } from "./config";
 import { logClientEvent } from "../logging/client-logger";
@@ -134,6 +136,18 @@ export const coreApi = {
       `/placements/${encodeURIComponent(
         placementId,
       )}/resource-snapshot/refresh`,
+    ),
+  workspaceTree: (placementId: string, path = ".") =>
+    apiGet<WorkspaceTreeResponse>(
+      `/placements/${encodeURIComponent(
+        placementId,
+      )}/workspace/tree?path=${encodeURIComponent(path)}`,
+    ),
+  workspaceFile: (placementId: string, path: string) =>
+    apiGet<WorkspaceFileContentResponse>(
+      `/placements/${encodeURIComponent(
+        placementId,
+      )}/workspace/file?path=${encodeURIComponent(path)}`,
     ),
   validatePlacement: (request: CreatePlacementRequest) =>
     apiPost<import("../protocol/types").ProjectPlacementSummary>(

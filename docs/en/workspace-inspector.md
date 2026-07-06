@@ -71,6 +71,14 @@ The first implementation can be intentionally small and read-only. A file tree
 and safe text viewer already validate the next product step without pulling
 editor, terminal, diff, checks, tools, or plugins into V01.
 
+The implemented read-only slice uses the existing Core-to-Node command channel:
+Core authenticates the Web request, records a placement-scoped workspace command,
+dispatches it to the Node Daemon, waits briefly for a typed command result, and
+returns the tree or file payload to the Web Control Panel. The Node Daemon owns
+path normalization and local filesystem access, including workspace boundary
+checks, allowed-root checks, symlink stop-points, text-size caps, binary/large
+classification, generated/ignored stop-points, and permission-denied states.
+
 The following intervention layer should add:
 
 - lightweight text editing with explicit save/apply semantics;

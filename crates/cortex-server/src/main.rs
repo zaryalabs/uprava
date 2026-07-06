@@ -45,11 +45,54 @@ async fn main() -> anyhow::Result<()> {
     );
 
     let listener = tokio::net::TcpListener::bind(address).await?;
-    axum::serve(listener, app)
-        .with_graceful_shutdown(shutdown_signal())
-        .await?;
+    let shutdown_timeout = Duration::from_secs(config.core_shutdown_timeout_seconds.max(0) as u64);
+    let (shutdown_tx, shutdown_rx) = tokio::sync::watch::channel(false);
+    let shutdown_task = tokio::spawn(async move {
+        shutdown_signal().await;
+        let _ = shutdown_tx.send(true);
+    });
+    let server = std::future::IntoFuture::into_future(
+        axum::serve(listener, app).with_graceful_shutdown(wait_for_shutdown(shutdown_rx.clone())),
+    );
+    tokio::pin!(server);
+    let mut shutdown_rx = shutdown_rx;
+
+    tokio::select! {
+        result = &mut server => {
+            shutdown_task.abort();
+            result?;
+        }
+        changed = shutdown_rx.changed() => {
+            if changed.is_ok() {
+                tracing::info!(
+                    timeout_seconds = shutdown_timeout.as_secs(),
+                    "shutdown signal received; waiting for graceful core shutdown"
+                );
+            }
+            match tokio::time::timeout(shutdown_timeout, &mut server).await {
+                Ok(result) => result?,
+                Err(_) => {
+                    tracing::warn!(
+                        timeout_seconds = shutdown_timeout.as_secs(),
+                        "core graceful shutdown timed out; forcing exit"
+                    );
+                }
+            }
+        }
+    }
 
     Ok(())
+}
+
+async fn wait_for_shutdown(mut shutdown_rx: tokio::sync::watch::Receiver<bool>) {
+    loop {
+        if *shutdown_rx.borrow_and_update() {
+            return;
+        }
+        if shutdown_rx.changed().await.is_err() {
+            return;
+        }
+    }
 }
 
 fn run_healthcheck(address: &str) -> anyhow::Result<()> {

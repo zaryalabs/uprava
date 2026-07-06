@@ -12,7 +12,7 @@ use std::{
 use std::os::unix::fs::{OpenOptionsExt, PermissionsExt};
 
 use anyhow::Context;
-use chrono::Utc;
+use chrono::{DateTime, Utc};
 use cortex_logging::init_tracing;
 use cortex_protocol::{
     serde_json_value::JsonValue, ActorRef, ApiError, ApprovalId, CapabilitySummary,
@@ -21,7 +21,8 @@ use cortex_protocol::{
     NodeEnrollmentClaimResponse, NodeEnrollmentRequest, NodeEnrollmentRequestedResponse,
     NodeHeartbeatRequest, NodeHeartbeatResponse, NodeId, PlacementState, ProjectPlacementId,
     ResourceBadge, RuntimeSessionId, RuntimeSessionState, ScopeRef, SessionThreadId, SleepHint,
-    TurnId, WarningSeverity, WorkspaceSnapshot,
+    TurnId, WarningSeverity, WorkspaceEntry, WorkspaceEntryKind, WorkspaceEntryStatus,
+    WorkspaceFileContentResponse, WorkspaceSnapshot, WorkspaceTreeResponse,
 };
 use futures_util::{SinkExt, StreamExt};
 use reqwest::Url;
@@ -43,6 +44,9 @@ type ControlSocket =
 const API_VERSION: &str = "v1";
 const MAX_EVENT_OUTBOX_EVENTS: usize = 1024;
 const MAX_CODEX_TRANSCRIPT_MESSAGES: usize = 20;
+const MAX_WORKSPACE_TREE_DEPTH: usize = 3;
+const MAX_WORKSPACE_TREE_ENTRIES: usize = 512;
+const MAX_WORKSPACE_TEXT_BYTES: u64 = 256 * 1024;
 const MAX_CODEX_TRANSCRIPT_CHARS: usize = 12_000;
 const MAX_PROVIDER_ACTIVITY_RAW_CHARS: usize = 16_000;
 const MAX_PROVIDER_ACTIVITY_SUMMARY_CHARS: usize = 1_200;
@@ -683,13 +687,20 @@ async fn handle_command_dispatch(
     }
 
     send_event_batch(socket, outcome.events_to_send).await?;
-    send_command_result(socket, &command.command_id, outcome.status).await
+    send_command_result(
+        socket,
+        &command.command_id,
+        outcome.status,
+        outcome.result_payload,
+    )
+    .await
 }
 
 async fn send_command_result(
     socket: &mut ControlSocket,
     command_id: &CommandId,
     status: CommandState,
+    payload: JsonValue,
 ) -> anyhow::Result<()> {
     send_frame(
         socket,
@@ -699,7 +710,7 @@ async fn send_command_result(
             sent_at: Utc::now(),
             command_id: command_id.clone(),
             status,
-            payload: JsonValue(serde_json::json!({})),
+            payload,
         },
     )
     .await
@@ -805,6 +816,7 @@ fn control_frame_protocol_version(frame: &ControlFrame) -> &str {
 struct CommandDispatchOutcome {
     status: CommandState,
     events_to_send: Vec<EventEnvelope>,
+    result_payload: JsonValue,
     state_changed: bool,
 }
 
@@ -863,17 +875,43 @@ async fn prepare_command_dispatch_with_live_socket(
                 &local_state.event_outbox,
                 &command.command_id,
             ),
+            result_payload: JsonValue(serde_json::json!({})),
             state_changed: false,
         };
     }
 
     let mut live_event_ids = HashSet::new();
+    let result_payload = JsonValue(serde_json::json!({}));
     let events = match command.kind {
         CommandKind::ValidateWorkspace => {
             workspace_validation_events(config, command, &mut local_state.placement_seqs)
         }
         CommandKind::RefreshResourceSnapshot => {
             resource_snapshot_events(config, command, &mut local_state.placement_seqs)
+        }
+        CommandKind::ListWorkspaceTree => {
+            let (status, payload) = workspace_tree_command_result(config, command);
+            local_state
+                .command_status
+                .insert(command.command_id.to_string(), status);
+            return CommandDispatchOutcome {
+                status,
+                events_to_send: vec![],
+                result_payload: payload,
+                state_changed: true,
+            };
+        }
+        CommandKind::ReadWorkspaceFile => {
+            let (status, payload) = workspace_file_command_result(config, command);
+            local_state
+                .command_status
+                .insert(command.command_id.to_string(), status);
+            return CommandDispatchOutcome {
+                status,
+                events_to_send: vec![],
+                result_payload: payload,
+                state_changed: true,
+            };
         }
         _ => {
             remember_runtime_metadata(local_state, command);
@@ -926,6 +964,7 @@ async fn prepare_command_dispatch_with_live_socket(
     CommandDispatchOutcome {
         status,
         events_to_send,
+        result_payload,
         state_changed: true,
     }
 }
@@ -1365,6 +1404,656 @@ fn workspace_path_allowed(config: &NodeConfig, path: &Path) -> bool {
             .workspace_paths
             .iter()
             .any(|root| path.starts_with(root))
+}
+
+fn workspace_tree_command_result(
+    config: &NodeConfig,
+    command: &CommandEnvelope,
+) -> (CommandState, JsonValue) {
+    match build_workspace_tree_response(config, command) {
+        Ok(response) => workspace_success_payload(response),
+        Err(error) => (CommandState::Failed, error.into_payload()),
+    }
+}
+
+fn workspace_file_command_result(
+    config: &NodeConfig,
+    command: &CommandEnvelope,
+) -> (CommandState, JsonValue) {
+    match build_workspace_file_response(config, command) {
+        Ok(response) => workspace_success_payload(response),
+        Err(error) => (CommandState::Failed, error.into_payload()),
+    }
+}
+
+fn workspace_success_payload<T: Serialize>(value: T) -> (CommandState, JsonValue) {
+    match serde_json::to_value(value) {
+        Ok(value) => (CommandState::Completed, JsonValue(value)),
+        Err(error) => (
+            CommandState::Failed,
+            JsonValue(serde_json::json!({
+                "error_code": "workspace.serialization_failed",
+                "message": error.to_string(),
+            })),
+        ),
+    }
+}
+
+#[derive(Debug)]
+struct WorkspaceInspectError {
+    code: &'static str,
+    message: String,
+}
+
+impl WorkspaceInspectError {
+    fn new(code: &'static str, message: impl Into<String>) -> Self {
+        Self {
+            code,
+            message: message.into(),
+        }
+    }
+
+    fn into_payload(self) -> JsonValue {
+        JsonValue(serde_json::json!({
+            "error_code": self.code,
+            "message": self.message,
+        }))
+    }
+}
+
+fn build_workspace_tree_response(
+    config: &NodeConfig,
+    command: &CommandEnvelope,
+) -> Result<WorkspaceTreeResponse, WorkspaceInspectError> {
+    let placement_id = workspace_command_placement_id(command)?;
+    let workspace_root = canonical_workspace_root(config, workspace_command_path(command)?)?;
+    let requested_path = command_payload_str(command, "path").unwrap_or(".");
+    let relative_path = safe_workspace_relative_path(requested_path)?;
+    let root_path = match resolve_existing_workspace_path(&workspace_root, &relative_path) {
+        Ok(path) => path,
+        Err(error) if error.code == "workspace.path_missing" => workspace_root.join(&relative_path),
+        Err(error) => return Err(error),
+    };
+    let mut remaining_entries = MAX_WORKSPACE_TREE_ENTRIES;
+    let root = workspace_tree_entry(
+        &workspace_root,
+        &root_path,
+        &relative_path,
+        0,
+        &mut remaining_entries,
+    );
+    Ok(WorkspaceTreeResponse {
+        placement_id,
+        root,
+        generated_at: Utc::now(),
+    })
+}
+
+fn build_workspace_file_response(
+    config: &NodeConfig,
+    command: &CommandEnvelope,
+) -> Result<WorkspaceFileContentResponse, WorkspaceInspectError> {
+    let placement_id = workspace_command_placement_id(command)?;
+    let workspace_root = canonical_workspace_root(config, workspace_command_path(command)?)?;
+    let requested_path = command_payload_str(command, "path").unwrap_or(".");
+    let relative_path = safe_workspace_relative_path(requested_path)?;
+    let response_path = relative_path_string(&relative_path);
+    let target_path = match resolve_existing_workspace_path(&workspace_root, &relative_path) {
+        Ok(path) => path,
+        Err(error) if error.code == "workspace.path_missing" => {
+            return Ok(workspace_file_status_response(
+                placement_id,
+                relative_path,
+                WorkspaceEntryKind::Other,
+                WorkspaceEntryStatus::Missing,
+                None,
+                None,
+                None,
+            ));
+        }
+        Err(error) => return Err(error),
+    };
+    let metadata = match std::fs::symlink_metadata(&target_path) {
+        Ok(metadata) => metadata,
+        Err(error) if error.kind() == ErrorKind::PermissionDenied => {
+            return Ok(workspace_file_status_response(
+                placement_id,
+                relative_path,
+                WorkspaceEntryKind::Other,
+                WorkspaceEntryStatus::PermissionDenied,
+                None,
+                None,
+                None,
+            ));
+        }
+        Err(error) if error.kind() == ErrorKind::NotFound => {
+            return Ok(workspace_file_status_response(
+                placement_id,
+                relative_path,
+                WorkspaceEntryKind::Other,
+                WorkspaceEntryStatus::Missing,
+                None,
+                None,
+                None,
+            ));
+        }
+        Err(error) => {
+            return Err(WorkspaceInspectError::new(
+                "workspace.metadata_failed",
+                format!("Failed to inspect {response_path}: {error}"),
+            ));
+        }
+    };
+    let kind = workspace_entry_kind(&metadata);
+    let modified_at = metadata_modified_at(&metadata);
+    if metadata.file_type().is_symlink() {
+        return Ok(workspace_file_status_response(
+            placement_id,
+            relative_path,
+            kind,
+            WorkspaceEntryStatus::Symlink,
+            None,
+            modified_at,
+            None,
+        ));
+    }
+    if !metadata.is_file() {
+        return Ok(workspace_file_status_response(
+            placement_id,
+            relative_path,
+            kind,
+            WorkspaceEntryStatus::NotFile,
+            Some(metadata.len()),
+            modified_at,
+            None,
+        ));
+    }
+    if generated_or_ignored_status(&relative_path).is_some() {
+        let status =
+            generated_or_ignored_status(&relative_path).unwrap_or(WorkspaceEntryStatus::Generated);
+        return Ok(workspace_file_status_response(
+            placement_id,
+            relative_path,
+            kind,
+            status,
+            Some(metadata.len()),
+            modified_at,
+            None,
+        ));
+    }
+    if metadata.len() > MAX_WORKSPACE_TEXT_BYTES {
+        return Ok(workspace_file_status_response(
+            placement_id,
+            relative_path,
+            kind,
+            WorkspaceEntryStatus::Large,
+            Some(metadata.len()),
+            modified_at,
+            None,
+        ));
+    }
+    if binary_extension(&relative_path) {
+        return Ok(workspace_file_status_response(
+            placement_id,
+            relative_path,
+            kind,
+            WorkspaceEntryStatus::Binary,
+            Some(metadata.len()),
+            modified_at,
+            None,
+        ));
+    }
+
+    let bytes = match std::fs::read(&target_path) {
+        Ok(bytes) => bytes,
+        Err(error) if error.kind() == ErrorKind::PermissionDenied => {
+            return Ok(workspace_file_status_response(
+                placement_id,
+                relative_path,
+                kind,
+                WorkspaceEntryStatus::PermissionDenied,
+                Some(metadata.len()),
+                modified_at,
+                None,
+            ));
+        }
+        Err(error) => {
+            return Err(WorkspaceInspectError::new(
+                "workspace.read_failed",
+                format!("Failed to read {response_path}: {error}"),
+            ));
+        }
+    };
+    if bytes.contains(&0) {
+        return Ok(workspace_file_status_response(
+            placement_id,
+            relative_path,
+            kind,
+            WorkspaceEntryStatus::Binary,
+            Some(metadata.len()),
+            modified_at,
+            None,
+        ));
+    }
+    let content = match String::from_utf8(bytes) {
+        Ok(content) => content,
+        Err(_) => {
+            return Ok(workspace_file_status_response(
+                placement_id,
+                relative_path,
+                kind,
+                WorkspaceEntryStatus::Binary,
+                Some(metadata.len()),
+                modified_at,
+                None,
+            ));
+        }
+    };
+
+    Ok(workspace_file_status_response(
+        placement_id,
+        relative_path,
+        kind,
+        WorkspaceEntryStatus::Readable,
+        Some(metadata.len()),
+        modified_at,
+        Some(content),
+    ))
+}
+
+fn workspace_file_status_response(
+    placement_id: ProjectPlacementId,
+    relative_path: PathBuf,
+    kind: WorkspaceEntryKind,
+    status: WorkspaceEntryStatus,
+    byte_len: Option<u64>,
+    modified_at: Option<DateTime<Utc>>,
+    content: Option<String>,
+) -> WorkspaceFileContentResponse {
+    let path = relative_path_string(&relative_path);
+    WorkspaceFileContentResponse {
+        placement_id,
+        path: path.clone(),
+        metadata: WorkspaceEntry {
+            name: workspace_entry_name(&relative_path),
+            path,
+            kind,
+            status,
+            byte_len,
+            modified_at,
+            children: vec![],
+        },
+        content,
+        truncated: false,
+        generated_at: Utc::now(),
+    }
+}
+
+fn workspace_command_placement_id(
+    command: &CommandEnvelope,
+) -> Result<ProjectPlacementId, WorkspaceInspectError> {
+    command.project_placement_id.clone().ok_or_else(|| {
+        WorkspaceInspectError::new(
+            "workspace.placement_missing",
+            "Workspace inspector command is missing a placement id",
+        )
+    })
+}
+
+fn workspace_command_path(command: &CommandEnvelope) -> Result<&str, WorkspaceInspectError> {
+    command_payload_str(command, "workspace_path")
+        .filter(|path| !path.trim().is_empty())
+        .ok_or_else(|| {
+            WorkspaceInspectError::new(
+                "workspace.path_required",
+                "Workspace inspector command is missing a workspace path",
+            )
+        })
+}
+
+fn canonical_workspace_root(
+    config: &NodeConfig,
+    workspace_path: &str,
+) -> Result<PathBuf, WorkspaceInspectError> {
+    let root = std::fs::canonicalize(workspace_path).map_err(|error| {
+        let code = if error.kind() == ErrorKind::NotFound {
+            "workspace.root_missing"
+        } else if error.kind() == ErrorKind::PermissionDenied {
+            "workspace.root_permission_denied"
+        } else {
+            "workspace.root_invalid"
+        };
+        WorkspaceInspectError::new(
+            code,
+            format!("Workspace root {workspace_path} is not readable: {error}"),
+        )
+    })?;
+    if !root.is_dir() {
+        return Err(WorkspaceInspectError::new(
+            "workspace.root_not_directory",
+            "Workspace root is not a directory",
+        ));
+    }
+    if !canonical_workspace_path_allowed(config, &root) {
+        return Err(WorkspaceInspectError::new(
+            "workspace.outside_allowed_roots",
+            "Workspace root is outside the node allowed roots",
+        ));
+    }
+    Ok(root)
+}
+
+fn canonical_workspace_path_allowed(config: &NodeConfig, workspace_root: &Path) -> bool {
+    !config.workspace_paths.is_empty()
+        && config.workspace_paths.iter().any(|allowed_root| {
+            std::fs::canonicalize(allowed_root)
+                .map(|root| workspace_root.starts_with(root))
+                .unwrap_or(false)
+        })
+}
+
+fn safe_workspace_relative_path(path: &str) -> Result<PathBuf, WorkspaceInspectError> {
+    let trimmed = path.trim();
+    if trimmed.is_empty() || trimmed == "." {
+        return Ok(PathBuf::new());
+    }
+    let path = Path::new(trimmed);
+    if path.is_absolute() {
+        return Err(WorkspaceInspectError::new(
+            "workspace.absolute_path",
+            "Workspace inspector paths must be relative",
+        ));
+    }
+    let mut normalized = PathBuf::new();
+    for component in path.components() {
+        match component {
+            std::path::Component::Normal(value) => normalized.push(value),
+            std::path::Component::CurDir => {}
+            std::path::Component::ParentDir
+            | std::path::Component::RootDir
+            | std::path::Component::Prefix(_) => {
+                return Err(WorkspaceInspectError::new(
+                    "workspace.path_escape",
+                    "Workspace inspector paths cannot leave the workspace",
+                ));
+            }
+        }
+    }
+    Ok(normalized)
+}
+
+fn resolve_existing_workspace_path(
+    workspace_root: &Path,
+    relative_path: &Path,
+) -> Result<PathBuf, WorkspaceInspectError> {
+    let mut current = workspace_root.to_path_buf();
+    if relative_path.as_os_str().is_empty() {
+        return Ok(current);
+    }
+    for component in relative_path.components() {
+        let std::path::Component::Normal(segment) = component else {
+            return Err(WorkspaceInspectError::new(
+                "workspace.path_escape",
+                "Workspace inspector paths cannot leave the workspace",
+            ));
+        };
+        current.push(segment);
+        let metadata = std::fs::symlink_metadata(&current).map_err(|error| {
+            let code = if error.kind() == ErrorKind::NotFound {
+                "workspace.path_missing"
+            } else if error.kind() == ErrorKind::PermissionDenied {
+                "workspace.permission_denied"
+            } else {
+                "workspace.metadata_failed"
+            };
+            WorkspaceInspectError::new(
+                code,
+                format!("Failed to inspect {}: {error}", relative_path.display()),
+            )
+        })?;
+        if metadata.file_type().is_symlink() {
+            return Ok(current);
+        }
+        let canonical = std::fs::canonicalize(&current).map_err(|error| {
+            WorkspaceInspectError::new(
+                "workspace.canonicalize_failed",
+                format!("Failed to resolve {}: {error}", relative_path.display()),
+            )
+        })?;
+        if !canonical.starts_with(workspace_root) {
+            return Err(WorkspaceInspectError::new(
+                "workspace.path_escape",
+                "Workspace inspector path resolves outside the workspace",
+            ));
+        }
+        current = canonical;
+    }
+    Ok(current)
+}
+
+fn workspace_tree_entry(
+    workspace_root: &Path,
+    path: &Path,
+    relative_path: &Path,
+    depth: usize,
+    remaining_entries: &mut usize,
+) -> WorkspaceEntry {
+    if *remaining_entries == 0 {
+        return workspace_entry_for_status(
+            relative_path,
+            WorkspaceEntryKind::Other,
+            WorkspaceEntryStatus::Error,
+            None,
+            None,
+        );
+    }
+    *remaining_entries -= 1;
+    let metadata = match std::fs::symlink_metadata(path) {
+        Ok(metadata) => metadata,
+        Err(error) if error.kind() == ErrorKind::PermissionDenied => {
+            return workspace_entry_for_status(
+                relative_path,
+                WorkspaceEntryKind::Other,
+                WorkspaceEntryStatus::PermissionDenied,
+                None,
+                None,
+            );
+        }
+        Err(error) if error.kind() == ErrorKind::NotFound => {
+            return workspace_entry_for_status(
+                relative_path,
+                WorkspaceEntryKind::Other,
+                WorkspaceEntryStatus::Missing,
+                None,
+                None,
+            );
+        }
+        Err(_) => {
+            return workspace_entry_for_status(
+                relative_path,
+                WorkspaceEntryKind::Other,
+                WorkspaceEntryStatus::Error,
+                None,
+                None,
+            );
+        }
+    };
+    let kind = workspace_entry_kind(&metadata);
+    let mut status = workspace_status_for_entry(relative_path, &metadata);
+    let mut children = Vec::new();
+    if metadata.is_dir()
+        && status == WorkspaceEntryStatus::Directory
+        && depth < MAX_WORKSPACE_TREE_DEPTH
+    {
+        match std::fs::read_dir(path) {
+            Ok(read_dir) => {
+                let mut entries = read_dir
+                    .filter_map(Result::ok)
+                    .collect::<Vec<std::fs::DirEntry>>();
+                entries.sort_by_key(|entry| entry.file_name());
+                for entry in entries {
+                    if *remaining_entries == 0 {
+                        break;
+                    }
+                    let child_name = entry.file_name();
+                    let mut child_relative_path = relative_path.to_path_buf();
+                    child_relative_path.push(child_name);
+                    let child_path = entry.path();
+                    if child_path.starts_with(workspace_root) {
+                        children.push(workspace_tree_entry(
+                            workspace_root,
+                            &child_path,
+                            &child_relative_path,
+                            depth + 1,
+                            remaining_entries,
+                        ));
+                    }
+                }
+            }
+            Err(error) if error.kind() == ErrorKind::PermissionDenied => {
+                status = WorkspaceEntryStatus::PermissionDenied;
+            }
+            Err(_) => {
+                status = WorkspaceEntryStatus::Error;
+            }
+        }
+    }
+
+    WorkspaceEntry {
+        name: workspace_entry_name(relative_path),
+        path: relative_path_string(relative_path),
+        kind,
+        status,
+        byte_len: metadata.is_file().then_some(metadata.len()),
+        modified_at: metadata_modified_at(&metadata),
+        children,
+    }
+}
+
+fn workspace_entry_for_status(
+    relative_path: &Path,
+    kind: WorkspaceEntryKind,
+    status: WorkspaceEntryStatus,
+    byte_len: Option<u64>,
+    modified_at: Option<DateTime<Utc>>,
+) -> WorkspaceEntry {
+    WorkspaceEntry {
+        name: workspace_entry_name(relative_path),
+        path: relative_path_string(relative_path),
+        kind,
+        status,
+        byte_len,
+        modified_at,
+        children: vec![],
+    }
+}
+
+fn workspace_entry_kind(metadata: &std::fs::Metadata) -> WorkspaceEntryKind {
+    let file_type = metadata.file_type();
+    if file_type.is_dir() {
+        WorkspaceEntryKind::Directory
+    } else if file_type.is_file() {
+        WorkspaceEntryKind::File
+    } else if file_type.is_symlink() {
+        WorkspaceEntryKind::Symlink
+    } else {
+        WorkspaceEntryKind::Other
+    }
+}
+
+fn workspace_status_for_entry(
+    relative_path: &Path,
+    metadata: &std::fs::Metadata,
+) -> WorkspaceEntryStatus {
+    if metadata.file_type().is_symlink() {
+        return WorkspaceEntryStatus::Symlink;
+    }
+    if let Some(status) = generated_or_ignored_status(relative_path) {
+        return status;
+    }
+    if metadata.is_dir() {
+        return WorkspaceEntryStatus::Directory;
+    }
+    if metadata.is_file() {
+        if metadata.len() > MAX_WORKSPACE_TEXT_BYTES {
+            return WorkspaceEntryStatus::Large;
+        }
+        if binary_extension(relative_path) {
+            return WorkspaceEntryStatus::Binary;
+        }
+        return WorkspaceEntryStatus::Readable;
+    }
+    WorkspaceEntryStatus::Error
+}
+
+fn generated_or_ignored_status(relative_path: &Path) -> Option<WorkspaceEntryStatus> {
+    let name = relative_path.file_name()?.to_str()?;
+    match name {
+        ".git" | ".hg" | ".svn" | ".DS_Store" => Some(WorkspaceEntryStatus::Ignored),
+        ".local" | "node_modules" | "target" | "dist" | "build" | "coverage" | ".next"
+        | ".turbo" | ".vite" => Some(WorkspaceEntryStatus::Generated),
+        _ => None,
+    }
+}
+
+fn binary_extension(path: &Path) -> bool {
+    let Some(extension) = path.extension().and_then(|extension| extension.to_str()) else {
+        return false;
+    };
+    matches!(
+        extension.to_ascii_lowercase().as_str(),
+        "png"
+            | "jpg"
+            | "jpeg"
+            | "gif"
+            | "webp"
+            | "ico"
+            | "pdf"
+            | "zip"
+            | "gz"
+            | "tar"
+            | "tgz"
+            | "woff"
+            | "woff2"
+            | "ttf"
+            | "otf"
+            | "wasm"
+            | "sqlite"
+            | "db"
+            | "bin"
+            | "exe"
+            | "dylib"
+            | "so"
+            | "dll"
+    )
+}
+
+fn workspace_entry_name(relative_path: &Path) -> String {
+    if relative_path.as_os_str().is_empty() {
+        return ".".to_owned();
+    }
+    relative_path
+        .file_name()
+        .map(|value| value.to_string_lossy().into_owned())
+        .unwrap_or_else(|| ".".to_owned())
+}
+
+fn relative_path_string(relative_path: &Path) -> String {
+    if relative_path.as_os_str().is_empty() {
+        return ".".to_owned();
+    }
+    relative_path
+        .components()
+        .filter_map(|component| match component {
+            std::path::Component::Normal(value) => Some(value.to_string_lossy()),
+            _ => None,
+        })
+        .collect::<Vec<_>>()
+        .join("/")
+}
+
+fn metadata_modified_at(metadata: &std::fs::Metadata) -> Option<DateTime<Utc>> {
+    metadata.modified().ok().map(DateTime::<Utc>::from)
 }
 
 fn placement_event_for_command(
@@ -3681,6 +4370,108 @@ mod tests {
             local_state.placement_seqs.get("placement-refresh").copied(),
             Some(1)
         );
+    }
+
+    #[tokio::test]
+    async fn read_workspace_file_command_returns_text_content() {
+        let config = config_fixture();
+        let workspace_path =
+            std::env::temp_dir().join(format!("cortex-node-inspector-{}", Uuid::new_v4()));
+        std::fs::create_dir_all(&workspace_path).expect("workspace fixture creates");
+        std::fs::write(workspace_path.join("README.md"), "hello inspector")
+            .expect("text fixture writes");
+        let mut command = placement_command_fixture(
+            "command-read-file",
+            "placement-read-file",
+            "workspace",
+            &workspace_path.display().to_string(),
+        );
+        command.kind = CommandKind::ReadWorkspaceFile;
+        command.payload = JsonValue(serde_json::json!({
+            "workspace_path": workspace_path.display().to_string(),
+            "path": "README.md",
+        }));
+        let mut local_state = NodeLocalState::default();
+
+        let outcome = prepare_command_dispatch(&config, &mut local_state, &command).await;
+        let response =
+            serde_json::from_value::<WorkspaceFileContentResponse>(outcome.result_payload.0)
+                .expect("workspace file response decodes");
+        std::fs::remove_dir_all(&workspace_path).expect("workspace fixture removes");
+
+        assert_eq!(outcome.status, CommandState::Completed);
+        assert_eq!(response.metadata.status, WorkspaceEntryStatus::Readable);
+        assert_eq!(response.content.as_deref(), Some("hello inspector"));
+    }
+
+    #[tokio::test]
+    async fn list_workspace_tree_marks_generated_directories_without_descending() {
+        let config = config_fixture();
+        let workspace_path =
+            std::env::temp_dir().join(format!("cortex-node-inspector-{}", Uuid::new_v4()));
+        std::fs::create_dir_all(workspace_path.join("target/debug"))
+            .expect("generated fixture creates");
+        std::fs::write(workspace_path.join("target/debug/app"), "compiled")
+            .expect("generated file fixture writes");
+        let mut command = placement_command_fixture(
+            "command-list-tree",
+            "placement-list-tree",
+            "workspace",
+            &workspace_path.display().to_string(),
+        );
+        command.kind = CommandKind::ListWorkspaceTree;
+        command.payload = JsonValue(serde_json::json!({
+            "workspace_path": workspace_path.display().to_string(),
+            "path": ".",
+        }));
+        let mut local_state = NodeLocalState::default();
+
+        let outcome = prepare_command_dispatch(&config, &mut local_state, &command).await;
+        let response = serde_json::from_value::<WorkspaceTreeResponse>(outcome.result_payload.0)
+            .expect("workspace tree response decodes");
+        let target = response
+            .root
+            .children
+            .iter()
+            .find(|entry| entry.name == "target")
+            .expect("target entry appears");
+        std::fs::remove_dir_all(&workspace_path).expect("workspace fixture removes");
+
+        assert_eq!(outcome.status, CommandState::Completed);
+        assert_eq!(target.status, WorkspaceEntryStatus::Generated);
+        assert!(target.children.is_empty());
+    }
+
+    #[tokio::test]
+    async fn read_workspace_file_command_rejects_parent_path_escape() {
+        let config = config_fixture();
+        let workspace_path =
+            std::env::temp_dir().join(format!("cortex-node-inspector-{}", Uuid::new_v4()));
+        std::fs::create_dir_all(&workspace_path).expect("workspace fixture creates");
+        let mut command = placement_command_fixture(
+            "command-read-escape",
+            "placement-read-escape",
+            "workspace",
+            &workspace_path.display().to_string(),
+        );
+        command.kind = CommandKind::ReadWorkspaceFile;
+        command.payload = JsonValue(serde_json::json!({
+            "workspace_path": workspace_path.display().to_string(),
+            "path": "../secret.txt",
+        }));
+        let mut local_state = NodeLocalState::default();
+
+        let outcome = prepare_command_dispatch(&config, &mut local_state, &command).await;
+        let error_code = outcome
+            .result_payload
+            .0
+            .get("error_code")
+            .and_then(serde_json::Value::as_str)
+            .map(ToOwned::to_owned);
+        std::fs::remove_dir_all(&workspace_path).expect("workspace fixture removes");
+
+        assert_eq!(outcome.status, CommandState::Failed);
+        assert_eq!(error_code.as_deref(), Some("workspace.path_escape"));
     }
 
     #[test]

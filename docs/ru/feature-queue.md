@@ -43,7 +43,7 @@ dependency, complexity, risk and value. Позиции могут двигать
 | 1 | + | Security baseline | Trusted-dev warning, node auth, local web auth, credential handling, audit minimum | V01 control path | High |
 | 2 | + | Runtime/session hardening | Robust lifecycle, resume, stop, blocked, stale states | V01 runtime path | Medium |
 | 3 | + | Workspace shell and reference model | Stable refs and routes for future workspace evidence | V01 entity/session model | Medium |
-| 4 | - | Read-only Project Workspace Inspector | File tree, metadata, safe text viewer | Workspace refs, Node file reads | Medium |
+| 4 | + | Read-only Project Workspace Inspector | File tree, metadata, safe text viewer | Workspace refs, Node file reads | Medium |
 | 5 | - | Workspace intervention layer | Lightweight editor, terminal, command history, diff/check entry points | Read-only inspector, events | High |
 | 6 | - | Causality and trace UX | Coarse source/cause links with raw fallback | Workspace refs, event log | Medium |
 | 7 | - | Git and review basics | Better diff, branch/worktree awareness, check results | Workspace intervention, trace | Medium |
@@ -145,6 +145,14 @@ intervention tools.
 **First useful slice:** Workspace file tree, file metadata, safe text file
 viewer, readable states for large/binary/ignored/generated/permission-denied
 files and node-side workspace boundary enforcement.
+
+**Current implementation note:** Core exposes authenticated placement workspace
+tree and file-read routes, dispatching read-only commands to the Node Daemon and
+waiting for typed command results. Node Daemon normalizes relative paths,
+enforces workspace and allowed-root boundaries, avoids symlink traversal, caps
+tree and text reads, and returns explicit states for large, binary, generated,
+ignored, missing, symlink and permission-denied paths. Web Control Panel mounts
+file tree and safe text viewer on workspace routes.
 
 **Target direction:** Project surface, который позже сможет принять editor,
 terminal, diff, checks, artifacts and trace links.

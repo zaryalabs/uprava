@@ -21,6 +21,16 @@ export function InventoryTree() {
   const inventory = useInventory();
   const location = useLocation();
 
+  if (inventory.data) {
+    return (
+      <InventoryTreeContent
+        snapshot={inventory.data}
+        pathname={location.pathname}
+        refreshError={inventory.isError ? inventory.error : null}
+      />
+    );
+  }
+
   if (inventory.isLoading) {
     return (
       <nav aria-label="Inventory tree">
@@ -29,33 +39,29 @@ export function InventoryTree() {
     );
   }
 
-  if (inventory.isError || !inventory.data) {
-    return (
-      <nav aria-label="Inventory tree">
-        <ErrorNotice error={inventory.error} title="Core API unavailable" />
-      </nav>
-    );
-  }
-
   return (
-    <InventoryTreeContent
-      snapshot={inventory.data}
-      pathname={location.pathname}
-    />
+    <nav aria-label="Inventory tree">
+      <ErrorNotice error={inventory.error} title="Core API unavailable" />
+    </nav>
   );
 }
 
 export function InventoryTreeContent({
   snapshot,
   pathname,
+  refreshError = null,
 }: {
   snapshot: InventorySnapshot;
   pathname: string;
+  refreshError?: unknown;
 }) {
   const { nodes, placements, sessions } = snapshot;
 
   return (
     <nav aria-label="Inventory tree" className="space-y-2">
+      {refreshError ? (
+        <ErrorNotice error={refreshError} title="Inventory refresh failed" />
+      ) : null}
       <div className="px-1 text-xs font-semibold uppercase tracking-normal text-[#667268]">
         Nodes
       </div>

@@ -34,6 +34,24 @@ describe("InventoryTreeContent", () => {
       screen.getByRole("link", { name: /Active session/ }),
     ).toHaveAttribute("href", "/sessions/session-1");
   });
+
+  it("keeps stale inventory links visible when refresh fails", () => {
+    render(
+      <MemoryRouter>
+        <InventoryTreeContent
+          snapshot={snapshot}
+          pathname="/dashboard"
+          refreshError={new Error("network unavailable")}
+        />
+      </MemoryRouter>,
+    );
+
+    expect(screen.getByText("Inventory refresh failed")).toBeVisible();
+    expect(screen.getByRole("link", { name: /Cortex/ })).toHaveAttribute(
+      "href",
+      "/workspaces/placement-1",
+    );
+  });
 });
 
 const snapshot: InventorySnapshot = {

@@ -105,6 +105,48 @@ export type ProjectPlacementSummary = {
   last_validated_at: string | null;
 };
 
+export type WorkspaceEntryKind = "directory" | "file" | "symlink" | "other";
+
+export type WorkspaceEntryStatus =
+  | "readable"
+  | "directory"
+  | "large"
+  | "binary"
+  | "ignored"
+  | "generated"
+  | "permission_denied"
+  | "outside_workspace"
+  | "missing"
+  | "not_file"
+  | "not_directory"
+  | "symlink"
+  | "error";
+
+export type WorkspaceEntry = {
+  name: string;
+  path: string;
+  kind: WorkspaceEntryKind;
+  status: WorkspaceEntryStatus;
+  byte_len: number | null;
+  modified_at: string | null;
+  children: WorkspaceEntry[];
+};
+
+export type WorkspaceTreeResponse = {
+  placement_id: string;
+  root: WorkspaceEntry;
+  generated_at: string;
+};
+
+export type WorkspaceFileContentResponse = {
+  placement_id: string;
+  path: string;
+  metadata: WorkspaceEntry;
+  content: string | null;
+  truncated: boolean;
+  generated_at: string;
+};
+
 export type RuntimeSummary = {
   runtime_session_id: string;
   provider: string;
