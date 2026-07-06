@@ -41,7 +41,7 @@ That belongs in [v01.md](v01.md).
 | 0 | + | V01 Distributed Agent Control Panel | Multi-node chat/session control panel | Current design baseline | High |
 | 1 | + | Security baseline | Trusted-dev warning, node auth, local web auth, credential handling, audit minimum | V01 control path | High |
 | 2 | + | Runtime/session hardening | Robust lifecycle, resume, stop, blocked, stale states | V01 runtime path | Medium |
-| 3 | - | Workspace shell and reference model | Stable refs and routes for future workspace evidence | V01 entity/session model | Medium |
+| 3 | + | Workspace shell and reference model | Stable refs and routes for future workspace evidence | V01 entity/session model | Medium |
 | 4 | - | Read-only Project Workspace Inspector | File tree, metadata, safe text viewer | Workspace refs, Node file reads | Medium |
 | 5 | - | Workspace intervention layer | Lightweight editor, terminal, command history, diff/check entry points | Read-only inspector, events | High |
 | 6 | - | Causality and trace UX | Coarse source/cause links with raw fallback | Workspace refs, event log | Medium |
@@ -121,6 +121,15 @@ same workspace evidence without forcing the full inspector into V01.
 workspace, session, turn, message, runtime event, and reserved future workspace
 objects such as file, file range, edit, terminal session, command, output range,
 diff hunk, check result, artifact, and trace event.
+
+**Current implementation note:** Shared Rust and Web protocol contracts now
+define stable Cortex refs for project, placement, workspace, session, runtime,
+turn, message, block, artifact, event, command, approval, warning, tool call,
+file/file range, terminal/command/output range, diff hunk, check result,
+workspace edit, trace event, external entity, and unknown future refs. The Web
+Control Panel has stable project, workspace, placement, node, and session route
+helpers, a project route, a workspace route alias, inspector stack URL encoding,
+and explicit fallback handling for reserved future workspace refs.
 
 **Target direction:** Shared addressability for UI navigation, agent prompts,
 review decisions, plugin blocks, and task-run packages.

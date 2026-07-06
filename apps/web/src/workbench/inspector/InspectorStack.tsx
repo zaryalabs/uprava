@@ -60,11 +60,13 @@ type InspectorContext = {
 const reservedFutureKinds = new Set([
   "file",
   "file_range",
+  "workspace_edit",
   "terminal",
   "terminal_command",
   "terminal_output_range",
   "diff_hunk",
   "check_result",
+  "trace_event",
   "tool_call",
   "external_entity",
 ]);
@@ -226,9 +228,22 @@ function buildInspectorDetail(
   switch (ref.kind) {
     case "node":
       return nodeDetail(ref as Extract<CortexRef, { kind: "node" }>, context);
+    case "project":
+      return projectDetail(
+        ref as Extract<CortexRef, { kind: "project" }>,
+        context,
+      );
     case "placement":
       return placementDetail(
         ref as Extract<CortexRef, { kind: "placement" }>,
+        context,
+      );
+    case "workspace":
+      return placementDetail(
+        {
+          kind: "placement",
+          placement_id: String(ref.placement_id),
+        },
         context,
       );
     case "session":
@@ -329,6 +344,52 @@ function nodeDetail(
   };
 }
 
+function projectDetail(
+  ref: Extract<CortexRef, { kind: "project" }>,
+  context: InspectorContext,
+): InspectorDetail {
+  const placements =
+    context.inventory?.placements.filter(
+      (placement) => placement.project_id === ref.project_id,
+    ) ?? [];
+  if (placements.length === 0) {
+    return notAvailable(ref, "Project snapshot is not loaded");
+  }
+  const placementIds = new Set(
+    placements.map((placement) => placement.project_placement_id),
+  );
+  const sessions =
+    context.inventory?.sessions.filter((session) =>
+      placementIds.has(session.project_placement_id),
+    ) ?? [];
+  return {
+    title: placements[0]?.display_name ?? ref.project_id,
+    status: "resolved",
+    rows: [
+      { label: "project id", value: ref.project_id },
+      { label: "workspaces", value: placements.length },
+      { label: "sessions", value: sessions.length },
+    ],
+    refs: [
+      ...placements.map((placement) => ({
+        label: placement.display_name,
+        ref: {
+          kind: "workspace" as const,
+          placement_id: placement.project_placement_id,
+        },
+      })),
+      ...sessions.map((session) => ({
+        label: session.title,
+        ref: {
+          kind: "session" as const,
+          session_thread_id: session.session_thread_id,
+        },
+      })),
+    ],
+    payload: placements,
+  };
+}
+
 function placementDetail(
   ref: Extract<CortexRef, { kind: "placement" }>,
   context: InspectorContext,
@@ -356,6 +417,17 @@ function placementDetail(
       { label: "last validated", value: placement.last_validated_at },
     ],
     refs: [
+      ...(placement.project_id
+        ? [
+            {
+              label: "project",
+              ref: {
+                kind: "project" as const,
+                project_id: placement.project_id,
+              },
+            },
+          ]
+        : []),
       { label: "node", ref: { kind: "node", node_id: placement.node_id } },
       ...sessions.map((session) => ({
         label: session.title,

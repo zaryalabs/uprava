@@ -745,7 +745,13 @@ pub enum CortexRef {
     Node {
         node_id: NodeId,
     },
+    Project {
+        project_id: ProjectId,
+    },
     Placement {
+        placement_id: ProjectPlacementId,
+    },
+    Workspace {
         placement_id: ProjectPlacementId,
     },
     Session {
@@ -814,6 +820,14 @@ pub enum CortexRef {
     CheckResult {
         check_run_id: String,
         failure_id: Option<String>,
+    },
+    WorkspaceEdit {
+        edit_id: String,
+        placement_id: Option<ProjectPlacementId>,
+        path: Option<String>,
+    },
+    TraceEvent {
+        trace_event_id: String,
     },
     ExternalEntity {
         integration_kind: String,
@@ -1138,7 +1152,13 @@ mod tests {
             CortexRef::Node {
                 node_id: NodeId::from("node-1"),
             },
+            CortexRef::Project {
+                project_id: ProjectId::from("project-1"),
+            },
             CortexRef::Placement {
+                placement_id: ProjectPlacementId::from("placement-1"),
+            },
+            CortexRef::Workspace {
                 placement_id: ProjectPlacementId::from("placement-1"),
             },
             CortexRef::Session {
@@ -1220,6 +1240,14 @@ mod tests {
                 check_run_id: "check-1".to_owned(),
                 failure_id: Some("failure-1".to_owned()),
             },
+            CortexRef::WorkspaceEdit {
+                edit_id: "edit-1".to_owned(),
+                placement_id: Some(ProjectPlacementId::from("placement-1")),
+                path: Some("src/main.rs".to_owned()),
+            },
+            CortexRef::TraceEvent {
+                trace_event_id: "trace-event-1".to_owned(),
+            },
             CortexRef::ExternalEntity {
                 integration_kind: "github".to_owned(),
                 external_id: "pull-1".to_owned(),
@@ -1251,7 +1279,9 @@ mod tests {
             kinds,
             vec![
                 "node",
+                "project",
                 "placement",
+                "workspace",
                 "session",
                 "runtime",
                 "turn",
@@ -1270,6 +1300,8 @@ mod tests {
                 "terminal_output_range",
                 "diff_hunk",
                 "check_result",
+                "workspace_edit",
+                "trace_event",
                 "external_entity",
                 "unknown",
             ]

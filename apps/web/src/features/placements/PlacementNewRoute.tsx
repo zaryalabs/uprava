@@ -8,6 +8,7 @@ import { queryKeys } from "../../shared/api/query-keys";
 import { Button } from "../../shared/ui/button";
 import { ErrorNotice } from "../../shared/ui/error-notice";
 import { runWorkbenchCommand } from "../../workbench/commands/registry";
+import { routeForRef } from "../../workbench/references/refs";
 
 export const DEFAULT_WORKSPACE_PATH = "/workspace";
 
@@ -37,7 +38,12 @@ export function PlacementNewRoute() {
     onSuccess: async (placement) => {
       await queryClient.invalidateQueries({ queryKey: queryKeys.inventory });
       if (isPlacementResponse(placement)) {
-        navigate(`/placements/${placement.project_placement_id}`);
+        navigate(
+          routeForRef({
+            kind: "workspace",
+            placement_id: placement.project_placement_id,
+          }) ?? `/workspaces/${placement.project_placement_id}`,
+        );
       }
     },
   });

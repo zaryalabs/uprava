@@ -26,6 +26,13 @@ describe("InventoryTreeContent", () => {
     expect(screen.getByText("Missing workspace")).toBeVisible();
     expect(screen.getByText("degraded")).toBeVisible();
     expect(screen.getByText("error")).toBeVisible();
+    expect(screen.getByRole("link", { name: /Cortex/ })).toHaveAttribute(
+      "href",
+      "/workspaces/placement-1",
+    );
+    expect(
+      screen.getByRole("link", { name: /Active session/ }),
+    ).toHaveAttribute("href", "/sessions/session-1");
   });
 });
 

@@ -1,0 +1,13 @@
+include = [
+  "Cargo.toml",
+  "crates/*/Cargo.toml",
+  "deny.toml",
+  "taplo.toml",
+]
+
+[formatting]
+array_auto_expand = true
+array_auto_collapse = false
+column_width = 100
+indent_string = "  "
+reorder_keys = false

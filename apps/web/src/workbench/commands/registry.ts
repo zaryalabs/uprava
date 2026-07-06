@@ -23,7 +23,7 @@ import type {
   RuntimeSummary,
   SessionSummary,
 } from "../../shared/protocol/types";
-import { copyReferenceText } from "../references/refs";
+import { copyReferenceText, routeForRef } from "../references/refs";
 
 export type WorkbenchCommandId =
   | "node.createEnrollment"
@@ -177,7 +177,10 @@ const commands: UiCommand[] = [
         placement.project_placement_id,
       );
       await context.afterSuccess?.();
-      context.navigate?.(`/nodes/${placement.node_id}`);
+      context.navigate?.(
+        routeForRef({ kind: "node", node_id: placement.node_id }) ??
+          `/nodes/${placement.node_id}`,
+      );
       return response;
     },
   },
@@ -204,7 +207,12 @@ const commands: UiCommand[] = [
         ),
       });
       await context.afterSuccess?.();
-      context.navigate?.(`/sessions/${session.session.session_thread_id}`);
+      context.navigate?.(
+        routeForRef({
+          kind: "session",
+          session_thread_id: session.session.session_thread_id,
+        }) ?? `/sessions/${session.session.session_thread_id}`,
+      );
       return session;
     },
   },

@@ -12,6 +12,10 @@ import {
 } from "../../workbench/commands/registry";
 import { applySessionStreamEventToCache } from "../../workbench/projection/session-stream-cache";
 import { ReferenceActions } from "../../workbench/references/ReferenceActions";
+import {
+  projectRefForPlacement,
+  workspaceRefForPlacement,
+} from "../../workbench/references/refs";
 import { ArtifactTree } from "../artifacts/ArtifactTree";
 import { AgentProjectionPanel } from "../agent-projection/AgentProjectionPanel";
 import { ChatComposer } from "./ChatComposer";
@@ -73,6 +77,8 @@ export function SessionRoute() {
     runtime: session.data.session.runtime,
     turnContent: "ready",
   });
+  const projectRef = projectRefForPlacement(session.data.placement);
+  const workspaceRef = workspaceRefForPlacement(session.data.placement);
 
   return (
     <section className="grid gap-4 xl:grid-cols-[minmax(0,1fr)_280px]">
@@ -89,6 +95,8 @@ export function SessionRoute() {
               </div>
             </div>
             <div className="flex flex-wrap gap-2">
+              <ReferenceActions reference={workspaceRef} />
+              {projectRef ? <ReferenceActions reference={projectRef} /> : null}
               <ReferenceActions
                 reference={{
                   kind: "session",

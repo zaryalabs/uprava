@@ -36,7 +36,7 @@ test("renders warning badges and structured session blocks from snapshots", asyn
   await expect(page.getByText("placement.invalid")).toBeVisible();
   await page.getByLabel("Workspace path").fill("/workspace/cortex");
   await page.getByRole("button", { name: "Validate" }).click();
-  await expect(page).toHaveURL(/\/placements\/placement-1$/);
+  await expect(page).toHaveURL(/\/workspaces\/placement-1$/);
   await expect.poll(() => core.validationAttempts).toBe(2);
 
   await page.goto("/sessions/session-1");

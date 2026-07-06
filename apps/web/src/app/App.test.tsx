@@ -36,6 +36,19 @@ describe("App routes", () => {
     expect(screen.getAllByText("Dirty workspace").length).toBeGreaterThan(0);
     expect(screen.getByRole("button", { name: /Start/i })).toBeEnabled();
 
+    renderApp("/workspaces/placement-1");
+
+    expect(
+      await screen.findByRole("heading", { name: "Cortex" }),
+    ).toBeVisible();
+
+    renderApp("/projects/project-1");
+
+    expect(
+      await screen.findByRole("heading", { name: "Cortex" }),
+    ).toBeVisible();
+    expect(screen.getByText("/workspace/cortex")).toBeVisible();
+
     renderApp("/sessions/session-1");
 
     expect(

@@ -1,4 +1,7 @@
-import type { CortexRef } from "../../shared/protocol/types";
+import type {
+  CortexRef,
+  ProjectPlacementSummary,
+} from "../../shared/protocol/types";
 
 export const INSPECT_QUERY_PARAM = "inspect";
 const MAX_INSPECTOR_STACK_DEPTH = 8;
@@ -69,6 +72,63 @@ export function replaceInspectorStack(
   return next;
 }
 
+export function routeForRef(
+  ref: CortexRef,
+  options: {
+    inspectorPathname?: string;
+    searchParams?: URLSearchParams;
+  } = {},
+) {
+  switch (ref.kind) {
+    case "node":
+      return routeFromString("/nodes", stringField(ref, "node_id"));
+    case "project":
+      return routeFromString("/projects", stringField(ref, "project_id"));
+    case "placement":
+      return routeFromString("/placements", stringField(ref, "placement_id"));
+    case "workspace":
+      return routeFromString("/workspaces", stringField(ref, "placement_id"));
+    case "session":
+      return routeFromString(
+        "/sessions",
+        stringField(ref, "session_thread_id"),
+      );
+    default:
+      return routeWithInspectorRef(
+        options.inspectorPathname ?? "/dashboard",
+        options.searchParams ?? new URLSearchParams(),
+        ref,
+      );
+  }
+}
+
+export function routeWithInspectorRef(
+  pathname: string,
+  searchParams: URLSearchParams,
+  ref: CortexRef,
+) {
+  const next = pushInspectorRef(searchParams, ref);
+  const query = next.toString();
+  return query ? `${pathname}?${query}` : pathname;
+}
+
+export function projectRefForPlacement(
+  placement: Pick<ProjectPlacementSummary, "project_id">,
+): CortexRef | null {
+  return placement.project_id
+    ? { kind: "project", project_id: placement.project_id }
+    : null;
+}
+
+export function workspaceRefForPlacement(
+  placement: Pick<ProjectPlacementSummary, "project_placement_id">,
+): CortexRef {
+  return {
+    kind: "workspace",
+    placement_id: placement.project_placement_id,
+  };
+}
+
 export function copyReferenceText(ref: CortexRef) {
   return JSON.stringify(ref, null, 2);
 }
@@ -83,6 +143,9 @@ export function refKindLabel(ref: CortexRef) {
 
 export function refPrimaryValue(ref: CortexRef) {
   if ("node_id" in ref && typeof ref.node_id === "string") return ref.node_id;
+  if ("project_id" in ref && typeof ref.project_id === "string") {
+    return ref.project_id;
+  }
   if ("session_thread_id" in ref && typeof ref.session_thread_id === "string") {
     return ref.session_thread_id;
   }
@@ -131,6 +194,10 @@ export function refPrimaryValue(ref: CortexRef) {
   if ("check_run_id" in ref && typeof ref.check_run_id === "string") {
     return ref.check_run_id;
   }
+  if ("edit_id" in ref && typeof ref.edit_id === "string") return ref.edit_id;
+  if ("trace_event_id" in ref && typeof ref.trace_event_id === "string") {
+    return ref.trace_event_id;
+  }
   if ("external_id" in ref && typeof ref.external_id === "string") {
     return ref.external_id;
   }
@@ -141,6 +208,15 @@ export function refPrimaryValue(ref: CortexRef) {
     return ref.placement_id;
   }
   return "";
+}
+
+function routeFromString(prefix: string, value: string | null) {
+  return value ? `${prefix}/${encodeURIComponent(value)}` : null;
+}
+
+function stringField(ref: CortexRef, field: string) {
+  const value = (ref as Record<string, unknown>)[field];
+  return typeof value === "string" && value.length > 0 ? value : null;
 }
 
 export function sameRef(left: CortexRef | null | undefined, right: CortexRef) {

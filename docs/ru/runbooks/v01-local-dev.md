@@ -13,6 +13,9 @@ provider adapter.
 - Docker Compose for the all-in-compose profile.
 - `curl`, `grep` and `node` for `make compose-smoke`.
 
+`make init` installs the Rust quality tools used by `make c` when they are
+missing: `cargo-audit`, `cargo-deny` and `taplo-cli`.
+
 ## Local Processes
 
 ```sh

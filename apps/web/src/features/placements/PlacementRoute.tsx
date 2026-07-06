@@ -14,6 +14,11 @@ import {
   runWorkbenchCommand,
 } from "../../workbench/commands/registry";
 import { ReferenceActions } from "../../workbench/references/ReferenceActions";
+import {
+  projectRefForPlacement,
+  routeForRef,
+  workspaceRefForPlacement,
+} from "../../workbench/references/refs";
 
 export function PlacementRoute() {
   const { placementId } = useParams();
@@ -80,6 +85,8 @@ export function PlacementRoute() {
   const node = inventory.data?.nodes.find(
     (candidate) => candidate.node_id === placement.data.node_id,
   );
+  const projectRef = projectRefForPlacement(placement.data);
+  const workspaceRef = workspaceRefForPlacement(placement.data);
   const providerOptions = providerChoiceOptions(node);
   const selectedProviderAvailable =
     providerOptions.find((option) => option.id === provider)?.available ??
@@ -119,12 +126,8 @@ export function PlacementRoute() {
               </button>
             ))}
           </div>
-          <ReferenceActions
-            reference={{
-              kind: "placement",
-              placement_id: placement.data.project_placement_id,
-            }}
-          />
+          <ReferenceActions reference={workspaceRef} />
+          {projectRef ? <ReferenceActions reference={projectRef} /> : null}
           <Button
             variant="secondary"
             disabled={refreshMutation.isPending}
@@ -175,7 +178,10 @@ export function PlacementRoute() {
         ))}
       </div>
       <Link
-        to={`/nodes/${placement.data.node_id}`}
+        to={
+          routeForRef({ kind: "node", node_id: placement.data.node_id }) ??
+          `/nodes/${placement.data.node_id}`
+        }
         className="text-sm underline"
       >
         Open node

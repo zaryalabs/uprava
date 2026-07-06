@@ -6,6 +6,10 @@ WEB_PACKAGE := $(WEB_DIR)/package.json
 WEB_NODE_MODULES := $(WEB_DIR)/node_modules
 COMPOSE ?= docker compose
 COMPOSE_PARALLEL_LIMIT ?= 1
+RUST_TOOL_TOML_FILES := Cargo.toml crates/*/Cargo.toml deny.toml taplo.toml
+# rsa is retained in Cargo.lock as an inactive optional dependency and
+# RUSTSEC-2023-0071 has no fixed release.
+CARGO_AUDIT_IGNORE := --ignore RUSTSEC-2023-0071
 
 ifneq (,$(wildcard pnpm-lock.yaml))
 WEB_PM := pnpm
@@ -34,6 +38,7 @@ init: ## Install local hooks and project dependencies when manifests exist
 	fi
 	@if [ -f "$(RUST_MANIFEST)" ]; then \
 		cargo fetch; \
+		$(MAKE) --no-print-directory rust-tools-install; \
 	else \
 		echo "No Cargo.toml found; skipping Rust dependency fetch"; \
 	fi
@@ -84,12 +89,46 @@ rust-l: ## Run Rust format check and clippy when Cargo workspace exists
 	fi
 
 rust-dl: ## Run deeper Rust dependency/config checks when tools are available
-	@if [ -f "$(RUST_MANIFEST)" ]; then \
-		if command -v cargo-audit >/dev/null 2>&1; then cargo audit; else echo "cargo-audit not installed; skipping audit"; fi; \
-		if command -v cargo-deny >/dev/null 2>&1; then cargo deny check; else echo "cargo-deny not installed; skipping deny"; fi; \
-		if command -v taplo >/dev/null 2>&1; then taplo fmt --check && taplo lint; else echo "taplo not installed; skipping TOML checks"; fi; \
+	@set -e; \
+	if [ -f "$(RUST_MANIFEST)" ]; then \
+		require_tool() { \
+			if ! command -v "$$1" >/dev/null 2>&1; then \
+				echo "$$1 is not installed; run make rust-tools-install"; \
+				exit 1; \
+			fi; \
+		}; \
+		require_tool cargo-audit; \
+		require_tool cargo-deny; \
+		require_tool taplo; \
+		cargo audit $(CARGO_AUDIT_IGNORE); \
+		cargo deny check; \
+		taplo fmt --check $(RUST_TOOL_TOML_FILES); \
 	else \
 		echo "No Cargo.toml found; skipping deep Rust checks"; \
+	fi
+
+rust-tools-install: ## Install Rust quality tools required by rust-dl
+	@if [ -f "$(RUST_MANIFEST)" ]; then \
+		install_tool() { \
+			bin="$$1"; \
+			package="$$2"; \
+			if command -v "$$bin" >/dev/null 2>&1; then \
+				echo "$$bin already installed"; \
+			else \
+				echo "Installing $$package"; \
+				cargo install --locked "$$package"; \
+			fi; \
+		}; \
+		install_tool cargo-audit cargo-audit; \
+		install_tool cargo-deny cargo-deny; \
+		if command -v taplo >/dev/null 2>&1; then \
+			echo "taplo already installed"; \
+		else \
+			echo "Installing taplo-cli"; \
+			cargo install --locked taplo-cli --no-default-features; \
+		fi; \
+	else \
+		echo "No Cargo.toml found; skipping Rust quality tool install"; \
 	fi
 
 rust-t: ## Run Rust tests when Cargo workspace exists
@@ -220,4 +259,4 @@ clean: ## Remove common local build and cache artifacts
 	rm -rf target htmlcov coverage .pytest_cache .ruff_cache .mypy_cache .ty
 	rm -rf $(WEB_DIR)/dist $(WEB_DIR)/coverage
 
-.PHONY: help init fmt l dl t c pc docs-fmt docs-l rust-fmt rust-l rust-dl rust-t web-r web-fmt web-l web-dl web-t web-e2e core-r node-r compose-up compose-down compose-logs compose-reset compose-smoke codex-smoke clean
+.PHONY: help init fmt l dl t c pc docs-fmt docs-l rust-fmt rust-l rust-dl rust-tools-install rust-t web-r web-fmt web-l web-dl web-t web-e2e core-r node-r compose-up compose-down compose-logs compose-reset compose-smoke codex-smoke clean

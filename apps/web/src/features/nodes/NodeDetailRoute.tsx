@@ -16,6 +16,10 @@ import {
   runWorkbenchCommand,
 } from "../../workbench/commands/registry";
 import { ReferenceActions } from "../../workbench/references/ReferenceActions";
+import {
+  routeForRef,
+  workspaceRefForPlacement,
+} from "../../workbench/references/refs";
 
 export function NodeDetailRoute() {
   const { nodeId } = useParams();
@@ -183,7 +187,7 @@ export function NodeDetailRoute() {
           {placements?.map((placement) => (
             <Link
               key={placement.project_placement_id}
-              to={`/placements/${placement.project_placement_id}`}
+              to={routeForRef(workspaceRefForPlacement(placement)) ?? "#"}
               className="rounded-md border border-[#d9ded4] bg-white p-3 hover:bg-[#fbfcf8]"
             >
               <div className="font-medium">{placement.display_name}</div>

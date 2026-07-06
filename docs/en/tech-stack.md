@@ -171,12 +171,16 @@ cargo nextest run --workspace
 cargo audit
 cargo deny check
 taplo fmt --check
-taplo lint
 ```
 
 `cargo audit` and `cargo deny` do not replace each other. `audit` handles known
 security advisories; `deny` handles broader dependency policy: licenses, bans,
 advisories, duplicated crates, and sources.
+
+The repository keeps the dependency policy in `deny.toml` and TOML formatting
+policy in `taplo.toml`. `make init` installs `cargo-audit`, `cargo-deny` and
+`taplo-cli` if they are missing; `make c` requires them through `rust-dl`.
+Taplo is currently used for formatting checks only.
 
 ## Frontend Stack
 

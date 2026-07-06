@@ -308,7 +308,9 @@ export type WarningAcknowledgementResponse = {
 
 export type CortexRef =
   | { kind: "node"; node_id: string }
+  | { kind: "project"; project_id: string }
   | { kind: "placement"; placement_id: string }
+  | { kind: "workspace"; placement_id: string }
   | { kind: "session"; session_thread_id: string }
   | { kind: "runtime"; runtime_session_id: string }
   | { kind: "turn"; turn_id: string }
@@ -346,6 +348,13 @@ export type CortexRef =
     }
   | { kind: "diff_hunk"; diff_id: string; hunk_id: string }
   | { kind: "check_result"; check_run_id: string; failure_id?: string | null }
+  | {
+      kind: "workspace_edit";
+      edit_id: string;
+      placement_id?: string | null;
+      path?: string | null;
+    }
+  | { kind: "trace_event"; trace_event_id: string }
   | { kind: "external_entity"; integration_kind: string; external_id: string }
   | { kind: "unknown"; ref_type: string; locator: Record<string, unknown> }
   | { kind: string; [key: string]: unknown };

@@ -12,6 +12,10 @@ import type {
 } from "../../shared/protocol/types";
 import { Badge } from "../../shared/ui/badge";
 import { ErrorNotice } from "../../shared/ui/error-notice";
+import {
+  routeForRef,
+  workspaceRefForPlacement,
+} from "../../workbench/references/refs";
 
 export function InventoryTree() {
   const inventory = useInventory();
@@ -64,14 +68,15 @@ export function InventoryTreeContent({
         const nodePlacements = placements.filter(
           (placement) => placement.node_id === node.node_id,
         );
+        const nodeRoute =
+          routeForRef({ kind: "node", node_id: node.node_id }) ??
+          `/nodes/${node.node_id}`;
         return (
           <div key={node.node_id} className="space-y-1">
             <Link
-              to={`/nodes/${node.node_id}`}
+              to={nodeRoute}
               className={`flex min-h-9 items-center justify-between rounded-md px-2 text-sm hover:bg-[#e2e8dd] ${
-                location.pathname === `/nodes/${node.node_id}`
-                  ? "bg-[#dfe8dc]"
-                  : ""
+                pathname === nodeRoute ? "bg-[#dfe8dc]" : ""
               }`}
             >
               <span className="flex min-w-0 items-center gap-2">
@@ -97,13 +102,16 @@ export function InventoryTreeContent({
                     session.project_placement_id ===
                     placement.project_placement_id,
                 );
+                const workspaceRoute =
+                  routeForRef(workspaceRefForPlacement(placement)) ??
+                  `/workspaces/${placement.project_placement_id}`;
                 return (
                   <div
                     key={placement.project_placement_id}
                     className="space-y-1"
                   >
                     <Link
-                      to={`/placements/${placement.project_placement_id}`}
+                      to={workspaceRoute}
                       className="flex min-h-8 min-w-0 items-center justify-between gap-2 rounded-md px-2 text-sm hover:bg-[#e2e8dd]"
                     >
                       <span className="flex min-w-0 items-center gap-2">
@@ -127,26 +135,33 @@ export function InventoryTreeContent({
                       </span>
                     </Link>
                     <div className="ml-4 space-y-1">
-                      {placementSessions.map((session) => (
-                        <Link
-                          key={session.session_thread_id}
-                          to={`/sessions/${session.session_thread_id}`}
-                          className="flex min-h-8 min-w-0 items-center justify-between gap-2 rounded-md px-2 text-sm text-[#405047] hover:bg-[#e2e8dd]"
-                        >
-                          <span className="flex min-w-0 items-center gap-2">
-                            <MessageSquare size={14} />
-                            <span className="truncate">{session.title}</span>
-                          </span>
-                          <span className="flex shrink-0 items-center gap-1">
-                            <Badge tone={sessionTone(session.state)}>
-                              {session.state}
-                            </Badge>
-                            <Badge tone={runtimeTone(session.runtime.state)}>
-                              {session.runtime.state}
-                            </Badge>
-                          </span>
-                        </Link>
-                      ))}
+                      {placementSessions.map((session) => {
+                        const sessionRoute =
+                          routeForRef({
+                            kind: "session",
+                            session_thread_id: session.session_thread_id,
+                          }) ?? `/sessions/${session.session_thread_id}`;
+                        return (
+                          <Link
+                            key={session.session_thread_id}
+                            to={sessionRoute}
+                            className="flex min-h-8 min-w-0 items-center justify-between gap-2 rounded-md px-2 text-sm text-[#405047] hover:bg-[#e2e8dd]"
+                          >
+                            <span className="flex min-w-0 items-center gap-2">
+                              <MessageSquare size={14} />
+                              <span className="truncate">{session.title}</span>
+                            </span>
+                            <span className="flex shrink-0 items-center gap-1">
+                              <Badge tone={sessionTone(session.state)}>
+                                {session.state}
+                              </Badge>
+                              <Badge tone={runtimeTone(session.runtime.state)}>
+                                {session.runtime.state}
+                              </Badge>
+                            </span>
+                          </Link>
+                        );
+                      })}
                     </div>
                   </div>
                 );

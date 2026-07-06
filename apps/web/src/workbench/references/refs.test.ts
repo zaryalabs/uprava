@@ -8,6 +8,8 @@ import {
   INSPECT_QUERY_PARAM,
   popInspectorRef,
   pushInspectorRef,
+  routeForRef,
+  routeWithInspectorRef,
   refTitle,
 } from "./refs";
 
@@ -21,6 +23,8 @@ describe("reference helpers", () => {
 
   it("round-trips reserved future refs through inspector URLs", () => {
     const refs: CortexRef[] = [
+      { kind: "project", project_id: "project-1" },
+      { kind: "workspace", placement_id: "placement-1" },
       { kind: "file", placement_id: "placement-1", path: "src/main.rs" },
       {
         kind: "file_range",
@@ -50,6 +54,16 @@ describe("reference helpers", () => {
         failure_id: "failure-1",
       },
       {
+        kind: "workspace_edit",
+        edit_id: "edit-1",
+        placement_id: "placement-1",
+        path: "src/main.rs",
+      },
+      {
+        kind: "trace_event",
+        trace_event_id: "trace-event-1",
+      },
+      {
         kind: "tool_call",
         tool_call_id: "tool-call-1",
       },
@@ -75,8 +89,36 @@ describe("reference helpers", () => {
     expect(decodeInspectorStack(params.get(INSPECT_QUERY_PARAM))).toEqual(
       refs.slice(-8),
     );
-    expect(refTitle(refs[0])).toBe("file src/main.rs");
+    expect(refTitle(refs[2])).toBe("file src/main.rs");
     expect(refTitle(refs[refs.length - 1])).toBe("unknown future.ref");
+  });
+
+  it("maps routable references to stable shell routes", () => {
+    const inspectRoute = routeWithInspectorRef(
+      "/sessions/session-1",
+      new URLSearchParams("tab=timeline"),
+      { kind: "message", message_id: "message-1" },
+    );
+
+    expect(routeForRef({ kind: "node", node_id: "node 1" })).toBe(
+      "/nodes/node%201",
+    );
+    expect(routeForRef({ kind: "project", project_id: "project-1" })).toBe(
+      "/projects/project-1",
+    );
+    expect(
+      routeForRef({ kind: "workspace", placement_id: "placement-1" }),
+    ).toBe("/workspaces/placement-1");
+    expect(
+      routeForRef({ kind: "placement", placement_id: "placement-1" }),
+    ).toBe("/placements/placement-1");
+    expect(
+      routeForRef({ kind: "session", session_thread_id: "session-1" }),
+    ).toBe("/sessions/session-1");
+    expect(routeForRef({ kind: "message", message_id: "message-1" })).toContain(
+      "/dashboard?inspect=",
+    );
+    expect(inspectRoute).toContain("/sessions/session-1?tab=timeline&inspect=");
   });
 
   it("keeps inspector refs as a stack without duplicating the active ref", () => {
