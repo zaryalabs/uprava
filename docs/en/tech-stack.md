@@ -1,4 +1,4 @@
-# Cortex Tech Stack
+# Uprava Tech Stack
 
 Status: `draft`
 
@@ -25,7 +25,7 @@ Rust tooling: cargo, rust-analyzer, rustfmt, clippy, bacon, nextest, audit, deny
 ```
 
 Next.js 16 App Router is not the V01 baseline for now. The reason is not that
-Next.js is bad, but that Cortex already has a Rust Core Backend. In the first
+Next.js is bad, but that Uprava already has a Rust Core Backend. In the first
 product version, we should avoid creating a second backend/BFF layer on Node.js
 without a strong reason.
 
@@ -226,7 +226,7 @@ Next.js can return later if one of these factors appears:
 shadcn/ui is used as a convention and component source model, not as an external
 black-box component library.
 
-This fits Cortex well:
+This fits Uprava well:
 
 - components live in the project code;
 - they can be adapted for the product;
@@ -333,12 +333,12 @@ Preliminary structure:
 
 ```text
 crates/
-  cortex-core/        shared domain model and contracts
-  cortex-server/      Core Backend
-  cortex-node/        Node Daemon
-  cortex-client/      Rust API client
-  cortex-tools/       tool/plugin contracts
-  cortex-events/      event and trace contracts
+  uprava-core/        shared domain model and contracts
+  uprava-server/      Core Backend
+  uprava-node/        Node Daemon
+  uprava-client/      Rust API client
+  uprava-tools/       tool/plugin contracts
+  uprava-events/      event and trace contracts
 
 apps/
   web/                React + Vite Web Control Panel

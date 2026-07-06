@@ -120,7 +120,7 @@ mod tests {
     #[test]
     fn init_tracing_writes_events_to_configured_file() {
         let path = std::env::temp_dir().join(format!(
-            "cortex-logging-test-{}-{}.log",
+            "uprava-logging-test-{}-{}.log",
             std::process::id(),
             SystemTime::now()
                 .duration_since(UNIX_EPOCH)
@@ -129,7 +129,7 @@ mod tests {
         ));
 
         std::env::set_var("RUST_LOG", "info");
-        init_tracing("test", "CORTEX_LOGGING_TEST_FILE", &path).expect("tracing initializes");
+        init_tracing("test", "UPRAVA_LOGGING_TEST_FILE", &path).expect("tracing initializes");
         tracing::info!("logging helper test event");
         let content = std::fs::read_to_string(&path).expect("log file reads");
         let _ = std::fs::remove_file(path);

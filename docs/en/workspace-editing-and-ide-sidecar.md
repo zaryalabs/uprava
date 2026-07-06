@@ -4,7 +4,7 @@ Status: `draft`
 
 ## Short Decision
 
-Cortex should support **basic workspace file editing** without trying to become a
+Uprava should support **basic workspace file editing** without trying to become a
 full IDE in the first workspace editing implementation.
 
 The first editing slice target is:
@@ -19,11 +19,11 @@ file tree
 ```
 
 This gives the user a practical way to intervene in agent work, fix small
-issues, adjust docs/config/code, and review the result without leaving Cortex.
+issues, adjust docs/config/code, and review the result without leaving Uprava.
 
-A full browser IDE should remain a sidecar capability: Cortex may expose an
+A full browser IDE should remain a sidecar capability: Uprava may expose an
 "open full IDE" action backed by code-server, OpenVSCode Server, Theia, or
-another provider, but the main Cortex workbench should not depend on that
+another provider, but the main Uprava workbench should not depend on that
 architecture.
 
 ## Why Basic Editing Matters
@@ -36,7 +36,7 @@ The user should be able to:
 - adjust a file before asking the agent to continue;
 - edit docs, prompts, scripts, or tests directly;
 - compare manual changes with agent changes in a diff;
-- use Cortex from a browser when local editor access is inconvenient;
+- use Uprava from a browser when local editor access is inconvenient;
 - preserve traceability for human interventions, not only agent actions.
 
 The goal is not "replace VS Code". The goal is "make the agent workspace
@@ -62,7 +62,7 @@ integration, or VS Code extension compatibility.
 
 ## Architecture Contract
 
-Editing remains routed through Cortex authority:
+Editing remains routed through Uprava authority:
 
 ```text
 Web editor buffer
@@ -113,7 +113,7 @@ Rules:
 - allow policies to disable editing per project, node, user, file type, or path.
 
 The first version can choose conservative defaults. If a file is too large,
-binary, generated, or policy-denied, Cortex should show a readable reason and
+binary, generated, or policy-denied, Uprava should show a readable reason and
 offer safe alternatives such as open externally or ask agent, when allowed.
 
 ## Component Strategy
@@ -128,7 +128,7 @@ Likely candidates:
   diffing, models, and line decorations, but heavier and more IDE-shaped.
 
 The implementation choice should stay open until the web scaffold exists.
-Whichever component is chosen, Cortex should wrap it in local components such as
+Whichever component is chosen, Uprava should wrap it in local components such as
 `FileViewer`, `FileEditor`, and `DiffViewer` so the rest of the product is not
 coupled to a specific editor library.
 
@@ -137,7 +137,7 @@ likely xterm.js, while Node Daemon owns the actual PTY/process lifecycle.
 
 ## IDE Sidecar
 
-Cortex can expose a full IDE as a sidecar rather than embedding it into the core
+Uprava can expose a full IDE as a sidecar rather than embedding it into the core
 workbench.
 
 Possible sidecar providers:
@@ -150,14 +150,14 @@ Possible sidecar providers:
 Sidecar role:
 
 ```text
-Cortex remains system of record for projects, nodes, sessions, trace, artifacts,
+Uprava remains system of record for projects, nodes, sessions, trace, artifacts,
 review, permissions, and agent workflow.
 
 Full IDE sidecar handles rich editing, LSP, extensions, refactoring, debugger,
 and advanced developer ergonomics.
 ```
 
-This gives users an escape hatch for complex manual work while keeping Cortex's
+This gives users an escape hatch for complex manual work while keeping Uprava's
 main UI focused on agent supervision, workspace evidence, traceability, and
 review.
 

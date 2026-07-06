@@ -110,6 +110,6 @@ export function NodesRoute() {
 
 function confirmNodeDelete(displayName: string) {
   return window.confirm(
-    `Delete node "${displayName}" and its workspaces/sessions from Cortex?`,
+    `Delete node "${displayName}" and its workspaces/sessions from Uprava?`,
   );
 }

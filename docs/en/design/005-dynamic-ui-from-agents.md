@@ -12,12 +12,12 @@ Modular UI and work surface`. Это отдельное функциональн
 `A-004` отвечает за то, где живут surfaces, blocks, artifacts, references,
 detail views, commands, contributions and renderers. `A-005` отвечает за
 особый класс блоков и artifacts: UI, который появляется из работы агента,
-tool-а или plugin-а, но монтируется в те же Cortex surfaces и живет по тем же
+tool-а или plugin-а, но монтируется в те же Uprava surfaces и живет по тем же
 правилам permissions, trace, fallback and review.
 
 Документ намеренно не описывает, что попадет в первую или вторую версию
 продукта. Scope конкретных итераций должен определяться отдельно. Здесь
-проектируется целое направление: какие формы dynamic UI нужны Cortex, как они
+проектируется целое направление: какие формы dynamic UI нужны Uprava, как они
 связаны с agent work, где проходит граница безопасности, и какие базовые
 архитектурные контракты нельзя сломать будущими реализациями.
 
@@ -44,7 +44,7 @@ Agent output не должен быть ограничен текстом. Во 
 длинное объяснение, копировать данные в сторонние инструменты, вручную
 проверять аргументы tool calls и реконструировать состояние задачи.
 
-Dynamic UI должен снизить стоимость понимания, review and correction. Cortex
+Dynamic UI должен снизить стоимость понимания, review and correction. Uprava
 должен позволить агенту не только сказать "вот результат", но и породить
 структурированный, интерактивный объект, с которым пользователь может работать:
 смотреть, фильтровать, подтверждать, редактировать, запускать команды и
@@ -52,7 +52,7 @@ Dynamic UI должен снизить стоимость понимания, re
 
 ### Главная модель
 
-Dynamic UI в Cortex - это не "агент генерирует произвольный React в чат".
+Dynamic UI в Uprava - это не "агент генерирует произвольный React в чат".
 
 Базовая модель:
 
@@ -111,7 +111,7 @@ Dynamic UI является частным случаем blocks/artifacts из 
 
 Если не выделить A-005, dynamic UI легко растворится в frontend abstractions.
 Тогда появится риск, что каждый renderer, integration или artifact начнет жить
-по своим правилам. Для Cortex это плохо: dynamic UI должен быть частью control
+по своим правилам. Для Uprava это плохо: dynamic UI должен быть частью control
 plane, event log, Tool Registry, Plugin Registry, artifact model and causality
 model.
 
@@ -206,9 +206,9 @@ validation rules
 trace refs
 ```
 
-Web рендерит это через Cortex component catalog. Визуальный стиль, layout
+Web рендерит это через Uprava component catalog. Визуальный стиль, layout
 constraints, accessibility, commands and permissions остаются под контролем
-Cortex.
+Uprava.
 
 Свойства:
 
@@ -219,7 +219,7 @@ Cortex.
 - better consistency with design system;
 - suitable for agent-readable UI state.
 
-Для Cortex это должен быть основной путь для generated forms and dashboards.
+Для Uprava это должен быть основной путь для generated forms and dashboards.
 
 #### Sandboxed app artifact
 
@@ -243,7 +243,7 @@ artifact package
 не просто блок в чате, а маленькое приложение или interactive object в
 отдельной artifact surface.
 
-Но даже в этом режиме Cortex не должен превращаться в "браузер внутри
+Но даже в этом режиме Uprava не должен превращаться в "браузер внутри
 браузера", где generated code живет без governance. Sandboxed app artifact
 должен быть artifact-centered and sandbox-contained.
 
@@ -254,7 +254,7 @@ artifact package
 Пользователь просит: "Посмотри, почему тесты падают".
 
 Агент запускает проверку через tool. Вместо того чтобы вернуть только текст,
-Cortex показывает block:
+Uprava показывает block:
 
 ```text
 Test report
@@ -292,7 +292,7 @@ event, и агент получает structured input.
 Пользователь просит: "Собери dashboard по состоянию проекта".
 
 Агент агрегирует events, checks, diff, active sessions, failing tasks and
-resource warnings. Cortex показывает generated dashboard artifact:
+resource warnings. Uprava показывает generated dashboard artifact:
 
 ```text
 Project status dashboard
@@ -348,7 +348,7 @@ available_dynamic_ui:
     allowed_surfaces: [session.timeline, artifact.viewer]
   - renderer_id: basic-dashboard
     kind: schema-driven-ui
-    component_catalog: cortex.basic
+    component_catalog: uprava.basic
     max_components: ...
   - renderer_id: form
     kind: schema-driven-ui
@@ -593,7 +593,7 @@ DeclarativeDynamicBlock:
 - lightweight wizards;
 - generated reports.
 
-Renderer использует Cortex/native component catalog. Agent supplies structure
+Renderer использует Uprava/native component catalog. Agent supplies structure
 and data, but host owns rendering behavior.
 
 #### Class C: Generated UI artifact
@@ -636,7 +636,7 @@ SandboxedAppArtifact:
 ```
 
 Sandboxed app может иметь executable code, но только внутри isolated runtime.
-Main Cortex React tree не должен выполнять generated code.
+Main Uprava React tree не должен выполнять generated code.
 
 ### Renderer contract
 
@@ -681,7 +681,7 @@ Component catalog - список approved building blocks, из которых a
 
 ```text
 ComponentCatalog:
-  catalog_id: cortex.basic
+  catalog_id: uprava.basic
   components:
     - text
     - heading
@@ -718,7 +718,7 @@ fallback behavior
 Component catalog важен по трем причинам:
 
 - агент получает bounded expressive language;
-- Cortex сохраняет design-system consistency;
+- Uprava сохраняет design-system consistency;
 - clients can render the same artifact differently while preserving semantics.
 
 ### Dynamic UI proposal
@@ -945,7 +945,7 @@ For example, a Grafana link should usually become:
 
 ```text
 Grafana dashboard reference
--> Cortex preview block
+-> Uprava preview block
 -> incident/status artifact
 -> trace refs
 -> open external action
@@ -1054,7 +1054,7 @@ trace refs
 artifact state
 ```
 
-This lets an internal Cortex agent answer questions like:
+This lets an internal Uprava agent answer questions like:
 
 - "Что я сейчас вижу?"
 - "Почему эта кнопка disabled?"
@@ -1089,7 +1089,7 @@ Dynamic UI should be evaluated by product and architecture questions:
 - Can the user go from visible result to cause?
 - Is executable code avoided unless declarative schema is insufficient?
 - If executable code is used, is it sandboxed and capability-scoped?
-- Does the UI fit known Cortex surfaces instead of taking over the workbench?
+- Does the UI fit known Uprava surfaces instead of taking over the workbench?
 - Can it survive reconnect, reload, plugin disable and missing renderer?
 
 ## Reference patterns
@@ -1108,7 +1108,7 @@ Several external patterns inform this direction:
 - VS Code Webviews: powerful but isolated custom UI surfaces with CSP,
   lifecycle and state concerns.
 
-Cortex should not copy any one model directly. The product needs a hybrid:
+Uprava should not copy any one model directly. The product needs a hybrid:
 
 ```text
 tool-rendered blocks for traceable agent/tool work
@@ -1119,7 +1119,7 @@ tool-rendered blocks for traceable agent/tool work
 
 ## Рабочая формула
 
-Dynamic UI from Agents is the Cortex mechanism for turning agent/tool/plugin
+Dynamic UI from Agents is the Uprava mechanism for turning agent/tool/plugin
 work into traceable, permissioned, reviewable interactive blocks and artifacts.
 
 It is built on A-004 surfaces, blocks, artifacts, references, commands and
@@ -1139,5 +1139,5 @@ return as commands/events. Every important UI object has trace refs and a safe
 fallback.
 
 Главная граница: dynamic UI должен увеличивать способность пользователя
-понимать, проверять and управлять агентской работой, не превращая Cortex в
+понимать, проверять and управлять агентской работой, не превращая Uprava в
 неуправляемую среду произвольного generated code.

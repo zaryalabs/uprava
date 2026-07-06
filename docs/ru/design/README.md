@@ -1,32 +1,32 @@
-# Дизайн-фаза Cortex
+# Дизайн-фаза Uprava
 
 Статус: `draft`
 
-Этот раздел нужен для глубокой проработки **ключевых механик** Cortex.
+Этот раздел нужен для глубокой проработки **ключевых механик** Uprava.
 
 Здесь дизайн означает не список внутренних модулей, таблиц и API, а иерархическую работу над большими продуктово-архитектурными решениями:
 
-1. Сначала сформулировать vision ключевой механики: суть идеи, продуктовую логику и почему это важно для Cortex.
+1. Сначала сформулировать vision ключевой механики: суть идеи, продуктовую логику и почему это важно для Uprava.
 2. Затем развернуть vision в architecture: сущности, границы, сценарии, lifecycle, контракты, artifacts/events, хранение, permissions, UI consequences и проверку качества.
 
 Один и тот же design doc начинается с корневого vision-блока, а затем постепенно разворачивается в architecture-блок. Внутри architecture глубина может расти от концептуальной модели до технических контрактов.
 
 ## Что такое ключевая механика
 
-Ключевая механика - это крупный продуктово-архитектурный механизм Cortex, который задает модель работы пользователя, агента, UI и backend-системы.
+Ключевая механика - это крупный продуктово-архитектурный механизм Uprava, который задает модель работы пользователя, агента, UI и backend-системы.
 
 Это не отдельный модуль кода, не частная feature и не пользовательский flow. Внутри ключевой механики может быть много модулей, сценариев, UI-состояний, событий и технических решений, но сама механика описывает, **как работает важная часть системы**.
 
 Примеры ключевых механик:
 
-- distributed architecture: как Cortex реализует Core / Node Daemon / clients модель;
+- distributed architecture: как Uprava реализует Core / Node Daemon / clients модель;
 - distributed runtime coordination: как Core координирует runtime work на конкретных Node/workspace placements, dispatch, events, stale/offline, resource warnings and overrides;
 - modular UI: как устроена модульная рабочая поверхность, блоки, панели и расширяемость интерфейса;
 - plugins and Tool Registry: как подключаются tools, plugins, integrations, MCP, native adapters and visual blocks;
 - dynamic UI: как агент может вернуть форму, dashboard, graph, embedded view или другой интерактивный блок;
-- visual rendering and artifact semantics: где и как Cortex рендерит visual objects, что является source-of-truth, и когда view становится artifact;
+- visual rendering and artifact semantics: где и как Uprava рендерит visual objects, что является source-of-truth, и когда view становится artifact;
 - go to source / causality navigation: как пользователь переходит от результата, diff, ошибки или artifact к источнику, evidence and причине;
-- run mode: как Cortex запускает агентскую работу через Persistent Runtime, stateless/ephemeral runtime или hybrid strategy, и как поверх этого различаются interactive session and bounded task contracts;
+- run mode: как Uprava запускает агентскую работу через Persistent Runtime, stateless/ephemeral runtime или hybrid strategy, и как поверх этого различаются interactive session and bounded task contracts;
 - human-agent dual interface: как человек и агент работают с одной видимой моделью, где agent является first-class citizen.
 
 Внутри каждой ключевой механики может быть много технических решений, но сначала нужно выбрать саму модель.
@@ -82,7 +82,7 @@ docs/ru/design/010-project-workspace-surface.md
 
 Эти принципы должны проходить через все ключевые механики:
 
-- Cortex - Distributed Agent OS, а не agent chat with panels.
+- Uprava - Distributed Agent OS, а не agent chat with panels.
 - Agent output не равен accepted work.
 - Продукт должен снижать стоимость review, handoff, return и ownership decision.
 - Модульность является архитектурным принципом, а не маркетплейсом поверх монолита.
@@ -105,12 +105,12 @@ docs/ru/design/010-project-workspace-surface.md
 | A-001 | Distributed architecture | Как именно реализуем distributed модель? Что является Core/control plane, что остается за Node Daemon/data plane, как клиенты работают через Core, где проходят границы host/node/workspace/session? | Рабочая позиция по Core / Node Daemon / clients модели, deployment profiles and responsibility boundaries. |
 | A-002 | Run Mode | Что такое Run Mode как единая механика запуска агентской работы? Как устроены Persistent Runtime, stateless/ephemeral runtime and hybrid strategy? Как поверх runtime strategy различаются interactive session and bounded task contracts? Где границы между project, workspace, node, thread, turn, run and agent process? | Концепция Run Mode для V01 и дальше: Persistent Runtime first, managed process lifetime, lifecycle, visible surface, review points and constraints for future stateless/sandboxed strategies. |
 | A-003 | Distributed Runtime Coordination | Как Core координирует runtime work между session thread, runtime session, workspace placement and Node? Как dispatch-ятся commands, как упорядочиваются events, как UI видит node/workspace tree, stale/offline, resource warning badges and overrides? Как git repo/branch signals подсвечивают возможные конфликты без lock-системы? | Рабочая модель coordination layer для V01: Nodes -> Projects/Workspaces tree, command proxy, idempotency, event ordering, resource signals, warning badges, override events and reuse by future task/sandbox runtimes. |
-| A-004 | Modular UI and work surface | Что значит модульный UI для Cortex? Это Notion-like blocks, IDE/workbench panels, Obsidian-like navigation, plugin-rendered surfaces или гибрид? Где проходят границы pages, panels, blocks, artifacts, integration surfaces and extension points? | Модель рабочей поверхности: layout, blocks, panels, navigation, plugin surfaces and constraints for React/Vite UI. |
+| A-004 | Modular UI and work surface | Что значит модульный UI для Uprava? Это Notion-like blocks, IDE/workbench panels, Obsidian-like navigation, plugin-rendered surfaces или гибрид? Где проходят границы pages, panels, blocks, artifacts, integration surfaces and extension points? | Модель рабочей поверхности: layout, blocks, panels, navigation, plugin surfaces and constraints for React/Vite UI. |
 | A-005 | Dynamic UI from agents | Как агент должен возвращать форму, dashboard, chart, graph, embedded tool или custom block? Это schema-driven UI, prebuilt block types, sandboxed components, generated code or plugin-owned renderer? | Концепция dynamic UI: что агент может породить сам, что должно быть заранее зарегистрировано, где граница безопасности. |
-| A-006 | Visual rendering and artifact semantics | Где и как Cortex рендерит visual objects: inline Markdown diagrams, editor/viewer enhancements, diff/terminal/test views, charts, dashboards, external previews and artifacts? Что является source-of-truth, когда visual view становится artifact, какие refs/actions/fallback нужны? | Сквозная модель visual object semantics: source-of-truth, rendering scope, addressability, actions, fallback, ownership, cause refs and artifact promotion. |
+| A-006 | Visual rendering and artifact semantics | Где и как Uprava рендерит visual objects: inline Markdown diagrams, editor/viewer enhancements, diff/terminal/test views, charts, dashboards, external previews and artifacts? Что является source-of-truth, когда visual view становится artifact, какие refs/actions/fallback нужны? | Сквозная модель visual object semantics: source-of-truth, rendering scope, addressability, actions, fallback, ownership, cause refs and artifact promotion. |
 | **A-007** | Plugins, Tool Registry and MCP strategy | Где живет Tool Registry? Нужен ли Core-level MCP gateway/proxy? Или MCP должен быть на уровне Node Daemon, agent process, plugin adapter, external provider? Как сравнить MCP, native adapters and hybrid adapters? | Модель tools/plugins/integrations: registry, execution location, routing, permissions, events and visual output. |
 | A-008 | Go to source and causality UX | Как сделать аналог go to definition, но для агентской работы? Как из answer, diff line, failed check, artifact, decision, status или UI block перейти к source/evidence/cause: prompt/context/tool call/command/event/file change/raw log? Что является source/cause graph, а что просто log noise? | Модель UIUX причинности: навигация от результата к источнику, evidence and причине, минимальная модель source/cause links without dumping raw trace. |
-| **A-009** | Human-agent dual interface and Agent as First-Class Citizen | Как сделать UI понятным и человеку, и агенту? Что такое machine-readable UI state, context entry points, internal Cortex agent, chat over UI element, agent identity, capabilities, status, memory, permissions and ownership? | Модель dual interface, где agent является видимым участником системы, а не скрытым процессом за текстовым чатом. |
+| **A-009** | Human-agent dual interface and Agent as First-Class Citizen | Как сделать UI понятным и человеку, и агенту? Что такое machine-readable UI state, context entry points, internal Uprava agent, chat over UI element, agent identity, capabilities, status, memory, permissions and ownership? | Модель dual interface, где agent является видимым участником системы, а не скрытым процессом за текстовым чатом. |
 | A-010 | Project Workspace Surface | Как пользователь видит и меняет конкретный workspace агента? Где живут file tree, file viewer/editor, terminal/PTY, command history, diff/check views and "open full IDE" sidecar? Как Core/Node Daemon обеспечивают permissions, path boundaries, edit lifecycle, trace and addressable workspace refs? | Модель post-V01 workspace surface: inspect-first, edit-light, terminal-capable, traceable, with optional full IDE sidecar later. |
 
 Не все важные темы являются отдельными ключевыми механиками. Некоторые стоит держать как пользовательские сценарии или срезы внутри design docs:
@@ -139,7 +139,7 @@ docs/ru/design/010-project-workspace-surface.md
 Дизайн-фаза будет полезной, если после нее будет понятно:
 
 - по каждой ключевой механике из карты есть design doc с корневым `Vision` и заготовкой `Architecture`;
-- как устроены ключевые механики Cortex: distributed architecture, run mode, distributed runtime coordination, modular UI, plugins/tools, dynamic UI and visual rendering/artifact semantics;
+- как устроены ключевые механики Uprava: distributed architecture, run mode, distributed runtime coordination, modular UI, plugins/tools, dynamic UI and visual rendering/artifact semantics;
 - какие решения обязательны для V01, а какие только накладывают constraints на архитектуру;
 - какие идеи из Notion/Obsidian/IDE/Grafana/MCP мы берем, а какие не берем;
 - где проходит граница между product concept, architecture and implementation detail;

@@ -1,13 +1,13 @@
-# Cortex Architecture
+# Uprava Architecture
 
 Status: `draft`
 
-This document records the first architectural position on the Cortex
+This document records the first architectural position on the Uprava
 client/server model.
 
 ## Short Decision
 
-Cortex should have a separate **Core Backend** as the control plane. Clients work
+Uprava should have a separate **Core Backend** as the control plane. Clients work
 through Core, while work with concrete machines, files, terminals, processes,
 sandboxes, and the AI-agent lifecycle is performed through **Node Daemons**.
 
@@ -36,7 +36,7 @@ persistent sessions, task runs, hybrid flows
 
 ### Core Backend
 
-The central backend and control plane of Cortex.
+The central backend and control plane of Uprava.
 
 Core owns the global system model: projects, users, permissions, nodes,
 capabilities, agent sessions, agent runs, workflows, artifacts, event log,
@@ -48,7 +48,7 @@ side.
 
 ### Control Panel
 
-The Web UI deployed next to Core Backend that provides browser access to Cortex
+The Web UI deployed next to Core Backend that provides browser access to Uprava
 management.
 
 At the early stage, this can be the main client. Later, desktop, mobile, and CLI
@@ -84,7 +84,7 @@ A Node can be:
 - a future managed cloud node.
 
 The term `host` can be used as a technical explanation, but the product entity
-is better called `Node`, because Cortex is closer to a distributed/cloud model
+is better called `Node`, because Uprava is closer to a distributed/cloud model
 than to a simple list of machines.
 
 ### Node Daemon
@@ -105,7 +105,7 @@ It is not an AI agent. Node Daemon is an infrastructure process that:
 - runs checks/tests;
 - manages local workspaces, environment, credentials, and runtime limits.
 
-Node Daemon is the main data plane of Cortex.
+Node Daemon is the main data plane of Uprava.
 
 ### AI Agent
 
@@ -231,9 +231,9 @@ runtime live.
 
 ## Plugins and Integrations
 
-Plugins and integrations are one of the main modularity mechanisms in Cortex.
+Plugins and integrations are one of the main modularity mechanisms in Uprava.
 
-Cortex should not implement every external system itself. Instead, Core should
+Uprava should not implement every external system itself. Instead, Core should
 have an extensible model for connecting:
 
 - task trackers: Linear, Jira, GitHub Issues;
@@ -274,7 +274,7 @@ An integration can connect in different ways:
 
 - **MCP adapter** - when the external system is already available through MCP or
   MCP fits well as a tool protocol.
-- **Native API adapter** - when Cortex needs control over auth, pagination,
+- **Native API adapter** - when Uprava needs control over auth, pagination,
   webhooks, rate limits, domain objects, or visual UX.
 - **Node-local adapter** - when a tool must run next to files, terminal, local
   credentials, or runtime.
@@ -283,7 +283,7 @@ An integration can connect in different ways:
 - **Hybrid adapter** - metadata and permissions live in Core, while execution
   goes through Node or an external provider.
 
-MCP matters, but it should not be the only integration method. For Cortex, it is
+MCP matters, but it should not be the only integration method. For Uprava, it is
 important not only to call a tool, but also to:
 
 - show it in UI;

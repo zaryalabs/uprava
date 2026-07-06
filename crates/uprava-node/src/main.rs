@@ -13,19 +13,6 @@ use std::os::unix::fs::{OpenOptionsExt, PermissionsExt};
 
 use anyhow::Context;
 use chrono::{DateTime, Utc};
-use cortex_logging::init_tracing;
-use cortex_protocol::{
-    serde_json_value::JsonValue, ActorRef, ApiError, ApprovalId, CapabilitySummary,
-    CommandEnvelope, CommandId, CommandKind, CommandState, ControlFrame, CorrelationId,
-    EnrollmentId, EventEnvelope, EventId, EventKind, NodeEnrollmentClaimRequest,
-    NodeEnrollmentClaimResponse, NodeEnrollmentRequest, NodeEnrollmentRequestedResponse,
-    NodeHeartbeatRequest, NodeHeartbeatResponse, NodeId, PlacementState, ProjectPlacementId,
-    ResourceBadge, RuntimeSessionId, RuntimeSessionState, ScopeRef, SessionThreadId, SleepHint,
-    TurnId, WarningSeverity, WorkspaceCommandRunRequest, WorkspaceCommandRunResponse,
-    WorkspaceDiffResponse, WorkspaceEntry, WorkspaceEntryKind, WorkspaceEntryStatus,
-    WorkspaceFileContentResponse, WorkspaceFileWriteRequest, WorkspaceFileWriteResponse,
-    WorkspaceSnapshot, WorkspaceTreeResponse,
-};
 use futures_util::{SinkExt, StreamExt};
 use reqwest::Url;
 use serde::{Deserialize, Serialize};
@@ -37,6 +24,19 @@ use tokio::{
 use tokio_tungstenite::{
     connect_async,
     tungstenite::{client::IntoClientRequest, http::HeaderValue, Message as WsMessage},
+};
+use uprava_logging::init_tracing;
+use uprava_protocol::{
+    serde_json_value::JsonValue, ActorRef, ApiError, ApprovalId, CapabilitySummary,
+    CommandEnvelope, CommandId, CommandKind, CommandState, ControlFrame, CorrelationId,
+    EnrollmentId, EventEnvelope, EventId, EventKind, NodeEnrollmentClaimRequest,
+    NodeEnrollmentClaimResponse, NodeEnrollmentRequest, NodeEnrollmentRequestedResponse,
+    NodeHeartbeatRequest, NodeHeartbeatResponse, NodeId, PlacementState, ProjectPlacementId,
+    ResourceBadge, RuntimeSessionId, RuntimeSessionState, ScopeRef, SessionThreadId, SleepHint,
+    TurnId, WarningSeverity, WorkspaceCommandRunRequest, WorkspaceCommandRunResponse,
+    WorkspaceDiffResponse, WorkspaceEntry, WorkspaceEntryKind, WorkspaceEntryStatus,
+    WorkspaceFileContentResponse, WorkspaceFileWriteRequest, WorkspaceFileWriteResponse,
+    WorkspaceSnapshot, WorkspaceTreeResponse,
 };
 use uuid::Uuid;
 
@@ -62,7 +62,7 @@ const MAX_PROVIDER_ACTIVITY_LINE_CHARS: usize = 4_000;
 
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
-    let log_path = init_tracing("node", "CORTEX_NODE_LOG_FILE", ".local/logs/node.log")?;
+    let log_path = init_tracing("node", "UPRAVA_NODE_LOG_FILE", ".local/logs/node.log")?;
 
     let config = NodeConfig::from_env()?;
     let client = reqwest::Client::new();
@@ -73,7 +73,7 @@ async fn main() -> anyhow::Result<()> {
         display_name = %config.display_name,
         state_path = %config.state_path.display(),
         log_file = %log_path.display(),
-        "starting cortex node"
+        "starting uprava node"
     );
 
     loop {
@@ -151,20 +151,20 @@ struct NodeConfig {
 
 impl NodeConfig {
     fn from_env() -> anyhow::Result<Self> {
-        let core_url = std::env::var("CORTEX_CORE_URL")
+        let core_url = std::env::var("UPRAVA_CORE_URL")
             .unwrap_or_else(|_| "http://127.0.0.1:8080".to_owned())
             .parse::<Url>()
-            .context("CORTEX_CORE_URL must be a valid URL")?;
+            .context("UPRAVA_CORE_URL must be a valid URL")?;
         let display_name =
-            std::env::var("CORTEX_NODE_DISPLAY_NAME").unwrap_or_else(|_| "Local Node".to_owned());
-        let heartbeat_interval = parse_env_duration_seconds("CORTEX_NODE_HEARTBEAT_SECONDS", 5)?;
-        let state_path = std::env::var("CORTEX_NODE_STATE_PATH")
+            std::env::var("UPRAVA_NODE_DISPLAY_NAME").unwrap_or_else(|_| "Local Node".to_owned());
+        let heartbeat_interval = parse_env_duration_seconds("UPRAVA_NODE_HEARTBEAT_SECONDS", 5)?;
+        let state_path = std::env::var("UPRAVA_NODE_STATE_PATH")
             .map(PathBuf::from)
             .unwrap_or_else(|_| default_state_path());
         let workspace_paths = parse_workspace_paths()?;
         let codex_binary =
-            std::env::var("CORTEX_CODEX_BINARY").unwrap_or_else(|_| "codex".to_owned());
-        let codex_timeout = parse_env_duration_seconds("CORTEX_CODEX_TIMEOUT_SECONDS", 120)?;
+            std::env::var("UPRAVA_CODEX_BINARY").unwrap_or_else(|_| "codex".to_owned());
+        let codex_timeout = parse_env_duration_seconds("UPRAVA_CODEX_TIMEOUT_SECONDS", 120)?;
 
         Ok(Self {
             core_url,
@@ -189,8 +189,8 @@ fn parse_env_duration_seconds(name: &str, fallback_seconds: u64) -> anyhow::Resu
 }
 
 fn parse_workspace_paths() -> anyhow::Result<Vec<PathBuf>> {
-    let value = std::env::var("CORTEX_NODE_WORKSPACES")
-        .context("CORTEX_NODE_WORKSPACES must list one or more allowed workspace roots")?;
+    let value = std::env::var("UPRAVA_NODE_WORKSPACES")
+        .context("UPRAVA_NODE_WORKSPACES must list one or more allowed workspace roots")?;
     let paths = value
         .split(',')
         .map(str::trim)
@@ -198,7 +198,7 @@ fn parse_workspace_paths() -> anyhow::Result<Vec<PathBuf>> {
         .map(PathBuf::from)
         .collect::<Vec<_>>();
     if paths.is_empty() {
-        anyhow::bail!("CORTEX_NODE_WORKSPACES must list one or more allowed workspace roots");
+        anyhow::bail!("UPRAVA_NODE_WORKSPACES must list one or more allowed workspace roots");
     }
     Ok(paths)
 }
@@ -594,7 +594,7 @@ async fn run_control_channel(
         .into_client_request()
         .context("control channel request should build")?;
     request.headers_mut().insert(
-        "x-cortex-node-id",
+        "x-uprava-node-id",
         HeaderValue::from_str(node_id.as_str()).context("node id header should be valid")?,
     );
     request.headers_mut().insert(
@@ -3780,7 +3780,7 @@ fn codex_exec_prompt(content: &str, transcript: &[ProviderTranscriptMessage]) ->
     }
 
     let mut prompt = String::from(
-        "Continue this Cortex session. Use the transcript only as prior context, then answer the latest user message.\n\nTranscript:\n",
+        "Continue this Uprava session. Use the transcript only as prior context, then answer the latest user message.\n\nTranscript:\n",
     );
     for message in selected {
         prompt.push_str(&message.role);
@@ -3904,7 +3904,7 @@ fn runtime_error_event(
 
 fn codex_last_message_path(command_id: &CommandId) -> PathBuf {
     std::env::temp_dir().join(format!(
-        "cortex-codex-{}-{}.txt",
+        "uprava-codex-{}-{}.txt",
         sanitize_filename_segment(command_id.as_str()),
         Uuid::new_v4()
     ))
@@ -4219,31 +4219,31 @@ fn default_state_path() -> PathBuf {
         .unwrap_or_else(std::env::temp_dir);
     home.join(".local")
         .join("share")
-        .join("cortex-node")
+        .join("uprava-node")
         .join("node.json")
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use cortex_protocol::{CorrelationId, SessionThreadId};
     #[cfg(unix)]
     use std::os::unix::fs::PermissionsExt;
     use std::sync::{Mutex, MutexGuard, OnceLock};
+    use uprava_protocol::{CorrelationId, SessionThreadId};
 
     const NODE_CONFIG_ENV_VARS: &[&str] = &[
-        "CORTEX_CORE_URL",
-        "CORTEX_NODE_DISPLAY_NAME",
-        "CORTEX_NODE_HEARTBEAT_SECONDS",
-        "CORTEX_NODE_STATE_PATH",
-        "CORTEX_NODE_WORKSPACES",
-        "CORTEX_CODEX_BINARY",
-        "CORTEX_CODEX_TIMEOUT_SECONDS",
+        "UPRAVA_CORE_URL",
+        "UPRAVA_NODE_DISPLAY_NAME",
+        "UPRAVA_NODE_HEARTBEAT_SECONDS",
+        "UPRAVA_NODE_STATE_PATH",
+        "UPRAVA_NODE_WORKSPACES",
+        "UPRAVA_CODEX_BINARY",
+        "UPRAVA_CODEX_TIMEOUT_SECONDS",
     ];
 
     #[test]
     fn node_local_state_loads_legacy_state_without_reliability_fields() {
-        let path = std::env::temp_dir().join(format!("cortex-node-{}.json", Uuid::new_v4()));
+        let path = std::env::temp_dir().join(format!("uprava-node-{}.json", Uuid::new_v4()));
         std::fs::write(
             &path,
             r#"{"node_id":"node-1","credential":"development-secret"}"#,
@@ -4266,7 +4266,7 @@ mod tests {
 
     #[test]
     fn node_local_state_preserves_daemon_installation_id_after_save() {
-        let path = std::env::temp_dir().join(format!("cortex-node-{}.json", Uuid::new_v4()));
+        let path = std::env::temp_dir().join(format!("uprava-node-{}.json", Uuid::new_v4()));
         let local_state = NodeLocalState::default();
         let installation_id = local_state.daemon_installation_id.clone();
         local_state.save(&path).expect("node state saves");
@@ -4280,7 +4280,7 @@ mod tests {
     #[cfg(unix)]
     #[test]
     fn node_local_state_save_uses_private_file_permissions() {
-        let dir = std::env::temp_dir().join(format!("cortex-node-{}", Uuid::new_v4()));
+        let dir = std::env::temp_dir().join(format!("uprava-node-{}", Uuid::new_v4()));
         let path = dir.join("node.json");
         let local_state = NodeLocalState::default();
         local_state.save(&path).expect("node state saves");
@@ -4426,7 +4426,7 @@ mod tests {
                 .await
                 .expect("response written");
         });
-        let state_path = std::env::temp_dir().join(format!("cortex-node-{}.json", Uuid::new_v4()));
+        let state_path = std::env::temp_dir().join(format!("uprava-node-{}.json", Uuid::new_v4()));
         let mut config = config_fixture();
         config.core_url = format!("http://{address}")
             .parse()
@@ -4461,21 +4461,21 @@ mod tests {
 
         assert!(error
             .to_string()
-            .contains("CORTEX_NODE_WORKSPACES must list one or more allowed workspace roots"));
+            .contains("UPRAVA_NODE_WORKSPACES must list one or more allowed workspace roots"));
     }
 
     #[test]
     fn node_config_from_env_parses_overrides_and_workspace_list() {
         let _lock = env_lock();
         let _env = EnvGuard::cleared(NODE_CONFIG_ENV_VARS);
-        let state_path = std::env::temp_dir().join(format!("cortex-node-{}.json", Uuid::new_v4()));
-        std::env::set_var("CORTEX_CORE_URL", "http://127.0.0.1:19090");
-        std::env::set_var("CORTEX_NODE_DISPLAY_NAME", "Desktop Node");
-        std::env::set_var("CORTEX_NODE_HEARTBEAT_SECONDS", "2");
-        std::env::set_var("CORTEX_NODE_STATE_PATH", &state_path);
-        std::env::set_var("CORTEX_NODE_WORKSPACES", "/tmp/a, ,/tmp/b");
-        std::env::set_var("CORTEX_CODEX_BINARY", "/usr/local/bin/codex");
-        std::env::set_var("CORTEX_CODEX_TIMEOUT_SECONDS", "7");
+        let state_path = std::env::temp_dir().join(format!("uprava-node-{}.json", Uuid::new_v4()));
+        std::env::set_var("UPRAVA_CORE_URL", "http://127.0.0.1:19090");
+        std::env::set_var("UPRAVA_NODE_DISPLAY_NAME", "Desktop Node");
+        std::env::set_var("UPRAVA_NODE_HEARTBEAT_SECONDS", "2");
+        std::env::set_var("UPRAVA_NODE_STATE_PATH", &state_path);
+        std::env::set_var("UPRAVA_NODE_WORKSPACES", "/tmp/a, ,/tmp/b");
+        std::env::set_var("UPRAVA_CODEX_BINARY", "/usr/local/bin/codex");
+        std::env::set_var("UPRAVA_CODEX_TIMEOUT_SECONDS", "7");
 
         let config = NodeConfig::from_env().expect("overridden node config parses");
 
@@ -4495,14 +4495,14 @@ mod tests {
     fn node_config_from_env_rejects_invalid_duration_values() {
         let _lock = env_lock();
         let _env = EnvGuard::cleared(NODE_CONFIG_ENV_VARS);
-        std::env::set_var("CORTEX_NODE_WORKSPACES", std::env::temp_dir());
-        std::env::set_var("CORTEX_NODE_HEARTBEAT_SECONDS", "soon");
+        std::env::set_var("UPRAVA_NODE_WORKSPACES", std::env::temp_dir());
+        std::env::set_var("UPRAVA_NODE_HEARTBEAT_SECONDS", "soon");
 
         let error = NodeConfig::from_env().expect_err("invalid heartbeat should fail");
 
         assert!(error
             .to_string()
-            .contains("CORTEX_NODE_HEARTBEAT_SECONDS must be an unsigned integer"));
+            .contains("UPRAVA_NODE_HEARTBEAT_SECONDS must be an unsigned integer"));
     }
 
     #[test]
@@ -4516,7 +4516,7 @@ mod tests {
     fn command_available_resolves_binary_from_path() {
         let _lock = env_lock();
         let _env = EnvGuard::cleared(&["PATH"]);
-        let bin_dir = std::env::temp_dir().join(format!("cortex-node-bin-{}", Uuid::new_v4()));
+        let bin_dir = std::env::temp_dir().join(format!("uprava-node-bin-{}", Uuid::new_v4()));
         std::fs::create_dir_all(&bin_dir).expect("bin dir creates");
         let codex_path = bin_dir.join("codex");
         std::fs::write(&codex_path, "").expect("codex fixture writes");
@@ -4655,7 +4655,7 @@ mod tests {
     async fn node_local_state_replays_outbox_for_duplicate_command_after_restart() {
         let config = config_fixture();
         let command = command_fixture("command-1", CommandKind::SendTurn);
-        let path = std::env::temp_dir().join(format!("cortex-node-{}.json", Uuid::new_v4()));
+        let path = std::env::temp_dir().join(format!("uprava-node-{}.json", Uuid::new_v4()));
         let mut local_state = NodeLocalState::default();
         let first = prepare_command_dispatch(&config, &mut local_state, &command).await;
         let first_event_ids = event_ids(&first.events_to_send);
@@ -4945,7 +4945,7 @@ mod tests {
     async fn read_workspace_file_command_returns_text_content() {
         let config = config_fixture();
         let workspace_path =
-            std::env::temp_dir().join(format!("cortex-node-inspector-{}", Uuid::new_v4()));
+            std::env::temp_dir().join(format!("uprava-node-inspector-{}", Uuid::new_v4()));
         std::fs::create_dir_all(&workspace_path).expect("workspace fixture creates");
         std::fs::write(workspace_path.join("README.md"), "hello inspector")
             .expect("text fixture writes");
@@ -4977,7 +4977,7 @@ mod tests {
     async fn list_workspace_tree_marks_generated_directories_without_descending() {
         let config = config_fixture();
         let workspace_path =
-            std::env::temp_dir().join(format!("cortex-node-inspector-{}", Uuid::new_v4()));
+            std::env::temp_dir().join(format!("uprava-node-inspector-{}", Uuid::new_v4()));
         std::fs::create_dir_all(workspace_path.join("target/debug"))
             .expect("generated fixture creates");
         std::fs::write(workspace_path.join("target/debug/app"), "compiled")
@@ -5015,7 +5015,7 @@ mod tests {
     async fn read_workspace_file_command_rejects_parent_path_escape() {
         let config = config_fixture();
         let workspace_path =
-            std::env::temp_dir().join(format!("cortex-node-inspector-{}", Uuid::new_v4()));
+            std::env::temp_dir().join(format!("uprava-node-inspector-{}", Uuid::new_v4()));
         std::fs::create_dir_all(&workspace_path).expect("workspace fixture creates");
         let mut command = placement_command_fixture(
             "command-read-escape",
@@ -5047,7 +5047,7 @@ mod tests {
     async fn write_workspace_file_command_updates_text_when_expected_content_matches() {
         let config = config_fixture();
         let workspace_path =
-            std::env::temp_dir().join(format!("cortex-node-inspector-{}", Uuid::new_v4()));
+            std::env::temp_dir().join(format!("uprava-node-inspector-{}", Uuid::new_v4()));
         std::fs::create_dir_all(&workspace_path).expect("workspace fixture creates");
         std::fs::write(workspace_path.join("README.md"), "before").expect("text fixture writes");
         let mut command = placement_command_fixture(
@@ -5082,7 +5082,7 @@ mod tests {
     async fn write_workspace_file_command_rejects_stale_expected_content() {
         let config = config_fixture();
         let workspace_path =
-            std::env::temp_dir().join(format!("cortex-node-inspector-{}", Uuid::new_v4()));
+            std::env::temp_dir().join(format!("uprava-node-inspector-{}", Uuid::new_v4()));
         std::fs::create_dir_all(&workspace_path).expect("workspace fixture creates");
         std::fs::write(workspace_path.join("README.md"), "current").expect("text fixture writes");
         let mut command = placement_command_fixture(
@@ -5118,9 +5118,9 @@ mod tests {
     async fn write_workspace_file_command_rejects_symlink_target() {
         let config = config_fixture();
         let workspace_path =
-            std::env::temp_dir().join(format!("cortex-node-inspector-{}", Uuid::new_v4()));
+            std::env::temp_dir().join(format!("uprava-node-inspector-{}", Uuid::new_v4()));
         let outside_path =
-            std::env::temp_dir().join(format!("cortex-node-outside-{}", Uuid::new_v4()));
+            std::env::temp_dir().join(format!("uprava-node-outside-{}", Uuid::new_v4()));
         std::fs::create_dir_all(&workspace_path).expect("workspace fixture creates");
         std::os::unix::fs::symlink(&outside_path, workspace_path.join("link.txt"))
             .expect("symlink fixture creates");
@@ -5157,7 +5157,7 @@ mod tests {
     async fn run_workspace_command_captures_stdout_and_exit_status() {
         let config = config_fixture();
         let workspace_path =
-            std::env::temp_dir().join(format!("cortex-node-inspector-{}", Uuid::new_v4()));
+            std::env::temp_dir().join(format!("uprava-node-inspector-{}", Uuid::new_v4()));
         std::fs::create_dir_all(&workspace_path).expect("workspace fixture creates");
         let mut command = placement_command_fixture(
             "command-run-workspace",
@@ -5191,7 +5191,7 @@ mod tests {
     async fn read_workspace_diff_command_returns_git_diff() {
         let config = config_fixture();
         let workspace_path =
-            std::env::temp_dir().join(format!("cortex-node-inspector-{}", Uuid::new_v4()));
+            std::env::temp_dir().join(format!("uprava-node-inspector-{}", Uuid::new_v4()));
         std::fs::create_dir_all(&workspace_path).expect("workspace fixture creates");
         StdCommand::new("git")
             .arg("init")
@@ -5206,7 +5206,7 @@ mod tests {
             .expect("git add starts");
         StdCommand::new("git")
             .args(["-c", "user.email=test@example.invalid"])
-            .args(["-c", "user.name=Cortex Test"])
+            .args(["-c", "user.name=Uprava Test"])
             .args(["commit", "-m", "initial"])
             .current_dir(&workspace_path)
             .status()
@@ -5268,7 +5268,7 @@ mod tests {
     #[test]
     fn resource_warnings_ignore_non_git_workspace() {
         let workspace_path =
-            std::env::temp_dir().join(format!("cortex-non-git-{}", Uuid::new_v4()));
+            std::env::temp_dir().join(format!("uprava-non-git-{}", Uuid::new_v4()));
         std::fs::create_dir_all(&workspace_path).expect("workspace dir creates");
 
         let badges = resource_warnings(&workspace_path);
@@ -5401,7 +5401,7 @@ mod tests {
     async fn codex_send_turn_executes_binary_and_emits_completed_assistant_message() {
         let codex_binary = fake_codex_success_binary();
         let workspace_path =
-            std::env::temp_dir().join(format!("cortex-codex-workspace-{}", Uuid::new_v4()));
+            std::env::temp_dir().join(format!("uprava-codex-workspace-{}", Uuid::new_v4()));
         std::fs::create_dir_all(&workspace_path).expect("workspace fixture creates");
         let config = config_fixture_with_codex_binary(codex_binary.display().to_string());
         let command = command_fixture_with_content(
@@ -5507,10 +5507,10 @@ mod tests {
     #[tokio::test]
     async fn codex_send_turn_includes_prior_transcript_context() {
         let capture_path =
-            std::env::temp_dir().join(format!("cortex-codex-prompt-{}", Uuid::new_v4()));
+            std::env::temp_dir().join(format!("uprava-codex-prompt-{}", Uuid::new_v4()));
         let codex_binary = fake_codex_prompt_capture_binary(&capture_path);
         let workspace_path =
-            std::env::temp_dir().join(format!("cortex-codex-workspace-{}", Uuid::new_v4()));
+            std::env::temp_dir().join(format!("uprava-codex-workspace-{}", Uuid::new_v4()));
         std::fs::create_dir_all(&workspace_path).expect("workspace fixture creates");
         let config = config_fixture_with_codex_binary(codex_binary.display().to_string());
         let command = command_fixture_with_content(
@@ -5547,7 +5547,7 @@ mod tests {
         std::fs::remove_file(capture_path).expect("prompt capture removes");
         std::fs::remove_dir_all(workspace_path).expect("workspace fixture removes");
         assert_eq!(outcome.status, CommandState::Completed);
-        assert!(captured_prompt.contains("Continue this Cortex session"));
+        assert!(captured_prompt.contains("Continue this Uprava session"));
         assert!(captured_prompt.contains("user: first question"));
         assert!(captured_prompt.contains("assistant: first answer"));
         assert!(captured_prompt.contains("Latest user message:\nsecond question"));
@@ -5564,10 +5564,10 @@ mod tests {
     #[tokio::test]
     async fn codex_send_turn_uses_provider_native_resume_when_session_id_exists() {
         let capture_path =
-            std::env::temp_dir().join(format!("cortex-codex-resume-args-{}", Uuid::new_v4()));
+            std::env::temp_dir().join(format!("uprava-codex-resume-args-{}", Uuid::new_v4()));
         let codex_binary = fake_codex_resume_capture_binary(&capture_path);
         let workspace_path =
-            std::env::temp_dir().join(format!("cortex-codex-workspace-{}", Uuid::new_v4()));
+            std::env::temp_dir().join(format!("uprava-codex-workspace-{}", Uuid::new_v4()));
         std::fs::create_dir_all(&workspace_path).expect("workspace fixture creates");
         let config = config_fixture_with_codex_binary(codex_binary.display().to_string());
         let command = command_fixture_with_content(
@@ -5623,7 +5623,7 @@ mod tests {
     async fn codex_send_turn_maps_stdout_approval_request_to_blocked_runtime() {
         let codex_binary = fake_codex_approval_request_binary();
         let workspace_path =
-            std::env::temp_dir().join(format!("cortex-codex-workspace-{}", Uuid::new_v4()));
+            std::env::temp_dir().join(format!("uprava-codex-workspace-{}", Uuid::new_v4()));
         std::fs::create_dir_all(&workspace_path).expect("workspace fixture creates");
         let config = config_fixture_with_codex_binary(codex_binary.display().to_string());
         let command = command_fixture_with_content(
@@ -5829,7 +5829,7 @@ mod tests {
     async fn codex_send_turn_maps_nonzero_exit_to_exec_failed_error() {
         let codex_binary = fake_codex_failing_binary();
         let workspace_path =
-            std::env::temp_dir().join(format!("cortex-codex-workspace-{}", Uuid::new_v4()));
+            std::env::temp_dir().join(format!("uprava-codex-workspace-{}", Uuid::new_v4()));
         std::fs::create_dir_all(&workspace_path).expect("workspace fixture creates");
         let config = config_fixture_with_codex_binary(codex_binary.display().to_string());
         let command =
@@ -5891,7 +5891,7 @@ mod tests {
     async fn codex_send_turn_maps_empty_final_message_to_empty_output_error() {
         let codex_binary = fake_codex_empty_output_binary();
         let workspace_path =
-            std::env::temp_dir().join(format!("cortex-codex-workspace-{}", Uuid::new_v4()));
+            std::env::temp_dir().join(format!("uprava-codex-workspace-{}", Uuid::new_v4()));
         std::fs::create_dir_all(&workspace_path).expect("workspace fixture creates");
         let config = config_fixture_with_codex_binary(codex_binary.display().to_string());
         let command =
@@ -5936,7 +5936,7 @@ mod tests {
     async fn codex_send_turn_maps_slow_process_to_start_timeout_error() {
         let codex_binary = fake_codex_slow_binary();
         let workspace_path =
-            std::env::temp_dir().join(format!("cortex-codex-workspace-{}", Uuid::new_v4()));
+            std::env::temp_dir().join(format!("uprava-codex-workspace-{}", Uuid::new_v4()));
         std::fs::create_dir_all(&workspace_path).expect("workspace fixture creates");
         let mut config = config_fixture_with_codex_binary(codex_binary.display().to_string());
         config.codex_timeout = Duration::from_millis(50);
@@ -6112,7 +6112,7 @@ sleep 2
                 .expect("test core URL parses"),
             display_name: "Test Node".to_owned(),
             heartbeat_interval: Duration::from_secs(5),
-            state_path: std::env::temp_dir().join(format!("cortex-node-{}.json", Uuid::new_v4())),
+            state_path: std::env::temp_dir().join(format!("uprava-node-{}.json", Uuid::new_v4())),
             workspace_paths: vec![std::env::temp_dir()],
             codex_binary: codex_binary.into(),
             codex_timeout: Duration::from_secs(5),

@@ -11,7 +11,7 @@ design docs.
 
 Текущие документы:
 
-- [`cortex-notes.md`](cortex-notes.md) - исходные заметки и идеи.
+- [`uprava-notes.md`](uprava-notes.md) - исходные заметки и идеи.
 - [`vision.md`](vision.md) - draft vision продукта.
 - [`architecture.md`](architecture.md) - draft архитектуры Core / Node Daemon / Clients.
 - [`v01.md`](v01.md) - первая пригодная версия продукта.
@@ -22,7 +22,7 @@ design docs.
 - [`feature-inventory.md`](feature-inventory.md) - инвентарь придуманных фич и направлений.
 - [`workspace-inspector.md`](workspace-inspector.md) - направление Project Workspace Inspector.
 - [`workspace-editing-and-ide-sidecar.md`](workspace-editing-and-ide-sidecar.md) - базовое редактирование workspace и optional full-IDE sidecar.
-- [`design/`](design/) - глубокие design docs по ключевым механизмам Cortex.
+- [`design/`](design/) - глубокие design docs по ключевым механизмам Uprava.
 
 Временные реализационные планы живут вне языкового зеркала в
 [`../tmp-plans`](../tmp-plans). Это tactical working documents для активных

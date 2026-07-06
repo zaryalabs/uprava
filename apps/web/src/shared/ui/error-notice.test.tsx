@@ -1,7 +1,7 @@
 import { render, screen } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
 
-import { CortexApiError } from "../api/http-client";
+import { UpravaApiError } from "../api/http-client";
 import { ErrorNotice } from "./error-notice";
 
 describe("ErrorNotice", () => {
@@ -10,7 +10,7 @@ describe("ErrorNotice", () => {
       <ErrorNotice
         title="Workspace validation failed"
         error={
-          new CortexApiError({
+          new UpravaApiError({
             error_code: "placement.invalid",
             message: "Workspace is not writable",
             retryable: false,

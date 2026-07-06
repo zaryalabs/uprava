@@ -22,7 +22,7 @@ function projection(): AgentProjection {
       project_placement_id: "placement-1",
       project_id: null,
       node_id: "node-1",
-      display_name: "cortex",
+      display_name: "uprava",
       workspace_path: "/workspace",
       state: "validated",
       resource_badges: [],

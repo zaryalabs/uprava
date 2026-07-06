@@ -1,20 +1,22 @@
+name: uprava
+
 services:
   core:
     build:
       context: .
       dockerfile: Dockerfile.core
     environment:
-      CORTEX_CORE_BIND: 0.0.0.0:8080
-      CORTEX_DATABASE_URL: sqlite:///data/core.sqlite
-      CORTEX_DEPLOYMENT_PROFILE: controlled_dev
-      CORTEX_ALLOWED_ORIGINS: http://127.0.0.1:5173,http://localhost:5173
-      RUST_LOG: info,cortex_server=debug
+      UPRAVA_CORE_BIND: 0.0.0.0:8080
+      UPRAVA_DATABASE_URL: sqlite:///data/core.sqlite
+      UPRAVA_DEPLOYMENT_PROFILE: controlled_dev
+      UPRAVA_ALLOWED_ORIGINS: http://127.0.0.1:5173,http://localhost:5173
+      RUST_LOG: info,uprava_server=debug
     ports:
       - "127.0.0.1:8080:8080"
     volumes:
-      - cortex-core-data:/data
+      - uprava-core-data:/data
     healthcheck:
-      test: ["CMD", "cortex-server", "healthcheck", "127.0.0.1:8080"]
+      test: ["CMD", "uprava-server", "healthcheck", "127.0.0.1:8080"]
       interval: 5s
       timeout: 2s
       retries: 20
@@ -24,13 +26,13 @@ services:
       context: .
       dockerfile: Dockerfile.node
     environment:
-      CORTEX_CORE_URL: http://core:8080
-      CORTEX_NODE_DISPLAY_NAME: Compose Node
-      CORTEX_NODE_STATE_PATH: /state/node.json
-      CORTEX_NODE_WORKSPACES: /workspace
-      RUST_LOG: info,cortex_node=debug
+      UPRAVA_CORE_URL: http://core:8080
+      UPRAVA_NODE_DISPLAY_NAME: Compose Node
+      UPRAVA_NODE_STATE_PATH: /state/node.json
+      UPRAVA_NODE_WORKSPACES: /workspace
+      RUST_LOG: info,uprava_node=debug
     volumes:
-      - cortex-node-state:/state
+      - uprava-node-state:/state
       - ./docs:/workspace:ro
     depends_on:
       core:
@@ -47,5 +49,5 @@ services:
         condition: service_healthy
 
 volumes:
-  cortex-core-data:
-  cortex-node-state:
+  uprava-core-data:
+  uprava-node-state:

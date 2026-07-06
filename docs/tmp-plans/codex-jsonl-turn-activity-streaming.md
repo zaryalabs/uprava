@@ -31,7 +31,7 @@ In scope:
 
 - Node-side live execution for the Codex `exec` adapter.
 - Reading `codex exec --json` stdout as JSONL while the process is running.
-- Preserving every available field from each Codex JSONL object in Cortex event
+- Preserving every available field from each Codex JSONL object in Uprava event
   payloads.
 - Streaming provider activity events to Core during the turn, not only after
   process completion.
@@ -256,5 +256,5 @@ monospace where useful, stable dimensions, no nested cards.
   refs in the timeline.
 - Add filters/search inside `TurnActivity`.
 - Add provider-specific renderers for common Codex item types.
-- Revisit `codex app-server` once Cortex needs real live process ownership,
+- Revisit `codex app-server` once Uprava needs real live process ownership,
   richer approvals, steering and interrupt semantics.

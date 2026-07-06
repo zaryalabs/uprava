@@ -1,23 +1,23 @@
 import { expect, test, type APIRequestContext } from "@playwright/test";
 
-const realApiEnabled = process.env.CORTEX_E2E_REAL_API === "1";
-const coreUrl = process.env.CORTEX_E2E_CORE_URL ?? "http://127.0.0.1:8080";
-const expectedNode = process.env.CORTEX_E2E_EXPECTED_NODE ?? "Compose Node";
-const workspacePath = process.env.CORTEX_E2E_WORKSPACE_PATH ?? "/workspace";
-const provider = process.env.CORTEX_E2E_PROVIDER ?? "codex";
+const realApiEnabled = process.env.UPRAVA_E2E_REAL_API === "1";
+const coreUrl = process.env.UPRAVA_E2E_CORE_URL ?? "http://127.0.0.1:8080";
+const expectedNode = process.env.UPRAVA_E2E_EXPECTED_NODE ?? "Compose Node";
+const workspacePath = process.env.UPRAVA_E2E_WORKSPACE_PATH ?? "/workspace";
+const provider = process.env.UPRAVA_E2E_PROVIDER ?? "codex";
 const webPassword =
-  process.env.CORTEX_E2E_WEB_PASSWORD ?? "cortex-smoke-password";
+  process.env.UPRAVA_E2E_WEB_PASSWORD ?? "uprava-smoke-password";
 const sessionTitle =
-  process.env.CORTEX_E2E_SESSION_TITLE ?? "Playwright real profile";
+  process.env.UPRAVA_E2E_SESSION_TITLE ?? "Playwright real profile";
 const turnContent =
-  process.env.CORTEX_E2E_TURN_CONTENT ??
-  "Reply exactly CORTEX_CODEX_SMOKE_OK. Do not modify files.";
+  process.env.UPRAVA_E2E_TURN_CONTENT ??
+  "Reply exactly UPRAVA_CODEX_SMOKE_OK. Do not modify files.";
 const expectedAssistantContent =
-  process.env.CORTEX_E2E_EXPECTED_ASSISTANT_CONTENT ?? "CORTEX_CODEX_SMOKE_OK";
-const turnTimeoutMs = Number(process.env.CORTEX_E2E_TURN_TIMEOUT_MS ?? "30000");
-const lifecycleEnabled = process.env.CORTEX_E2E_LIFECYCLE === "1";
+  process.env.UPRAVA_E2E_EXPECTED_ASSISTANT_CONTENT ?? "UPRAVA_CODEX_SMOKE_OK";
+const turnTimeoutMs = Number(process.env.UPRAVA_E2E_TURN_TIMEOUT_MS ?? "30000");
+const lifecycleEnabled = process.env.UPRAVA_E2E_LIFECYCLE === "1";
 const testTimeoutMs = Number(
-  process.env.CORTEX_E2E_TEST_TIMEOUT_MS ??
+  process.env.UPRAVA_E2E_TEST_TIMEOUT_MS ??
     String(
       Math.max(30_000, turnTimeoutMs + (lifecycleEnabled ? 45_000 : 15_000)),
     ),
@@ -26,7 +26,7 @@ const testTimeoutMs = Number(
 test.describe("real local profile", () => {
   test.skip(
     !realApiEnabled,
-    "set CORTEX_E2E_REAL_API=1 to run against a live Core/Web/Node profile",
+    "set UPRAVA_E2E_REAL_API=1 to run against a live Core/Web/Node profile",
   );
 
   test("creates a provider session through Core and renders it in Web", async ({
@@ -95,7 +95,7 @@ test.describe("real local profile", () => {
 
       const postResumeTurn = `${turnContent} after browser resume`;
       const postResumeAssistant =
-        process.env.CORTEX_E2E_POST_RESUME_EXPECTED_ASSISTANT_CONTENT ??
+        process.env.UPRAVA_E2E_POST_RESUME_EXPECTED_ASSISTANT_CONTENT ??
         expectedAssistantContent;
       await page.getByPlaceholder("Send a turn").fill(postResumeTurn);
       await page.getByRole("button", { name: "Send" }).click();
@@ -143,7 +143,7 @@ async function authenticate(request: APIRequestContext) {
 async function csrfTokenFromStorage(request: APIRequestContext) {
   const storage = await request.storageState();
   return (
-    storage.cookies.find((cookie) => cookie.name === "cortex_csrf")?.value ?? ""
+    storage.cookies.find((cookie) => cookie.name === "uprava_csrf")?.value ?? ""
   );
 }
 
@@ -274,7 +274,7 @@ async function postJson(
 ) {
   const response = await request.post(url, {
     data: body,
-    headers: csrfToken ? { "x-cortex-csrf": csrfToken } : undefined,
+    headers: csrfToken ? { "x-uprava-csrf": csrfToken } : undefined,
   });
   expect(response.ok()).toBe(true);
   return response.json() as Promise<Record<string, unknown>>;

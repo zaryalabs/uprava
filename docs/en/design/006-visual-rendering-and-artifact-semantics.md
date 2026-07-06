@@ -6,8 +6,8 @@
 Rendering and Artifact Semantics`.
 
 Главная позиция: `A-006` не является списком новых блоков и не означает, что
-каждая визуализация в Cortex должна становиться отдельным `Block` из `A-004`.
-Это сквозное направление, которое описывает, **где и как Cortex превращает
+каждая визуализация в Uprava должна становиться отдельным `Block` из `A-004`.
+Это сквозное направление, которое описывает, **где и как Uprava превращает
 текст, файлы, events, tool outputs, external refs and artifacts в визуальные,
 inspectable, referenceable and sometimes editable representations**.
 
@@ -35,7 +35,7 @@ and external embeds не развивались как набор несовме
 
 ### Какую проблему решает механика
 
-Cortex должен быть work surface для agent workloads, а не chat transcript with
+Uprava должен быть work surface для agent workloads, а не chat transcript with
 panels. Пользователь должен видеть работу в форме, которая лучше всего снижает
 стоимость понимания, review and decision:
 
@@ -56,7 +56,7 @@ dashboard artifact. Test report из tool output не является тем ж
 inline preview в code editor. Grafana preview не является тем же самым, что
 controlled external embed.
 
-Если не задать общую модель, Cortex быстро получит много частных renderer-ов,
+Если не задать общую модель, Uprava быстро получит много частных renderer-ов,
 которые:
 
 - не имеют stable references;
@@ -74,7 +74,7 @@ viewer, tool-rendered block, artifact viewer или external preview.
 
 ### Главная модель
 
-Каждый visual object в Cortex должен отвечать на один и тот же набор вопросов:
+Каждый visual object в Uprava должен отвечать на один и тот же набор вопросов:
 
 ```text
 source-of-truth:
@@ -107,7 +107,7 @@ trace/cause:
 Короткая формула:
 
 ```text
-A-006 defines how renderable things behave as Cortex visual objects.
+A-006 defines how renderable things behave as Uprava visual objects.
 It does not require every visual object to be a separate block or artifact.
 ```
 
@@ -117,7 +117,7 @@ It does not require every visual object to be a separate block or artifact.
 
 #### Visual object
 
-Visual object - любой визуально отрендеренный объект, который Cortex может
+Visual object - любой визуально отрендеренный объект, который Uprava может
 показать и, желательно, адресовать.
 
 Примеры:
@@ -183,14 +183,14 @@ Markdown source range
 - external previews - четвертую;
 - generated dashboards - пятую.
 
-Для Cortex это опасно. Визуальный слой должен быть неоднородным по UI, но
+Для Uprava это опасно. Визуальный слой должен быть неоднородным по UI, но
 однородным по базовым semantics: source, address, actions, fallback, cause,
 permissions.
 
 ## Rendering Classes
 
 Это не roadmap и не список реализаций. Это классы мест, где visual rendering
-может появляться в Cortex.
+может появляться в Uprava.
 
 ### Class A: Inline render enhancement
 
@@ -412,14 +412,14 @@ external link
 -> controlled embed
 ```
 
-External embed should be rare and explicitly permissioned. Often Cortex-native
+External embed should be rare and explicitly permissioned. Often Uprava-native
 preview or snapshot gives better traceability than iframe.
 
 ## Architecture
 
 ### Rendering layers
 
-Cortex visual rendering should be described in layers:
+Uprava visual rendering should be described in layers:
 
 ```text
 Surface renderer
@@ -572,7 +572,7 @@ metadata; sometimes it stores both.
 
 ### Renderer ownership
 
-Renderers can be owned by different parts of Cortex:
+Renderers can be owned by different parts of Uprava:
 
 ```text
 Core renderer
@@ -592,7 +592,7 @@ External renderer/embed
 ```
 
 A-006 does not require a renderer to live in one subsystem. It requires that
-renderer-visible outputs conform to Cortex visual semantics:
+renderer-visible outputs conform to Uprava visual semantics:
 
 - source refs;
 - fallback;
@@ -819,7 +819,7 @@ blocks and artifacts. It should not be limited to top-level A-004 blocks.
 A-006 helps make visual UI available to agents without requiring screenshot
 parsing.
 
-For example, internal Cortex agent should be able to answer:
+For example, internal Uprava agent should be able to answer:
 
 - "Какие диаграммы есть в этом Markdown?"
 - "Где source для этой UML diagram?"
@@ -844,7 +844,7 @@ For every visual object type:
 
 ## Рабочая формула
 
-Visual Rendering and Artifact Semantics is the Cortex mechanism for making
+Visual Rendering and Artifact Semantics is the Uprava mechanism for making
 files, messages, events, tool outputs, external refs and artifacts visually
 understandable without forcing every visualization to become a separate block.
 
@@ -865,4 +865,4 @@ agent-readable state
 A-006 does not own every renderer implementation. It defines the rules that
 renderers should follow so Markdown diagrams, code editor previews, terminal
 segments, diff markers, test reports, charts, dashboards, generated artifacts
-and external previews behave like coherent Cortex visual objects.
+and external previews behave like coherent Uprava visual objects.

@@ -1,10 +1,10 @@
-# Cortex Vision
+# Uprava Vision
 
 Status: `draft`
 
 ## Short Formula
 
-Cortex is a Distributed Agent OS for large-scale work with agents.
+Uprava is a Distributed Agent OS for large-scale work with agents.
 
 The product should become an operating work environment where a human manages
 agents as distributed workloads: starts them on different nodes, sees their
@@ -12,7 +12,7 @@ environment, controls progress, reviews results, accepts changes, and receives
 not only text answers but also interactive visual artifacts.
 
 If current agent tools most often look like chat with limited access to the
-environment, Cortex should be the control plane for agent work: projects, nodes,
+environment, Uprava should be the control plane for agent work: projects, nodes,
 agents, files, terminals, diffs, tasks, workflows, plugins, artifacts, and the
 trail of decisions.
 
@@ -23,7 +23,7 @@ around them remain too flat. The human sees chat and a final answer, but poorly
 sees the work environment, changes, sources, checks, risks, intermediate
 decisions, and task state.
 
-Cortex solves this not through "one more chat", but through an Agent OS:
+Uprava solves this not through "one more chat", but through an Agent OS:
 
 - below - a Docker/Kubernetes-like model of nodes, node daemons, work
   environments, and runnable agent workloads;
@@ -53,7 +53,7 @@ Modern agent tools cover only part of the work:
 
 ## Product Vision
 
-Cortex should become a system where agent work has a manageable shape.
+Uprava should become a system where agent work has a manageable shape.
 
 A human does not only write a prompt and wait for an answer. They choose a
 project, node, agent, execution mode, workflow, allowed boundaries, expected
@@ -74,11 +74,11 @@ agent output != accepted work
 accepted work = output + validation + correction + integration + ownership decision
 ```
 
-Cortex should make this cycle cheaper, clearer, and easier to operate.
+Uprava should make this cycle cheaper, clearer, and easier to operate.
 
 ## System Model
 
-Base Cortex model:
+Base Uprava model:
 
 - **Core / Control Plane** - the central layer for managing projects, nodes,
   agents, tasks, workflows, artifacts, permissions, and state.
@@ -107,7 +107,7 @@ Base Cortex model:
 - **Plugin** - an extension that adds agents, tools, integrations, visual
   blocks, workflows, commands, or new artifact types.
 
-This model should let Cortex start with developer workflows without being
+This model should let Uprava start with developer workflows without being
 trapped inside them.
 
 The client/server model is described in more detail in
@@ -115,7 +115,7 @@ The client/server model is described in more detail in
 
 ## Execution Modes
 
-Cortex should not be tied to one cloud-agent flow. The task-based sandbox
+Uprava should not be tied to one cloud-agent flow. The task-based sandbox
 approach matters, but it is only one mode. The minimum model should support at
 least two modes, and later a hybrid between them.
 
@@ -199,7 +199,7 @@ and review contract should differ.
 
 ### 3. Modularity as Architecture
 
-Cortex should not try to immediately replace Linear, GitHub, GitLab, Notion,
+Uprava should not try to immediately replace Linear, GitHub, GitLab, Notion,
 Grafana, Docker, Temporal, sandbox providers, memory systems, and all MCP
 servers. The strong product position is to be a runtime, aggregator, and
 interface layer that connects these systems and makes them accessible to humans
@@ -215,7 +215,7 @@ important integration path, but not the only one.
 
 Agent output should not be limited to text. If a result is better understood as
 a diff, table, chart, form, UML, dashboard, timeline, terminal replay, test
-report, dependency graph, or embedded external view, Cortex should be able to
+report, dependency graph, or embedded external view, Uprava should be able to
 show it as a first-class artifact.
 
 Visualization is not a decorative layer. It reduces the cost of understanding,
@@ -241,7 +241,7 @@ forces a human to reconstruct context. Too much trace will not be read.
 ### 6. Transparency and Right to Intervene
 
 A human can be responsible for a result only if they have context, authority,
-resources, and the ability to intervene. Cortex should show not only final
+resources, and the ability to intervene. Uprava should show not only final
 output, but also what was delegated, what the agent did, what was checked, what
 was not checked, where risks are, and how to stop, fix, or roll back an action.
 
@@ -269,9 +269,9 @@ mode, but it still needs observable state, attach/detach semantics, and trace.
 
 ### 9. Integration Over Reinvention
 
-Cortex should first connect strong existing elements: git providers, task
+Uprava should first connect strong existing elements: git providers, task
 trackers, MCP, observability, sandbox runtimes, workflow engines, dashboards,
-and memory tools. Cortex-owned implementations are needed where a shared
+and memory tools. Uprava-owned implementations are needed where a shared
 interface, coherence, UX, or traceability cannot be achieved through
 integration.
 
@@ -284,7 +284,7 @@ answer blocking questions, and return a task to work.
 
 ### 11. Superadditive Work
 
-Cortex should amplify the human, not remove them from the process. The goal is
+Uprava should amplify the human, not remove them from the process. The goal is
 not maximum autonomy at any cost, but a combination of human, agents, interface,
 and decision trail where speed, quality, understanding, skill, and safe
 delegation all improve.
@@ -327,7 +327,7 @@ hybrid:
 future session -> spawn bounded task runs -> review artifacts -> merge state back into session/workflow
 ```
 
-The goal of the first layer is to prove that Cortex gives more transparency and
+The goal of the first layer is to prove that Uprava gives more transparency and
 control than a regular chat with an agent.
 
 ## Product Development
@@ -376,7 +376,7 @@ accepted work:
 
 ## Non-Goals
 
-In early stages, Cortex should not:
+In early stages, Uprava should not:
 
 - build its own task tracker instead of Linear;
 - build its own git provider instead of GitHub/GitLab;
@@ -398,7 +398,7 @@ In early stages, Cortex should not:
 - What minimum plugin/block API is needed in the first version?
 - What does a trace artifact look like for a small, medium, and large task?
 - How do we separate useful traceability from log noise?
-- Where is the boundary between the internal Cortex agent and agents that run on
+- Where is the boundary between the internal Uprava agent and agents that run on
   nodes?
 - Which visual artifacts are needed in the first release: diff, terminal, UML,
   dashboard, forms, test report?
@@ -411,11 +411,11 @@ In early stages, Cortex should not:
 
 The strongest initial formulation:
 
-Cortex is a control plane and work surface for agent workloads. It starts with
+Uprava is a control plane and work surface for agent workloads. It starts with
 software development because files, git, tests, diff, review, and MR/PR flow are
 clear there. But its base abstractions should be broader than development: node,
 node daemon, workspace, agent session, agent run, workflow, artifact, tool
 registry, plugin, and trace.
 
-If this foundation is built correctly, Cortex can grow not into another agent
+If this foundation is built correctly, Uprava can grow not into another agent
 chat, but into a modular operating system for human-agent collaboration.

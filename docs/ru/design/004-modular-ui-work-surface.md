@@ -8,11 +8,11 @@ and work surface`.
 ## Главная позиция
 
 На текущий момент `A-004` выглядит не как `Notion-like UI`, а как
-**модульная рабочая поверхность Cortex**: стабильный workbench-shell, внутри
+**модульная рабочая поверхность Uprava**: стабильный workbench-shell, внутри
 которого можно расширять блоки, detail views, панели, ссылки, previews,
 artifact views and actions.
 
-Cortex не должен давать плагинам произвольно перестраивать весь интерфейс.
+Uprava не должен давать плагинам произвольно перестраивать весь интерфейс.
 Более подходящая модель:
 
 ```text
@@ -22,7 +22,7 @@ IDE/workbench shell
 + VS Code-like contribution model
 + Atom-like package/service model
 + Vim-like addressable object/action model
-+ Cortex-native artifacts/trace/causality
++ Uprava-native artifacts/trace/causality
 ```
 
 Интерфейс остается предсказуемым, но внутренние поверхности становятся
@@ -140,13 +140,13 @@ open external/source action if allowed
 copy reference
 ```
 
-Так Cortex сохраняет traceability and reviewability даже тогда, когда rich UI
+Так Uprava сохраняет traceability and reviewability даже тогда, когда rich UI
 недоступен.
 
 ## Уроки VS Code, Atom and Vim
 
 VS Code, Atom and Vim важны не как редакторы кода, а как разные модели
-модульности. Для Cortex полезнее не копировать их UI, а взять их
+модульности. Для Uprava полезнее не копировать их UI, а взять их
 архитектурные паттерны.
 
 ### Что берем из VS Code
@@ -161,7 +161,7 @@ VS Code дает сильную модель **manifest-driven contributions**:
 - language-server-style разделение: domain logic живет отдельно, UI получает
   структурированные capabilities/results.
 
-Для Cortex это ложится так:
+Для Uprava это ложится так:
 
 ```text
 Plugin manifest:
@@ -189,7 +189,7 @@ contributes.action:
   command: testReport.openFailedCase
 ```
 
-Это хорошо подходит Cortex, потому что сохраняет предсказуемость workbench и
+Это хорошо подходит Uprava, потому что сохраняет предсказуемость workbench и
 при этом позволяет добавлять новые возможности.
 
 ### Что берем из Atom
@@ -204,7 +204,7 @@ Atom был более hackable package system. Оттуда полезны:
 Анти-урок Atom: если package может менять DOM/CSS/behavior почти как угодно,
 система становится хрупкой, плохо управляемой и тяжелой для поддержки.
 
-Для Cortex стоит взять package/service model, но не брать произвольный
+Для Uprava стоит взять package/service model, но не брать произвольный
 monkey-patching.
 
 Пример:
@@ -231,7 +231,7 @@ Vim важен не визуальной системой, а композици
 - composability: action + object;
 - маленький стабильный core и огромная plugin ecosystem вокруг него.
 
-Для Cortex это особенно полезно для Go to Cause and context actions:
+Для Uprava это особенно полезно для Go to Cause and context actions:
 
 ```text
 current entity + current selection + available commands
@@ -262,7 +262,7 @@ VS Code contribution model
 + Vim addressable/composable object-action model
 ```
 
-Для Cortex это означает:
+Для Uprava это означает:
 
 - стабильный workbench-shell;
 - manifest-driven extension points;
@@ -284,7 +284,7 @@ VS Code contribution model
 - VS Code-style перегруженность extension API слишком рано.
 
 Для V01 и ближайших queue-срезов лучше начать с **internal extension architecture**, даже если
-external plugins еще нет. Сам Cortex должен строиться так, как будто он уже
+external plugins еще нет. Сам Uprava должен строиться так, как будто он уже
 расширяемый:
 
 ```text
@@ -301,7 +301,7 @@ core.mermaidRenderer
 
 ## Addressable UI
 
-Почти все важное в Cortex должно быть адресуемым:
+Почти все важное в Uprava должно быть адресуемым:
 
 ```text
 session
@@ -355,7 +355,7 @@ Main work surface
 
 ## Semantic keyboard navigation
 
-Еще одна важная Vim-inspired идея: Cortex UI должен быть не только
+Еще одна важная Vim-inspired идея: Uprava UI должен быть не только
 addressable, но и **keyboard-navigable as a structured document**.
 
 В вебе это возможно, но не через обычный browser tab order. Нужен собственный
@@ -386,7 +386,7 @@ current object
 ```
 
 То есть `j/k`, стрелки или другие movement commands двигают не DOM focus туда,
-куда браузер решил, а Cortex-level cursor по смысловым объектам.
+куда браузер решил, а Uprava-level cursor по смысловым объектам.
 
 Пример поведения:
 
@@ -418,7 +418,7 @@ model:
 
 ```text
 NavigableObject:
-  ref: CortexRef
+  ref: UpravaRef
   surface_id
   parent_ref optional
   children optional
@@ -446,14 +446,14 @@ UI станет недоступным.
 Поэтому нужны modes:
 
 ```text
-navigation mode = клавиши управляют Cortex UI
+navigation mode = клавиши управляют Uprava UI
 input mode = клавиши идут в textarea/editor/terminal
-embedded mode = клавиши отданы iframe/webview, Esc возвращает Cortex focus
+embedded mode = клавиши отданы iframe/webview, Esc возвращает Uprava focus
 ```
 
 Для plugin blocks это становится частью extension contract. Если plugin хочет
 быть first-class частью work surface, он должен описать свои navigable objects
-and commands. Если это внешний embed, Cortex может навигироваться только до
+and commands. Если это внешний embed, Uprava может навигироваться только до
 границы embed-а.
 
 ## Go to Source / Cause
@@ -474,7 +474,7 @@ diff line
 -> original user request
 ```
 
-Так Cortex получает прозрачность без превращения UI в один огромный trace log.
+Так Uprava получает прозрачность без превращения UI в один огромный trace log.
 Пользователь двигается от видимого результата к причинам, evidence and context
 локально, по мере необходимости.
 
@@ -502,7 +502,7 @@ Tool call detail:
 Markdown стоит принять как агентский формат ввода/вывода, но не как финальную
 модель UI.
 
-Агент может писать Markdown, Mermaid, tables, links. Cortex должен парсить это
+Агент может писать Markdown, Mermaid, tables, links. Uprava должен парсить это
 в typed blocks and references.
 
 HTML лучше ограничить:
@@ -570,7 +570,7 @@ sanitized/raw fallback
 
 ## Внешние системы
 
-Полный embed вроде Grafana внутри Cortex лучше не делать базовым способом.
+Полный embed вроде Grafana внутри Uprava лучше не делать базовым способом.
 Он быстро тянет auth, iframe security, layout, permissions, чужую навигацию и
 непредсказуемый UX.
 
@@ -583,7 +583,7 @@ external link
 -> controlled sandboxed embed only when justified
 ```
 
-Cortex-native preview часто ценнее, чем iframe чужой системы.
+Uprava-native preview часто ценнее, чем iframe чужой системы.
 
 Пример:
 
@@ -623,7 +623,7 @@ external plugin ecosystem:
 - keyboard navigation хотя бы по core surfaces;
 - no arbitrary external plugin JS in main React tree.
 
-Главная цель V01: сам Cortex должен быть написан так, будто он уже
+Главная цель V01: сам Uprava должен быть написан так, будто он уже
 расширяемый, даже если пользовательские plugins еще не подключаются.
 
 ### Feature queue baseline
@@ -681,7 +681,7 @@ evidence and причинам?
 
 ## Рабочая формула
 
-Cortex work surface is a stable, addressable, keyboard-navigable, extensible
+Uprava work surface is a stable, addressable, keyboard-navigable, extensible
 workbench.
 
 Она не является произвольным page builder. Она состоит из typed surfaces,
@@ -693,7 +693,7 @@ contributions. Commands разрешаются из текущего context: ad
 selection, permissions and runtime state. Navigation разрешается из текущего
 surface, object, selection and mode.
 
-Agents могут производить Markdown/structured output, который Cortex превращает
+Agents могут производить Markdown/structured output, который Uprava превращает
 в blocks, artifacts and references. Go to Source / Cause использует ту же
 модель, чтобы превращать любой видимый результат в вход к источнику, evidence
 and цепочке причин.

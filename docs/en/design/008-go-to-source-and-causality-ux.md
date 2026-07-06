@@ -115,7 +115,7 @@ causality.
 
 ### Главная модель
 
-Любой важный видимый объект Cortex должен иметь stable reference and optional
+Любой важный видимый объект Uprava должен иметь stable reference and optional
 links:
 
 ```text
@@ -167,7 +167,7 @@ refs.
 
 - ссылки останутся случайными `open raw log` ссылками без продуктовой
   семантики;
-- или Cortex построит огромный trace graph, который теоретически точный, но
+- или Uprava построит огромный trace graph, который теоретически точный, но
   практически нечитаемый.
 
 Рабочая позиция: начать с маленького, coarse-grained source/cause graph,
@@ -190,7 +190,7 @@ refs.
 Open steps
 ```
 
-Cortex показывает detail block:
+Uprava показывает detail block:
 
 ```text
 Steps
@@ -212,7 +212,7 @@ block, file diff, test report or artifact preview.
 go to source/cause
 ```
 
-Cortex раскрывает:
+Uprava раскрывает:
 
 ```text
 Diff hunk
@@ -266,9 +266,9 @@ chart point
 
 Dynamic UI не должен скрывать причинность за визуальной полировкой.
 
-#### 5. Агент объясняет, что произошло, через Cortex tool
+#### 5. Агент объясняет, что произошло, через Uprava tool
 
-Отдельная механика: Cortex может дать агенту skill и tool, которые позволяют
+Отдельная механика: Uprava может дать агенту skill и tool, которые позволяют
 сформировать structured explanation of work.
 
 Пользователь просит:
@@ -277,20 +277,20 @@ Dynamic UI не должен скрывать причинность за виз
 Объясни по шагам, что произошло и что к чему привело.
 ```
 
-Агент использует Cortex-facing skill:
+Агент использует Uprava-facing skill:
 
 ```text
 Read available events/refs.
 Do not invent unreferenced steps.
 Group low-level events into review-facing steps.
 Mark assumptions and missing evidence.
-Emit structured steps through Cortex tool.
+Emit structured steps through Uprava tool.
 ```
 
 И вызывает tool вроде:
 
 ```text
-cortex.emit_causality_narrative
+uprava.emit_causality_narrative
 ```
 
 Tool принимает структурированный объект:
@@ -312,13 +312,13 @@ CausalityNarrative:
 
 UI рендерит это как block/artifact with linked steps. Важно: такой narrative
 не становится новым source-of-truth. Это agent-authored interpretation поверх
-событий Cortex. Его ценность в том, что он группирует шумные events в
+событий Uprava. Его ценность в том, что он группирует шумные events в
 понятную цепочку, но каждый существенный шаг должен ссылаться на source,
 evidence or explicitly say that evidence is missing.
 
 ### Agent-facing сценарии
 
-Для internal Cortex agent and provider adapters `A-008` дает структурированный
+Для internal Uprava agent and provider adapters `A-008` дает структурированный
 язык:
 
 - объяснить выбранный UI object;
@@ -346,12 +346,12 @@ raw fallback availability
 
 ### Основные сущности
 
-#### CortexRef
+#### UpravaRef
 
 Stable address на сущность, диапазон или визуальный объект.
 
 ```text
-CortexRef:
+UpravaRef:
   kind
   id
   version optional
@@ -490,7 +490,7 @@ Provider adapter owns:
 
 - normalization of provider events;
 - coarse parsing of agent actions, tool calls, approvals and output;
-- mapping provider-specific ids to Cortex refs when possible.
+- mapping provider-specific ids to Uprava refs when possible.
 
 Web owns:
 
@@ -572,7 +572,7 @@ Explicitly not required for V01:
 
 ### Structured explanation tool
 
-The `cortex.emit_causality_narrative` style tool should be designed as a
+The `uprava.emit_causality_narrative` style tool should be designed as a
 review aid, not as a hidden side channel.
 
 Input rules:
@@ -611,7 +611,7 @@ raw output blob/event
 -> step/narrative views
 ```
 
-For external systems, Cortex should store enough snapshot metadata to explain
+For external systems, Uprava should store enough snapshot metadata to explain
 what the user saw at the time:
 
 ```text
@@ -705,7 +705,7 @@ For structured explanations:
 
 ## Рабочая формула
 
-Go to Source and Causality UX is the Cortex mechanism for navigating from a
+Go to Source and Causality UX is the Uprava mechanism for navigating from a
 visible result to the source, evidence and cause behind it.
 
 It starts small:

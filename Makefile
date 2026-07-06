@@ -151,14 +151,14 @@ web-r: ## Run web development server when web app exists
 
 core-r: ## Run Core Backend locally when Cargo workspace exists
 	@if [ -f "$(RUST_MANIFEST)" ]; then \
-		cargo run -p cortex-server; \
+		cargo run -p uprava-server; \
 	else \
 		echo "No Cargo.toml found; skipping Core run"; \
 	fi
 
 node-r: ## Run Node Daemon locally when Cargo workspace exists
 	@if [ -f "$(RUST_MANIFEST)" ]; then \
-		CORTEX_NODE_WORKSPACES="$${CORTEX_NODE_WORKSPACES:-$(CURDIR)}" cargo run -p cortex-node; \
+		UPRAVA_NODE_WORKSPACES="$${UPRAVA_NODE_WORKSPACES:-$(CURDIR)}" cargo run -p uprava-node; \
 	else \
 		echo "No Cargo.toml found; skipping Node run"; \
 	fi

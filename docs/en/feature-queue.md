@@ -1,4 +1,4 @@
-# Cortex Feature Queue
+# Uprava Feature Queue
 
 Status: `draft`
 
@@ -12,7 +12,7 @@ risk, and value. Items can move as the design sharpens.
 
 Each queue item should capture:
 
-- **Value** - why this matters to the user or to Cortex as a system.
+- **Value** - why this matters to the user or to Uprava as a system.
 - **Dependency** - what must exist first.
 - **Complexity** - implementation difficulty and surface area.
 - **Risk** - unknowns, security concerns, or product ambiguity.
@@ -80,7 +80,7 @@ warning until hardened mode is enabled, node enrollment/auth, credential storage
 rules, revoke/rotate basics, local web auth/session handling, origin/CSRF checks
 where relevant, token redaction, and minimal security/audit events.
 
-**Current implementation note:** `controlled_dev` with `CORTEX_WEB_AUTH=auto`
+**Current implementation note:** `controlled_dev` with `UPRAVA_WEB_AUTH=auto`
 is the supported V01 profile. It enables local password setup/login, session
 and CSRF cookies, protected browser routes, origin checks, node bearer
 credentials for heartbeat/control, node revoke/rotate, private Node state-file
@@ -123,7 +123,7 @@ objects such as file, file range, edit, terminal session, command, output range,
 diff hunk, check result, artifact, and trace event.
 
 **Current implementation note:** Shared Rust and Web protocol contracts now
-define stable Cortex refs for project, placement, workspace, session, runtime,
+define stable Uprava refs for project, placement, workspace, session, runtime,
 turn, message, block, artifact, event, command, approval, warning, tool call,
 file/file range, terminal/command/output range, diff hunk, check result,
 workspace edit, trace event, external entity, and unknown future refs. The Web
@@ -136,7 +136,7 @@ review decisions, plugin blocks, and task-run packages.
 
 ### 4. Read-only Project Workspace Inspector
 
-**Value:** Lets the user see where the agent is working before Cortex adds
+**Value:** Lets the user see where the agent is working before Uprava adds
 direct intervention tools.
 
 **First useful slice:** Workspace file tree, file metadata, safe text file
@@ -204,7 +204,7 @@ queues, CI follow-up loops, and review-ready task outputs.
 **Value:** Tools become system capabilities with permissions, routing, schemas,
 UI contracts, and audit policy instead of hidden agent behavior.
 
-**First useful slice:** Core-owned registry for Cortex-native workspace/session
+**First useful slice:** Core-owned registry for Uprava-native workspace/session
 tools and Node capabilities.
 
 **Target direction:** External providers, MCP/native/hybrid adapters, tool call
@@ -212,7 +212,7 @@ trace, and agent-readable capability discovery.
 
 ### 9. Plugin Registry v1
 
-**Value:** Cortex becomes extensible without hardcoding every tool, block, and
+**Value:** Uprava becomes extensible without hardcoding every tool, block, and
 integration inside the workbench.
 
 **First useful slice:** Installed plugin metadata, versions, configuration,
@@ -256,7 +256,7 @@ sandboxing, and agent-readable UI state.
 
 ### 13. Task-based sandbox runtime
 
-**Value:** Cortex can run bounded background work with explicit scope,
+**Value:** Uprava can run bounded background work with explicit scope,
 isolation, evidence, and review-ready output.
 
 **First useful slice:** Task contract, isolated workspace/branch, context
@@ -278,7 +278,7 @@ handoff between live and bounded work, and review debt visibility.
 
 ### 15. Team/cloud model
 
-**Value:** Cortex expands from personal workbench to shared distributed Agent OS.
+**Value:** Uprava expands from personal workbench to shared distributed Agent OS.
 
 **First useful slice:** Multi-user projects, roles, shared node visibility,
 team audit trail, and managed Core deployment path.
@@ -308,6 +308,6 @@ monitoring, and knowledge-base workflows.
 - Should git/review basics come before Tool Registry v1, or should registry
   contracts land first to avoid a hardcoded integration path?
 - Which integration is the best first proof: GitHub/GitLab, Linear, MCP, or an
-  internal Cortex-native tool set?
+  internal Uprava-native tool set?
 - How small can the first visual artifact system be while still changing the
   product experience beyond text?

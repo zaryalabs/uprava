@@ -1,37 +1,37 @@
 import type {
-  CortexRef,
+  UpravaRef,
   ProjectPlacementSummary,
 } from "../../shared/protocol/types";
 
 export const INSPECT_QUERY_PARAM = "inspect";
 const MAX_INSPECTOR_STACK_DEPTH = 8;
 
-export function encodeCortexRef(ref: CortexRef) {
+export function encodeUpravaRef(ref: UpravaRef) {
   return encodeURIComponent(JSON.stringify(ref));
 }
 
-export function encodeInspectorStack(refs: CortexRef[]) {
+export function encodeInspectorStack(refs: UpravaRef[]) {
   return encodeURIComponent(JSON.stringify(refs));
 }
 
-export function decodeCortexRef(
+export function decodeUpravaRef(
   value: string | null | undefined,
-): CortexRef | null {
+): UpravaRef | null {
   const decoded = decodeJsonValue(value);
-  return isCortexRef(decoded) ? decoded : null;
+  return isUpravaRef(decoded) ? decoded : null;
 }
 
 export function decodeInspectorStack(
   value: string | null | undefined,
-): CortexRef[] {
+): UpravaRef[] {
   const decoded = decodeJsonValue(value);
-  if (Array.isArray(decoded)) return decoded.filter(isCortexRef);
-  return isCortexRef(decoded) ? [decoded] : [];
+  if (Array.isArray(decoded)) return decoded.filter(isUpravaRef);
+  return isUpravaRef(decoded) ? [decoded] : [];
 }
 
 export function pushInspectorRef(
   searchParams: URLSearchParams,
-  ref: CortexRef,
+  ref: UpravaRef,
 ) {
   const next = new URLSearchParams(searchParams);
   const current = decodeInspectorStack(next.get(INSPECT_QUERY_PARAM));
@@ -61,7 +61,7 @@ export function popInspectorRef(searchParams: URLSearchParams) {
 
 export function replaceInspectorStack(
   searchParams: URLSearchParams,
-  refs: CortexRef[],
+  refs: UpravaRef[],
 ) {
   const next = new URLSearchParams(searchParams);
   if (refs.length === 0) {
@@ -73,7 +73,7 @@ export function replaceInspectorStack(
 }
 
 export function routeForRef(
-  ref: CortexRef,
+  ref: UpravaRef,
   options: {
     inspectorPathname?: string;
     searchParams?: URLSearchParams;
@@ -105,7 +105,7 @@ export function routeForRef(
 export function routeWithInspectorRef(
   pathname: string,
   searchParams: URLSearchParams,
-  ref: CortexRef,
+  ref: UpravaRef,
 ) {
   const next = pushInspectorRef(searchParams, ref);
   const query = next.toString();
@@ -114,7 +114,7 @@ export function routeWithInspectorRef(
 
 export function projectRefForPlacement(
   placement: Pick<ProjectPlacementSummary, "project_id">,
-): CortexRef | null {
+): UpravaRef | null {
   return placement.project_id
     ? { kind: "project", project_id: placement.project_id }
     : null;
@@ -122,26 +122,26 @@ export function projectRefForPlacement(
 
 export function workspaceRefForPlacement(
   placement: Pick<ProjectPlacementSummary, "project_placement_id">,
-): CortexRef {
+): UpravaRef {
   return {
     kind: "workspace",
     placement_id: placement.project_placement_id,
   };
 }
 
-export function copyReferenceText(ref: CortexRef) {
+export function copyReferenceText(ref: UpravaRef) {
   return JSON.stringify(ref, null, 2);
 }
 
-export function refTitle(ref: CortexRef) {
+export function refTitle(ref: UpravaRef) {
   return `${refKindLabel(ref)} ${refPrimaryValue(ref)}`.trim();
 }
 
-export function refKindLabel(ref: CortexRef) {
+export function refKindLabel(ref: UpravaRef) {
   return ref.kind.replaceAll("_", " ");
 }
 
-export function refPrimaryValue(ref: CortexRef) {
+export function refPrimaryValue(ref: UpravaRef) {
   if ("node_id" in ref && typeof ref.node_id === "string") return ref.node_id;
   if ("project_id" in ref && typeof ref.project_id === "string") {
     return ref.project_id;
@@ -214,12 +214,12 @@ function routeFromString(prefix: string, value: string | null) {
   return value ? `${prefix}/${encodeURIComponent(value)}` : null;
 }
 
-function stringField(ref: CortexRef, field: string) {
+function stringField(ref: UpravaRef, field: string) {
   const value = (ref as Record<string, unknown>)[field];
   return typeof value === "string" && value.length > 0 ? value : null;
 }
 
-export function sameRef(left: CortexRef | null | undefined, right: CortexRef) {
+export function sameRef(left: UpravaRef | null | undefined, right: UpravaRef) {
   if (!left) return false;
   return copyReferenceText(left) === copyReferenceText(right);
 }
@@ -243,7 +243,7 @@ function decodeJsonValue(value: string | null | undefined): unknown {
   return null;
 }
 
-function isCortexRef(value: unknown): value is CortexRef {
+function isUpravaRef(value: unknown): value is UpravaRef {
   return (
     typeof value === "object" &&
     value !== null &&

@@ -1,4 +1,4 @@
-# Cortex Product Stages
+# Uprava Product Stages
 
 Status: `superseded`
 
@@ -24,7 +24,7 @@ features.
 
 ## Stage 1. Developer Node Workbench
 
-**Qualitatively new product:** Cortex can be used as a web control panel for
+**Qualitatively new product:** Uprava can be used as a web control panel for
 working with a live development agent on one or more nodes.
 
 It is not just chat. The user sees project, agent session, terminal, files,
@@ -75,7 +75,7 @@ control, transparency, and mobility than a regular local agent chat.
 
 Persistent mode is simpler and closer to the first developer use case: run an
 agent on your node, attach to it, see the environment, and control work. It
-validates the base Cortex value faster: control plane + node daemon +
+validates the base Uprava value faster: control plane + node daemon +
 transparent UI.
 
 Task-based mode needs more infrastructure: sandbox lifecycle, workflow state,
@@ -96,14 +96,14 @@ The user can:
 
 ## Stage 2. Modular Developer Workbench
 
-**Qualitatively new product:** Cortex becomes an extensible platform for
+**Qualitatively new product:** Uprava becomes an extensible platform for
 developer workflows, not a hardcoded workbench.
 
 At this stage, real registry contracts and first integrations appear.
 
 ### Main Thesis
 
-Cortex modularity must be a system capability, not a future declaration.
+Uprava modularity must be a system capability, not a future declaration.
 
 ### Scope
 
@@ -130,12 +130,12 @@ and workflows start connecting through a clear model.
 
 ## Stage 3. Visual Agent Work Surface
 
-**Qualitatively new product:** Cortex becomes a visual work surface for agent
+**Qualitatively new product:** Uprava becomes a visual work surface for agent
 work, not a set of panels around chat.
 
 ### Main Thesis
 
-Cortex's main advantage over agent chat is not only control plane, but also a
+Uprava's main advantage over agent chat is not only control plane, but also a
 visual representation of result, state, and review.
 
 ### Scope
@@ -161,7 +161,7 @@ be inspected, checked, and used without reading long agent text.
 
 ## Stage 4. Task-Based Agent Runtime
 
-**Qualitatively new product:** Cortex becomes a runtime for background agent
+**Qualitatively new product:** Uprava becomes a runtime for background agent
 tasks, not only interactive sessions.
 
 This adds the second execution mode: task-based sandbox run.
@@ -169,7 +169,7 @@ This adds the second execution mode: task-based sandbox run.
 ### Main Thesis
 
 After Core, Node Daemon, registry, trace, and visual artifacts already exist,
-Cortex can safely add a cloud-agent-like task flow.
+Uprava can safely add a cloud-agent-like task flow.
 
 ### Scope
 
@@ -197,7 +197,7 @@ review-ready output.
 
 ## Stage 5. Hybrid and Orchestrated Workflows
 
-**Qualitatively new product:** Cortex connects interactive and background modes.
+**Qualitatively new product:** Uprava connects interactive and background modes.
 
 ### Main Thesis
 
@@ -208,7 +208,7 @@ interactive review.
 ### Scope
 
 - Hybrid managed session.
-- Orchestration agent inside Cortex.
+- Orchestration agent inside Uprava.
 - Session spawns task runs.
 - Task run results merge back into session/workflow state.
 - Multi-step workflow templates.
@@ -225,11 +225,11 @@ Stage 5 turns them into managed agentic workflows.
 
 ## Stage 6. Multi-Node, Team and Cloud
 
-**Qualitatively new product:** Cortex becomes a distributed/team platform.
+**Qualitatively new product:** Uprava becomes a distributed/team platform.
 
 ### Main Thesis
 
-After validating single-user and personal distributed scenarios, Cortex can
+After validating single-user and personal distributed scenarios, Uprava can
 expand into a team/cloud model.
 
 ### Scope
@@ -254,7 +254,7 @@ Stage 6 is a managed distributed Agent OS for teams.
 
 ## Stage 7. Beyond Software Development
 
-**Qualitatively new product:** Cortex becomes a general WorkOS for agents.
+**Qualitatively new product:** Uprava becomes a general WorkOS for agents.
 
 ### Main Thesis
 
@@ -274,7 +274,7 @@ analytics, documents, finance, and knowledge work.
 
 ### Product Shift
 
-Stage 6 makes Cortex a mature distributed platform.
+Stage 6 makes Uprava a mature distributed platform.
 
 Stage 7 expands it beyond software development.
 

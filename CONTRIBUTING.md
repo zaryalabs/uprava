@@ -54,7 +54,7 @@ Prefer a body when the reason is not obvious from the diff. Explain tradeoffs, m
 
 ## Architecture Principles
 
-Cortex follows a domain-first architecture. Frameworks and transports support the product model; they should not define it.
+Uprava follows a domain-first architecture. Frameworks and transports support the product model; they should not define it.
 
 Core domain boundaries:
 
@@ -80,11 +80,11 @@ The initial implementation should grow toward this shape:
 
 ```text
 crates/
-  cortex-domain/      domain model shared by Core, Node, and CLI
-  cortex-protocol/    API/event contracts between Core, clients, and nodes
-  cortex-core/        Core Backend
-  cortex-node/        Node Daemon
-  cortex-cli/         CLI
+  uprava-domain/      domain model shared by Core, Node, and CLI
+  uprava-protocol/    API/event contracts between Core, clients, and nodes
+  uprava-core/        Core Backend
+  uprava-node/        Node Daemon
+  uprava-cli/         CLI
 apps/
   web/                React + TypeScript + Vite web control panel
 docs/

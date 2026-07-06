@@ -3,7 +3,7 @@
 Статус: `working-position`
 
 Этот документ фиксирует первую рабочую позицию по **Distributed Runtime
-Coordination** как отдельной ключевой механике Cortex.
+Coordination** как отдельной ключевой механике Uprava.
 
 Эта механика находится между `A-001 Distributed Architecture` и `A-002 Run
 Mode`:
@@ -27,7 +27,7 @@ dispatch-ит commands через Node control channel, принимает order
 
 ### Какую проблему решает механика
 
-Distributed architecture дает Cortex возможность видеть ноды и открывать
+Distributed architecture дает Uprava возможность видеть ноды и открывать
 control channel. Run Mode дает модель рабочей сессии и runtime lifecycle.
 Между ними остается важный вопрос: **как конкретная agent work единица
 координируется в распределенной системе**.
@@ -75,14 +75,14 @@ V01 coordination строится вокруг пяти идей.
 
 ```text
 MacBook online
-  cortex / main / dirty / 1 active session
+  uprava / main / dirty / 1 active session
   site / develop / clean
 
 VPS online
-  cortex / main / clean / warning: same branch active on MacBook
+  uprava / main / clean / warning: same branch active on MacBook
 
 Devbox stale
-  cortex / feature-x / last seen 2h ago
+  uprava / feature-x / last seen 2h ago
 ```
 
 Core не выбирает Node автоматически. Он помогает пользователю выбрать
@@ -391,7 +391,7 @@ V01 should detect:
 
 Same repo/branch on multiple nodes should produce a badge, not a hard lock.
 The warning exists because two live runtimes can edit divergent local copies of
-the same logical branch. Cortex should make that visible before start/resume.
+the same logical branch. Uprava should make that visible before start/resume.
 
 No V01 locks:
 

@@ -23,8 +23,8 @@ Current documents:
 - [`feature-inventory.md`](feature-inventory.md) - feature and direction inventory.
 - [`workspace-inspector.md`](workspace-inspector.md) - Project Workspace Inspector direction.
 - [`workspace-editing-and-ide-sidecar.md`](workspace-editing-and-ide-sidecar.md) - lightweight file editing and optional full-IDE sidecar direction.
-- [`cortex-notes.md`](cortex-notes.md) - source notes mirror.
-- [`design/`](design/) - deep design documents for key Cortex mechanisms.
+- [`uprava-notes.md`](uprava-notes.md) - source notes mirror.
+- [`design/`](design/) - deep design documents for key Uprava mechanisms.
 
 Temporary implementation plans live outside the language mirror in
 [`../tmp-plans`](../tmp-plans). They are tactical working documents for active

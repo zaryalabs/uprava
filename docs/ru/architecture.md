@@ -1,12 +1,12 @@
-# Cortex Architecture
+# Uprava Architecture
 
 Статус: `draft`
 
-Этот документ фиксирует первую архитектурную позицию по client/server модели Cortex.
+Этот документ фиксирует первую архитектурную позицию по client/server модели Uprava.
 
 ## Короткое решение
 
-Cortex должен иметь отдельный **Core Backend** как control plane. Клиенты работают через Core, а работа с конкретными машинами, файлами, терминалами, процессами, sandbox и AI-agent lifecycle выполняется через **Node Daemons**.
+Uprava должен иметь отдельный **Core Backend** как control plane. Клиенты работают через Core, а работа с конкретными машинами, файлами, терминалами, процессами, sandbox и AI-agent lifecycle выполняется через **Node Daemons**.
 
 Важно: Core - обязательная архитектурная абстракция, но не обязательно удаленный SaaS backend в каждом deployment. В локальном режиме Core может запускаться на той же машине, что UI и Node Daemon.
 
@@ -31,7 +31,7 @@ persistent sessions, task runs, hybrid flows
 
 ### Core Backend
 
-Центральный backend и control plane Cortex.
+Центральный backend и control plane Uprava.
 
 Core отвечает за глобальную модель системы: проекты, пользователей, права, ноды, capabilities, agent sessions, agent runs, workflows, artifacts, event log, trace, tool registry, routing и web control panel.
 
@@ -39,7 +39,7 @@ Core не должен становиться процессом, который
 
 ### Control Panel
 
-Web UI, который разворачивается рядом с Core Backend и дает доступ к управлению Cortex из браузера.
+Web UI, который разворачивается рядом с Core Backend и дает доступ к управлению Uprava из браузера.
 
 На раннем этапе это может быть основной клиент. Позже рядом могут появиться desktop, mobile and CLI clients.
 
@@ -70,7 +70,7 @@ Node может быть:
 - microVM host;
 - будущей managed cloud node.
 
-Термин `host` можно использовать как техническое пояснение, но продуктовая сущность лучше называется `Node`, потому что Cortex ближе к distributed/cloud модели, чем к простому списку машин.
+Термин `host` можно использовать как техническое пояснение, но продуктовая сущность лучше называется `Node`, потому что Uprava ближе к distributed/cloud модели, чем к простому списку машин.
 
 ### Node Daemon
 
@@ -90,7 +90,7 @@ Node может быть:
 - запускает checks/tests;
 - управляет локальными workspace, env, credentials and runtime limits.
 
-Node Daemon - основной data plane Cortex.
+Node Daemon - основной data plane Uprava.
 
 ### AI Agent
 
@@ -203,9 +203,9 @@ Core знает, что tool существует и как с ним работ
 
 ## Plugins and Integrations
 
-Плагины и интеграции - один из главных механизмов модульности Cortex.
+Плагины и интеграции - один из главных механизмов модульности Uprava.
 
-Cortex не должен реализовывать все внешние системы сам. Вместо этого Core должен иметь расширяемую модель, через которую можно подключать:
+Uprava не должен реализовывать все внешние системы сам. Вместо этого Core должен иметь расширяемую модель, через которую можно подключать:
 
 - task trackers: Linear, Jira, GitHub Issues;
 - knowledge and docs systems: Notion, Obsidian-like repos, Google Docs;
@@ -245,7 +245,7 @@ Tool Registry отвечает за конкретные callable capabilities. 
 - **External provider adapter** - если tool исполняется во внешнем SaaS/provider.
 - **Hybrid adapter** - metadata and permissions живут в Core, execution идет через Node or external provider.
 
-MCP важен, но не должен быть единственным способом интеграции. Для Cortex важно не только вызвать tool, но и:
+MCP важен, но не должен быть единственным способом интеграции. Для Uprava важно не только вызвать tool, но и:
 
 - показать его в UI;
 - трассировать вызовы;

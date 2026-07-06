@@ -3,11 +3,11 @@
 Статус: `working-position`
 
 Этот документ фиксирует первую рабочую позицию по **Run Mode** как ключевой
-механике Cortex. Run Mode описывает не одну конкретную фичу, а способ, которым
-Cortex запускает агентскую работу в проекте, продолжает ее, наблюдает за ней и
+механике Uprava. Run Mode описывает не одну конкретную фичу, а способ, которым
+Uprava запускает агентскую работу в проекте, продолжает ее, наблюдает за ней и
 останавливает.
 
-Зафиксированная позиция для V01: Cortex начинает с рабочей сессии с живым
+Зафиксированная позиция для V01: Uprava начинает с рабочей сессии с живым
 агентским process на Node. Долговечной является **рабочая сессия**:
 `SessionThread`, workspace, files, trace, diff и resume context. Сам
 provider process живет между turns, но может быть остановлен после суток без
@@ -20,7 +20,7 @@ provider runtime на ноде, runtime остается живым между t
 runtime должен иметь управляемый lifetime. V01 baseline: если у runtime
 больше суток не было новых runtime steps, Node может остановить provider
 process, но session thread, workspace state и resume context должны позволять
-возродить процесс при возвращении пользователя. Позже Cortex может добавить
+возродить процесс при возвращении пользователя. Позже Uprava может добавить
 stateless/ephemeral strategies, более похожие на Codbash-like resume/launcher
 подход или sandboxed task runtime.
 
@@ -41,7 +41,7 @@ Interactive session vs bounded task = product/work contract.
 Persistent vs stateless/ephemeral = runtime continuity strategy.
 ```
 
-В первой версии Cortex делает interactive developer workbench через
+В первой версии Uprava делает interactive developer workbench через
 Persistent Runtime. Task-like bounded work и stateless/sandboxed execution
 остаются архитектурно возможными, но не являются V01 реализацией.
 
@@ -60,11 +60,11 @@ Persistent Runtime. Task-like bounded work и stateless/sandboxed execution
 подходит для совместного проектирования, уточнений, live approvals и
 ручного вмешательства.
 
-Cortex должен иметь один Run Mode model, внутри которого можно явно выбрать
+Uprava должен иметь один Run Mode model, внутри которого можно явно выбрать
 runtime strategy и work contract:
 
 - пользователь работает в project/workspace на node;
-- Cortex знает, какой runtime strategy используется;
+- Uprava знает, какой runtime strategy используется;
 - live work, files, output, diff, trace, approvals и review state видны в UI;
 - долговечным является не только process, но и system state вокруг него;
 - позже bounded tasks и stateless/sandboxed runs не требуют отдельной
@@ -179,18 +179,18 @@ turn completed
 
 "В том же состоянии" здесь означает тот же user-visible state: session thread,
 workspace, files, branch/worktree, trace, diff baseline, provider session id
-и resume cursor. Cortex не должен обещать сохранение RAM/in-memory state
+и resume cursor. Uprava не должен обещать сохранение RAM/in-memory state
 убитого process. Если provider-native resume невозможен, UI должен честно
 показать degraded resume: work surface остается readable, а новый runtime
 получает явный resume context из сохраненного thread/workspace state.
 
-Так Cortex сохраняет главный UX Persistent Runtime - несколько turn-ов попадают
+Так Uprava сохраняет главный UX Persistent Runtime - несколько turn-ов попадают
 в один live process, пока идет работа, - но не превращает Node в накопление
 забытых CLI processes.
 
 #### Stateless / Ephemeral Runtime
 
-Позже Cortex может поддержать strategy, где каждый turn, resume action или task
+Позже Uprava может поддержать strategy, где каждый turn, resume action или task
 step стартует новый CLI/provider process с тем же `resume_id`, `cwd`, project
 context и workspace binding. Долговечным остается session thread, workspace,
 trace и provider history, но не OS process.
@@ -199,7 +199,7 @@ trace и provider history, но не OS process.
 agent storage/logs, а продолжение может происходить через `codex resume`,
 `claude --resume` или similar launch command. Такой подход полезен как fallback,
 compatibility mode или task-oriented runtime, но он слабее для reliable
-streaming, approvals, interrupts и structured trace, если Cortex не владеет
+streaming, approvals, interrupts и structured trace, если Uprava не владеет
 runtime protocol.
 
 #### Sandboxed Runtime
@@ -244,9 +244,9 @@ files, diff и trace panels.
 
 #### 2. Continue the same agent
 
-Пользователь отправляет второе сообщение. Cortex не создает новую задачу и не
+Пользователь отправляет второе сообщение. Uprava не создает новую задачу и не
 запускает новый агентский процесс. Он отправляет turn в тот же runtime
-session. Agent сохраняет conversational/runtime context, а Cortex привязывает
+session. Agent сохраняет conversational/runtime context, а Uprava привязывает
 новые events, output и file changes к новому turn.
 
 #### 3. Detach and return later
@@ -370,7 +370,7 @@ Later versions can add:
 
 ### V01 implementation: Process-backed Interactive Session
 
-Первый конкретный режим Cortex:
+Первый конкретный режим Uprava:
 
 - runtime strategy: **Persistent Runtime**;
 - work contract: **Interactive Session**;
@@ -436,7 +436,7 @@ Node Daemon отвечает за:
 - запуск, мониторинг, interrupt и stop provider process;
 - provider adapter lifecycle;
 - filesystem observation, local diff и command/output capture;
-- нормализацию provider events в Cortex events;
+- нормализацию provider events в Uprava events;
 - хранение local runtime handle/process metadata;
 - `last_runtime_step_at` и 24h no-steps expiry;
 - resurrection runtime в том же workspace через provider resume cursor/session
@@ -457,7 +457,7 @@ Provider Adapter изолирует конкретный способ общен
 Первый production adapter - Codex. Future adapters могут быть OpenCode, Claude
 Code или другие provider runtimes. Они могут отличаться launch command,
 session identity, resume mechanism, output format, approval semantics и tool
-permissions, но наружу должны отдавать нормализованные Cortex events и runtime
+permissions, но наружу должны отдавать нормализованные Uprava events и runtime
 lifecycle.
 
 Adapter отвечает за:
@@ -468,7 +468,7 @@ Adapter отвечает за:
 - стрим provider output/events;
 - interrupt/stop;
 - extraction provider session id/resume cursor;
-- mapping provider-specific requests на Cortex approval/user-input requests.
+- mapping provider-specific requests на Uprava approval/user-input requests.
 
 V01 может иметь один production adapter для Codex. Provider-neutral API
 нужно держать минимальным и практичным, а не пытаться сразу покрыть все CLI
@@ -1000,7 +1000,7 @@ Controlled-development V01 safety posture может быть простой and
   supports it;
 - provider credentials should not be copied into browser state.
 
-Agent не должен получать broad Cortex admin credentials только потому, что он
+Agent не должен получать broad Uprava admin credentials только потому, что он
 запущен внутри project session.
 
 ### Failure modes

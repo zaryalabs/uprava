@@ -1,5 +1,5 @@
 [package]
-name = "cortex-server"
+name = "uprava-server"
 version = "0.1.0"
 edition.workspace = true
 license.workspace = true
@@ -12,8 +12,8 @@ anyhow.workspace = true
 async-stream.workspace = true
 axum.workspace = true
 chrono.workspace = true
-cortex-logging = { path = "../cortex-logging" }
-cortex-protocol = { path = "../cortex-protocol" }
+uprava-logging = { path = "../uprava-logging" }
+uprava-protocol = { path = "../uprava-protocol" }
 futures-util.workspace = true
 serde.workspace = true
 serde_json.workspace = true

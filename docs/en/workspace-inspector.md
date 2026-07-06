@@ -4,7 +4,7 @@ Status: `draft`
 
 ## Short Decision
 
-Cortex should add a **Project Workspace Inspector** after V01, as the first major
+Uprava should add a **Project Workspace Inspector** after V01, as the first major
 workbench expansion once the distributed agent control panel is usable.
 
 This is the non-chat surface for looking into the project where an agent works:
@@ -25,7 +25,7 @@ V01 reserves the right-side inspector stack before the full Project Workspace
 Inspector ships. This first slot is reference-oriented, not a file browser or
 terminal surface.
 
-The Web Control Panel can open and copy `CortexRef` objects from visible session
+The Web Control Panel can open and copy `UpravaRef` objects from visible session
 timeline blocks, artifact-tree entries, nodes, placements, sessions, runtimes,
 events, commands, approvals and warnings. The panel resolves details from the
 currently loaded Core snapshots and session event log. Future workspace,

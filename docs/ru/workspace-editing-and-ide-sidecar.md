@@ -4,7 +4,7 @@
 
 ## Короткое решение
 
-Cortex должен поддерживать **basic workspace file editing**, не пытаясь стать
+Uprava должен поддерживать **basic workspace file editing**, не пытаясь стать
 полноценной IDE в первой workspace editing implementation.
 
 First editing slice target:
@@ -20,11 +20,11 @@ file tree
 
 Это дает пользователю практический способ вмешиваться в agent work, исправлять
 небольшие issues, менять docs/config/code and review the result без выхода из
-Cortex.
+Uprava.
 
-Full browser IDE должна оставаться sidecar capability: Cortex может показывать
+Full browser IDE должна оставаться sidecar capability: Uprava может показывать
 действие "open full IDE" на базе code-server, OpenVSCode Server, Theia или
-другого provider, но основной Cortex workbench не должен зависеть от этой
+другого provider, но основной Uprava workbench не должен зависеть от этой
 архитектуры.
 
 ## Почему basic editing важен
@@ -37,7 +37,7 @@ Read-only inspection недостаточен для developer workbench.
 - изменить file перед тем, как попросить агента продолжить;
 - напрямую редактировать docs, prompts, scripts or tests;
 - сравнить manual changes with agent changes in a diff;
-- использовать Cortex из browser, когда local editor access неудобен;
+- использовать Uprava из browser, когда local editor access неудобен;
 - сохранять traceability для human interventions, а не только agent actions.
 
 Цель не "replace VS Code". Цель - "make the agent workspace operable".
@@ -62,7 +62,7 @@ VS Code extension compatibility.
 
 ## Architecture Contract
 
-Editing остается routed through Cortex authority:
+Editing остается routed through Uprava authority:
 
 ```text
 Web editor buffer
@@ -113,7 +113,7 @@ Basic editing все равно является privileged filesystem access.
 - allow policies to disable editing per project, node, user, file type or path.
 
 Первая версия может выбрать conservative defaults. Если file is too large,
-binary, generated or policy-denied, Cortex должен показать readable reason and
+binary, generated or policy-denied, Uprava должен показать readable reason and
 offer safe alternatives such as open externally or ask agent, when allowed.
 
 ## Component Strategy
@@ -128,7 +128,7 @@ UI должен использовать proven browser editor component за л
   diffing, models and line decorations, но heavier and more IDE-shaped.
 
 Implementation choice должен оставаться open до появления web scaffold. Какой бы
-component ни был выбран, Cortex должен wrapped it in local components such as
+component ни был выбран, Uprava должен wrapped it in local components such as
 `FileViewer`, `FileEditor` and `DiffViewer`, чтобы остальной продукт не был
 coupled to a specific editor library.
 
@@ -137,7 +137,7 @@ Terminal rendering также должен использовать proven brows
 
 ## IDE Sidecar
 
-Cortex может показывать full IDE как sidecar, а не встраивать его в core
+Uprava может показывать full IDE как sidecar, а не встраивать его в core
 workbench.
 
 Возможные sidecar providers:
@@ -150,7 +150,7 @@ workbench.
 Роль sidecar:
 
 ```text
-Cortex remains system of record for projects, nodes, sessions, trace, artifacts,
+Uprava remains system of record for projects, nodes, sessions, trace, artifacts,
 review, permissions, and agent workflow.
 
 Full IDE sidecar handles rich editing, LSP, extensions, refactoring, debugger,
@@ -158,7 +158,7 @@ and advanced developer ergonomics.
 ```
 
 Это дает пользователям escape hatch для complex manual work, сохраняя основной
-Cortex UI сфокусированным на agent supervision, workspace evidence,
+Uprava UI сфокусированным на agent supervision, workspace evidence,
 traceability and review.
 
 ## Открытые вопросы

@@ -34,7 +34,7 @@ import type {
 import { apiBase } from "./config";
 import { logClientEvent } from "../logging/client-logger";
 
-export class CortexApiError extends Error {
+export class UpravaApiError extends Error {
   constructor(readonly envelope: ApiError) {
     super(envelope.message);
   }
@@ -59,9 +59,9 @@ export async function apiDelete<T>(path: string): Promise<T> {
 async function apiRequest<T>(path: string, init: RequestInit): Promise<T> {
   const headers = new Headers(init.headers);
   const method = init.method?.toUpperCase() ?? "GET";
-  const csrf = readCookie("cortex_csrf");
+  const csrf = readCookie("uprava_csrf");
   if (csrf && !["GET", "HEAD", "OPTIONS"].includes(method)) {
-    headers.set("x-cortex-csrf", csrf);
+    headers.set("x-uprava-csrf", csrf);
   }
   const response = await fetch(`${apiBase}${path}`, {
     ...init,
@@ -82,7 +82,7 @@ async function apiRequest<T>(path: string, init: RequestInit): Promise<T> {
       error_code: envelope.error_code,
       correlation_id: envelope.correlation_id,
     });
-    throw new CortexApiError(envelope);
+    throw new UpravaApiError(envelope);
   }
   return response.json() as Promise<T>;
 }

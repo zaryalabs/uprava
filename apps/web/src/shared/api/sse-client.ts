@@ -12,7 +12,7 @@ export function openSessionStream(
     sessionThreadId,
   )}/stream?after_seq=${afterSeq}`;
   const source = new EventSource(url, { withCredentials: true });
-  source.addEventListener("cortex.event", (event) => {
+  source.addEventListener("uprava.event", (event) => {
     onEvent(JSON.parse((event as MessageEvent).data) as EventEnvelope);
   });
   source.onerror = () => {

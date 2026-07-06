@@ -282,10 +282,10 @@ export type EventEnvelope = {
   seq: number;
   kind: string;
   happened_at: string;
-  source_refs: CortexRef[];
-  evidence_refs: CortexRef[];
-  cause_refs: CortexRef[];
-  result_refs: CortexRef[];
+  source_refs: UpravaRef[];
+  evidence_refs: UpravaRef[];
+  cause_refs: UpravaRef[];
+  result_refs: UpravaRef[];
   payload: unknown;
 };
 
@@ -294,14 +294,14 @@ export type UiBlock = {
   type: string;
   schema_version: number;
   surface_id: string;
-  primary_ref: CortexRef;
-  parent_ref?: CortexRef | null;
+  primary_ref: UpravaRef;
+  parent_ref?: UpravaRef | null;
   children: UiBlock[];
-  source_refs: CortexRef[];
-  evidence_refs: CortexRef[];
-  cause_refs: CortexRef[];
-  related_refs: CortexRef[];
-  trace_refs: CortexRef[];
+  source_refs: UpravaRef[];
+  evidence_refs: UpravaRef[];
+  cause_refs: UpravaRef[];
+  related_refs: UpravaRef[];
+  trace_refs: UpravaRef[];
   data: unknown;
   actions: string[];
   fallback_text?: string | null;
@@ -439,7 +439,7 @@ export type WarningAcknowledgementResponse = {
   session: SessionDetail;
 };
 
-export type CortexRef =
+export type UpravaRef =
   | { kind: "node"; node_id: string }
   | { kind: "project"; project_id: string }
   | { kind: "placement"; placement_id: string }
@@ -502,10 +502,10 @@ export type TextRange = {
 export type ArtifactTreeNode = {
   artifact_id: string;
   label: string;
-  primary_ref: CortexRef;
-  source_refs: CortexRef[];
-  evidence_refs: CortexRef[];
-  cause_refs: CortexRef[];
+  primary_ref: UpravaRef;
+  source_refs: UpravaRef[];
+  evidence_refs: UpravaRef[];
+  cause_refs: UpravaRef[];
   children: ArtifactTreeNode[];
 };
 
@@ -523,11 +523,11 @@ export type AgentProjection = {
   pending_approvals: string[];
   active_warnings: ResourceBadge[];
   recent_turn_summaries: string[];
-  recent_message_refs: CortexRef[];
+  recent_message_refs: UpravaRef[];
   artifact_tree_summary: string;
   available_block_types: string[];
   available_commands: string[];
-  visible_refs: CortexRef[];
+  visible_refs: UpravaRef[];
   source_cause_summary: string;
   resume_context: string;
   generated_at: string;

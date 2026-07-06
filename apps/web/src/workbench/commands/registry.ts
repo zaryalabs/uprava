@@ -17,7 +17,7 @@ import {
 
 import { coreApi } from "../../shared/api/http-client";
 import type {
-  CortexRef,
+  UpravaRef,
   CreatePlacementRequest,
   ProjectPlacementSummary,
   RuntimeSummary,
@@ -58,10 +58,10 @@ export type WorkbenchCommandContext = {
   approvalId?: string;
   approved?: boolean;
   warningKind?: string;
-  reference?: CortexRef;
+  reference?: UpravaRef;
   afterSuccess?: () => Promise<void> | void;
   navigate?: (path: string) => void;
-  openReference?: (reference: CortexRef) => Promise<void> | void;
+  openReference?: (reference: UpravaRef) => Promise<void> | void;
   copyText?: (text: string) => Promise<void> | void;
 };
 

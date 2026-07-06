@@ -7,13 +7,13 @@ Tool Registry and MCP Strategy`.
 
 Главная позиция: `A-007` - это не только вопрос "где живет Tool Registry" и не
 только вопрос "нужен ли MCP gateway". Это механизм, который описывает, **как
-Cortex управляет tools, plugins, integrations and runtime dependencies across
+Uprava управляет tools, plugins, integrations and runtime dependencies across
 Core, Node Daemon, agent runtimes and external providers**.
 
-Ключевое уточнение: проблема MCP в Cortex - это не только protocol routing.
+Ключевое уточнение: проблема MCP в Uprava - это не только protocol routing.
 Это dependency/runtime management:
 
-- какие MCP servers, CLI utilities, native adapters and Cortex-native tools
+- какие MCP servers, CLI utilities, native adapters and Uprava-native tools
   должны быть доступны;
 - на каких нодах, проектах, workspaces, sessions and agents;
 - кто устанавливает, запускает, обновляет and останавливает эти зависимости;
@@ -30,9 +30,9 @@ Runtime providers run concrete dependency classes.
 MCP is one tool/integration protocol, not the whole extension model.
 ```
 
-Для MCP dependencies Cortex должен иметь abstract runtime provider model.
+Для MCP dependencies Uprava должен иметь abstract runtime provider model.
 `ToolHive` является основным кандидатом для MCP runtime management, но не
-должен быть единственным или обязательным механизмом. Cortex должен уметь
+должен быть единственным или обязательным механизмом. Uprava должен уметь
 работать с разными providers:
 
 ```text
@@ -61,7 +61,7 @@ local credentials
 ```
 
 Это удобно для одного разработчика на одной машине, но плохо масштабируется до
-Cortex-модели:
+Uprava-модели:
 
 - несколько Node Daemons;
 - разные host OS, containers, devboxes and sandboxes;
@@ -88,7 +88,7 @@ Core теряет контроль над ключевыми вопросами:
 - как понять, почему tool отсутствует или degraded.
 
 С другой стороны, попытка реализовать "свой MCP под каждый Notion/Grafana/GitLab
-server" превращает Cortex в бесконечную гонку интеграций. Это не нужно.
+server" превращает Uprava в бесконечную гонку интеграций. Это не нужно.
 
 Нужна другая модель:
 
@@ -97,7 +97,7 @@ Core describes desired tools/dependencies.
 Node Daemon reconciles local reality.
 Specialized runtime providers run/manage dependency classes.
 Agent sees a scoped tool surface.
-Cortex records the call path, policy and output.
+Uprava records the call path, policy and output.
 ```
 
 ### Главная модель
@@ -117,7 +117,7 @@ contract.
 - `notion.search_pages`;
 - `github.create_issue`;
 - `grafana.query_prometheus`;
-- `cortex.emit_causality_narrative`.
+- `uprava.emit_causality_narrative`.
 
 #### Dependency
 
@@ -185,7 +185,7 @@ Runtime provider is who makes the dependency real.
 
 ### Почему MCP не должен быть единственным механизмом
 
-MCP полезен как protocol для exposing tools to agents. Но Cortex needs more
+MCP полезен как protocol для exposing tools to agents. Но Uprava needs more
 than MCP:
 
 - Core-owned permissions;
@@ -212,25 +212,25 @@ External provider adapter
 Hybrid adapter
 ```
 
-### Почему один Cortex MCP в agent config означает gateway
+### Почему один Uprava MCP в agent config означает gateway
 
 Если agent config содержит только один MCP server:
 
 ```text
-agent -> cortex MCP
+agent -> uprava MCP
 ```
 
 а агент должен через него использовать Notion, Grafana, GitLab, Confluence or
-other upstream MCP servers, то Cortex MCP неизбежно становится generic MCP
+other upstream MCP servers, то Uprava MCP неизбежно становится generic MCP
 gateway/proxy:
 
 ```text
 agent
--> cortex MCP gateway
+-> uprava MCP gateway
   -> upstream Notion MCP
   -> upstream Grafana MCP
   -> upstream GitLab MCP
-  -> Cortex-native tools
+  -> Uprava-native tools
   -> Node-local tools
 ```
 
@@ -243,7 +243,7 @@ Do:
   protocol-level MCP aggregation, filtering, routing, tracing and forwarding
 
 Do not:
-  manually reimplement every external MCP server as custom Cortex logic
+  manually reimplement every external MCP server as custom Uprava logic
 ```
 
 Generic MCP gateway должен уметь:
@@ -262,7 +262,7 @@ Generic MCP gateway должен уметь:
 
 Он не должен знать доменную семантику Notion or Grafana, если эти systems
 подключены как external MCP. Доменная семантика появляется только тогда, когда
-Cortex выбирает native adapter path for better UX.
+Uprava выбирает native adapter path for better UX.
 
 ### ToolHive как основной кандидат, а не обязательное ядро
 
@@ -276,10 +276,10 @@ runtime, registry, gateway and portal:
 - есть support для remote MCP, containerized servers, package-manager schemes,
   groups, secrets, audit, tool filtering and optimization.
 
-Для Cortex это не означает "ToolHive становится Core". Более точная модель:
+Для Uprava это не означает "ToolHive становится Core". Более точная модель:
 
 ```text
-Cortex Core
+Uprava Core
   desired state, profiles, policy, permissions, trace, UI, artifacts
 
 Node Daemon
@@ -290,7 +290,7 @@ ToolHive
 ```
 
 То есть ToolHive может быть `McpRuntimeProvider`, который решает тяжелую часть
-MCP lifecycle. Cortex сохраняет собственную модель продукта поверх него.
+MCP lifecycle. Uprava сохраняет собственную модель продукта поверх него.
 
 ## Пользовательские сценарии
 
@@ -335,7 +335,7 @@ Grafana tools unavailable:
 
 ### 3. Включить GitLab через native adapter, а не MCP
 
-Если Cortex хочет хороший product UX for merge requests, diffs, checks,
+Если Uprava хочет хороший product UX for merge requests, diffs, checks,
 review comments and artifacts, native adapter может быть лучше, чем generic
 MCP:
 
@@ -390,7 +390,7 @@ session abc:
     until session end
 ```
 
-Node or ToolHive may run the same upstream server, but Cortex gateway/toolset
+Node or ToolHive may run the same upstream server, but Uprava gateway/toolset
 filters what the agent sees and what calls are allowed.
 
 ## Agent-facing сценарии
@@ -401,33 +401,33 @@ filters what the agent sees and what calls are allowed.
 
 ```text
 Agent config:
-  cortex MCP
+  uprava MCP
   toolhive vMCP
 ```
 
 Плюсы:
 
 - быстрее проверить external MCPs;
-- меньше Cortex gateway code at first;
+- меньше Uprava gateway code at first;
 - ToolHive already handles aggregation and remote/local MCP runtime.
 
 Минусы:
 
-- часть policy/trace/audit остается outside Cortex;
+- часть policy/trace/audit остается outside Uprava;
 - сложнее session-specific toolsets;
 - UI не всегда знает, какой upstream tool реально был вызван;
 - agent provider configs снова содержат больше одного endpoint.
 
-### Cortex-only exposure
+### Uprava-only exposure
 
-Более сильная Cortex product model:
+Более сильная Uprava product model:
 
 ```text
 Agent config:
-  cortex MCP only
+  uprava MCP only
 
-cortex MCP
-  -> Cortex-native tools
+uprava MCP
+  -> Uprava-native tools
   -> Node-local CLI/tools
   -> ToolHive vMCP
   -> external MCP servers
@@ -443,12 +443,12 @@ cortex MCP
 
 Минусы:
 
-- Cortex must implement generic MCP gateway/forwarding;
+- Uprava must implement generic MCP gateway/forwarding;
 - more responsibility for protocol compatibility;
 - needs careful failure handling and performance design.
 
 Рабочая позиция: support both paths during exploration, but design the system
-so the long-term product-correct path is Cortex-only exposure.
+so the long-term product-correct path is Uprava-only exposure.
 
 ## Architecture
 
@@ -584,7 +584,7 @@ dependencies:
     kind: mcp_server
     provider: toolhive-local
     source: registry:notion-remote
-    group: cortex-default
+    group: uprava-default
     secrets:
       - ref: notion_oauth
         target: NOTION_TOKEN
@@ -597,9 +597,9 @@ dependencies:
 exposure:
   agents:
     codex:
-      mode: cortex-mcp
+      mode: uprava-mcp
     claude-code:
-      mode: cortex-mcp
+      mode: uprava-mcp
 ```
 
 ### Desired vs actual state
@@ -659,9 +659,9 @@ containerized_mcp_server
   MCP server packaged as Docker/Podman image
 
 native_adapter
-  Cortex-owned integration adapter, usually Core-side or provider-side
+  Uprava-owned integration adapter, usually Core-side or provider-side
 
-cortex_native_tool
+uprava_native_tool
   internal Core/Node capability surfaced as tool
 
 agent_provider_adapter
@@ -728,10 +728,10 @@ Core DependencyProfile
 -> ToolHive adapter
 -> ToolHive workload/group/vMCP
 -> discovered MCP tools
--> Cortex Tool Registry snapshot
+-> Uprava Tool Registry snapshot
 ```
 
-Important: ToolHive can manage MCP runtime. Cortex still owns:
+Important: ToolHive can manage MCP runtime. Uprava still owns:
 
 - product-level permissions;
 - project/session scoping;
@@ -739,18 +739,18 @@ Important: ToolHive can manage MCP runtime. Cortex still owns:
 - visual blocks and artifacts;
 - integration UI;
 - agent provider routing;
-- Cortex-native tools.
+- Uprava-native tools.
 
 ### Generic MCP gateway
 
-If Cortex exposes only one MCP endpoint to agents, Cortex needs a generic MCP
+If Uprava exposes only one MCP endpoint to agents, Uprava needs a generic MCP
 gateway.
 
 Minimal gateway responsibilities:
 
 ```text
 list_tools:
-  collect from Cortex-native tools
+  collect from Uprava-native tools
   collect from Node-local tools
   collect from upstream MCP providers
   apply project/session/user/agent policy
@@ -792,20 +792,20 @@ Preferred long-term agent config:
 
 ```text
 Codex:
-  mcp_server: cortex-node-bridge
+  mcp_server: uprava-node-bridge
 
 Claude Code:
-  mcp_server: cortex-node-bridge
+  mcp_server: uprava-node-bridge
 
 Other providers:
-  equivalent Cortex endpoint/adapter
+  equivalent Uprava endpoint/adapter
 ```
 
 Core should not regularly rewrite every provider's external MCP list. Node
 Daemon may perform one-time bootstrap or explicit registration:
 
 ```text
-install/register Cortex bridge with agent provider
+install/register Uprava bridge with agent provider
 verify config health
 avoid overwriting user-owned unrelated entries
 ```
@@ -815,7 +815,7 @@ Provider-specific config management remains necessary for:
 - bootstrap;
 - compatibility mode;
 - direct ToolHive exposure experiments;
-- providers that cannot consume Cortex tool surface otherwise.
+- providers that cannot consume Uprava tool surface otherwise.
 
 But it should not be the main control plane.
 
@@ -974,9 +974,9 @@ state and operational cache.
 
 ## Native vs MCP vs CLI decision rules
 
-### Use Cortex-native tool when
+### Use Uprava-native tool when
 
-- tool is part of Cortex itself;
+- tool is part of Uprava itself;
 - it modifies sessions, artifacts, UI, refs, event log, workspace state or
   permissions;
 - it needs tight integration with trace and visual semantics;
@@ -1024,7 +1024,7 @@ Examples:
 
 ### Use native adapter when
 
-- Cortex needs high-quality product UX;
+- Uprava needs high-quality product UX;
 - integration has important domain objects;
 - we need webhooks, pagination, conflict handling, rich permissions or durable
   snapshots;
@@ -1062,7 +1062,7 @@ workbench works. Minimal obligations:
 
 - keep Tool Registry and Plugin Registry schemas compatible with additional tools;
 - model Node capabilities and dependency status;
-- expose Cortex-native workspace/session tools;
+- expose Uprava-native workspace/session tools;
 - avoid hardcoding agent-provider-specific configs as the primary control
   plane;
 - leave room for Dependency Profiles and MCP runtime providers.
@@ -1103,7 +1103,7 @@ Node:
 
 Agent:
   try direct ToolHive vMCP
-  try Cortex MCP forwarding
+  try Uprava MCP forwarding
 
 Trace:
   record tool list snapshot and call event
@@ -1182,7 +1182,7 @@ artifact -> tool call -> upstream MCP server -> dependency instance -> profile
 
 ### Relationship with A-009 Human-Agent Dual Interface
 
-A-009 primary agent-facing contract for Cortex Core should remain CLI/API and
+A-009 primary agent-facing contract for Uprava Core should remain CLI/API and
 shared refs/commands. MCP is an adapter path for exposing tools to external
 agent providers, not the only internal control interface.
 
@@ -1193,19 +1193,19 @@ filesystem permissions, PTY/session policies and project-scoped trace.
 
 ## Open questions
 
-- Should Cortex implement generic MCP gateway in Core, Node, or split between
+- Should Uprava implement generic MCP gateway in Core, Node, or split between
   Core policy and Node-local proxy?
 - How much of ToolHive should be controlled through CLI vs API in the first
   spike?
 - Is direct ToolHive vMCP acceptable as a temporary exposure mode, or should
-  every agent-visible call go through Cortex from the start?
+  every agent-visible call go through Uprava from the start?
 - How do we represent upstream MCP tools that change schemas during a long
   persistent session?
 - Should Tool Registry store every upstream MCP tool as first-class tool, or
   store only session-scoped snapshots until user promotes them?
 - What is the minimal safe install policy for package-manager MCP servers
   (`npx`, `uvx`, `go`)?
-- How should user-owned local agent configs be protected from Cortex bootstrap
+- How should user-owned local agent configs be protected from Uprava bootstrap
   changes?
 - Which integrations deserve native adapters early rather than MCP path?
 - What is the exact boundary between plugin package, integration connection,
@@ -1226,7 +1226,7 @@ For every tool/integration/dependency:
 - What is shown in UI if the dependency is missing, failed or unauthorized?
 - Can the tool be disabled for one project/session/node without uninstalling
   everything globally?
-- Is the tool exposed to agents through direct provider config, Cortex MCP,
+- Is the tool exposed to agents through direct provider config, Uprava MCP,
   CLI/API or another adapter?
 - Is there a safe fallback if ToolHive or another runtime provider is absent?
 - Does the output have renderer/artifact/source/cause semantics where needed?

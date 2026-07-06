@@ -27,28 +27,6 @@ use axum::{
     Json, Router,
 };
 use chrono::{DateTime, Utc};
-use cortex_protocol::{
-    serde_json_value::JsonValue, AcknowledgeWarningRequest, ActorRef, AgentProjection, ApiError,
-    ApprovalId, ApprovalState, ApproveNodeEnrollmentResponse, ArtifactId, ArtifactTree,
-    ArtifactTreeNode, CapabilitySummary, ClientCreateNodeEnrollmentRequest, ClientLogLevel,
-    ClientLogRequest, ClientLogResponse, CommandAcceptedResponse, CommandEnvelope, CommandId,
-    CommandKind, CommandState, ControlFrame, CorrelationId, CortexRef, CreatePlacementRequest,
-    CreateSessionRequest, DeploymentProfile, EnrollmentId, EnrollmentState, EventEnvelope, EventId,
-    EventKind, HealthResponse, InventorySnapshot, Message, MessageId, MessageRole,
-    NodeCredentialRotationResponse, NodeDeletionResponse, NodeEnrollmentClaimRequest,
-    NodeEnrollmentClaimResponse, NodeEnrollmentRequest, NodeEnrollmentRequestedResponse,
-    NodeEnrollmentSummary, NodeHeartbeatRequest, NodeHeartbeatResponse, NodeId, NodePresence,
-    NodeRevocationResponse, PlacementDeletionResponse, PlacementState, ProjectId,
-    ProjectPlacementId, ProjectPlacementSummary, ResolveApprovalRequest, ResourceBadge,
-    RuntimeSessionId, RuntimeSessionState, RuntimeSummary, ScopeRef, SecurityMode, SecurityStatus,
-    SendTurnRequest, SessionDetail, SessionSummary, SessionThreadId, SessionThreadState, SleepHint,
-    TurnId, TurnState, VersionResponse, WarningAcknowledgementResponse, WarningSeverity,
-    WebAuthLoginRequest, WebAuthResponse, WebAuthSetupRequest, WebAuthStatusResponse,
-    WorkspaceCommandHistoryItem, WorkspaceCommandHistoryResponse, WorkspaceCommandRunRequest,
-    WorkspaceCommandRunResponse, WorkspaceDiffResponse, WorkspaceFileContentResponse,
-    WorkspaceFileWriteRequest, WorkspaceFileWriteResponse, WorkspaceSnapshot,
-    WorkspaceTreeResponse,
-};
 use futures_util::{SinkExt, Stream, StreamExt};
 use serde::{de::DeserializeOwned, Deserialize};
 use serde_json::json;
@@ -60,6 +38,28 @@ use tower_http::{
     cors::{AllowOrigin, CorsLayer},
     trace::TraceLayer,
 };
+use uprava_protocol::{
+    serde_json_value::JsonValue, AcknowledgeWarningRequest, ActorRef, AgentProjection, ApiError,
+    ApprovalId, ApprovalState, ApproveNodeEnrollmentResponse, ArtifactId, ArtifactTree,
+    ArtifactTreeNode, CapabilitySummary, ClientCreateNodeEnrollmentRequest, ClientLogLevel,
+    ClientLogRequest, ClientLogResponse, CommandAcceptedResponse, CommandEnvelope, CommandId,
+    CommandKind, CommandState, ControlFrame, CorrelationId, CreatePlacementRequest,
+    CreateSessionRequest, DeploymentProfile, EnrollmentId, EnrollmentState, EventEnvelope, EventId,
+    EventKind, HealthResponse, InventorySnapshot, Message, MessageId, MessageRole,
+    NodeCredentialRotationResponse, NodeDeletionResponse, NodeEnrollmentClaimRequest,
+    NodeEnrollmentClaimResponse, NodeEnrollmentRequest, NodeEnrollmentRequestedResponse,
+    NodeEnrollmentSummary, NodeHeartbeatRequest, NodeHeartbeatResponse, NodeId, NodePresence,
+    NodeRevocationResponse, PlacementDeletionResponse, PlacementState, ProjectId,
+    ProjectPlacementId, ProjectPlacementSummary, ResolveApprovalRequest, ResourceBadge,
+    RuntimeSessionId, RuntimeSessionState, RuntimeSummary, ScopeRef, SecurityMode, SecurityStatus,
+    SendTurnRequest, SessionDetail, SessionSummary, SessionThreadId, SessionThreadState, SleepHint,
+    TurnId, TurnState, UpravaRef, VersionResponse, WarningAcknowledgementResponse, WarningSeverity,
+    WebAuthLoginRequest, WebAuthResponse, WebAuthSetupRequest, WebAuthStatusResponse,
+    WorkspaceCommandHistoryItem, WorkspaceCommandHistoryResponse, WorkspaceCommandRunRequest,
+    WorkspaceCommandRunResponse, WorkspaceDiffResponse, WorkspaceFileContentResponse,
+    WorkspaceFileWriteRequest, WorkspaceFileWriteResponse, WorkspaceSnapshot,
+    WorkspaceTreeResponse,
+};
 use uuid::Uuid;
 
 const API_VERSION: &str = "v1";
@@ -67,9 +67,9 @@ const APP_VERSION: &str = env!("CARGO_PKG_VERSION");
 const SCHEMA_VERSION: i64 = 1;
 const CORRELATION_ID_HEADER: &str = "x-correlation-id";
 const REQUEST_ID_HEADER: &str = "x-request-id";
-const CSRF_HEADER: &str = "x-cortex-csrf";
-const SESSION_COOKIE: &str = "cortex_session";
-const CSRF_COOKIE: &str = "cortex_csrf";
+const CSRF_HEADER: &str = "x-uprava-csrf";
+const SESSION_COOKIE: &str = "uprava_session";
+const CSRF_COOKIE: &str = "uprava_csrf";
 const MAX_CLIENT_LOG_FIELD_CHARS: usize = 2_000;
 const MAX_CLIENT_LOG_DETAIL_CHARS: usize = 8_000;
 const MIN_LOCAL_PASSWORD_CHARS: usize = 12;
@@ -98,30 +98,30 @@ pub struct AppConfig {
 
 impl AppConfig {
     pub fn from_env() -> Result<Self, ConfigError> {
-        let profile = parse_profile(std::env::var("CORTEX_DEPLOYMENT_PROFILE").ok())?;
+        let profile = parse_profile(std::env::var("UPRAVA_DEPLOYMENT_PROFILE").ok())?;
         Ok(Self {
-            bind_address: std::env::var("CORTEX_CORE_BIND")
+            bind_address: std::env::var("UPRAVA_CORE_BIND")
                 .unwrap_or_else(|_| "127.0.0.1:8080".to_owned()),
-            database_url: std::env::var("CORTEX_DATABASE_URL")
+            database_url: std::env::var("UPRAVA_DATABASE_URL")
                 .unwrap_or_else(|_| "sqlite://.local/state/core.sqlite".to_owned()),
             profile,
-            allowed_origins: parse_allowed_origins(std::env::var("CORTEX_ALLOWED_ORIGINS").ok())?,
-            stale_after_seconds: parse_env_i64("CORTEX_HEARTBEAT_STALE_SECONDS", 15)?,
-            offline_after_seconds: parse_env_i64("CORTEX_HEARTBEAT_OFFLINE_SECONDS", 45)?,
-            enrollment_ttl_seconds: parse_env_i64("CORTEX_ENROLLMENT_TTL_SECONDS", 600)?,
-            runtime_expiry_seconds: parse_env_i64("CORTEX_RUNTIME_EXPIRY_SECONDS", 86_400)?,
+            allowed_origins: parse_allowed_origins(std::env::var("UPRAVA_ALLOWED_ORIGINS").ok())?,
+            stale_after_seconds: parse_env_i64("UPRAVA_HEARTBEAT_STALE_SECONDS", 15)?,
+            offline_after_seconds: parse_env_i64("UPRAVA_HEARTBEAT_OFFLINE_SECONDS", 45)?,
+            enrollment_ttl_seconds: parse_env_i64("UPRAVA_ENROLLMENT_TTL_SECONDS", 600)?,
+            runtime_expiry_seconds: parse_env_i64("UPRAVA_RUNTIME_EXPIRY_SECONDS", 86_400)?,
             auto_approve_enrollments: parse_auto_approve_enrollments()?,
-            client_log_file: std::env::var("CORTEX_CLIENT_LOG_FILE")
+            client_log_file: std::env::var("UPRAVA_CLIENT_LOG_FILE")
                 .map(PathBuf::from)
                 .unwrap_or_else(|_| PathBuf::from(".local/logs/client.log")),
             web_auth_required: parse_web_auth_required(
-                std::env::var("CORTEX_WEB_AUTH").ok(),
+                std::env::var("UPRAVA_WEB_AUTH").ok(),
                 profile,
             )?,
-            web_session_ttl_seconds: parse_env_i64("CORTEX_WEB_SESSION_TTL_SECONDS", 86_400)?,
-            cookie_secure: parse_env_bool("CORTEX_COOKIE_SECURE", false),
+            web_session_ttl_seconds: parse_env_i64("UPRAVA_WEB_SESSION_TTL_SECONDS", 86_400)?,
+            cookie_secure: parse_env_bool("UPRAVA_COOKIE_SECURE", false),
             core_shutdown_timeout_seconds: parse_env_i64(
-                "CORTEX_CORE_SHUTDOWN_TIMEOUT_SECONDS",
+                "UPRAVA_CORE_SHUTDOWN_TIMEOUT_SECONDS",
                 5,
             )?,
         })
@@ -198,7 +198,7 @@ fn parse_web_auth_required(
 }
 
 fn parse_auto_approve_enrollments() -> Result<bool, ConfigError> {
-    if parse_env_bool("CORTEX_AUTO_APPROVE_ENROLLMENTS", false) {
+    if parse_env_bool("UPRAVA_AUTO_APPROVE_ENROLLMENTS", false) {
         return Err(ConfigError::AutoApproveEnrollments);
     }
     Ok(false)
@@ -461,7 +461,7 @@ async fn health(State(state): State<Arc<AppState>>) -> Json<HealthResponse> {
 
 async fn version(State(state): State<Arc<AppState>>) -> Json<VersionResponse> {
     Json(VersionResponse {
-        name: "cortex-core".to_owned(),
+        name: "uprava-core".to_owned(),
         version: APP_VERSION.to_owned(),
         api_version: API_VERSION.to_owned(),
         schema_version: SCHEMA_VERSION,
@@ -1051,14 +1051,14 @@ async fn inventory(
 
 async fn nodes(
     State(state): State<Arc<AppState>>,
-) -> Result<Json<Vec<cortex_protocol::NodeSummary>>, AppError> {
+) -> Result<Json<Vec<uprava_protocol::NodeSummary>>, AppError> {
     Ok(Json(load_nodes(&state).await?))
 }
 
 async fn node_detail(
     State(state): State<Arc<AppState>>,
     Path(node_id): Path<String>,
-) -> Result<Json<cortex_protocol::NodeSummary>, AppError> {
+) -> Result<Json<uprava_protocol::NodeSummary>, AppError> {
     let node_id = NodeId::from(node_id);
     load_nodes(&state)
         .await?
@@ -1448,7 +1448,7 @@ async fn node_control(
     headers: HeaderMap,
     ws: WebSocketUpgrade,
 ) -> Result<impl IntoResponse, AppError> {
-    let node_id = header_value(&headers, "x-cortex-node-id")
+    let node_id = header_value(&headers, "x-uprava-node-id")
         .map(NodeId::from)
         .ok_or_else(|| AppError::auth("auth_dev.node_id_required", "Node id is required"))?;
     let credential = bearer_token(&headers).ok_or_else(|| {
@@ -1790,7 +1790,7 @@ async fn validate_placement_with_correlation(
             session_thread_id: None,
             runtime_session_id: None,
             project_placement_id: Some(placement_id.clone()),
-            source_refs: vec![CortexRef::Placement {
+            source_refs: vec![UpravaRef::Placement {
                 placement_id: placement_id.clone(),
             }],
             cause_refs: vec![],
@@ -2035,7 +2035,7 @@ async fn refresh_resource_snapshot_with_correlation(
             session_thread_id: None,
             runtime_session_id: None,
             project_placement_id: Some(placement.project_placement_id.clone()),
-            source_refs: vec![CortexRef::Placement {
+            source_refs: vec![UpravaRef::Placement {
                 placement_id: placement.project_placement_id.clone(),
             }],
             cause_refs: vec![],
@@ -2167,7 +2167,7 @@ async fn workspace_tree_with_correlation(
         json!({
             "path": path,
         }),
-        vec![CortexRef::Workspace {
+        vec![UpravaRef::Workspace {
             placement_id: placement.project_placement_id.clone(),
         }],
         correlation_id,
@@ -2191,10 +2191,10 @@ async fn workspace_file_with_correlation(
             "path": path,
         }),
         vec![
-            CortexRef::Workspace {
+            UpravaRef::Workspace {
                 placement_id: placement.project_placement_id.clone(),
             },
-            CortexRef::File {
+            UpravaRef::File {
                 placement_id: placement.project_placement_id.clone(),
                 path,
                 version: None,
@@ -2221,10 +2221,10 @@ async fn workspace_file_write_with_correlation(
         CommandKind::WriteWorkspaceFile,
         serde_json::to_value(request)?,
         vec![
-            CortexRef::Workspace {
+            UpravaRef::Workspace {
                 placement_id: placement.project_placement_id.clone(),
             },
-            CortexRef::File {
+            UpravaRef::File {
                 placement_id: placement.project_placement_id.clone(),
                 path,
                 version: None,
@@ -2249,7 +2249,7 @@ async fn workspace_command_run_with_correlation(
         &placement,
         CommandKind::RunWorkspaceCommand,
         serde_json::to_value(request)?,
-        vec![CortexRef::Workspace {
+        vec![UpravaRef::Workspace {
             placement_id: placement.project_placement_id.clone(),
         }],
         correlation_id,
@@ -2270,7 +2270,7 @@ async fn workspace_diff_with_correlation(
         &placement,
         CommandKind::ReadWorkspaceDiff,
         json!({}),
-        vec![CortexRef::Workspace {
+        vec![UpravaRef::Workspace {
             placement_id: placement.project_placement_id.clone(),
         }],
         correlation_id,
@@ -2331,7 +2331,7 @@ async fn dispatch_workspace_command<T>(
     placement: &ProjectPlacementSummary,
     kind: CommandKind,
     payload: serde_json::Value,
-    source_refs: Vec<CortexRef>,
+    source_refs: Vec<UpravaRef>,
     correlation_id: CorrelationId,
     timeout: Duration,
 ) -> Result<T, AppError>
@@ -2629,7 +2629,7 @@ async fn session_stream(
                 Ok(_) => {}
                 Err(broadcast::error::RecvError::Lagged(_)) => {
                     yield Ok(axum::response::sse::Event::default()
-                        .event("cortex.reload")
+                        .event("uprava.reload")
                         .data(r#"{"reason":"stream_lagged"}"#));
                     break;
                 }
@@ -2661,7 +2661,7 @@ fn sse_event_for_event(event: &EventEnvelope) -> axum::response::sse::Event {
     let data = serde_json::to_string(event).unwrap_or_else(|_| "{}".to_owned());
     axum::response::sse::Event::default()
         .id(event.seq.to_string())
-        .event("cortex.event")
+        .event("uprava.event")
         .data(data)
 }
 
@@ -2757,7 +2757,7 @@ async fn send_turn_with_correlation(
         runtime_session_id: Some(detail.session.runtime.runtime_session_id.clone()),
         project_placement_id: Some(detail.placement.project_placement_id.clone()),
         source_refs: vec![],
-        cause_refs: vec![CortexRef::Session {
+        cause_refs: vec![UpravaRef::Session {
             session_thread_id: session_id.clone(),
         }],
         issued_at: now,
@@ -2850,10 +2850,10 @@ async fn resolve_approval_with_correlation(
             session_thread_id: Some(session_id.clone()),
             runtime_session_id: Some(detail.session.runtime.runtime_session_id.clone()),
             project_placement_id: Some(detail.placement.project_placement_id),
-            source_refs: vec![CortexRef::Approval {
+            source_refs: vec![UpravaRef::Approval {
                 approval_id: approval_id.clone(),
             }],
-            cause_refs: vec![CortexRef::Session {
+            cause_refs: vec![UpravaRef::Session {
                 session_thread_id: session_id.clone(),
             }],
             issued_at: Utc::now(),
@@ -3646,14 +3646,14 @@ async fn record_warning_acknowledgement(
     let seq = next_seq(state, &scope_key).await?;
     let happened_at = Utc::now();
     let affected_refs = vec![
-        CortexRef::Warning {
+        UpravaRef::Warning {
             warning_kind: warning_kind.clone(),
             command_id: None,
         },
-        CortexRef::Session {
+        UpravaRef::Session {
             session_thread_id: detail.session.session_thread_id.clone(),
         },
-        CortexRef::Placement {
+        UpravaRef::Placement {
             placement_id: detail.placement.project_placement_id.clone(),
         },
     ];
@@ -3670,7 +3670,7 @@ async fn record_warning_acknowledgement(
         seq,
         kind: EventKind::CoordinationWarningAcknowledged,
         happened_at,
-        source_refs: vec![CortexRef::Warning {
+        source_refs: vec![UpravaRef::Warning {
             warning_kind: warning_kind.clone(),
             command_id: None,
         }],
@@ -4476,7 +4476,7 @@ async fn load_inventory(state: &AppState) -> Result<InventorySnapshot, AppError>
     })
 }
 
-async fn load_nodes(state: &AppState) -> Result<Vec<cortex_protocol::NodeSummary>, AppError> {
+async fn load_nodes(state: &AppState) -> Result<Vec<uprava_protocol::NodeSummary>, AppError> {
     let rows = sqlx::query(
         r#"
         select node_id, display_name, presence, sleep_hint, last_heartbeat_at,
@@ -4502,7 +4502,7 @@ async fn load_nodes(state: &AppState) -> Result<Vec<cortex_protocol::NodeSummary
             );
             let capabilities_json: String = row.try_get("capabilities_json")?;
             let capabilities = serde_json::from_str::<Vec<CapabilitySummary>>(&capabilities_json)?;
-            Ok(cortex_protocol::NodeSummary {
+            Ok(uprava_protocol::NodeSummary {
                 node_id: NodeId::from(row.try_get::<String, _>("node_id")?),
                 display_name: row.try_get("display_name")?,
                 presence,
@@ -4689,7 +4689,7 @@ async fn expire_idle_runtimes(state: &AppState) -> Result<(), AppError> {
                 seq,
                 kind: EventKind::RuntimeExpired,
                 happened_at: now,
-                source_refs: vec![CortexRef::Runtime { runtime_session_id }],
+                source_refs: vec![UpravaRef::Runtime { runtime_session_id }],
                 evidence_refs: vec![],
                 cause_refs: vec![],
                 result_refs: vec![],
@@ -4842,7 +4842,7 @@ async fn build_artifact_tree(
         children.push(ArtifactTreeNode {
             artifact_id: ArtifactId::new(),
             label: format!("{:?} message", message.role),
-            primary_ref: CortexRef::Message {
+            primary_ref: UpravaRef::Message {
                 message_id: message.message_id.clone(),
             },
             source_refs: message_source_refs(message, &detail.events),
@@ -4868,7 +4868,7 @@ async fn build_artifact_tree(
         root: ArtifactTreeNode {
             artifact_id: ArtifactId::new(),
             label: detail.session.title,
-            primary_ref: CortexRef::Session {
+            primary_ref: UpravaRef::Session {
                 session_thread_id: session_id.clone(),
             },
             source_refs: vec![],
@@ -4918,7 +4918,7 @@ async fn build_agent_projection(
         .iter()
         .rev()
         .take(5)
-        .map(|message| CortexRef::Message {
+        .map(|message| UpravaRef::Message {
             message_id: message.message_id.clone(),
         })
         .collect::<Vec<_>>();
@@ -4981,7 +4981,7 @@ async fn build_agent_projection(
     })
 }
 
-fn message_source_refs(message: &Message, events: &[EventEnvelope]) -> Vec<CortexRef> {
+fn message_source_refs(message: &Message, events: &[EventEnvelope]) -> Vec<UpravaRef> {
     let Some(source_event_id) = &message.source_event_id else {
         return vec![];
     };
@@ -4989,14 +4989,14 @@ fn message_source_refs(message: &Message, events: &[EventEnvelope]) -> Vec<Corte
         .iter()
         .find(|event| event.event_id == *source_event_id)
         .map(|event| {
-            vec![CortexRef::Event {
+            vec![UpravaRef::Event {
                 event_id: event.event_id.clone(),
                 scope_ref: Box::new(event.scope_ref.clone()),
                 seq: event.seq,
             }]
         })
         .unwrap_or_else(|| {
-            vec![CortexRef::Event {
+            vec![UpravaRef::Event {
                 event_id: source_event_id.clone(),
                 scope_ref: Box::new(ScopeRef::Session {
                     session_thread_id: message.session_thread_id.clone(),
@@ -5031,16 +5031,16 @@ fn artifact_label_for_event(event: &EventEnvelope) -> String {
     }
 }
 
-fn primary_ref_for_event(event: &EventEnvelope) -> CortexRef {
+fn primary_ref_for_event(event: &EventEnvelope) -> UpravaRef {
     if matches!(
         event.kind,
         EventKind::ApprovalRequested | EventKind::ApprovalResolved
     ) {
         if let Some(approval_id) = event_approval_id(event) {
-            return CortexRef::Approval { approval_id };
+            return UpravaRef::Approval { approval_id };
         }
     }
-    CortexRef::Event {
+    UpravaRef::Event {
         event_id: event.event_id.clone(),
         scope_ref: Box::new(event.scope_ref.clone()),
         seq: event.seq,
@@ -5183,16 +5183,16 @@ fn visible_refs(
     detail: &SessionDetail,
     pending_approvals: &[ApprovalId],
     active_warnings: &[ResourceBadge],
-    recent_message_refs: &[CortexRef],
-) -> Vec<CortexRef> {
+    recent_message_refs: &[UpravaRef],
+) -> Vec<UpravaRef> {
     let mut refs = vec![
-        CortexRef::Session {
+        UpravaRef::Session {
             session_thread_id: detail.session.session_thread_id.clone(),
         },
-        CortexRef::Runtime {
+        UpravaRef::Runtime {
             runtime_session_id: detail.session.runtime.runtime_session_id.clone(),
         },
-        CortexRef::Placement {
+        UpravaRef::Placement {
             placement_id: detail.placement.project_placement_id.clone(),
         },
     ];
@@ -5203,7 +5203,7 @@ fn visible_refs(
             .iter()
             .rev()
             .take(5)
-            .map(|event| CortexRef::Event {
+            .map(|event| UpravaRef::Event {
                 event_id: event.event_id.clone(),
                 scope_ref: Box::new(event.scope_ref.clone()),
                 seq: event.seq,
@@ -5213,23 +5213,23 @@ fn visible_refs(
         pending_approvals
             .iter()
             .cloned()
-            .map(|approval_id| CortexRef::Approval { approval_id }),
+            .map(|approval_id| UpravaRef::Approval { approval_id }),
     );
-    refs.extend(active_warnings.iter().map(|warning| CortexRef::Warning {
+    refs.extend(active_warnings.iter().map(|warning| UpravaRef::Warning {
         warning_kind: warning.kind.clone(),
         command_id: None,
     }));
     dedupe_refs(refs)
 }
 
-fn dedupe_refs(refs: Vec<CortexRef>) -> Vec<CortexRef> {
+fn dedupe_refs(refs: Vec<UpravaRef>) -> Vec<UpravaRef> {
     let mut seen = HashSet::<String>::new();
     refs.into_iter()
         .filter(|reference| seen.insert(ref_key(reference)))
         .collect()
 }
 
-fn ref_key(reference: &CortexRef) -> String {
+fn ref_key(reference: &UpravaRef) -> String {
     serde_json::to_string(reference).unwrap_or_else(|_| format!("{reference:?}"))
 }
 
@@ -6402,13 +6402,13 @@ fn parse_sleep_hint(value: &str) -> SleepHint {
     }
 }
 
-fn parse_placement_state(value: &str) -> cortex_protocol::PlacementState {
+fn parse_placement_state(value: &str) -> uprava_protocol::PlacementState {
     match value {
-        "validated" => cortex_protocol::PlacementState::Validated,
-        "missing" => cortex_protocol::PlacementState::Missing,
-        "read_only" => cortex_protocol::PlacementState::ReadOnly,
-        "error" => cortex_protocol::PlacementState::Error,
-        _ => cortex_protocol::PlacementState::Pending,
+        "validated" => uprava_protocol::PlacementState::Validated,
+        "missing" => uprava_protocol::PlacementState::Missing,
+        "read_only" => uprava_protocol::PlacementState::ReadOnly,
+        "error" => uprava_protocol::PlacementState::Error,
+        _ => uprava_protocol::PlacementState::Pending,
     }
 }
 
@@ -6912,20 +6912,20 @@ mod tests {
     use super::*;
 
     const CORE_CONFIG_ENV_VARS: &[&str] = &[
-        "CORTEX_CORE_BIND",
-        "CORTEX_ALLOWED_ORIGINS",
-        "CORTEX_DATABASE_URL",
-        "CORTEX_DEPLOYMENT_PROFILE",
-        "CORTEX_HEARTBEAT_STALE_SECONDS",
-        "CORTEX_HEARTBEAT_OFFLINE_SECONDS",
-        "CORTEX_ENROLLMENT_TTL_SECONDS",
-        "CORTEX_RUNTIME_EXPIRY_SECONDS",
-        "CORTEX_AUTO_APPROVE_ENROLLMENTS",
-        "CORTEX_CLIENT_LOG_FILE",
-        "CORTEX_WEB_AUTH",
-        "CORTEX_WEB_SESSION_TTL_SECONDS",
-        "CORTEX_COOKIE_SECURE",
-        "CORTEX_CORE_SHUTDOWN_TIMEOUT_SECONDS",
+        "UPRAVA_CORE_BIND",
+        "UPRAVA_ALLOWED_ORIGINS",
+        "UPRAVA_DATABASE_URL",
+        "UPRAVA_DEPLOYMENT_PROFILE",
+        "UPRAVA_HEARTBEAT_STALE_SECONDS",
+        "UPRAVA_HEARTBEAT_OFFLINE_SECONDS",
+        "UPRAVA_ENROLLMENT_TTL_SECONDS",
+        "UPRAVA_RUNTIME_EXPIRY_SECONDS",
+        "UPRAVA_AUTO_APPROVE_ENROLLMENTS",
+        "UPRAVA_CLIENT_LOG_FILE",
+        "UPRAVA_WEB_AUTH",
+        "UPRAVA_WEB_SESSION_TTL_SECONDS",
+        "UPRAVA_COOKIE_SECURE",
+        "UPRAVA_CORE_SHUTDOWN_TIMEOUT_SECONDS",
     ];
 
     async fn test_state() -> Arc<AppState> {
@@ -6997,7 +6997,7 @@ mod tests {
             runtime_expiry_seconds,
             auto_approve_enrollments: false,
             client_log_file: std::env::temp_dir()
-                .join(format!("cortex-client-log-{}.jsonl", Uuid::new_v4())),
+                .join(format!("uprava-client-log-{}.jsonl", Uuid::new_v4())),
             web_auth_required: false,
             web_session_ttl_seconds: 86_400,
             cookie_secure: false,
@@ -7099,26 +7099,26 @@ mod tests {
     fn app_config_from_env_parses_overrides() {
         let _lock = env_lock();
         let _env = EnvGuard::cleared(CORE_CONFIG_ENV_VARS);
-        std::env::set_var("CORTEX_CORE_BIND", "127.0.0.1:19080");
+        std::env::set_var("UPRAVA_CORE_BIND", "127.0.0.1:19080");
         std::env::set_var(
-            "CORTEX_ALLOWED_ORIGINS",
+            "UPRAVA_ALLOWED_ORIGINS",
             "http://127.0.0.1:5173, http://localhost:4173",
         );
-        std::env::set_var("CORTEX_DATABASE_URL", "sqlite:///tmp/cortex-test.sqlite");
-        std::env::set_var("CORTEX_DEPLOYMENT_PROFILE", "controlled_dev");
-        std::env::set_var("CORTEX_HEARTBEAT_STALE_SECONDS", "3");
-        std::env::set_var("CORTEX_HEARTBEAT_OFFLINE_SECONDS", "9");
-        std::env::set_var("CORTEX_ENROLLMENT_TTL_SECONDS", "30");
-        std::env::set_var("CORTEX_RUNTIME_EXPIRY_SECONDS", "120");
-        std::env::set_var("CORTEX_CLIENT_LOG_FILE", "/tmp/cortex-client.jsonl");
-        std::env::set_var("CORTEX_WEB_SESSION_TTL_SECONDS", "3600");
-        std::env::set_var("CORTEX_COOKIE_SECURE", "true");
-        std::env::set_var("CORTEX_CORE_SHUTDOWN_TIMEOUT_SECONDS", "2");
+        std::env::set_var("UPRAVA_DATABASE_URL", "sqlite:///tmp/uprava-test.sqlite");
+        std::env::set_var("UPRAVA_DEPLOYMENT_PROFILE", "controlled_dev");
+        std::env::set_var("UPRAVA_HEARTBEAT_STALE_SECONDS", "3");
+        std::env::set_var("UPRAVA_HEARTBEAT_OFFLINE_SECONDS", "9");
+        std::env::set_var("UPRAVA_ENROLLMENT_TTL_SECONDS", "30");
+        std::env::set_var("UPRAVA_RUNTIME_EXPIRY_SECONDS", "120");
+        std::env::set_var("UPRAVA_CLIENT_LOG_FILE", "/tmp/uprava-client.jsonl");
+        std::env::set_var("UPRAVA_WEB_SESSION_TTL_SECONDS", "3600");
+        std::env::set_var("UPRAVA_COOKIE_SECURE", "true");
+        std::env::set_var("UPRAVA_CORE_SHUTDOWN_TIMEOUT_SECONDS", "2");
 
         let config = AppConfig::from_env().expect("overridden core config parses");
 
         assert_eq!(config.bind_address, "127.0.0.1:19080");
-        assert_eq!(config.database_url, "sqlite:///tmp/cortex-test.sqlite");
+        assert_eq!(config.database_url, "sqlite:///tmp/uprava-test.sqlite");
         assert_eq!(config.profile, DeploymentProfile::ControlledDev);
         assert_eq!(
             config
@@ -7135,7 +7135,7 @@ mod tests {
         assert!(!config.auto_approve_enrollments);
         assert_eq!(
             config.client_log_file,
-            PathBuf::from("/tmp/cortex-client.jsonl")
+            PathBuf::from("/tmp/uprava-client.jsonl")
         );
         assert!(config.web_auth_required);
         assert_eq!(config.web_session_ttl_seconds, 3600);
@@ -7147,7 +7147,7 @@ mod tests {
     fn app_config_from_env_rejects_invalid_profile() {
         let _lock = env_lock();
         let _env = EnvGuard::cleared(CORE_CONFIG_ENV_VARS);
-        std::env::set_var("CORTEX_DEPLOYMENT_PROFILE", "production");
+        std::env::set_var("UPRAVA_DEPLOYMENT_PROFILE", "production");
 
         let error = AppConfig::from_env().expect_err("invalid profile should fail");
 
@@ -7158,7 +7158,7 @@ mod tests {
     fn app_config_from_env_rejects_local_trusted_profile() {
         let _lock = env_lock();
         let _env = EnvGuard::cleared(CORE_CONFIG_ENV_VARS);
-        std::env::set_var("CORTEX_DEPLOYMENT_PROFILE", "local_trusted");
+        std::env::set_var("UPRAVA_DEPLOYMENT_PROFILE", "local_trusted");
 
         let error = AppConfig::from_env().expect_err("local_trusted profile should fail");
 
@@ -7171,7 +7171,7 @@ mod tests {
     fn app_config_from_env_rejects_disabled_web_auth() {
         let _lock = env_lock();
         let _env = EnvGuard::cleared(CORE_CONFIG_ENV_VARS);
-        std::env::set_var("CORTEX_WEB_AUTH", "disabled");
+        std::env::set_var("UPRAVA_WEB_AUTH", "disabled");
 
         let error = AppConfig::from_env().expect_err("disabled web auth should fail");
 
@@ -7182,7 +7182,7 @@ mod tests {
     fn app_config_from_env_rejects_auto_approve_enrollments() {
         let _lock = env_lock();
         let _env = EnvGuard::cleared(CORE_CONFIG_ENV_VARS);
-        std::env::set_var("CORTEX_AUTO_APPROVE_ENROLLMENTS", "yes");
+        std::env::set_var("UPRAVA_AUTO_APPROVE_ENROLLMENTS", "yes");
 
         let error = AppConfig::from_env().expect_err("auto approval should fail");
 
@@ -7193,14 +7193,14 @@ mod tests {
     fn app_config_from_env_rejects_invalid_integer() {
         let _lock = env_lock();
         let _env = EnvGuard::cleared(CORE_CONFIG_ENV_VARS);
-        std::env::set_var("CORTEX_HEARTBEAT_STALE_SECONDS", "fast");
+        std::env::set_var("UPRAVA_HEARTBEAT_STALE_SECONDS", "fast");
 
         let error = AppConfig::from_env().expect_err("invalid integer should fail");
 
         assert!(matches!(
             error,
             ConfigError::InvalidInteger { name, .. }
-                if name == "CORTEX_HEARTBEAT_STALE_SECONDS"
+                if name == "UPRAVA_HEARTBEAT_STALE_SECONDS"
         ));
     }
 
@@ -7208,7 +7208,7 @@ mod tests {
     fn app_config_from_env_rejects_wildcard_cors_origin() {
         let _lock = env_lock();
         let _env = EnvGuard::cleared(CORE_CONFIG_ENV_VARS);
-        std::env::set_var("CORTEX_ALLOWED_ORIGINS", "*");
+        std::env::set_var("UPRAVA_ALLOWED_ORIGINS", "*");
 
         let error = AppConfig::from_env().expect_err("wildcard origin should fail");
 
@@ -7288,7 +7288,7 @@ mod tests {
 
     #[tokio::test]
     async fn core_state_survives_sqlite_reopen() {
-        let db_path = std::env::temp_dir().join(format!("cortex-core-{}.sqlite", Uuid::new_v4()));
+        let db_path = std::env::temp_dir().join(format!("uprava-core-{}.sqlite", Uuid::new_v4()));
         remove_sqlite_file_set(&db_path);
         let state = AppState::new(test_config(86_400), sqlite_file_pool(&db_path).await)
             .await
@@ -7326,7 +7326,7 @@ mod tests {
 
     #[tokio::test]
     async fn session_history_and_read_models_survive_sqlite_reopen() {
-        let db_path = std::env::temp_dir().join(format!("cortex-core-{}.sqlite", Uuid::new_v4()));
+        let db_path = std::env::temp_dir().join(format!("uprava-core-{}.sqlite", Uuid::new_v4()));
         remove_sqlite_file_set(&db_path);
         let state = AppState::new(test_config(86_400), sqlite_file_pool(&db_path).await)
             .await
@@ -7379,11 +7379,11 @@ mod tests {
         assert!(detail.events.iter().any(|event| event.event_id == event_id));
         assert!(artifact_tree.root.children.iter().any(|node| matches!(
             &node.primary_ref,
-            CortexRef::Message { message_id } if message_id == &assistant_message.message_id
+            UpravaRef::Message { message_id } if message_id == &assistant_message.message_id
         )));
         assert!(artifact_tree.root.children.iter().any(|node| matches!(
             &node.primary_ref,
-            CortexRef::Event {
+            UpravaRef::Event {
                 event_id: artifact_event_id,
                 ..
             } if artifact_event_id == &event_id
@@ -7393,7 +7393,7 @@ mod tests {
             .iter()
             .any(|reference| matches!(
                 reference,
-                CortexRef::Message { message_id } if message_id == &assistant_message.message_id
+                UpravaRef::Message { message_id } if message_id == &assistant_message.message_id
             )));
         assert!(projection
             .artifact_tree_summary
@@ -7966,7 +7966,7 @@ mod tests {
             Json(CreatePlacementRequest {
                 node_id: node_id.clone(),
                 display_name: "workspace".to_owned(),
-                workspace_path: "/tmp/cortex-stale-node-workspace".to_owned(),
+                workspace_path: "/tmp/uprava-stale-node-workspace".to_owned(),
             }),
         )
         .await
@@ -8287,7 +8287,7 @@ mod tests {
         let state = test_state().await;
         let claim = enroll_test_node(&state).await;
         let credential = claim.credential.clone();
-        let workspace_path = std::env::temp_dir().join(format!("cortex-test-{}", Uuid::new_v4()));
+        let workspace_path = std::env::temp_dir().join(format!("uprava-test-{}", Uuid::new_v4()));
         std::fs::create_dir_all(&workspace_path).expect("workspace dir creates");
 
         let _ = node_heartbeat(
@@ -8339,7 +8339,7 @@ mod tests {
         let node_id = claim.node_id.clone().expect("node id returned");
         let credential = claim.credential.clone();
         let workspace_path_buf =
-            std::env::temp_dir().join(format!("cortex-test-{}", Uuid::new_v4()));
+            std::env::temp_dir().join(format!("uprava-test-{}", Uuid::new_v4()));
         let workspace_path = workspace_path_buf.display().to_string();
         std::fs::create_dir_all(&workspace_path_buf).expect("workspace dir creates");
 
@@ -8435,7 +8435,7 @@ mod tests {
         let claim = enroll_test_node(&state).await;
         let node_id = claim.node_id.expect("node id returned");
         heartbeat_test_node(&state, node_id.clone(), claim.credential.clone()).await;
-        let workspace_path = std::env::temp_dir().join(format!("cortex-test-{}", Uuid::new_v4()));
+        let workspace_path = std::env::temp_dir().join(format!("uprava-test-{}", Uuid::new_v4()));
 
         let placement = validate_placement(
             State(state.clone()),
@@ -8486,7 +8486,7 @@ mod tests {
         let claim = enroll_test_node(&state).await;
         let node_id = claim.node_id.expect("node id returned");
         heartbeat_test_node(&state, node_id.clone(), claim.credential.clone()).await;
-        let workspace_path = std::env::temp_dir().join(format!("cortex-test-{}", Uuid::new_v4()));
+        let workspace_path = std::env::temp_dir().join(format!("uprava-test-{}", Uuid::new_v4()));
         let app = build_router(state.clone());
 
         let response = app
@@ -8527,7 +8527,7 @@ mod tests {
         let state = test_state().await;
         let claim = enroll_test_node(&state).await;
         let node_id = claim.node_id.expect("node id returned");
-        let workspace_path = std::env::temp_dir().join(format!("cortex-test-{}", Uuid::new_v4()));
+        let workspace_path = std::env::temp_dir().join(format!("uprava-test-{}", Uuid::new_v4()));
 
         let result = validate_placement(
             State(state),
@@ -8554,7 +8554,7 @@ mod tests {
         let claim = enroll_test_node(&state).await;
         let node_id = claim.node_id.expect("node id returned");
         heartbeat_test_node(&state, node_id.clone(), claim.credential.clone()).await;
-        let workspace_path = std::env::temp_dir().join(format!("cortex-test-{}", Uuid::new_v4()));
+        let workspace_path = std::env::temp_dir().join(format!("uprava-test-{}", Uuid::new_v4()));
         std::fs::create_dir_all(&workspace_path).expect("workspace dir creates");
         let placement = validate_placement(
             State(state.clone()),
@@ -8652,7 +8652,7 @@ mod tests {
         let claim = enroll_test_node(&state).await;
         let node_id = claim.node_id.expect("node id returned");
         heartbeat_test_node(&state, node_id.clone(), claim.credential.clone()).await;
-        let workspace_path = std::env::temp_dir().join(format!("cortex-test-{}", Uuid::new_v4()));
+        let workspace_path = std::env::temp_dir().join(format!("uprava-test-{}", Uuid::new_v4()));
         std::fs::create_dir_all(&workspace_path).expect("workspace dir creates");
         let placement = validate_placement(
             State(state.clone()),
@@ -8704,7 +8704,7 @@ mod tests {
         let claim = enroll_test_node(&state).await;
         let node_id = claim.node_id.expect("node id returned");
         heartbeat_test_node(&state, node_id.clone(), claim.credential.clone()).await;
-        let workspace_path = std::env::temp_dir().join(format!("cortex-test-{}", Uuid::new_v4()));
+        let workspace_path = std::env::temp_dir().join(format!("uprava-test-{}", Uuid::new_v4()));
         std::fs::create_dir_all(&workspace_path).expect("workspace dir creates");
         let placement = validate_placement(
             State(state.clone()),
@@ -8755,7 +8755,7 @@ mod tests {
         let claim = enroll_test_node(&state).await;
         let node_id = claim.node_id.expect("node id returned");
         heartbeat_test_node(&state, node_id.clone(), claim.credential.clone()).await;
-        let workspace_path = std::env::temp_dir().join(format!("cortex-test-{}", Uuid::new_v4()));
+        let workspace_path = std::env::temp_dir().join(format!("uprava-test-{}", Uuid::new_v4()));
         std::fs::create_dir_all(&workspace_path).expect("workspace dir creates");
         let placement = validate_placement(
             State(state.clone()),
@@ -8902,7 +8902,7 @@ mod tests {
         let claim = enroll_test_node(&state).await;
         let node_id = claim.node_id.clone().expect("node id returned");
         heartbeat_test_node(&state, node_id.clone(), claim.credential.clone()).await;
-        let workspace_path = std::env::temp_dir().join(format!("cortex-test-{}", Uuid::new_v4()));
+        let workspace_path = std::env::temp_dir().join(format!("uprava-test-{}", Uuid::new_v4()));
         std::fs::create_dir_all(&workspace_path).expect("workspace dir creates");
         let placement = validate_placement(
             State(state.clone()),
@@ -9006,7 +9006,7 @@ mod tests {
         let claim = enroll_test_node(&state).await;
         let node_id = claim.node_id.clone().expect("node id returned");
         heartbeat_test_node(&state, node_id.clone(), claim.credential.clone()).await;
-        let workspace_path = std::env::temp_dir().join(format!("cortex-test-{}", Uuid::new_v4()));
+        let workspace_path = std::env::temp_dir().join(format!("uprava-test-{}", Uuid::new_v4()));
         std::fs::create_dir_all(&workspace_path).expect("workspace dir creates");
         let placement = validate_placement(
             State(state.clone()),
@@ -9046,7 +9046,7 @@ mod tests {
                 WorkspaceCommandRunRequest {
                     command: "rustc".to_owned(),
                     args: vec!["--version".to_owned()],
-                    intent: cortex_protocol::WorkspaceCommandIntent::Command,
+                    intent: uprava_protocol::WorkspaceCommandIntent::Command,
                     label: None,
                     timeout_seconds: Some(30),
                 },
@@ -10450,7 +10450,7 @@ mod tests {
 
         assert!(artifact_tree.root.children.iter().any(|node| matches!(
             &node.primary_ref,
-            CortexRef::Approval { approval_id } if approval_id.as_str() == "approval-artifact-1"
+            UpravaRef::Approval { approval_id } if approval_id.as_str() == "approval-artifact-1"
         )));
     }
 
@@ -10679,7 +10679,7 @@ mod tests {
         let claim = enroll_test_node(state).await;
         let node_id = claim.node_id.clone().expect("node id returned");
         heartbeat_test_node(state, node_id.clone(), claim.credential.clone()).await;
-        let workspace_path = std::env::temp_dir().join(format!("cortex-test-{}", Uuid::new_v4()));
+        let workspace_path = std::env::temp_dir().join(format!("uprava-test-{}", Uuid::new_v4()));
         std::fs::create_dir_all(&workspace_path).expect("workspace dir creates");
         let placement = validate_placement(
             State(state.clone()),
@@ -10958,10 +10958,10 @@ mod tests {
         let command_id = CommandId::from("command-queryable");
         let mut command = command_fixture(command_id.clone(), node_id.clone());
         command.actor_ref = ActorRef::System;
-        command.source_refs = vec![CortexRef::Node {
+        command.source_refs = vec![UpravaRef::Node {
             node_id: node_id.clone(),
         }];
-        command.cause_refs = vec![CortexRef::Command {
+        command.cause_refs = vec![UpravaRef::Command {
             command_id: CommandId::from("command-cause"),
         }];
         command.payload = JsonValue(json!({ "reason": "queryable fields" }));
@@ -10990,9 +10990,9 @@ mod tests {
         .expect("command row loads");
         let actor_ref =
             serde_json::from_str::<ActorRef>(&actor_ref_json).expect("actor ref json decodes");
-        let source_refs = serde_json::from_str::<Vec<CortexRef>>(&source_refs_json)
+        let source_refs = serde_json::from_str::<Vec<UpravaRef>>(&source_refs_json)
             .expect("source refs json decodes");
-        let cause_refs = serde_json::from_str::<Vec<CortexRef>>(&cause_refs_json)
+        let cause_refs = serde_json::from_str::<Vec<UpravaRef>>(&cause_refs_json)
             .expect("cause refs json decodes");
         let payload =
             serde_json::from_str::<JsonValue>(&payload_json).expect("payload json decodes");
@@ -11001,13 +11001,13 @@ mod tests {
         assert_eq!(correlation_id, "correlation-1");
         assert_eq!(
             source_refs,
-            vec![CortexRef::Node {
+            vec![UpravaRef::Node {
                 node_id: node_id.clone()
             }]
         );
         assert_eq!(
             cause_refs,
-            vec![CortexRef::Command {
+            vec![UpravaRef::Command {
                 command_id: CommandId::from("command-cause")
             }]
         );
@@ -11026,10 +11026,10 @@ mod tests {
         let scope_ref = ScopeRef::Runtime {
             runtime_session_id: runtime_session_id.clone(),
         };
-        let source_ref = CortexRef::Node {
+        let source_ref = UpravaRef::Node {
             node_id: node_id.clone(),
         };
-        let result_ref = CortexRef::Runtime {
+        let result_ref = UpravaRef::Runtime {
             runtime_session_id: runtime_session_id.clone(),
         };
 
@@ -11052,7 +11052,7 @@ mod tests {
                 happened_at: Utc::now(),
                 source_refs: vec![source_ref.clone()],
                 evidence_refs: vec![],
-                cause_refs: vec![CortexRef::Command {
+                cause_refs: vec![UpravaRef::Command {
                     command_id: CommandId::from("command-cause"),
                 }],
                 result_refs: vec![result_ref.clone()],
@@ -11084,9 +11084,9 @@ mod tests {
             serde_json::from_str::<ActorRef>(&actor_ref_json).expect("actor ref json decodes");
         let persisted_scope_ref =
             serde_json::from_str::<ScopeRef>(&scope_ref_json).expect("scope ref json decodes");
-        let source_refs = serde_json::from_str::<Vec<CortexRef>>(&source_refs_json)
+        let source_refs = serde_json::from_str::<Vec<UpravaRef>>(&source_refs_json)
             .expect("source refs json decodes");
-        let result_refs = serde_json::from_str::<Vec<CortexRef>>(&result_refs_json)
+        let result_refs = serde_json::from_str::<Vec<UpravaRef>>(&result_refs_json)
             .expect("result refs json decodes");
         let payload =
             serde_json::from_str::<JsonValue>(&payload_json).expect("payload json decodes");

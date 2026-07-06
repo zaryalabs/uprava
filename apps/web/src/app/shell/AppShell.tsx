@@ -15,7 +15,7 @@ export function AppShell() {
       <header className="flex h-12 items-center justify-between border-b border-[#d9ded4] bg-[#fbfcf8] px-4">
         <Link to="/dashboard" className="flex items-center gap-2 font-semibold">
           <Activity size={18} />
-          Cortex
+          Uprava
         </Link>
         <div className="flex items-center gap-3 text-sm text-[#536257]">
           <span>API {inventory.data ? "connected" : "pending"}</span>

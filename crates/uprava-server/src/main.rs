@@ -5,9 +5,9 @@ use std::{
     time::Duration,
 };
 
-use cortex_logging::init_tracing;
-use cortex_server::{build_router, shutdown_signal, AppConfig, AppState};
 use sqlx::sqlite::{SqliteConnectOptions, SqlitePoolOptions};
+use uprava_logging::init_tracing;
+use uprava_server::{build_router, shutdown_signal, AppConfig, AppState};
 
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
@@ -18,7 +18,7 @@ async fn main() -> anyhow::Result<()> {
         return run_healthcheck(&address);
     }
 
-    let log_path = init_tracing("core", "CORTEX_CORE_LOG_FILE", ".local/logs/core.log")?;
+    let log_path = init_tracing("core", "UPRAVA_CORE_LOG_FILE", ".local/logs/core.log")?;
 
     let config = AppConfig::from_env()?;
     ensure_sqlite_parent_dir(&config.database_url)?;
@@ -41,7 +41,7 @@ async fn main() -> anyhow::Result<()> {
         log_file = %log_path.display(),
         client_log_file = %config.client_log_file.display(),
         profile = ?config.profile,
-        "starting cortex core"
+        "starting uprava core"
     );
 
     let listener = tokio::net::TcpListener::bind(address).await?;

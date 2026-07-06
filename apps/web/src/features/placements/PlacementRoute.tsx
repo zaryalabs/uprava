@@ -197,7 +197,7 @@ export function PlacementRoute() {
 
 function confirmPlacementDelete(displayName: string) {
   return window.confirm(
-    `Delete workspace "${displayName}" and its sessions from Cortex? Local files stay on the node.`,
+    `Delete workspace "${displayName}" and its sessions from Uprava? Local files stay on the node.`,
   );
 }
 

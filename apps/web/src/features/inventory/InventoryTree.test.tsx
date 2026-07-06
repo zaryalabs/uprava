@@ -26,7 +26,7 @@ describe("InventoryTreeContent", () => {
     expect(screen.getByText("Missing workspace")).toBeVisible();
     expect(screen.getByText("degraded")).toBeVisible();
     expect(screen.getByText("error")).toBeVisible();
-    expect(screen.getByRole("link", { name: /Cortex/ })).toHaveAttribute(
+    expect(screen.getByRole("link", { name: /Uprava/ })).toHaveAttribute(
       "href",
       "/workspaces/placement-1",
     );
@@ -47,7 +47,7 @@ describe("InventoryTreeContent", () => {
     );
 
     expect(screen.getByText("Inventory refresh failed")).toBeVisible();
-    expect(screen.getByRole("link", { name: /Cortex/ })).toHaveAttribute(
+    expect(screen.getByRole("link", { name: /Uprava/ })).toHaveAttribute(
       "href",
       "/workspaces/placement-1",
     );
@@ -92,8 +92,8 @@ const snapshot: InventorySnapshot = {
       project_placement_id: "placement-1",
       project_id: "project-1",
       node_id: "node-1",
-      display_name: "Cortex",
-      workspace_path: "/workspace/cortex",
+      display_name: "Uprava",
+      workspace_path: "/workspace/uprava",
       state: "validated",
       resource_badges: [],
       last_validated_at: "2026-06-17T00:00:00Z",

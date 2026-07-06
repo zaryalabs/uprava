@@ -48,7 +48,7 @@ export function AuthGate({ children }: { children: ReactNode }) {
   return (
     <AuthFrame
       icon={setup ? <ShieldCheck size={20} /> : <LockKeyhole size={20} />}
-      title={setup ? "Set Local Password" : "Unlock Cortex"}
+      title={setup ? "Set Local Password" : "Unlock Uprava"}
     >
       <form onSubmit={submit} className="mt-5 space-y-4">
         <label className="block text-sm font-medium text-[#27362f]">

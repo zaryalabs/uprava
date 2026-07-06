@@ -7,8 +7,8 @@ SMOKE_RETRIES="${SMOKE_RETRIES:-30}"
 SMOKE_DELAY_SECONDS="${SMOKE_DELAY_SECONDS:-2}"
 EXPECTED_NODE="${EXPECTED_NODE:-Compose Node}"
 WORKSPACE_PATH="${WORKSPACE_PATH:-/workspace}"
-SMOKE_WEB_PASSWORD="${SMOKE_WEB_PASSWORD:-cortex-smoke-password}"
-SMOKE_COOKIE_JAR="${SMOKE_COOKIE_JAR:-${TMPDIR:-/tmp}/cortex-compose-smoke-cookies-$$}"
+SMOKE_WEB_PASSWORD="${SMOKE_WEB_PASSWORD:-uprava-smoke-password}"
+SMOKE_COOKIE_JAR="${SMOKE_COOKIE_JAR:-${TMPDIR:-/tmp}/uprava-compose-smoke-cookies-$$}"
 CSRF_TOKEN=""
 
 case ",${NO_PROXY:-}," in
@@ -58,7 +58,7 @@ auth_post_json() {
       -b "$SMOKE_COOKIE_JAR" \
       -c "$SMOKE_COOKIE_JAR" \
       -H "content-type: application/json" \
-      -H "x-cortex-csrf: $CSRF_TOKEN" \
+      -H "x-uprava-csrf: $CSRF_TOKEN" \
       -X POST \
       --data "$body" \
       "$url"
@@ -265,7 +265,7 @@ require_command grep
 require_command node
 
 wait_for_contains "core health" "$CORE_URL/api/v1/health" '"status":"ok"'
-wait_for_contains "web entrypoint" "$WEB_URL/" '<title>Cortex</title>'
+wait_for_contains "web entrypoint" "$WEB_URL/" '<title>Uprava</title>'
 authenticate
 approve_pending_enrollment
 wait_for_auth_value \

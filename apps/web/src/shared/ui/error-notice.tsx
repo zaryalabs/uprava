@@ -1,4 +1,4 @@
-import { CortexApiError } from "../api/http-client";
+import { UpravaApiError } from "../api/http-client";
 
 type ErrorNoticeProps = {
   error: unknown;
@@ -6,7 +6,7 @@ type ErrorNoticeProps = {
 };
 
 export function ErrorNotice({ error, title }: ErrorNoticeProps) {
-  const envelope = error instanceof CortexApiError ? error.envelope : null;
+  const envelope = error instanceof UpravaApiError ? error.envelope : null;
 
   return (
     <div

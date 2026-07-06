@@ -1,9 +1,9 @@
 [workspace]
 members = [
-  "crates/cortex-logging",
-  "crates/cortex-node",
-  "crates/cortex-protocol",
-  "crates/cortex-server",
+  "crates/uprava-logging",
+  "crates/uprava-node",
+  "crates/uprava-protocol",
+  "crates/uprava-server",
 ]
 resolver = "2"
 
@@ -11,7 +11,7 @@ resolver = "2"
 edition = "2021"
 license = "LicenseRef-Proprietary"
 publish = false
-repository = "https://example.invalid/zarya/cortex"
+repository = "https://example.invalid/zarya/uprava"
 rust-version = "1.80"
 
 [workspace.dependencies]

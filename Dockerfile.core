@@ -3,9 +3,9 @@ WORKDIR /app
 ENV CARGO_BUILD_JOBS=1 \
     CARGO_INCREMENTAL=0
 COPY . .
-RUN cargo build --release --bin cortex-server --bin cortex-node
+RUN cargo build --release --bin uprava-server --bin uprava-node
 
 FROM debian:bookworm-slim
-COPY --from=builder /app/target/release/cortex-server /usr/local/bin/cortex-server
+COPY --from=builder /app/target/release/uprava-server /usr/local/bin/uprava-server
 EXPOSE 8080
-CMD ["cortex-server"]
+CMD ["uprava-server"]

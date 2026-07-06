@@ -1,7 +1,7 @@
 import { useState } from "react";
 import { Clipboard, PanelRightOpen } from "lucide-react";
 
-import type { CortexRef } from "../../shared/protocol/types";
+import type { UpravaRef } from "../../shared/protocol/types";
 import { Button } from "../../shared/ui/button";
 import { runWorkbenchCommand } from "../commands/registry";
 import { refTitle } from "./refs";
@@ -12,7 +12,7 @@ export function ReferenceActions({
   showCopy = true,
   showInspect = true,
 }: {
-  reference: CortexRef;
+  reference: UpravaRef;
   showCopy?: boolean;
   showInspect?: boolean;
 }) {

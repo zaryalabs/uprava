@@ -4,7 +4,7 @@
 
 ## Короткое решение
 
-Cortex должен добавить **Project Workspace Inspector** после V01, как первое
+Uprava должен добавить **Project Workspace Inspector** после V01, как первое
 крупное workbench-расширение после того, как distributed agent control panel уже
 пригодна к использованию.
 
@@ -26,7 +26,7 @@ V01 резервирует правый inspector stack до появления 
 Workspace Inspector. Первый слот работает с references, а не как file browser or
 terminal surface.
 
-Web Control Panel может открывать и копировать `CortexRef` objects из visible
+Web Control Panel может открывать и копировать `UpravaRef` objects из visible
 session timeline blocks, artifact-tree entries, nodes, placements, sessions,
 runtimes, events, commands, approvals and warnings. Панель резолвит детали из
 уже загруженных Core snapshots и session event log. Future workspace, terminal,

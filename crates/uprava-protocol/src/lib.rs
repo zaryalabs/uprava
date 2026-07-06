@@ -1,4 +1,4 @@
-//! Shared Cortex protocol and domain contracts for the V01 control plane.
+//! Shared Uprava protocol and domain contracts for the V01 control plane.
 
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
@@ -318,9 +318,9 @@ pub struct CommandEnvelope {
     pub runtime_session_id: Option<RuntimeSessionId>,
     pub project_placement_id: Option<ProjectPlacementId>,
     #[serde(default)]
-    pub source_refs: Vec<CortexRef>,
+    pub source_refs: Vec<UpravaRef>,
     #[serde(default)]
-    pub cause_refs: Vec<CortexRef>,
+    pub cause_refs: Vec<UpravaRef>,
     pub issued_at: DateTime<Utc>,
     pub correlation_id: CorrelationId,
     pub payload: serde_json_value::JsonValue,
@@ -342,13 +342,13 @@ pub struct EventEnvelope {
     pub kind: EventKind,
     pub happened_at: DateTime<Utc>,
     #[serde(default)]
-    pub source_refs: Vec<CortexRef>,
+    pub source_refs: Vec<UpravaRef>,
     #[serde(default)]
-    pub evidence_refs: Vec<CortexRef>,
+    pub evidence_refs: Vec<UpravaRef>,
     #[serde(default)]
-    pub cause_refs: Vec<CortexRef>,
+    pub cause_refs: Vec<UpravaRef>,
     #[serde(default)]
-    pub result_refs: Vec<CortexRef>,
+    pub result_refs: Vec<UpravaRef>,
     pub payload: serde_json_value::JsonValue,
 }
 
@@ -884,7 +884,7 @@ pub struct NodeHeartbeatResponse {
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "kind", rename_all = "snake_case")]
-pub enum CortexRef {
+pub enum UpravaRef {
     Node {
         node_id: NodeId,
     },
@@ -997,20 +997,20 @@ pub struct UiBlock {
     pub block_type: String,
     pub schema_version: i64,
     pub surface_id: String,
-    pub primary_ref: CortexRef,
-    pub parent_ref: Option<CortexRef>,
+    pub primary_ref: UpravaRef,
+    pub parent_ref: Option<UpravaRef>,
     #[serde(default)]
     pub children: Vec<UiBlock>,
     #[serde(default)]
-    pub source_refs: Vec<CortexRef>,
+    pub source_refs: Vec<UpravaRef>,
     #[serde(default)]
-    pub evidence_refs: Vec<CortexRef>,
+    pub evidence_refs: Vec<UpravaRef>,
     #[serde(default)]
-    pub cause_refs: Vec<CortexRef>,
+    pub cause_refs: Vec<UpravaRef>,
     #[serde(default)]
-    pub related_refs: Vec<CortexRef>,
+    pub related_refs: Vec<UpravaRef>,
     #[serde(default)]
-    pub trace_refs: Vec<CortexRef>,
+    pub trace_refs: Vec<UpravaRef>,
     pub data: serde_json_value::JsonValue,
     #[serde(default)]
     pub actions: Vec<String>,
@@ -1021,13 +1021,13 @@ pub struct UiBlock {
 pub struct ArtifactTreeNode {
     pub artifact_id: ArtifactId,
     pub label: String,
-    pub primary_ref: CortexRef,
+    pub primary_ref: UpravaRef,
     #[serde(default)]
-    pub source_refs: Vec<CortexRef>,
+    pub source_refs: Vec<UpravaRef>,
     #[serde(default)]
-    pub evidence_refs: Vec<CortexRef>,
+    pub evidence_refs: Vec<UpravaRef>,
     #[serde(default)]
-    pub cause_refs: Vec<CortexRef>,
+    pub cause_refs: Vec<UpravaRef>,
     #[serde(default)]
     pub children: Vec<ArtifactTreeNode>,
 }
@@ -1052,14 +1052,14 @@ pub struct AgentProjection {
     #[serde(default)]
     pub recent_turn_summaries: Vec<String>,
     #[serde(default)]
-    pub recent_message_refs: Vec<CortexRef>,
+    pub recent_message_refs: Vec<UpravaRef>,
     pub artifact_tree_summary: String,
     #[serde(default)]
     pub available_block_types: Vec<String>,
     #[serde(default)]
     pub available_commands: Vec<String>,
     #[serde(default)]
-    pub visible_refs: Vec<CortexRef>,
+    pub visible_refs: Vec<UpravaRef>,
     pub source_cause_summary: String,
     pub resume_context: String,
     pub generated_at: DateTime<Utc>,
@@ -1106,7 +1106,7 @@ mod tests {
             runtime_session_id: Some(RuntimeSessionId::from("runtime-1")),
             project_placement_id: Some(ProjectPlacementId::from("placement-1")),
             source_refs: vec![],
-            cause_refs: vec![CortexRef::Session {
+            cause_refs: vec![UpravaRef::Session {
                 session_thread_id: SessionThreadId::from("session-1"),
             }],
             issued_at: Utc::now(),
@@ -1196,10 +1196,10 @@ mod tests {
             seq: 2,
             kind: EventKind::ProviderOutputDelta,
             happened_at: Utc::now(),
-            source_refs: vec![CortexRef::Command {
+            source_refs: vec![UpravaRef::Command {
                 command_id: CommandId::from("command-1"),
             }],
-            evidence_refs: vec![CortexRef::FileRange {
+            evidence_refs: vec![UpravaRef::FileRange {
                 placement_id: ProjectPlacementId::from("placement-1"),
                 path: "src/main.rs".to_owned(),
                 range: TextRange {
@@ -1210,10 +1210,10 @@ mod tests {
                 },
                 version: Some("git:abc123".to_owned()),
             }],
-            cause_refs: vec![CortexRef::Approval {
+            cause_refs: vec![UpravaRef::Approval {
                 approval_id: ApprovalId::from("approval-1"),
             }],
-            result_refs: vec![CortexRef::Message {
+            result_refs: vec![UpravaRef::Message {
                 message_id: MessageId::from("message-1"),
             }],
             payload: json_payload(),
@@ -1267,7 +1267,7 @@ mod tests {
             block_type: "core.unknown".to_owned(),
             schema_version: 1,
             surface_id: "session.timeline".to_owned(),
-            primary_ref: CortexRef::TerminalCommand {
+            primary_ref: UpravaRef::TerminalCommand {
                 terminal_command_id: "terminal-command-1".to_owned(),
                 terminal_id: None,
             },
@@ -1290,64 +1290,64 @@ mod tests {
     }
 
     #[test]
-    fn cortex_ref_variants_round_trip_through_json() {
+    fn uprava_ref_variants_round_trip_through_json() {
         let refs = vec![
-            CortexRef::Node {
+            UpravaRef::Node {
                 node_id: NodeId::from("node-1"),
             },
-            CortexRef::Project {
+            UpravaRef::Project {
                 project_id: ProjectId::from("project-1"),
             },
-            CortexRef::Placement {
+            UpravaRef::Placement {
                 placement_id: ProjectPlacementId::from("placement-1"),
             },
-            CortexRef::Workspace {
+            UpravaRef::Workspace {
                 placement_id: ProjectPlacementId::from("placement-1"),
             },
-            CortexRef::Session {
+            UpravaRef::Session {
                 session_thread_id: SessionThreadId::from("session-1"),
             },
-            CortexRef::Runtime {
+            UpravaRef::Runtime {
                 runtime_session_id: RuntimeSessionId::from("runtime-1"),
             },
-            CortexRef::Turn {
+            UpravaRef::Turn {
                 turn_id: TurnId::from("turn-1"),
             },
-            CortexRef::Message {
+            UpravaRef::Message {
                 message_id: MessageId::from("message-1"),
             },
-            CortexRef::Block {
+            UpravaRef::Block {
                 block_id: BlockId::from("block-1"),
             },
-            CortexRef::Artifact {
+            UpravaRef::Artifact {
                 artifact_id: ArtifactId::from("artifact-1"),
             },
-            CortexRef::Event {
+            UpravaRef::Event {
                 event_id: EventId::from("event-1"),
                 scope_ref: Box::new(ScopeRef::Session {
                     session_thread_id: SessionThreadId::from("session-1"),
                 }),
                 seq: 1,
             },
-            CortexRef::Command {
+            UpravaRef::Command {
                 command_id: CommandId::from("command-1"),
             },
-            CortexRef::Approval {
+            UpravaRef::Approval {
                 approval_id: ApprovalId::from("approval-1"),
             },
-            CortexRef::Warning {
+            UpravaRef::Warning {
                 warning_kind: "node_offline".to_owned(),
                 command_id: Some(CommandId::from("command-1")),
             },
-            CortexRef::ToolCall {
+            UpravaRef::ToolCall {
                 tool_call_id: "tool-call-1".to_owned(),
             },
-            CortexRef::File {
+            UpravaRef::File {
                 placement_id: ProjectPlacementId::from("placement-1"),
                 path: "src/main.rs".to_owned(),
                 version: Some("git:abc123".to_owned()),
             },
-            CortexRef::FileRange {
+            UpravaRef::FileRange {
                 placement_id: ProjectPlacementId::from("placement-1"),
                 path: "src/main.rs".to_owned(),
                 range: TextRange {
@@ -1358,15 +1358,15 @@ mod tests {
                 },
                 version: None,
             },
-            CortexRef::Terminal {
+            UpravaRef::Terminal {
                 terminal_id: "terminal-1".to_owned(),
                 placement_id: ProjectPlacementId::from("placement-1"),
             },
-            CortexRef::TerminalCommand {
+            UpravaRef::TerminalCommand {
                 terminal_command_id: "terminal-command-1".to_owned(),
                 terminal_id: Some("terminal-1".to_owned()),
             },
-            CortexRef::TerminalOutputRange {
+            UpravaRef::TerminalOutputRange {
                 terminal_command_id: "terminal-command-1".to_owned(),
                 range: TextRange {
                     start_line: Some(5),
@@ -1375,34 +1375,34 @@ mod tests {
                     end_offset: None,
                 },
             },
-            CortexRef::DiffHunk {
+            UpravaRef::DiffHunk {
                 diff_id: "diff-1".to_owned(),
                 hunk_id: "hunk-1".to_owned(),
             },
-            CortexRef::CheckResult {
+            UpravaRef::CheckResult {
                 check_run_id: "check-1".to_owned(),
                 failure_id: Some("failure-1".to_owned()),
             },
-            CortexRef::WorkspaceEdit {
+            UpravaRef::WorkspaceEdit {
                 edit_id: "edit-1".to_owned(),
                 placement_id: Some(ProjectPlacementId::from("placement-1")),
                 path: Some("src/main.rs".to_owned()),
             },
-            CortexRef::TraceEvent {
+            UpravaRef::TraceEvent {
                 trace_event_id: "trace-event-1".to_owned(),
             },
-            CortexRef::ExternalEntity {
+            UpravaRef::ExternalEntity {
                 integration_kind: "github".to_owned(),
                 external_id: "pull-1".to_owned(),
             },
-            CortexRef::Unknown {
+            UpravaRef::Unknown {
                 ref_type: "future.ref".to_owned(),
                 locator: json_payload(),
             },
         ];
 
         let encoded = serde_json::to_string(&refs).expect("refs serialize");
-        let decoded: Vec<CortexRef> = serde_json::from_str(&encoded).expect("refs deserialize");
+        let decoded: Vec<UpravaRef> = serde_json::from_str(&encoded).expect("refs deserialize");
         let kinds = serde_json::to_value(&decoded)
             .expect("refs convert to JSON value")
             .as_array()

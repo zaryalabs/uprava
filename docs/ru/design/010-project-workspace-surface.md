@@ -9,7 +9,7 @@ Workspace Surface`.
 
 ### Какую проблему решает механика
 
-Cortex не должен быть только чатом агента. Для developer workflow пользователь
+Uprava не должен быть только чатом агента. Для developer workflow пользователь
 должен видеть и контролировать среду, в которой агент работает:
 
 - дерево проекта;
@@ -48,7 +48,7 @@ Project Workspace Surface
 ```
 
 Это ближе к легкому GitHub/GitLab web project view + terminal + basic editor,
-чем к попытке встроить весь VS Code внутрь Cortex.
+чем к попытке встроить весь VS Code внутрь Uprava.
 
 ### Почему не полноценная IDE first
 
@@ -62,7 +62,7 @@ Project Workspace Surface
 - multi-root/multi-window semantics;
 - сложное состояние workspace;
 - отдельные security and trust models;
-- риск, что Cortex станет оболочкой вокруг IDE, а не Agent OS.
+- риск, что Uprava станет оболочкой вокруг IDE, а не Agent OS.
 
 Это слишком тяжелый центр тяжести для первого продукта.
 
@@ -108,7 +108,7 @@ open workspace terminal
 
 2. **Small manual edit**
 
-   Пользователь открывает файл, меняет одну строку, сохраняет. Cortex показывает
+   Пользователь открывает файл, меняет одну строку, сохраняет. Uprava показывает
    dirty state, сохраняет через Node Daemon, записывает событие и делает изменение
    видимым в diff/review.
 
@@ -126,9 +126,9 @@ open workspace terminal
 
 5. **Open full IDE escape hatch**
 
-   Если нужна полноценная ручная разработка, Cortex может показать action
+   Если нужна полноценная ручная разработка, Uprava может показать action
    `Open full IDE`, который открывает code-server/OpenVSCode/Theia or another
-   provider for the same workspace. Cortex остается system of record для session,
+   provider for the same workspace. Uprava остается system of record для session,
    trace, review and permissions.
 
 ### Agent-facing сценарии
@@ -317,13 +317,13 @@ Workspace surface должна быть адресуемой.
 Примеры refs:
 
 ```text
-cortex://workspace/{workspace_id}/file/{path}
-cortex://workspace/{workspace_id}/file/{path}#L10-L20
-cortex://workspace/{workspace_id}/edit/{edit_id}
-cortex://workspace/{workspace_id}/terminal/{terminal_id}
-cortex://workspace/{workspace_id}/terminal/{terminal_id}/command/{command_id}
-cortex://workspace/{workspace_id}/diff/{diff_id}/hunk/{hunk_id}
-cortex://workspace/{workspace_id}/check/{check_run_id}/failure/{failure_id}
+uprava://workspace/{workspace_id}/file/{path}
+uprava://workspace/{workspace_id}/file/{path}#L10-L20
+uprava://workspace/{workspace_id}/edit/{edit_id}
+uprava://workspace/{workspace_id}/terminal/{terminal_id}
+uprava://workspace/{workspace_id}/terminal/{terminal_id}/command/{command_id}
+uprava://workspace/{workspace_id}/diff/{diff_id}/hunk/{hunk_id}
+uprava://workspace/{workspace_id}/check/{check_run_id}/failure/{failure_id}
 ```
 
 Это не финальный URI contract, а direction: UI, trace, artifacts, review and
@@ -366,11 +366,11 @@ Policy может зависеть от:
 | File changed after open | Conflict UI before save/apply. |
 | Symlink escapes workspace | Node rejects action, event records rejection reason. |
 | Terminal exits | Keep terminal status/output history readable if retention policy allows. |
-| Sidecar IDE unavailable | Hide or disable `Open full IDE`, do not block Cortex surface. |
+| Sidecar IDE unavailable | Hide or disable `Open full IDE`, do not block Uprava surface. |
 
 ### Component strategy
 
-Implementation should use proven components, but hide them behind Cortex-owned
+Implementation should use proven components, but hide them behind Uprava-owned
 UI boundaries:
 
 ```text

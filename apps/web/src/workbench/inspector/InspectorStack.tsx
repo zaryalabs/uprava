@@ -9,7 +9,7 @@ import { queryKeys } from "../../shared/api/query-keys";
 import type {
   ArtifactTree,
   ArtifactTreeNode,
-  CortexRef,
+  UpravaRef,
   EventEnvelope,
   InventorySnapshot,
   Message,
@@ -40,7 +40,7 @@ type InspectorRow = {
 
 type InspectorRefLink = {
   label: string;
-  ref: CortexRef;
+  ref: UpravaRef;
 };
 
 type InspectorDetail = {
@@ -222,20 +222,20 @@ export function InspectorStack() {
 }
 
 function buildInspectorDetail(
-  ref: CortexRef,
+  ref: UpravaRef,
   context: InspectorContext,
 ): InspectorDetail {
   switch (ref.kind) {
     case "node":
-      return nodeDetail(ref as Extract<CortexRef, { kind: "node" }>, context);
+      return nodeDetail(ref as Extract<UpravaRef, { kind: "node" }>, context);
     case "project":
       return projectDetail(
-        ref as Extract<CortexRef, { kind: "project" }>,
+        ref as Extract<UpravaRef, { kind: "project" }>,
         context,
       );
     case "placement":
       return placementDetail(
-        ref as Extract<CortexRef, { kind: "placement" }>,
+        ref as Extract<UpravaRef, { kind: "placement" }>,
         context,
       );
     case "workspace":
@@ -248,41 +248,41 @@ function buildInspectorDetail(
       );
     case "session":
       return sessionDetail(
-        ref as Extract<CortexRef, { kind: "session" }>,
+        ref as Extract<UpravaRef, { kind: "session" }>,
         context,
       );
     case "runtime":
       return runtimeDetail(
-        ref as Extract<CortexRef, { kind: "runtime" }>,
+        ref as Extract<UpravaRef, { kind: "runtime" }>,
         context,
       );
     case "turn":
-      return turnDetail(ref as Extract<CortexRef, { kind: "turn" }>, context);
+      return turnDetail(ref as Extract<UpravaRef, { kind: "turn" }>, context);
     case "message":
       return messageDetail(
-        ref as Extract<CortexRef, { kind: "message" }>,
+        ref as Extract<UpravaRef, { kind: "message" }>,
         context,
       );
     case "artifact":
       return artifactDetail(
-        ref as Extract<CortexRef, { kind: "artifact" }>,
+        ref as Extract<UpravaRef, { kind: "artifact" }>,
         context,
       );
     case "event":
-      return eventDetail(ref as Extract<CortexRef, { kind: "event" }>, context);
+      return eventDetail(ref as Extract<UpravaRef, { kind: "event" }>, context);
     case "command":
       return commandDetail(
-        ref as Extract<CortexRef, { kind: "command" }>,
+        ref as Extract<UpravaRef, { kind: "command" }>,
         context,
       );
     case "approval":
       return approvalDetail(
-        ref as Extract<CortexRef, { kind: "approval" }>,
+        ref as Extract<UpravaRef, { kind: "approval" }>,
         context,
       );
     case "warning":
       return warningDetail(
-        ref as Extract<CortexRef, { kind: "warning" }>,
+        ref as Extract<UpravaRef, { kind: "warning" }>,
         context,
       );
     case "unknown":
@@ -314,7 +314,7 @@ function buildInspectorDetail(
 }
 
 function nodeDetail(
-  ref: Extract<CortexRef, { kind: "node" }>,
+  ref: Extract<UpravaRef, { kind: "node" }>,
   context: InspectorContext,
 ): InspectorDetail {
   const node = context.inventory?.nodes.find(
@@ -345,7 +345,7 @@ function nodeDetail(
 }
 
 function projectDetail(
-  ref: Extract<CortexRef, { kind: "project" }>,
+  ref: Extract<UpravaRef, { kind: "project" }>,
   context: InspectorContext,
 ): InspectorDetail {
   const placements =
@@ -391,7 +391,7 @@ function projectDetail(
 }
 
 function placementDetail(
-  ref: Extract<CortexRef, { kind: "placement" }>,
+  ref: Extract<UpravaRef, { kind: "placement" }>,
   context: InspectorContext,
 ): InspectorDetail {
   const placement =
@@ -442,7 +442,7 @@ function placementDetail(
 }
 
 function sessionDetail(
-  ref: Extract<CortexRef, { kind: "session" }>,
+  ref: Extract<UpravaRef, { kind: "session" }>,
   context: InspectorContext,
 ): InspectorDetail {
   const session =
@@ -494,7 +494,7 @@ function sessionDetail(
 }
 
 function runtimeDetail(
-  ref: Extract<CortexRef, { kind: "runtime" }>,
+  ref: Extract<UpravaRef, { kind: "runtime" }>,
   context: InspectorContext,
 ): InspectorDetail {
   const session =
@@ -531,7 +531,7 @@ function runtimeDetail(
 }
 
 function turnDetail(
-  ref: Extract<CortexRef, { kind: "turn" }>,
+  ref: Extract<UpravaRef, { kind: "turn" }>,
   context: InspectorContext,
 ): InspectorDetail {
   const messages =
@@ -565,7 +565,7 @@ function turnDetail(
 }
 
 function messageDetail(
-  ref: Extract<CortexRef, { kind: "message" }>,
+  ref: Extract<UpravaRef, { kind: "message" }>,
   context: InspectorContext,
 ): InspectorDetail {
   const message = context.session?.messages.find(
@@ -589,7 +589,7 @@ function messageDetail(
 }
 
 function artifactDetail(
-  ref: Extract<CortexRef, { kind: "artifact" }>,
+  ref: Extract<UpravaRef, { kind: "artifact" }>,
   context: InspectorContext,
 ): InspectorDetail {
   const node = context.artifactTree
@@ -614,7 +614,7 @@ function artifactDetail(
 }
 
 function eventDetail(
-  ref: Extract<CortexRef, { kind: "event" }>,
+  ref: Extract<UpravaRef, { kind: "event" }>,
   context: InspectorContext,
 ): InspectorDetail {
   const event = context.session?.events.find(
@@ -658,7 +658,7 @@ function eventDetail(
 }
 
 function commandDetail(
-  ref: Extract<CortexRef, { kind: "command" }>,
+  ref: Extract<UpravaRef, { kind: "command" }>,
   context: InspectorContext,
 ): InspectorDetail {
   const events =
@@ -692,7 +692,7 @@ function commandDetail(
 }
 
 function approvalDetail(
-  ref: Extract<CortexRef, { kind: "approval" }>,
+  ref: Extract<UpravaRef, { kind: "approval" }>,
   context: InspectorContext,
 ): InspectorDetail {
   const events =
@@ -728,7 +728,7 @@ function approvalDetail(
 }
 
 function warningDetail(
-  ref: Extract<CortexRef, { kind: "warning" }>,
+  ref: Extract<UpravaRef, { kind: "warning" }>,
   context: InspectorContext,
 ): InspectorDetail {
   const activeBadge = findWarningBadge(ref.warning_kind, context);
@@ -760,7 +760,7 @@ function warningDetail(
   };
 }
 
-function notAvailable(ref: CortexRef, reason: string): InspectorDetail {
+function notAvailable(ref: UpravaRef, reason: string): InspectorDetail {
   return {
     title: refTitle(ref),
     status: "not_available",
@@ -774,7 +774,7 @@ function notAvailable(ref: CortexRef, reason: string): InspectorDetail {
   };
 }
 
-function eventRef(event: EventEnvelope): CortexRef {
+function eventRef(event: EventEnvelope): UpravaRef {
   return {
     kind: "event",
     event_id: event.event_id,
@@ -834,7 +834,7 @@ function messageRefs(message: Message): InspectorRefLink[] {
   return refs;
 }
 
-function refLinks(label: string, refs: CortexRef[]): InspectorRefLink[] {
+function refLinks(label: string, refs: UpravaRef[]): InspectorRefLink[] {
   return refs.map((ref, index) => ({
     label: `${label} ${index + 1}`,
     ref,

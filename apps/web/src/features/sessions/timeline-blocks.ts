@@ -1,5 +1,5 @@
 import type {
-  CortexRef,
+  UpravaRef,
   EventEnvelope,
   Message,
   SessionDetail,
@@ -374,11 +374,11 @@ function blockTypeForEvent(event: EventEnvelope) {
   return "core.runtime-event";
 }
 
-function primaryRefForEvent(event: EventEnvelope): CortexRef {
+function primaryRefForEvent(event: EventEnvelope): UpravaRef {
   return eventRef(event);
 }
 
-function eventRef(event: EventEnvelope): CortexRef {
+function eventRef(event: EventEnvelope): UpravaRef {
   return {
     kind: "event",
     event_id: event.event_id,
@@ -403,14 +403,14 @@ function baseBlock({
 }: {
   blockId: string;
   type: string;
-  primaryRef: CortexRef;
+  primaryRef: UpravaRef;
   data: unknown;
-  parentRef?: CortexRef | null;
-  sourceRefs?: CortexRef[];
-  evidenceRefs?: CortexRef[];
-  causeRefs?: CortexRef[];
-  relatedRefs?: CortexRef[];
-  traceRefs?: CortexRef[];
+  parentRef?: UpravaRef | null;
+  sourceRefs?: UpravaRef[];
+  evidenceRefs?: UpravaRef[];
+  causeRefs?: UpravaRef[];
+  relatedRefs?: UpravaRef[];
+  traceRefs?: UpravaRef[];
   actions?: string[];
   fallbackText?: string | null;
 }): UiBlock {

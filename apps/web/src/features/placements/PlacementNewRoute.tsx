@@ -19,7 +19,7 @@ export function PlacementNewRoute() {
   const navigate = useNavigate();
   const queryClient = useQueryClient();
   const inventory = useInventory();
-  const [displayName, setDisplayName] = useState("cortex");
+  const [displayName, setDisplayName] = useState("uprava");
   const [workspacePath, setWorkspacePath] = useState(DEFAULT_WORKSPACE_PATH);
   const nodePlacements =
     inventory.data?.placements.filter(

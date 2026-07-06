@@ -1,4 +1,4 @@
-# Cortex Tech Stack
+# Uprava Tech Stack
 
 Статус: `draft`
 
@@ -23,7 +23,7 @@ Playwright
 Rust tooling: cargo, rust-analyzer, rustfmt, clippy, bacon, nextest, audit, deny, taplo
 ```
 
-Next.js 16 App Router пока не берем как базу V01. Причина не в том, что Next.js плохой, а в том, что у Cortex уже есть Rust Core Backend. В первой версии продукта не хочется создавать второй backend/BFF слой на Node.js без сильной причины.
+Next.js 16 App Router пока не берем как базу V01. Причина не в том, что Next.js плохой, а в том, что у Uprava уже есть Rust Core Backend. В первой версии продукта не хочется создавать второй backend/BFF слой на Node.js без сильной причины.
 
 ## Архитектурная позиция
 
@@ -211,7 +211,7 @@ Next.js может вернуться позже, если появится од
 
 shadcn/ui берем как convention and component source model, а не как внешний black-box component library.
 
-Это хорошо совпадает с Cortex:
+Это хорошо совпадает с Uprava:
 
 - компоненты лежат в коде проекта;
 - их можно адаптировать под продукт;
@@ -314,12 +314,12 @@ Tauri v2 не является foundation для V01, но остается си
 
 ```text
 crates/
-  cortex-core/        shared domain model and contracts
-  cortex-server/      Core Backend
-  cortex-node/        Node Daemon
-  cortex-client/      Rust API client
-  cortex-tools/       tool/plugin contracts
-  cortex-events/      event and trace contracts
+  uprava-core/        shared domain model and contracts
+  uprava-server/      Core Backend
+  uprava-node/        Node Daemon
+  uprava-client/      Rust API client
+  uprava-tools/       tool/plugin contracts
+  uprava-events/      event and trace contracts
 
 apps/
   web/                React + Vite Web Control Panel

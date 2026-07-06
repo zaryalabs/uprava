@@ -1,10 +1,10 @@
 import { describe, expect, it } from "vitest";
 
-import type { CortexRef } from "../../shared/protocol/types";
+import type { UpravaRef } from "../../shared/protocol/types";
 import {
-  decodeCortexRef,
+  decodeUpravaRef,
   decodeInspectorStack,
-  encodeCortexRef,
+  encodeUpravaRef,
   INSPECT_QUERY_PARAM,
   popInspectorRef,
   pushInspectorRef,
@@ -14,15 +14,15 @@ import {
 } from "./refs";
 
 describe("reference helpers", () => {
-  it("round-trips a single cortex ref", () => {
-    const ref: CortexRef = { kind: "message", message_id: "message-1" };
+  it("round-trips a single uprava ref", () => {
+    const ref: UpravaRef = { kind: "message", message_id: "message-1" };
 
-    expect(decodeCortexRef(encodeCortexRef(ref))).toEqual(ref);
+    expect(decodeUpravaRef(encodeUpravaRef(ref))).toEqual(ref);
     expect(refTitle(ref)).toBe("message message-1");
   });
 
   it("round-trips reserved future refs through inspector URLs", () => {
-    const refs: CortexRef[] = [
+    const refs: UpravaRef[] = [
       { kind: "project", project_id: "project-1" },
       { kind: "workspace", placement_id: "placement-1" },
       { kind: "file", placement_id: "placement-1", path: "src/main.rs" },
@@ -83,7 +83,7 @@ describe("reference helpers", () => {
       new URLSearchParams(),
     );
 
-    expect(refs.map((ref) => decodeCortexRef(encodeCortexRef(ref)))).toEqual(
+    expect(refs.map((ref) => decodeUpravaRef(encodeUpravaRef(ref)))).toEqual(
       refs,
     );
     expect(decodeInspectorStack(params.get(INSPECT_QUERY_PARAM))).toEqual(
@@ -122,11 +122,11 @@ describe("reference helpers", () => {
   });
 
   it("keeps inspector refs as a stack without duplicating the active ref", () => {
-    const sessionRef: CortexRef = {
+    const sessionRef: UpravaRef = {
       kind: "session",
       session_thread_id: "session-1",
     };
-    const eventRef: CortexRef = {
+    const eventRef: UpravaRef = {
       kind: "event",
       event_id: "event-1",
       scope_ref: sessionRef,

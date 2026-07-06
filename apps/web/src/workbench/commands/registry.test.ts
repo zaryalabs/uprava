@@ -144,7 +144,7 @@ describe("workbench command registry", () => {
 
   it("opens and copies references through injected command context", async () => {
     const ref = { kind: "session" as const, session_thread_id: "session-1" };
-    const opened: import("../../shared/protocol/types").CortexRef[] = [];
+    const opened: import("../../shared/protocol/types").UpravaRef[] = [];
     let copied = "";
 
     expect(
@@ -211,7 +211,7 @@ function placementWithHardBlock(hardBlock: boolean): ProjectPlacementSummary {
     project_placement_id: "placement-1",
     project_id: null,
     node_id: "node-1",
-    display_name: "cortex",
+    display_name: "uprava",
     workspace_path: "/workspace",
     state: "validated",
     resource_badges: hardBlock

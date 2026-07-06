@@ -5,22 +5,22 @@
 Этот документ фиксирует рабочую позицию по ключевой механике `A-009 Human-Agent
 Dual Interface and Agent as First-Class Citizen`.
 
-Главная позиция: Cortex UI должен быть одновременно удобен человеку и
+Главная позиция: Uprava UI должен быть одновременно удобен человеку и
 машинно-читаем для авторизованного агента. Это не означает, что агент смотрит
 на скриншот или получает доступ к произвольному DOM. Это означает, что важные
 UI objects, artifacts, selections, statuses and actions имеют стабильное
-семантическое представление, основанное на Cortex references, permissions,
+семантическое представление, основанное на Uprava references, permissions,
 commands, source/evidence/cause links and runtime state.
 
 Короткая формула:
 
 ```text
-Every meaningful Cortex UI object should be understandable, referenceable,
+Every meaningful Uprava UI object should be understandable, referenceable,
 navigable and actionable by both a human and an authorized agent.
 ```
 
 Важное решение: агентский доступ к Core-level UI/context/actions должен
-строиться через **Cortex CLI-first interface**, а не через MCP как первичный
+строиться через **Uprava CLI-first interface**, а не через MCP как первичный
 контракт. MCP может появиться позже как adapter поверх тех же команд, но
 архитектурный source-of-truth для internal agent control должен быть CLI/API
 contract, общий с Core command registry and permissions.
@@ -47,14 +47,14 @@ contract, общий с Core command registry and permissions.
   хотя им нужны похожие primitives: labels, roles, state, navigation and
   actions.
 
-Cortex должен быть не chat with panels, а shared work surface for human-agent
+Uprava должен быть не chat with panels, а shared work surface for human-agent
 work. Значит, интерфейс должен быть видимой моделью, с которой работают оба:
 человек через visual UI, keyboard, mouse, touch and screen reader; агент через
 permission-scoped semantic context and commands.
 
 ### Главная модель
 
-У Cortex UI есть две синхронные формы:
+У Uprava UI есть две синхронные формы:
 
 ```text
 Human UI
@@ -75,7 +75,7 @@ Agent-readable UI не является:
 
 Agent-readable UI является:
 
-- semantic projection of Cortex objects;
+- semantic projection of Uprava objects;
 - Core-resolvable and permission-scoped;
 - built from `Surface`, `Block`, `Artifact`, `Reference`, `Selection`,
   `Command`, `Context`, `NavigableObject`, `Trace/Event` and `Permission`;
@@ -85,7 +85,7 @@ Agent-readable UI является:
 Базовая модель:
 
 ```text
-Web UI observes current Cortex state
+Web UI observes current Uprava state
 -> surfaces/blocks/renderers expose semantic descriptors
 -> Core resolves refs, permissions and command availability
 -> UI context snapshot is produced for current user/session/agent scope
@@ -127,7 +127,7 @@ keyboard accessibility, mobile UX and automation будут вторичными
 
 ### Agent as First-Class Citizen
 
-Агент в Cortex должен быть видимым участником системы, а не скрытым процессом
+Агент в Uprava должен быть видимым участником системы, а не скрытым процессом
 за текстовым ответом.
 
 Для этого UI должен показывать:
@@ -174,7 +174,7 @@ evidence and cause.
 - агент начнет работать через screenshot/DOM automation, обходя Core refs,
   permissions, commands and trace.
 
-Для Cortex оба варианта слабые. Продуктовая сила здесь в том, что UI становится
+Для Uprava оба варианта слабые. Продуктовая сила здесь в том, что UI становится
 shared semantic work surface.
 
 ## Пользовательские сценарии
@@ -188,7 +188,7 @@ terminal output, diff hunk or artifact report и выбирает:
 Ask agent about this
 ```
 
-Cortex передает агенту не только raw selected text:
+Uprava передает агенту не только raw selected text:
 
 ```text
 selection text
@@ -245,15 +245,15 @@ required_permission: workspace.write
 
 ### 4. Agent operates the workbench through CLI
 
-Агентская runtime среда получает доступ к Cortex CLI. Вместо кликов по
+Агентская runtime среда получает доступ к Uprava CLI. Вместо кликов по
 координатам агент делает:
 
 ```text
-cortex ui context --session <id>
-cortex ui actions --ref <ref>
-cortex ui invoke ask-agent --ref <ref> --prompt "Explain risk"
-cortex ref resolve <ref>
-cortex navigate open <ref>
+uprava ui context --session <id>
+uprava ui actions --ref <ref>
+uprava ui invoke ask-agent --ref <ref> --prompt "Explain risk"
+uprava ref resolve <ref>
+uprava navigate open <ref>
 ```
 
 Имена команд здесь illustrative. Важно не naming, а решение: stable CLI/API
@@ -415,12 +415,12 @@ result event
 Agent action не должен обходить Core command registry. Даже если агент
 получает context через CLI, privileged work проходит через Core.
 
-#### Cortex CLI
+#### Uprava CLI
 
-`Cortex CLI` - primary machine interface for agents and automation.
+`Uprava CLI` - primary machine interface for agents and automation.
 
 CLI должен быть Rust-based client over Core API, переиспользующий shared API
-client and domain types. Возможное имя бинаря (`cortex`, `cortexctl` or
+client and domain types. Возможное имя бинаря (`uprava`, `upravactl` or
 другое) остается naming detail.
 
 CLI отвечает за:
@@ -438,7 +438,7 @@ MCP adapter может появиться позже, но как secondary adap
 
 ```text
 MCP tool call
--> Cortex CLI/API command
+-> Uprava CLI/API command
 -> Core permission/command registry
 -> event/trace/result
 ```
@@ -448,14 +448,14 @@ MCP tool call
 
 ### CLI-first decision
 
-Решение: agent access to Cortex Core should be CLI-first.
+Решение: agent access to Uprava Core should be CLI-first.
 
 Причины:
 
 - CLI проще сделать стабильным internal contract для Rust workspace;
 - CLI одинаково полезен агентам, людям, scripts, tests and CI;
 - CLI может переиспользовать shared API client and type definitions;
-- CLI не привязывает Cortex к MCP lifecycle and semantics;
+- CLI не привязывает Uprava к MCP lifecycle and semantics;
 - CLI хорошо ложится на provider adapters, где многие агенты уже умеют
   вызывать shell commands;
 - CLI легче версионировать и использовать как debugging surface;
@@ -464,7 +464,7 @@ MCP tool call
 Что это не означает:
 
 - MCP не запрещен;
-- Cortex не отказывается от MCP integrations;
+- Uprava не отказывается от MCP integrations;
 - external tools/plugins still may expose MCP servers;
 - future MCP gateway can exist for compatibility.
 
@@ -480,22 +480,22 @@ Core still owns permissions, command routing, event log and trace.
 Имена команд preliminary:
 
 ```text
-cortex ui context
-cortex ui tree
-cortex ui focused
-cortex ui selection
-cortex ui actions --ref <ref>
-cortex ui invoke <command-id> --ref <ref> --input <json>
+uprava ui context
+uprava ui tree
+uprava ui focused
+uprava ui selection
+uprava ui actions --ref <ref>
+uprava ui invoke <command-id> --ref <ref> --input <json>
 
-cortex ref resolve <ref>
-cortex ref open <ref>
-cortex ref related <ref>
+uprava ref resolve <ref>
+uprava ref open <ref>
+uprava ref related <ref>
 
-cortex session context attach <session> <ref>
-cortex session ask <session> --ref <ref> --prompt <text>
+uprava session context attach <session> <ref>
+uprava session ask <session> --ref <ref> --prompt <text>
 
-cortex trace source <ref>
-cortex trace cause <ref>
+uprava trace source <ref>
+uprava trace cause <ref>
 ```
 
 Для agent runtime важны machine-readable outputs:
@@ -671,7 +671,7 @@ It does not grant ownership, authority or bypass rights.
 | Agent requests hidden context | Deny and record policy event if relevant. |
 | CLI cannot reach Core | Return transport error; agent should not pretend context is current. |
 | MCP adapter diverges from CLI | CLI/API contract wins. |
-| External embed is opaque | Cortex exposes embed boundary, metadata and allowed actions only. |
+| External embed is opaque | Uprava exposes embed boundary, metadata and allowed actions only. |
 
 ### Relationship with A-004 Modular UI and Work Surface
 
@@ -708,7 +708,7 @@ permissions
 source/evidence/cause refs
 ```
 
-If generated UI is sandboxed executable code, Cortex may only expose the
+If generated UI is sandboxed executable code, Uprava may only expose the
 sandbox boundary unless the artifact package provides an approved semantic
 bridge.
 
@@ -747,10 +747,10 @@ Plugins should be able to contribute:
 - accessibility metadata.
 
 MCP belongs in A-007 as one integration/tool protocol. For A-009, MCP is not
-the primary interface between agents and Cortex Core. The primary interface is:
+the primary interface between agents and Uprava Core. The primary interface is:
 
 ```text
-Core API + Cortex CLI + shared command/ref/context contracts
+Core API + Uprava CLI + shared command/ref/context contracts
 ```
 
 ### Quality questions
@@ -759,7 +759,7 @@ For every important UI surface/block/action:
 
 - Can a human reach it by keyboard?
 - Does it have meaningful accessible labels and focus behavior?
-- Does it expose stable Cortex refs?
+- Does it expose stable Uprava refs?
 - Can an authorized agent understand what it is without a screenshot?
 - Are available actions command-backed?
 - Are disabled actions explained?
@@ -771,7 +771,7 @@ For every important UI surface/block/action:
 
 ## Рабочая формула
 
-Human-Agent Dual Interface is the Cortex mechanism for making the same work
+Human-Agent Dual Interface is the Uprava mechanism for making the same work
 surface usable by humans and agents.
 
 Human UI gives visual interaction, keyboard navigation and accessibility.
@@ -779,6 +779,6 @@ Agent-readable UI gives semantic context, refs, state, actions, permissions and
 causality links. Context actions such as right-click "Ask agent" and selection
 popup prompts are entry points into the same command-backed model.
 
-Agent access to Cortex Core should be CLI-first. MCP can be added later as a
+Agent access to Uprava Core should be CLI-first. MCP can be added later as a
 compatibility adapter, but the source-of-truth contract should be Core API,
-Cortex CLI, command registry, references, permissions and trace.
+Uprava CLI, command registry, references, permissions and trace.

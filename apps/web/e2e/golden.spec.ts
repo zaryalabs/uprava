@@ -3,7 +3,7 @@ import { expect, test } from "@playwright/test";
 test("renders the control panel shell", async ({ page }) => {
   await page.goto("/");
 
-  await expect(page.getByRole("link", { name: "Cortex" })).toBeVisible();
+  await expect(page.getByRole("link", { name: "Uprava" })).toBeVisible();
   await expect(page.getByRole("heading", { name: "Dashboard" })).toBeVisible();
   await expect(
     page.getByRole("navigation", { name: "Primary navigation" }),
@@ -34,7 +34,7 @@ test("renders warning badges and structured session blocks from snapshots", asyn
   await page.getByRole("button", { name: "Validate" }).click();
   await expect(page.getByText("Workspace validation failed")).toBeVisible();
   await expect(page.getByText("placement.invalid")).toBeVisible();
-  await page.getByLabel("Workspace path").fill("/workspace/cortex");
+  await page.getByLabel("Workspace path").fill("/workspace/uprava");
   await page.getByRole("button", { name: "Validate" }).click();
   await expect(page).toHaveURL(/\/workspaces\/placement-1$/);
   await expect.poll(() => core.validationAttempts).toBe(2);
@@ -183,8 +183,8 @@ const placement = {
   project_placement_id: "placement-1",
   project_id: "project-1",
   node_id: "node-1",
-  display_name: "Cortex",
-  workspace_path: "/workspace/cortex",
+  display_name: "Uprava",
+  workspace_path: "/workspace/uprava",
   state: "validated",
   resource_badges: [
     { kind: "dirty_workspace", severity: "warning", label: "Dirty workspace" },

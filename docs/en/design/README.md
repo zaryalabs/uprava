@@ -1,14 +1,14 @@
-# Cortex Design Phase
+# Uprava Design Phase
 
 Status: `draft`
 
-This section exists for deep work on Cortex **key mechanisms**.
+This section exists for deep work on Uprava **key mechanisms**.
 
 Here, design does not mean a list of internal modules, tables, and APIs. It
 means hierarchical work on large product and architecture decisions:
 
 1. First, formulate the vision of a key mechanism: the core idea, product logic,
-   and why it matters for Cortex.
+   and why it matters for Uprava.
 2. Then expand the vision into architecture: entities, boundaries, scenarios,
    lifecycle, contracts, artifacts/events, storage, permissions, UI
    consequences, and quality checks.
@@ -19,7 +19,7 @@ conceptual model to technical contracts.
 
 ## What Is a Key Mechanism
 
-A key mechanism is a large product-architecture mechanism in Cortex that defines
+A key mechanism is a large product-architecture mechanism in Uprava that defines
 the work model for the user, agent, UI, and backend system.
 
 It is not a separate code module, private feature, or user flow. A key mechanism
@@ -28,7 +28,7 @@ but the mechanism itself describes **how an important part of the system works**
 
 Examples of key mechanisms:
 
-- distributed architecture: how Cortex implements the Core / Node Daemon /
+- distributed architecture: how Uprava implements the Core / Node Daemon /
   clients model;
 - distributed runtime coordination: how Core coordinates runtime work on
   concrete Node/workspace placements, dispatch, events, stale/offline behavior,
@@ -39,11 +39,11 @@ Examples of key mechanisms:
   adapters, and visual blocks connect;
 - dynamic UI: how an agent can return a form, dashboard, graph, embedded view,
   or another interactive block;
-- visual rendering and artifact semantics: where and how Cortex renders visual
+- visual rendering and artifact semantics: where and how Uprava renders visual
   objects, what is source-of-truth, and when a view becomes an artifact;
 - go to source / causality navigation: how the user moves from a result, diff,
   error, or artifact to source, evidence, and cause;
-- run mode: how Cortex runs agent work through Persistent Runtime,
+- run mode: how Uprava runs agent work through Persistent Runtime,
   stateless/ephemeral runtime, or hybrid strategy, and how interactive session
   and bounded task contracts differ on top of that;
 - human-agent dual interface: how humans and agents work with one visible model,
@@ -105,7 +105,7 @@ states, contracts, storage, and permissions live in `Architecture`.
 
 These principles should run through all key mechanisms:
 
-- Cortex is a Distributed Agent OS, not agent chat with panels.
+- Uprava is a Distributed Agent OS, not agent chat with panels.
 - Agent output is not accepted work.
 - The product should reduce the cost of review, handoff, return, and ownership
   decisions.
@@ -135,12 +135,12 @@ These principles should run through all key mechanisms:
 | A-001 | Distributed architecture | How exactly do we implement the distributed model? What is Core/control plane, what remains Node Daemon/data plane, how do clients work through Core, and where are the host/node/workspace/session boundaries? | Working position on the Core / Node Daemon / clients model, deployment profiles, and responsibility boundaries. |
 | A-002 | Run Mode | What is Run Mode as one mechanism for starting agent work? How do Persistent Runtime, stateless/ephemeral runtime, and hybrid strategy work? How do interactive session and bounded task contracts differ on top of runtime strategy? Where are the boundaries between project, workspace, node, thread, turn, run, and agent process? | Run Mode concept for V01 and beyond: Persistent Runtime first, managed process lifetime, lifecycle, visible surface, review points, and constraints for future stateless/sandboxed strategies. |
 | A-003 | Distributed Runtime Coordination | How does Core coordinate runtime work between session thread, runtime session, workspace placement, and Node? How are commands dispatched, events ordered, and node/workspace tree, stale/offline state, resource warning badges, and overrides shown in UI? How do git repo/branch signals show possible conflicts without a lock system? | Working coordination-layer model for V01: Nodes -> Projects/Workspaces tree, command proxy, idempotency, event ordering, resource signals, warning badges, override events, and reuse by future task/sandbox runtimes. |
-| A-004 | Modular UI and work surface | What does modular UI mean for Cortex? Is it Notion-like blocks, IDE/workbench panels, Obsidian-like navigation, plugin-rendered surfaces, or a hybrid? Where are the boundaries between pages, panels, blocks, artifacts, integration surfaces, and extension points? | Work surface model: layout, blocks, panels, navigation, plugin surfaces, and constraints for React/Vite UI. |
+| A-004 | Modular UI and work surface | What does modular UI mean for Uprava? Is it Notion-like blocks, IDE/workbench panels, Obsidian-like navigation, plugin-rendered surfaces, or a hybrid? Where are the boundaries between pages, panels, blocks, artifacts, integration surfaces, and extension points? | Work surface model: layout, blocks, panels, navigation, plugin surfaces, and constraints for React/Vite UI. |
 | A-005 | Dynamic UI from agents | How should an agent return a form, dashboard, chart, graph, embedded tool, or custom block? Is this schema-driven UI, prebuilt block types, sandboxed components, generated code, or plugin-owned renderer? | Dynamic UI concept: what the agent can produce itself, what must be pre-registered, and where the safety boundary is. |
-| A-006 | Visual rendering and artifact semantics | Where and how does Cortex render visual objects: inline Markdown diagrams, editor/viewer enhancements, diff/terminal/test views, charts, dashboards, external previews, and artifacts? What is source-of-truth, when does a visual view become an artifact, and which refs/actions/fallbacks are needed? | Cross-cutting visual object semantics model: source-of-truth, rendering scope, addressability, actions, fallback, ownership, cause refs, and artifact promotion. |
+| A-006 | Visual rendering and artifact semantics | Where and how does Uprava render visual objects: inline Markdown diagrams, editor/viewer enhancements, diff/terminal/test views, charts, dashboards, external previews, and artifacts? What is source-of-truth, when does a visual view become an artifact, and which refs/actions/fallbacks are needed? | Cross-cutting visual object semantics model: source-of-truth, rendering scope, addressability, actions, fallback, ownership, cause refs, and artifact promotion. |
 | **A-007** | Plugins, Tool Registry and MCP strategy | Where does Tool Registry live? Do we need a Core-level MCP gateway/proxy? Or should MCP live closer to Node Daemon, agent process, plugin adapter, or external provider? How do we compare MCP, native adapters, and hybrid adapters? | Tools/plugins/integrations model: registry, execution location, routing, permissions, events, and visual output. |
 | A-008 | Go to source and causality UX | How do we make an equivalent of go to definition, but for agent work? How does a user go from answer, diff line, failed check, artifact, decision, status, or UI block to source/evidence/cause: prompt/context/tool call/command/event/file change/raw log? What is a source/cause graph, and what is log noise? | Causality UI/UX model: navigation from result to source, evidence, and cause, with a minimum source/cause link model that does not dump raw trace. |
-| **A-009** | Human-agent dual interface and Agent as First-Class Citizen | How do we make UI understandable to both humans and agents? What are machine-readable UI state, context entry points, internal Cortex agent, chat over UI element, agent identity, capabilities, status, memory, permissions, and ownership? | Dual-interface model where the agent is a visible system participant, not a hidden process behind text chat. |
+| **A-009** | Human-agent dual interface and Agent as First-Class Citizen | How do we make UI understandable to both humans and agents? What are machine-readable UI state, context entry points, internal Uprava agent, chat over UI element, agent identity, capabilities, status, memory, permissions, and ownership? | Dual-interface model where the agent is a visible system participant, not a hidden process behind text chat. |
 | A-010 | Project Workspace Surface | How does the user see and change a concrete agent workspace? Where do file tree, file viewer/editor, terminal/PTY, command history, diff/check views, and "open full IDE" sidecar live? How do Core/Node Daemon provide permissions, path boundaries, edit lifecycle, trace, and addressable workspace refs? | Post-V01 workspace surface model: inspect-first, edit-light, terminal-capable, traceable, with optional full IDE sidecar later. |
 
 Not every important topic is a separate key mechanism. Some should stay as user
@@ -179,7 +179,7 @@ The design phase will be useful if, after it, we understand:
 
 - each key mechanism in the map has a design doc with a root `Vision` and an
   `Architecture` scaffold;
-- how the key Cortex mechanisms work: distributed architecture, run mode,
+- how the key Uprava mechanisms work: distributed architecture, run mode,
   distributed runtime coordination, modular UI, plugins/tools, dynamic UI, and
   visual rendering/artifact semantics;
 - which decisions are required for V01 and which only constrain the

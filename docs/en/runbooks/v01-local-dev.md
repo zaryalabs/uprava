@@ -25,9 +25,9 @@ make node-r
 make web-r
 ```
 
-`make node-r` defaults `CORTEX_NODE_WORKSPACES` to this repository root so the
+`make node-r` defaults `UPRAVA_NODE_WORKSPACES` to this repository root so the
 Node has an explicit workspace allow-list without reopening the old unrestricted
-workspace behavior. Set `CORTEX_NODE_WORKSPACES` before running the target when
+workspace behavior. Set `UPRAVA_NODE_WORKSPACES` before running the target when
 you want the host Node to manage a different local workspace tree.
 
 Default ports and paths:
@@ -35,33 +35,33 @@ Default ports and paths:
 - Core API: `http://127.0.0.1:8080/api/v1`
 - Web UI: `http://127.0.0.1:5173`
 - Core SQLite: `.local/state/core.sqlite`
-- Node local state: `~/.local/share/cortex-node/node.json`
+- Node local state: `~/.local/share/uprava-node/node.json`
 - Core process log: `.local/logs/core.log`
 - Node process log: `.local/logs/node.log`
 - Browser client log accepted by Core: `.local/logs/client.log`
-- Runtime idle expiry: `CORTEX_RUNTIME_EXPIRY_SECONDS`, default `86400`
-- Browser CORS origins: `CORTEX_ALLOWED_ORIGINS`, default
+- Runtime idle expiry: `UPRAVA_RUNTIME_EXPIRY_SECONDS`, default `86400`
+- Browser CORS origins: `UPRAVA_ALLOWED_ORIGINS`, default
   `http://127.0.0.1:5173,http://localhost:5173`
-- Web auth mode: `CORTEX_WEB_AUTH`, default `auto`
-- Web session TTL: `CORTEX_WEB_SESSION_TTL_SECONDS`, default `86400`
-- Secure cookie flag: `CORTEX_COOKIE_SECURE`, default `false` for local HTTP
+- Web auth mode: `UPRAVA_WEB_AUTH`, default `auto`
+- Web session TTL: `UPRAVA_WEB_SESSION_TTL_SECONDS`, default `86400`
+- Secure cookie flag: `UPRAVA_COOKIE_SECURE`, default `false` for local HTTP
 
 Core creates and migrates the SQLite schema on startup. Migration coverage
 includes a clean empty database and the previous dev `nodes` table shape without
 `credential_hash`. For local-only recovery, stop Core/Node first, copy
-`.local/state/core.sqlite` and `~/.local/share/cortex-node/node.json` aside if
+`.local/state/core.sqlite` and `~/.local/share/uprava-node/node.json` aside if
 you need evidence, then delete the broken local state or use `make
 compose-reset` for the Compose volume.
 
 ## Security Profile
 
 `controlled_dev` is the only supported V01 development profile. Browser auth is
-enabled by default with `CORTEX_WEB_AUTH=auto`; `local_trusted` and
-`CORTEX_WEB_AUTH=disabled` are rejected at startup.
+enabled by default with `UPRAVA_WEB_AUTH=auto`; `local_trusted` and
+`UPRAVA_WEB_AUTH=disabled` are rejected at startup.
 
 - Web shows first-run local password setup, then requires login.
 - Core issues an `HttpOnly`, `SameSite=Lax` session cookie and a CSRF cookie.
-- Browser mutations must send `x-cortex-csrf`; the Web client does this from
+- Browser mutations must send `x-uprava-csrf`; the Web client does this from
   the CSRF cookie.
 - Core checks configured browser origins and records security audit events for
   setup/login/logout, rejected auth, CSRF failures, enrollment, revoke and
@@ -69,10 +69,10 @@ enabled by default with `CORTEX_WEB_AUTH=auto`; `local_trusted` and
 - Node heartbeat and control-channel auth use bearer credentials. Core stores
   only credential hashes and verifies them with constant-time comparison.
 
-For HTTPS or a TLS-terminating proxy, set `CORTEX_COOKIE_SECURE=true`. For
+For HTTPS or a TLS-terminating proxy, set `UPRAVA_COOKIE_SECURE=true`. For
 local HTTP development, leave it disabled or the browser will not return the
 session cookie. Node enrollment always requires explicit approval; the old
-`CORTEX_AUTO_APPROVE_ENROLLMENTS=true` development shortcut is rejected.
+`UPRAVA_AUTO_APPROVE_ENROLLMENTS=true` development shortcut is rejected.
 
 ## Docker Compose
 
@@ -100,9 +100,9 @@ auth setup/login before approving the synthetic Node enrollment. Compose does
 not require Codex; the Node advertises the real `provider.codex` capability with
 `available=false` when the Codex binary is absent in the container.
 
-Core rejects browser CORS origins outside `CORTEX_ALLOWED_ORIGINS`; the default
+Core rejects browser CORS origins outside `UPRAVA_ALLOWED_ORIGINS`; the default
 allows the local Vite Web UI on `127.0.0.1` and `localhost`. For a controlled
-development host or forwarded port, set `CORTEX_ALLOWED_ORIGINS` to the exact
+development host or forwarded port, set `UPRAVA_ALLOWED_ORIGINS` to the exact
 comma-separated browser origins that should reach Core. Wildcard origins are
 rejected.
 
@@ -127,16 +127,16 @@ not be started by the Make target.
 ## Node Enrollment
 
 For a host-running Node that should manage a workspace outside this repository,
-set `CORTEX_NODE_WORKSPACES` to one or more explicit allowed workspace roots
+set `UPRAVA_NODE_WORKSPACES` to one or more explicit allowed workspace roots
 before starting the Node:
 
 ```sh
-export CORTEX_NODE_WORKSPACES=/path/to/workspace-root
+export UPRAVA_NODE_WORKSPACES=/path/to/workspace-root
 make node-r
 ```
 
 The Node writes local development state to
-`~/.local/share/cortex-node/node.json` by default and logs the short-lived
+`~/.local/share/uprava-node/node.json` by default and logs the short-lived
 `enrollment_id`. That state includes a stable `daemon_installation_id` used for
 local diagnostics; the pairing code stays in local Node state for the claim
 request and is not logged. Approve the enrollment through Core:
@@ -201,7 +201,7 @@ active runtime ids from that projection. `runtime.ready`, `runtime.running`,
 
 ## Logs And Redaction
 
-Use `RUST_LOG=info,cortex_server=debug,cortex_node=debug` for local diagnosis.
+Use `RUST_LOG=info,uprava_server=debug,uprava_node=debug` for local diagnosis.
 Core and Node write the same tracing stream to stderr and append local files by
 default:
 
@@ -214,15 +214,15 @@ tail -f .local/logs/client.log
 Override the file locations when running outside the repository root:
 
 ```sh
-export CORTEX_CORE_LOG_FILE=/tmp/cortex-core.log
-export CORTEX_NODE_LOG_FILE=/tmp/cortex-node.log
-export CORTEX_CLIENT_LOG_FILE=/tmp/cortex-client.log
+export UPRAVA_CORE_LOG_FILE=/tmp/uprava-core.log
+export UPRAVA_NODE_LOG_FILE=/tmp/uprava-node.log
+export UPRAVA_CLIENT_LOG_FILE=/tmp/uprava-client.log
 ```
 
 The Web client installs global `error` and `unhandledrejection` handlers and
 logs failed Core API calls and session-stream errors to
 `POST /api/v1/client/logs`. Core stores those records as JSONL in
-`CORTEX_CLIENT_LOG_FILE`, including browser route, user agent, client timestamp,
+`UPRAVA_CLIENT_LOG_FILE`, including browser route, user agent, client timestamp,
 source, level, message and bounded diagnostic detail.
 
 Core emits structured logs for enrollment create/approve/claim, heartbeat
@@ -299,11 +299,11 @@ The Node can also run a minimal Codex adapter when a session is created with
 `provider: "codex"`. Configure it with:
 
 ```sh
-export CORTEX_CODEX_BINARY=codex
-export CORTEX_CODEX_TIMEOUT_SECONDS=120
+export UPRAVA_CODEX_BINARY=codex
+export UPRAVA_CODEX_TIMEOUT_SECONDS=120
 ```
 
-Node advertises `provider.codex` as available only when `CORTEX_CODEX_BINARY`
+Node advertises `provider.codex` as available only when `UPRAVA_CODEX_BINARY`
 is either an existing path or resolves through `PATH`; otherwise Core preflight
 can reject Codex session start or turn commands with a missing provider
 capability instead of waiting for runtime execution to fail.
@@ -378,12 +378,12 @@ warnings, recent message refs, available commands and a safe resume context.
 Runtime-scoped events update `last_runtime_step_at`; healthy runtime events
 such as `runtime.ready` clear degraded runtime/session read-model state. Core
 expires ready, running, blocked or stale runtimes after
-`CORTEX_RUNTIME_EXPIRY_SECONDS` without runtime activity by recording a
+`UPRAVA_RUNTIME_EXPIRY_SECONDS` without runtime activity by recording a
 system-authored `runtime.expired` event. Expired runtimes reject new turns but
 remain resumable when the provider adapter supports resume.
 The session SSE endpoint sends persisted historical events first and then keeps
 the connection open for future accepted events through Core's in-process event
-bus. If the stream falls behind the bounded bus, Core emits a `cortex.reload`
+bus. If the stream falls behind the bounded bus, Core emits a `uprava.reload`
 SSE event so the client can refetch the snapshot.
 
 ## Golden Path
@@ -422,7 +422,7 @@ To run the real Core/Web/Node browser path against a profile with an available
 Codex provider, run:
 
 ```sh
-CORTEX_E2E_REAL_API=1 \
+UPRAVA_E2E_REAL_API=1 \
 PLAYWRIGHT_BASE_URL=http://127.0.0.1:5173 \
 make web-e2e
 ```
@@ -450,7 +450,7 @@ installed and authenticated.
 - Node enrollment credentials are development credentials only; this remains a
   controlled-development profile.
 - Host Node workspace summaries are still reported through heartbeat snapshots
-  for paths in `CORTEX_NODE_WORKSPACES`; explicit UI-created placement
+  for paths in `UPRAVA_NODE_WORKSPACES`; explicit UI-created placement
   validation now runs through a Node `ValidateWorkspace` command.
 - The Codex provider adapter is the V01 exec/resume mode with bounded local
   transcript continuity plus provider-native non-interactive resume when a

@@ -31,7 +31,7 @@ describe("App routes", () => {
     renderApp("/placements/placement-1");
 
     expect(
-      await screen.findByRole("heading", { name: "Cortex" }),
+      await screen.findByRole("heading", { name: "Uprava" }),
     ).toBeVisible();
     expect(screen.getAllByText("Dirty workspace").length).toBeGreaterThan(0);
     expect(screen.getByRole("button", { name: /Start/i })).toBeEnabled();
@@ -39,18 +39,18 @@ describe("App routes", () => {
     renderApp("/workspaces/placement-1");
 
     expect(
-      await screen.findByRole("heading", { name: "Cortex" }),
+      await screen.findByRole("heading", { name: "Uprava" }),
     ).toBeVisible();
     expect(await screen.findByText("Workspace Inspector")).toBeVisible();
     expect((await screen.findAllByText("README.md")).length).toBeGreaterThan(0);
-    expect(await screen.findByText("# Cortex")).toBeVisible();
+    expect(await screen.findByText("# Uprava")).toBeVisible();
 
     renderApp("/projects/project-1");
 
     expect(
-      await screen.findByRole("heading", { name: "Cortex" }),
+      await screen.findByRole("heading", { name: "Uprava" }),
     ).toBeVisible();
-    expect(screen.getByText("/workspace/cortex")).toBeVisible();
+    expect(screen.getByText("/workspace/uprava")).toBeVisible();
 
     renderApp("/sessions/session-1");
 
@@ -70,7 +70,7 @@ describe("App routes", () => {
     expect(
       await screen.findByRole("heading", { name: "Runtime Settings" }),
     ).toBeVisible();
-    expect(await screen.findByText("cortex-core 0.1.0")).toBeVisible();
+    expect(await screen.findByText("uprava-core 0.1.0")).toBeVisible();
     expect(screen.getByText("v1")).toBeVisible();
     expect(screen.getByText("1")).toBeVisible();
   });
@@ -136,7 +136,7 @@ function responseForPath(pathname: string) {
       return { status: "ok", profile: "controlled_dev" };
     case "/api/v1/version":
       return {
-        name: "cortex-core",
+        name: "uprava-core",
         version: "0.1.0",
         api_version: "v1",
         schema_version: 1,
@@ -176,8 +176,8 @@ const placement = {
   project_placement_id: "placement-1",
   project_id: "project-1",
   node_id: "node-1",
-  display_name: "Cortex",
-  workspace_path: "/workspace/cortex",
+  display_name: "Uprava",
+  workspace_path: "/workspace/uprava",
   state: "validated",
   resource_badges: [
     { kind: "dirty_workspace", severity: "warning", label: "Dirty workspace" },
@@ -250,7 +250,7 @@ const workspaceFile = {
     modified_at: "2026-06-17T00:00:00Z",
     children: [],
   },
-  content: "# Cortex",
+  content: "# Uprava",
   truncated: false,
   generated_at: "2026-06-17T00:00:00Z",
 };

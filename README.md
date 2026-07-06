@@ -1,6 +1,6 @@
-# Cortex
+# Uprava
 
-Cortex is a Distributed Agent OS for large-scale work with AI agents.
+Uprava is a Distributed Agent OS for large-scale work with AI agents.
 
 The product starts with software development workflows and can expand into analytics, research, finance, documents, and broader knowledge work as the base model transfers. The first practical direction is a developer-focused workbench for live agent work running on nodes through a managed-lifetime Persistent Runtime run mode and a distributed runtime coordination layer.
 
@@ -8,7 +8,7 @@ The product starts with software development workflows and can expand into analy
 
 Most agent tools are still shaped like chat. They can run an agent and show the result, but they do not provide enough visibility into files, terminal, workspace state, changes, checks, trace, visual artifacts, or review flow.
 
-Cortex should be a control plane and work surface for agent workloads:
+Uprava should be a control plane and work surface for agent workloads:
 
 - **Core Backend** as the control plane.
 - **Node Daemon** as the data plane running on local machines, servers, devboxes, sandboxes, or cloud nodes.
@@ -36,7 +36,7 @@ Synchronized product and architecture docs:
 - [Project Workspace Inspector](docs/en/workspace-inspector.md)
 - [Workspace Editing and IDE Sidecar](docs/en/workspace-editing-and-ide-sidecar.md)
 - [Design Docs](docs/en/design)
-- [Source Notes](docs/en/cortex-notes.md)
+- [Source Notes](docs/en/uprava-notes.md)
 - [TMP Plans](docs/tmp-plans) - temporary implementation plans for intermediate development slices
 
 Russian mirror and source notes:
@@ -127,7 +127,7 @@ make web-r
 ```
 
 `make node-r` defaults the Node workspace allow-list to this repository root.
-Set `CORTEX_NODE_WORKSPACES=/path/to/workspace-root` before running it when the
+Set `UPRAVA_NODE_WORKSPACES=/path/to/workspace-root` before running it when the
 Node should manage a different local workspace tree.
 
 Or use the Compose profile:
@@ -161,4 +161,4 @@ canonical documentation.
 
 ## Background
 
-Cortex is built around practices from harness engineering and Superadditivity Theory: the goal is not maximum AI autonomy at any cost, but a human-agent system where speed, quality, understanding, traceability, review capacity, and safe delegation improve together.
+Uprava is built around practices from harness engineering and Superadditivity Theory: the goal is not maximum AI autonomy at any cost, but a human-agent system where speed, quality, understanding, traceability, review capacity, and safe delegation improve together.

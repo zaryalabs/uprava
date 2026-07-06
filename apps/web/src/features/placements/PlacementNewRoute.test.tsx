@@ -37,14 +37,14 @@ describe("PlacementNewRoute", () => {
     ).toBeVisible();
 
     const knownPath = await screen.findByRole("button", {
-      name: "Use /Users/dev/cortex",
+      name: "Use /Users/dev/uprava",
     });
 
     fireEvent.click(knownPath);
 
-    expect(workspaceInput).toHaveValue("/Users/dev/cortex");
+    expect(workspaceInput).toHaveValue("/Users/dev/uprava");
     expect(
-      screen.getByRole("button", { name: "Use /workspace/cortex" }),
+      screen.getByRole("button", { name: "Use /workspace/uprava" }),
     ).toBeVisible();
   });
 
@@ -116,8 +116,8 @@ const inventory: InventorySnapshot = {
       project_placement_id: "placement-1",
       project_id: "project-1",
       node_id: "node-1",
-      display_name: "Cortex",
-      workspace_path: "/Users/dev/cortex",
+      display_name: "Uprava",
+      workspace_path: "/Users/dev/uprava",
       state: "validated",
       resource_badges: [],
       last_validated_at: "2026-06-17T00:00:00Z",
