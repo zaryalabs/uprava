@@ -1,6 +1,7 @@
 .git
 .local
 .DS_Store
+.clawpatch
 
 target
 node_modules
