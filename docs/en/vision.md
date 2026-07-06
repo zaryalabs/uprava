@@ -1,6 +1,6 @@
 # Uprava Vision
 
-Status: `draft`
+Status: `active`
 
 ## Short Formula
 

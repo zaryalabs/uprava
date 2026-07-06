@@ -1,6 +1,6 @@
 # Project Workspace Inspector
 
-Status: `draft`
+Status: `active`
 
 ## Short Decision
 

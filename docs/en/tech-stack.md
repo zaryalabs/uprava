@@ -1,6 +1,6 @@
 # Uprava Tech Stack
 
-Status: `draft`
+Status: `active`
 
 This document records the preliminary technical stack for V01 and the nearest
 feature-queue slices.

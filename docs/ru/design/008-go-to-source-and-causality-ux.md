@@ -1,6 +1,6 @@
 # A-008 Go to Source and Causality UX
 
-Статус: `draft`
+Статус: `working-position`
 
 Этот документ фиксирует корневую позицию по ключевой механике `A-008 Go to
 Source and Causality UX`.

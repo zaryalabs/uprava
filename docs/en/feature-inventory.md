@@ -1,6 +1,6 @@
 # Uprava Feature Inventory
 
-Status: `draft`
+Status: `active`
 
 Purpose: record feature ideas that were already proposed in `README.md` and
 `docs/ru/uprava-notes.md`, without prioritizing them and without turning them

@@ -1,6 +1,6 @@
 # Uprava Feature Queue
 
-Статус: `draft`
+Статус: `active`
 
 Этот документ использует implementation queue вместо phase-based roadmap.
 

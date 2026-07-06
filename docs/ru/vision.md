@@ -1,6 +1,6 @@
 # Uprava Vision
 
-Статус: `draft`
+Статус: `active`
 
 ## Короткая формула
 

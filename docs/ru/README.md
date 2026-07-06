@@ -12,8 +12,8 @@ design docs.
 Текущие документы:
 
 - [`uprava-notes.md`](uprava-notes.md) - исходные заметки и идеи.
-- [`vision.md`](vision.md) - draft vision продукта.
-- [`architecture.md`](architecture.md) - draft архитектуры Core / Node Daemon / Clients.
+- [`vision.md`](vision.md) - действующая vision продукта.
+- [`architecture.md`](architecture.md) - действующая архитектурная позиция Core / Node Daemon / Clients.
 - [`v01.md`](v01.md) - первая пригодная версия продукта.
 - [`versioning.md`](versioning.md) - правила SemVer and current release baseline.
 - [`releases.md`](releases.md) - release ledger для shipped implementation slices.

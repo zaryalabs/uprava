@@ -1,6 +1,6 @@
 # Uprava Architecture
 
-Статус: `draft`
+Статус: `active`
 
 Этот документ фиксирует первую архитектурную позицию по client/server модели Uprava.
 

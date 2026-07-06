@@ -1,6 +1,6 @@
 # Project Workspace Inspector
 
-Статус: `draft`
+Статус: `active`
 
 ## Короткое решение
 

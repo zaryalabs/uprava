@@ -1,6 +1,6 @@
 # V01 Local Development Runbook
 
-Status: `draft`
+Status: `active`
 
 This runbook covers the current `0.1` scaffold: Rust Core Backend, Rust Node
 Daemon, Vite Web Control Panel, SQLite persistence and the first minimal Codex

@@ -1,6 +1,6 @@
 # Uprava Product Evolution
 
-Status: `draft`
+Status: `active`
 
 This document replaces the old stage-based model. The canonical description of
 the first version now lives in [`v01.md`](v01.md), and the order of follow-up

@@ -1,6 +1,6 @@
 # Workspace Editing and IDE Sidecar
 
-Статус: `draft`
+Статус: `active`
 
 ## Короткое решение
 

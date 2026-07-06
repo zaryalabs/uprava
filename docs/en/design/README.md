@@ -1,6 +1,6 @@
 # Uprava Design Phase
 
-Status: `draft`
+Status: `active`
 
 This section exists for deep work on Uprava **key mechanisms**.
 

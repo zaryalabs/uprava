@@ -1,6 +1,6 @@
 # Workspace Editing and IDE Sidecar
 
-Status: `draft`
+Status: `active`
 
 ## Short Decision
 
