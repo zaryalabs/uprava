@@ -11,7 +11,7 @@ resolver = "2"
 edition = "2021"
 license = "LicenseRef-Proprietary"
 publish = false
-repository = "https://github.com/ch37n1/uprava"
+repository = "https://github.com/zaryalabs/uprava"
 rust-version = "1.88"
 
 [workspace.dependencies]
