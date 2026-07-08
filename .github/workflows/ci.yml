@@ -30,4 +30,5 @@ jobs:
       - name: Prepare
         run: |
           web_run="docker run --rm --user $(id -u):$(id -g) -e npm_config_cache=/tmp/.npm -v ${PWD}/apps/web:/work -w /work node:24-bookworm-slim npm"
-          make web-install prepare WEB_RUN="${web_run}"
+          cargo_run="docker run --rm --user $(id -u):$(id -g) -e CARGO_HOME=/tmp/cargo -e CARGO_TARGET_DIR=/work/target -v ${PWD}:/work -w /work rust:1.90-bookworm cargo"
+          make web-install prepare WEB_RUN="${web_run}" CARGO="${cargo_run}"

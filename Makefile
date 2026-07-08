@@ -1,6 +1,7 @@
 SHELL := /bin/sh
 
 RUST_MANIFEST := Cargo.toml
+CARGO ?= cargo
 WEB_DIR := apps/web
 WEB_PACKAGE := $(WEB_DIR)/package.json
 WEB_NODE_MODULES := $(WEB_DIR)/node_modules
@@ -106,7 +107,7 @@ init: ## Install local hooks and project dependencies when manifests exist
 	fi
 	@set -e; \
 	if [ -f "$(RUST_MANIFEST)" ]; then \
-		cargo fetch; \
+		$(CARGO) fetch; \
 		$(MAKE) --no-print-directory rust-tools-install; \
 	else \
 		echo "No Cargo.toml found; skipping Rust dependency fetch"; \
@@ -194,7 +195,7 @@ scripts-check: ## Run shell syntax checks for product scripts
 
 rust-fmt: ## Format Rust code when Cargo workspace exists
 	@if [ -f "$(RUST_MANIFEST)" ]; then \
-		cargo fmt --all; \
+		$(CARGO) fmt --all; \
 	else \
 		echo "No Cargo.toml found; skipping Rust format"; \
 	fi
@@ -202,8 +203,8 @@ rust-fmt: ## Format Rust code when Cargo workspace exists
 rust-l: ## Run Rust format check and clippy when Cargo workspace exists
 	@set -e; \
 	if [ -f "$(RUST_MANIFEST)" ]; then \
-		cargo fmt --all -- --check; \
-		cargo clippy --workspace --all-targets -- -D warnings; \
+		$(CARGO) fmt --all -- --check; \
+		$(CARGO) clippy --workspace --all-targets -- -D warnings; \
 	else \
 		echo "No Cargo.toml found; skipping Rust lint"; \
 	fi
@@ -220,8 +221,8 @@ rust-dl: ## Run deeper Rust dependency/config checks when tools are available
 		require_tool cargo-audit; \
 		require_tool cargo-deny; \
 		require_tool taplo; \
-		cargo audit $(CARGO_AUDIT_IGNORE); \
-		cargo deny check; \
+		$(CARGO) audit $(CARGO_AUDIT_IGNORE); \
+		$(CARGO) deny check; \
 		taplo fmt --check $(RUST_TOOL_TOML_FILES); \
 	else \
 		echo "No Cargo.toml found; skipping deep Rust checks"; \
@@ -237,7 +238,7 @@ rust-tools-install: ## Install Rust quality tools required by rust-dl
 				echo "$$bin already installed"; \
 			else \
 				echo "Installing $$package"; \
-				cargo install --locked "$$package"; \
+				$(CARGO) install --locked "$$package"; \
 			fi; \
 		}; \
 		install_tool cargo-audit cargo-audit; \
@@ -246,7 +247,7 @@ rust-tools-install: ## Install Rust quality tools required by rust-dl
 			echo "taplo already installed"; \
 		else \
 			echo "Installing taplo-cli"; \
-			cargo install --locked taplo-cli --no-default-features; \
+			$(CARGO) install --locked taplo-cli --no-default-features; \
 		fi; \
 	else \
 		echo "No Cargo.toml found; skipping Rust quality tool install"; \
@@ -254,10 +255,10 @@ rust-tools-install: ## Install Rust quality tools required by rust-dl
 
 rust-t: ## Run Rust tests when Cargo workspace exists
 	@if [ -f "$(RUST_MANIFEST)" ]; then \
-		if cargo nextest --version >/dev/null 2>&1; then \
-			cargo nextest run --workspace; \
+		if $(CARGO) nextest --version >/dev/null 2>&1; then \
+			$(CARGO) nextest run --workspace; \
 		else \
-			cargo test --workspace; \
+			$(CARGO) test --workspace; \
 		fi; \
 	else \
 		echo "No Cargo.toml found; skipping Rust tests"; \
@@ -272,14 +273,14 @@ web-r: ## Run web development server when web app exists
 
 core-r: ## Run Core Backend locally when Cargo workspace exists
 	@if [ -f "$(RUST_MANIFEST)" ]; then \
-		cargo run -p uprava-server; \
+		$(CARGO) run -p uprava-server; \
 	else \
 		echo "No Cargo.toml found; skipping Core run"; \
 	fi
 
 node-r: ## Run Node Daemon locally when Cargo workspace exists
 	@if [ -f "$(RUST_MANIFEST)" ]; then \
-		UPRAVA_NODE_WORKSPACES="$${UPRAVA_NODE_WORKSPACES:-$(CURDIR)}" cargo run -p uprava-node; \
+		UPRAVA_NODE_WORKSPACES="$${UPRAVA_NODE_WORKSPACES:-$(CURDIR)}" $(CARGO) run -p uprava-node; \
 	else \
 		echo "No Cargo.toml found; skipping Node run"; \
 	fi
