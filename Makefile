@@ -167,6 +167,18 @@ docs-l: ## Run lightweight docs checks
 	@find README.md AGENTS.md CONTRIBUTING.md docs -type f \( -name '*.md' -o -name '*.toml' -o -name '*.yaml' -o -name '*.yml' -o -name '*.json' \) -print >/dev/null
 	@echo "Docs files are present"
 
+web-install: ## Install web dependencies when web app exists
+	@set -e; \
+	if [ -f "$(WEB_PACKAGE)" ]; then \
+		if [ -f "$(WEB_DIR)/package-lock.json" ]; then \
+			$(WEB_RUN) ci; \
+		else \
+			$(WEB_RUN) install; \
+		fi; \
+	else \
+		echo "No $(WEB_PACKAGE) found; skipping web dependency install"; \
+	fi
+
 ops-config: ## Validate production ops Compose config
 	@cd ops && $(COMPOSE) -f compose.yaml config >/dev/null
 
@@ -390,4 +402,4 @@ clean: ## Remove common local build and cache artifacts
 	rm -rf target htmlcov coverage .pytest_cache .ruff_cache .mypy_cache .ty
 	rm -rf $(WEB_DIR)/dist $(WEB_DIR)/coverage
 
-.PHONY: help prepare build push release-manifest install-release-manifest deploy init fmt l dl t c pc claw-doctor claw-init claw-map claw-review claw-report claw-ci claw-show claw-fix docs-fmt docs-l ops-config systemd-check scripts-check rust-fmt rust-l rust-dl rust-tools-install rust-t web-r web-fmt web-l web-dl web-t web-e2e core-r node-r dev-up dev-down dev-logs dev-reset dev-smoke compose-up compose-down compose-logs compose-reset compose-smoke codex-smoke clean
+.PHONY: help prepare build push release-manifest install-release-manifest deploy init fmt l dl t c pc claw-doctor claw-init claw-map claw-review claw-report claw-ci claw-show claw-fix docs-fmt docs-l web-install ops-config systemd-check scripts-check rust-fmt rust-l rust-dl rust-tools-install rust-t web-r web-fmt web-l web-dl web-t web-e2e core-r node-r dev-up dev-down dev-logs dev-reset dev-smoke compose-up compose-down compose-logs compose-reset compose-smoke codex-smoke clean
