@@ -203,6 +203,7 @@ rust-fmt: ## Format Rust code when Cargo workspace exists
 
 rust-toolchain: ## Ensure Rust toolchain components used by local checks are present
 	@if [ -f "$(RUST_MANIFEST)" ]; then \
+		$(RUSTUP) default stable; \
 		$(RUSTUP) component add rustfmt clippy; \
 	else \
 		echo "No Cargo.toml found; skipping Rust toolchain prep"; \
