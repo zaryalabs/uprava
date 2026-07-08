@@ -86,7 +86,7 @@ deploy: ## Pull, start/update, show status and run smoke
 
 smoke: ## Run local server smoke checks
 	$(COMPOSE_CMD) exec -T core uprava-server healthcheck 127.0.0.1:8080
-	$(COMPOSE_CMD) exec -T web node -e "fetch('http://127.0.0.1:5173').then(r=>{if(!r.ok) throw new Error(String(r.status)); return r.text()}).then(t=>{if(!t.includes('Uprava')) throw new Error('missing title')})"
+	$(COMPOSE_CMD) exec -T web node -e "const sleep=ms=>new Promise(r=>setTimeout(r,ms));(async()=>{let last;for(let i=0;i<20;i++){try{const r=await fetch('http://127.0.0.1:5173');if(!r.ok)throw new Error(String(r.status));const t=await r.text();if(!t.includes('Uprava'))throw new Error('missing title');return}catch(e){last=e;await sleep(500)}}throw last})()"
 	sudo systemctl is-active --quiet $(SYSTEMD_UNIT)
 
 backup: ## Archive Core state directory
