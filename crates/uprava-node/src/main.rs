@@ -3896,6 +3896,7 @@ impl CodexProviderAdapter {
             .arg("exec")
             .arg("--cd")
             .arg(workspace_path)
+            .arg("--skip-git-repo-check")
             .arg("--json")
             .arg("--output-last-message")
             .arg(last_message_path)
@@ -3937,6 +3938,7 @@ impl CodexProviderAdapter {
         command
             .arg("exec")
             .arg("resume")
+            .arg("--skip-git-repo-check")
             .arg("--json")
             .arg("--output-last-message")
             .arg(last_message_path)
@@ -6495,6 +6497,39 @@ mod tests {
 
     #[cfg(unix)]
     #[tokio::test]
+    async fn codex_send_turn_includes_skip_git_repo_check_flag() {
+        let capture_path =
+            std::env::temp_dir().join(format!("uprava-codex-args-{}", Uuid::new_v4()));
+        let codex_binary = fake_codex_args_capture_binary(&capture_path);
+        let workspace_path =
+            std::env::temp_dir().join(format!("uprava-codex-workspace-{}", Uuid::new_v4()));
+        std::fs::create_dir_all(&workspace_path).expect("workspace fixture creates");
+        let config = config_fixture_with_codex_binary(codex_binary.display().to_string());
+        let command =
+            command_fixture_with_content("command-codex-args", CommandKind::SendTurn, "status");
+        let mut local_state = NodeLocalState::default();
+        local_state
+            .runtime_providers
+            .insert("runtime-1".to_owned(), "codex".to_owned());
+        local_state
+            .runtime_workspace_paths
+            .insert("runtime-1".to_owned(), workspace_path.display().to_string());
+
+        let outcome = prepare_command_dispatch(&config, &mut local_state, &command).await;
+
+        let captured_args = std::fs::read_to_string(&capture_path).expect("captured args read");
+        std::fs::remove_file(codex_binary).expect("codex fixture removes");
+        std::fs::remove_file(capture_path).expect("args capture removes");
+        std::fs::remove_dir_all(workspace_path).expect("workspace fixture removes");
+        assert_eq!(outcome.status, CommandState::Completed);
+        assert!(
+            captured_args.contains("\n--skip-git-repo-check\n"),
+            "captured args did not include --skip-git-repo-check: {captured_args}"
+        );
+    }
+
+    #[cfg(unix)]
+    #[tokio::test]
     async fn codex_send_turn_includes_prior_transcript_context() {
         let capture_path =
             std::env::temp_dir().join(format!("uprava-codex-prompt-{}", Uuid::new_v4()));
@@ -6588,6 +6623,10 @@ mod tests {
         std::fs::remove_dir_all(workspace_path).expect("workspace fixture removes");
         assert_eq!(outcome.status, CommandState::Completed);
         assert!(captured_args.contains("exec\nresume\n"));
+        assert!(
+            captured_args.contains("\n--skip-git-repo-check\n"),
+            "captured args did not include --skip-git-repo-check: {captured_args}"
+        );
         assert!(captured_args.contains("\ncodex-session-1\n"));
         assert!(captured_args.contains("\nthird question\n"));
         assert!(!captured_args.contains("Latest user message:"));
@@ -6987,6 +7026,31 @@ printf '%s\n' 'Codex fake accepted' > "$output_path"
 printf '%s\n' '{"type":"response.completed","session_id":"codex-session-1","resume_cursor":"cursor-1"}'
 "#,
         )
+    }
+
+    #[cfg(unix)]
+    fn fake_codex_args_capture_binary(capture_path: &Path) -> PathBuf {
+        fake_codex_binary(&format!(
+            r#"#!/bin/sh
+output_path=""
+for arg in "$@"; do
+  if [ "$arg" = "--output-last-message" ]; then
+    capture_next=1
+  elif [ "${{capture_next:-0}}" = "1" ]; then
+    output_path="$arg"
+    capture_next=0
+  fi
+done
+if [ -z "$output_path" ]; then
+  echo "missing --output-last-message" >&2
+  exit 2
+fi
+printf '%s\n' "$@" > '{}'
+printf '%s\n' 'Codex args accepted' > "$output_path"
+printf '%s\n' '{{"type":"response.completed","session_id":"codex-session-1","resume_cursor":"cursor-1"}}'
+"#,
+            capture_path.display()
+        ))
     }
 
     #[cfg(unix)]
