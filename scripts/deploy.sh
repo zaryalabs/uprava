@@ -14,8 +14,13 @@ fi
 
 run_local() {
   cd "$install_dir"
-  make activate RELEASE="$release_id" SUDO="$sudo_cmd"
-  make deploy SUDO="$sudo_cmd"
+  if [[ -n "$sudo_cmd" ]]; then
+    $sudo_cmd make activate RELEASE="$release_id" SUDO=
+    $sudo_cmd make deploy SUDO=
+  else
+    make activate RELEASE="$release_id"
+    make deploy
+  fi
 }
 
 run_ssh() {
