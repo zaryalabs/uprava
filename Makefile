@@ -92,6 +92,11 @@ install-release-manifest: ## Install active release manifest into INSTALL_DIR
 	$(SUDO) install -d "$(INSTALL_DIR)/builds/releases"
 	$(SUDO) install -m 644 "$(RELEASE_MANIFEST)" "$(INSTALL_DIR)/builds/releases/$(RELEASE_ID).env.release"
 
+install-ops: ## Install product-owned ops files into INSTALL_DIR
+	$(SUDO) install -d "$(INSTALL_DIR)"
+	$(SUDO) install -m 644 ops/Makefile "$(INSTALL_DIR)/Makefile"
+	$(SUDO) install -m 644 ops/compose.yaml "$(INSTALL_DIR)/compose.yaml"
+
 deploy: ## Deploy the selected release through the server installation Makefile
 	RELEASE_ID="$(RELEASE_ID)" \
 	DEPLOY_HOST="$(DEPLOY_HOST)" \
