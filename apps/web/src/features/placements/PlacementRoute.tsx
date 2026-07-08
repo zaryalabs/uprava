@@ -95,9 +95,12 @@ export function PlacementRoute() {
   const projectRef = projectRefForPlacement(placement.data);
   const workspaceRef = workspaceRefForPlacement(placement.data);
   const providerOptions = providerChoiceOptions(node);
+  const selectedProviderLabel =
+    providerOptions.find((option) => option.id === provider)?.label ?? provider;
   const selectedProviderAvailable =
     providerOptions.find((option) => option.id === provider)?.available ??
     false;
+  const showProviderSelector = providerOptions.length > 1;
 
   return (
     <section className="space-y-5">
@@ -111,28 +114,30 @@ export function PlacementRoute() {
           </div>
         </div>
         <div className="flex flex-wrap gap-2">
-          <div
-            className="inline-flex h-10 overflow-hidden rounded-md border border-[#bfc8bc] bg-white"
-            role="group"
-            aria-label="Provider"
-          >
-            {providerOptions.map((option) => (
-              <button
-                key={option.id}
-                type="button"
-                aria-pressed={provider === option.id}
-                disabled={!option.available || mutation.isPending}
-                className={
-                  provider === option.id
-                    ? "bg-[#1d4f3a] px-3 text-sm font-medium text-white disabled:bg-[#9aa8a0]"
-                    : "px-3 text-sm font-medium text-[#253129] hover:bg-[#edf2ee] disabled:text-[#9aa8a0]"
-                }
-                onClick={() => setProvider(option.id)}
-              >
-                {option.label}
-              </button>
-            ))}
-          </div>
+          {showProviderSelector ? (
+            <div
+              className="inline-flex h-10 overflow-hidden rounded-md border border-[#bfc8bc] bg-white"
+              role="group"
+              aria-label="Provider"
+            >
+              {providerOptions.map((option) => (
+                <button
+                  key={option.id}
+                  type="button"
+                  aria-pressed={provider === option.id}
+                  disabled={!option.available || mutation.isPending}
+                  className={
+                    provider === option.id
+                      ? "bg-[#1d4f3a] px-3 text-sm font-medium text-white disabled:bg-[#9aa8a0]"
+                      : "px-3 text-sm font-medium text-[#253129] hover:bg-[#edf2ee] disabled:text-[#9aa8a0]"
+                  }
+                  onClick={() => setProvider(option.id)}
+                >
+                  {option.label}
+                </button>
+              ))}
+            </div>
+          ) : null}
           <ReferenceActions reference={workspaceRef} />
           {projectRef ? <ReferenceActions reference={projectRef} /> : null}
           <Button
@@ -163,7 +168,7 @@ export function PlacementRoute() {
             onClick={() => mutation.mutate()}
           >
             <Play size={16} />
-            Start
+            Start {selectedProviderLabel}
           </Button>
         </div>
       </div>
