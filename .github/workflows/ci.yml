@@ -83,6 +83,6 @@ jobs:
       - name: Deploy current HEAD release
         run: |
           RELEASE_ID="$(git rev-parse --short=12 HEAD)"
-          make release-manifest RELEASE_ID="${RELEASE_ID}" ALLOW_UNRESOLVED_DIGESTS=1
+          make release-manifest RELEASE_ID="${RELEASE_ID}"
           make install-release-manifest DEPLOY_HOST=zsa INSTALL_DIR=/opt/apps/uprava SUDO=sudo RELEASE_ID="${RELEASE_ID}"
-          make deploy DEPLOY_HOST=zsa INSTALL_DIR=/opt/apps/uprava SUDO=sudo RELEASE_ID="${RELEASE_ID}" DEPLOY_MODE=ssh
+          make deploy DEPLOY_HOST=zsa INSTALL_DIR=/opt/apps/uprava SUDO=sudo RELEASE_ID="${RELEASE_ID}" DEPLOY_MODE=local
