@@ -24,6 +24,8 @@ design docs.
 - [`feature-inventory.md`](feature-inventory.md) - инвентарь придуманных фич и направлений.
 - [`workspace-inspector.md`](workspace-inspector.md) - направление Project Workspace Inspector.
 - [`workspace-editing-and-ide-sidecar.md`](workspace-editing-and-ide-sidecar.md) - базовое редактирование workspace и optional full-IDE sidecar.
+- [`deployment.md`](deployment.md) - deployment model Uprava: Core/Web in Docker, Node Daemon через systemd and `.env.release`.
+- [`deployment-observability.md`](deployment-observability.md) - рабочая позиция по Core/Web in Docker, bare-metal Node Daemon and observability.
 - [`design/`](design/) - глубокие design docs по ключевым механизмам Uprava.
 
 Временные реализационные планы живут вне языкового зеркала в
