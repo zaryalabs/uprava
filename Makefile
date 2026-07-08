@@ -3,6 +3,7 @@ SHELL := /bin/sh
 RUST_MANIFEST := Cargo.toml
 CARGO ?= cargo
 RUSTUP ?= rustup
+RUST_TOOLCHAIN ?=
 WEB_DIR := apps/web
 WEB_PACKAGE := $(WEB_DIR)/package.json
 WEB_NODE_MODULES := $(WEB_DIR)/node_modules
@@ -203,8 +204,12 @@ rust-fmt: ## Format Rust code when Cargo workspace exists
 
 rust-toolchain: ## Ensure Rust toolchain components used by local checks are present
 	@if [ -f "$(RUST_MANIFEST)" ]; then \
-		$(RUSTUP) default stable; \
-		$(RUSTUP) component add rustfmt clippy; \
+		if [ -n "$(RUST_TOOLCHAIN)" ]; then \
+			$(RUSTUP) default "$(RUST_TOOLCHAIN)"; \
+			$(RUSTUP) component add --toolchain "$(RUST_TOOLCHAIN)" rustfmt clippy; \
+		else \
+			$(RUSTUP) component add rustfmt clippy; \
+		fi; \
 	else \
 		echo "No Cargo.toml found; skipping Rust toolchain prep"; \
 	fi

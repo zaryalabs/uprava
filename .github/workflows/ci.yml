@@ -36,7 +36,7 @@ jobs:
           cargo_image="docker run --rm --user $(id -u):$(id -g) -e CARGO_HOME=/work/.cache/cargo -e CARGO_TARGET_DIR=/work/target -e RUSTUP_HOME=/work/.cache/rustup -v ${rust_cache_dir}:/work/.cache -v ${PWD}:/work -w /work rust:1.90-bookworm"
           cargo_run="${cargo_image} cargo"
           rustup_run="${cargo_image} rustup"
-          make web-install prepare WEB_RUN="${web_run}" CARGO="${cargo_run}" RUSTUP="${rustup_run}"
+          make web-install prepare WEB_RUN="${web_run}" CARGO="${cargo_run}" RUSTUP="${rustup_run}" RUST_TOOLCHAIN=1.90.0
 
   release:
     needs: check
