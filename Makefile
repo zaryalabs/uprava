@@ -2,6 +2,7 @@ SHELL := /bin/sh
 
 RUST_MANIFEST := Cargo.toml
 CARGO ?= cargo
+RUSTUP ?= rustup
 WEB_DIR := apps/web
 WEB_PACKAGE := $(WEB_DIR)/package.json
 WEB_NODE_MODULES := $(WEB_DIR)/node_modules
@@ -54,7 +55,7 @@ endif
 help: ## Show available make targets
 	@awk 'BEGIN {FS = ":.*## "}; /^[a-zA-Z0-9_.-]+:.*## / {printf "  %-14s %s\n", $$1, $$2}' $(MAKEFILE_LIST)
 
-prepare: rust-l rust-t web-l web-t web-dl ops-config systemd-check scripts-check ## Run CI pre-release checks
+prepare: rust-toolchain rust-l rust-t web-l web-t web-dl ops-config systemd-check scripts-check ## Run CI pre-release checks
 
 build: ## Build releasable Core/Web images and Node artifact
 	docker build -t "$(UPRAVA_CORE_IMAGE)" -f Dockerfile.core .
@@ -198,6 +199,13 @@ rust-fmt: ## Format Rust code when Cargo workspace exists
 		$(CARGO) fmt --all; \
 	else \
 		echo "No Cargo.toml found; skipping Rust format"; \
+	fi
+
+rust-toolchain: ## Ensure Rust toolchain components used by local checks are present
+	@if [ -f "$(RUST_MANIFEST)" ]; then \
+		$(RUSTUP) component add rustfmt clippy; \
+	else \
+		echo "No Cargo.toml found; skipping Rust toolchain prep"; \
 	fi
 
 rust-l: ## Run Rust format check and clippy when Cargo workspace exists

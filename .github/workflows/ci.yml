@@ -1,6 +1,6 @@
 name: Uprava CI
 
-"on":
+on:
   pull_request:
     branches:
       - main
@@ -11,12 +11,13 @@ name: Uprava CI
 
 permissions:
   contents: read
+  packages: write
 
 jobs:
   check:
     runs-on: [self-hosted, zarya-main, geo-eu, ci]
     steps:
-      - name: Checkout
+      - name: Checkout repository
         run: |
           git init .
           git remote remove origin 2>/dev/null || true
@@ -30,5 +31,56 @@ jobs:
       - name: Prepare
         run: |
           web_run="docker run --rm --user $(id -u):$(id -g) -e npm_config_cache=/tmp/.npm -v ${PWD}/apps/web:/work -w /work node:24-bookworm-slim npm"
-          cargo_run="docker run --rm --user $(id -u):$(id -g) -e CARGO_HOME=/tmp/cargo -e CARGO_TARGET_DIR=/work/target -v ${PWD}:/work -w /work rust:1.90-bookworm cargo"
-          make web-install prepare WEB_RUN="${web_run}" CARGO="${cargo_run}"
+          cargo_image="docker run --rm --user $(id -u):$(id -g) -e CARGO_HOME=/tmp/cargo -e CARGO_TARGET_DIR=/work/target -v ${PWD}:/work -w /work rust:1.90-bookworm"
+          cargo_run="${cargo_image} cargo"
+          rustup_run="${cargo_image} rustup"
+          make web-install prepare WEB_RUN="${web_run}" CARGO="${cargo_run}" RUSTUP="${rustup_run}"
+
+  release:
+    needs: check
+    if: github.event_name == 'push'
+    runs-on: [self-hosted, zarya-main, geo-eu, ci]
+    steps:
+      - name: Checkout repository
+        run: |
+          git init .
+          git remote remove origin 2>/dev/null || true
+          git remote add origin "https://x-access-token:${GITHUB_TOKEN}@github.com/${GITHUB_REPOSITORY}.git"
+          git fetch --depth=1 origin "${CHECKOUT_REF}"
+          git checkout --force --detach FETCH_HEAD
+        env:
+          CHECKOUT_REF: ${{ github.ref }}
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Login to GHCR
+        run: echo "${{ secrets.GITHUB_TOKEN }}" | docker login ghcr.io -u "${GITHUB_REPOSITORY_OWNER}" --password-stdin
+
+      - name: Build and publish release
+        run: |
+          make build
+          make push
+
+  deploy:
+    if: github.event_name == 'workflow_dispatch'
+    runs-on: [self-hosted, zarya-main, geo-eu, ci]
+    steps:
+      - name: Checkout repository
+        run: |
+          git init .
+          git remote remove origin 2>/dev/null || true
+          git remote add origin "https://x-access-token:${GITHUB_TOKEN}@github.com/${GITHUB_REPOSITORY}.git"
+          git fetch --depth=1 origin "${CHECKOUT_REF}"
+          git checkout --force --detach FETCH_HEAD
+        env:
+          CHECKOUT_REF: ${{ github.ref }}
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Login to GHCR
+        run: echo "${{ secrets.GITHUB_TOKEN }}" | docker login ghcr.io -u "${GITHUB_REPOSITORY_OWNER}" --password-stdin
+
+      - name: Deploy current HEAD release
+        run: |
+          RELEASE_ID="$(git rev-parse --short=12 HEAD)"
+          make release-manifest RELEASE_ID="${RELEASE_ID}" ALLOW_UNRESOLVED_DIGESTS=1
+          make install-release-manifest DEPLOY_HOST=zsa INSTALL_DIR=/opt/apps/uprava SUDO=sudo RELEASE_ID="${RELEASE_ID}"
+          make deploy DEPLOY_HOST=zsa INSTALL_DIR=/opt/apps/uprava SUDO=sudo RELEASE_ID="${RELEASE_ID}" DEPLOY_MODE=ssh
