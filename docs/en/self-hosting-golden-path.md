@@ -90,6 +90,15 @@ UPRAVA_NODE_WORKSPACES=/srv/uprava-workspaces
 checkout under `/srv/uprava-workspaces/*` can be used without another server
 permissions step.
 
+For the current `codex exec` adapter, the Node launches Codex with
+`--skip-git-repo-check` and
+`--dangerously-bypass-approvals-and-sandbox`. This is an intentional temporary
+self-hosting posture: Codex's inner Linux sandbox can be unavailable on the
+server, so the effective boundary is the `uprava` Unix user, the
+`UPRAVA_NODE_WORKSPACES` allow-list, inherited workspace ACLs, and the
+production boundary below. A future live provider/runtime path should replace
+this with finer-grained permissions and approval handling.
+
 ## Git Credentials
 
 The `uprava` user may have a GitHub deploy key or machine credential that can

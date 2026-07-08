@@ -3897,6 +3897,7 @@ impl CodexProviderAdapter {
             .arg("--cd")
             .arg(workspace_path)
             .arg("--skip-git-repo-check")
+            .arg("--dangerously-bypass-approvals-and-sandbox")
             .arg("--json")
             .arg("--output-last-message")
             .arg(last_message_path)
@@ -3939,6 +3940,7 @@ impl CodexProviderAdapter {
             .arg("exec")
             .arg("resume")
             .arg("--skip-git-repo-check")
+            .arg("--dangerously-bypass-approvals-and-sandbox")
             .arg("--json")
             .arg("--output-last-message")
             .arg(last_message_path)
@@ -6497,7 +6499,7 @@ mod tests {
 
     #[cfg(unix)]
     #[tokio::test]
-    async fn codex_send_turn_includes_skip_git_repo_check_flag() {
+    async fn codex_send_turn_includes_required_noninteractive_flags() {
         let capture_path =
             std::env::temp_dir().join(format!("uprava-codex-args-{}", Uuid::new_v4()));
         let codex_binary = fake_codex_args_capture_binary(&capture_path);
@@ -6522,10 +6524,7 @@ mod tests {
         std::fs::remove_file(capture_path).expect("args capture removes");
         std::fs::remove_dir_all(workspace_path).expect("workspace fixture removes");
         assert_eq!(outcome.status, CommandState::Completed);
-        assert!(
-            captured_args.contains("\n--skip-git-repo-check\n"),
-            "captured args did not include --skip-git-repo-check: {captured_args}"
-        );
+        assert_codex_launch_flags(&captured_args);
     }
 
     #[cfg(unix)]
@@ -6623,10 +6622,7 @@ mod tests {
         std::fs::remove_dir_all(workspace_path).expect("workspace fixture removes");
         assert_eq!(outcome.status, CommandState::Completed);
         assert!(captured_args.contains("exec\nresume\n"));
-        assert!(
-            captured_args.contains("\n--skip-git-repo-check\n"),
-            "captured args did not include --skip-git-repo-check: {captured_args}"
-        );
+        assert_codex_launch_flags(&captured_args);
         assert!(captured_args.contains("\ncodex-session-1\n"));
         assert!(captured_args.contains("\nthird question\n"));
         assert!(!captured_args.contains("Latest user message:"));
@@ -6804,6 +6800,19 @@ mod tests {
             Some("parse_error")
         );
         assert_eq!(runtime_seqs.get("runtime-1").copied(), Some(1));
+    }
+
+    #[cfg(unix)]
+    fn assert_codex_launch_flags(captured_args: &str) {
+        for flag in [
+            "--skip-git-repo-check",
+            "--dangerously-bypass-approvals-and-sandbox",
+        ] {
+            assert!(
+                captured_args.contains(&format!("\n{flag}\n")),
+                "captured args did not include {flag}: {captured_args}"
+            );
+        }
     }
 
     #[tokio::test]

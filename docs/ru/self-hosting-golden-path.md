@@ -87,6 +87,15 @@ UPRAVA_NODE_WORKSPACES=/srv/uprava-workspaces
 checkout under `/srv/uprava-workspaces/*` можно было использовать без нового
 server permissions step.
 
+Для текущего `codex exec` adapter Node запускает Codex с
+`--skip-git-repo-check` и
+`--dangerously-bypass-approvals-and-sandbox`. Это намеренная временная
+self-hosting posture: внутренний Linux sandbox Codex может быть недоступен на
+сервере, поэтому effective boundary сейчас задают Unix user `uprava`,
+`UPRAVA_NODE_WORKSPACES` allow-list, inherited workspace ACLs and production
+boundary ниже. Future live provider/runtime path должен заменить это
+fine-grained permissions and approval handling.
+
 ## Git Credentials
 
 У пользователя `uprava` может быть GitHub deploy key or machine credential,
