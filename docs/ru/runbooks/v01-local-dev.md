@@ -10,8 +10,8 @@ provider adapter.
 
 - Rust `1.88` or newer with `cargo`, `rustfmt` and `clippy`.
 - Node.js and npm for `apps/web`.
-- Docker Compose for the all-in-compose profile.
-- `curl`, `grep` and `node` for `make compose-smoke`.
+- Docker Compose for the Core/Web dev profile.
+- `curl`, `grep` and `node` for `make dev-smoke`.
 
 `make init` installs the Rust quality tools used by `make c` when they are
 missing: `cargo-audit`, `cargo-deny` and `taplo-cli`.
@@ -50,7 +50,7 @@ Core creates and migrates the SQLite schema on startup. Migration coverage
 includes a clean empty database and previous dev `nodes` table shape without
 `credential_hash`. For local-only recovery, stop Core/Node first, copy
 `.local/state/core.sqlite` and `~/.local/share/uprava-node/node.json` aside if
-you need evidence, then delete broken local state or use `make compose-reset`
+you need evidence, then delete broken local state or use `make dev-reset`
 for the Compose volume.
 
 ## Security Profile
@@ -77,29 +77,26 @@ session cookie. Node enrollment always requires explicit approval; the old
 ## Docker Compose
 
 ```sh
-make compose-smoke
-make compose-logs
-make compose-down
+make dev-smoke
+make dev-logs
+make dev-down
 ```
 
-Use `make compose-up` when you want services attached in the foreground for
-interactive debugging. `make compose-smoke` starts or rebuilds the Compose
-profile in detached mode before running checks. Set `SMOKE_SKIP_COMPOSE_UP=1`
-to probe an already running non-default profile.
+Use `make dev-up` when you want Core/Web attached in the foreground for
+interactive debugging. `make dev-smoke` starts or rebuilds the dev profile in
+detached mode before running checks. Set `SMOKE_SKIP_COMPOSE_UP=1` to probe an
+already running non-default profile.
 
 Reset local Compose state intentionally:
 
 ```sh
-make compose-reset
+make dev-reset
 ```
 
-Compose profile starts Core, Web and a synthetic Node Daemon that sends
-heartbeats to Core. Host ports are bound to `127.0.0.1`. Compose uses the
-hardened `controlled_dev` profile and `scripts/compose-smoke.sh` performs
-first-run local auth setup/login before approving the synthetic Node
-enrollment. Compose does not require Codex; the Node advertises the real
-`provider.codex` capability with `available=false` when the Codex binary is
-absent in the container.
+The `compose.dev.yaml` profile starts only Core and Web. Host ports are bound
+to `127.0.0.1`, Core state is kept in a resettable Docker volume, and Core uses
+the hardened `controlled_dev` profile. Run `make node-r` for a real local Node
+Daemon that can access host workspaces, provider binaries and credentials.
 
 Core rejects browser CORS origins outside `UPRAVA_ALLOWED_ORIGINS`; the default
 allows the local Vite Web UI on `127.0.0.1` and `localhost`. For a controlled
@@ -107,23 +104,19 @@ development host or forwarded port, set `UPRAVA_ALLOWED_ORIGINS` to the exact
 comma-separated browser origins that should reach Core. Wildcard origins are
 rejected.
 
-`make compose-smoke` starts the profile and then runs
-`scripts/compose-smoke.sh`. The script bypasses localhost HTTP proxies and
+`make dev-smoke` starts the profile and then runs `scripts/dev-smoke.sh`. The
+script bypasses localhost HTTP proxies and
 checks:
 
 - Core health at `http://127.0.0.1:8080/api/v1/health`;
 - Web entrypoint at `http://127.0.0.1:5173`;
 - local web auth setup/login and CSRF-protected client requests;
-- explicit approval of the synthetic Node enrollment;
-- Core inventory contains synthetic `Compose Node`;
-- synthetic Node has a validated `/workspace` placement;
-- the synthetic Node advertises a `provider.codex` capability snapshot.
+- authenticated Core inventory access.
 
-Override `CORE_URL`, `WEB_URL`, `EXPECTED_NODE`, `WORKSPACE_PATH`,
-`SMOKE_WEB_PASSWORD`, `SMOKE_RETRIES` or `SMOKE_DELAY_SECONDS`, чтобы запускать
-тот же smoke check against a non-default local profile. Set
-`SMOKE_SKIP_COMPOSE_UP=1` when those endpoints are already running and should
-not be started by the Make target.
+Override `CORE_URL`, `WEB_URL`, `SMOKE_WEB_PASSWORD`, `SMOKE_RETRIES` or
+`SMOKE_DELAY_SECONDS`, чтобы запускать тот же smoke check against a non-default
+local profile. Set `SMOKE_SKIP_COMPOSE_UP=1` when those endpoints are already
+running and should not be started by the Make target.
 
 ## Node Enrollment
 
@@ -404,23 +397,22 @@ SSE event so the client can refetch the snapshot.
 
 ```sh
 make c
-make compose-smoke
+make dev-smoke
 make web-e2e
 make codex-smoke
 ```
 
-`make compose-smoke` covers the deterministic infrastructure path through
-Compose: hardened local auth setup/login, explicit Node enrollment approval,
-inventory, workspace placement and Codex capability advertisement. It does not
-start a provider session.
+`make dev-smoke` covers the deterministic Core/Web infrastructure path through
+Compose: hardened local auth setup/login and authenticated Core inventory
+access. It does not start a Node Daemon or a provider session.
 
 `make web-e2e` starts the Vite web server when `PLAYWRIGHT_BASE_URL` is not set.
 Set `PLAYWRIGHT_BASE_URL` to run the same checks against an already running
 local profile.
 Use `PLAYWRIGHT_BASE_URL=http://127.0.0.1:5173 make web-e2e` for automated
-browser checks against the Compose Web service. Default E2E run uses mocked
+browser checks against the dev Compose Web service. Default E2E run uses mocked
 Core snapshots for deterministic UI warning/degraded-state assertions. To run
-the real Core/Web/Node browser path against a profile with an available Codex
+the real Core/Web/Node browser path against a host Node with an available Codex
 provider, run:
 
 ```sh
@@ -429,10 +421,11 @@ PLAYWRIGHT_BASE_URL=http://127.0.0.1:5173 \
 make web-e2e
 ```
 
-For agent/operator inspection, run the same Compose profile, open
-`http://127.0.0.1:5173` with `playwright-cli`, verify hardened profile banner,
-inventory tree, workspace/session flow, warning/degraded states and inspector
-actions, then collect `make compose-logs` output if a defect needs debugging.
+For agent/operator inspection, run the dev Compose profile, start `make node-r`
+when workspace access is needed, open `http://127.0.0.1:5173` with
+`playwright-cli`, verify hardened profile banner, inventory tree,
+workspace/session flow, warning/degraded states and inspector actions, then
+collect `make dev-logs` output if a defect needs debugging.
 
 `make codex-smoke` starts host Core/Web/Node with a disposable writable
 workspace and runs the real Codex provider path. Run it only where Codex CLI is

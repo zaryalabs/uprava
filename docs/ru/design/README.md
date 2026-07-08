@@ -92,8 +92,8 @@ docs/ru/design/010-project-workspace-surface.md
 - Distributed Runtime Coordination должен быть общим dispatch/resource-awareness слоем для interactive sessions, future task runs and sandboxed runtimes.
 - Human UI и agent-readable UI должны развиваться вместе.
 - Local development and UI verification являются частью system design: Docker
-  Compose должен давать reproducible hardened Core/Web/Node setup, while Codex
-  provider execution is covered by a separate real-provider smoke path.
+  Compose должен давать reproducible hardened Core/Web setup, while host Node
+  Daemon and Codex provider execution are covered by separate smoke paths.
   Playwright должен покрывать automated E2E checks и agent/operator inspection
   через `playwright-cli`.
 - V01 должен быть маленьким, но не должен закрывать путь к plugins, visual blocks, task-based runtime, mobile and team/cloud.

@@ -48,26 +48,26 @@ Desktop Client      Tauri later, wraps Web Control Panel or talks to Core
 
 ## Local Development Environment
 
-Docker Compose is the canonical local bootstrap and smoke-test environment for
-V01 development. It is not a production deployment model; it is a stability tool
-for making Core, Web, Node-facing protocol paths, hardened enrollment/auth and
-diagnostics reproducible on every machine.
+Docker Compose is the canonical local Core/Web bootstrap and smoke-test
+environment for V01 development. It is not a production deployment model; it is
+a stability tool for making browser-facing Core/Web startup, hardened local
+auth and basic diagnostics reproducible on every machine. Node-facing protocol
+paths run through a host Node Daemon when real workspace or provider access is
+needed.
 
 The baseline Compose setup should provide:
 
 - predictable ports for Core and Web;
 - persistent but resettable SQLite/Core state volumes;
-- a hardened Core/Web/Node smoke path that can run without Codex;
-- an option to run a Node Daemon in Compose for synthetic workspaces;
-- an option to run Node Daemon on the host when it must touch real local
-  workspaces and host credentials;
+- a hardened Core/Web smoke path that can run without Codex;
+- a host Node Daemon path for real local workspaces and host credentials;
 - health checks that are useful to `make`, Playwright and CI;
 - documented reset and log-collection commands.
 
 Real local workspace control can require a host-running Node Daemon. Compose
-should still remain the stable way to start Core/Web/Node and the infrastructure
-smoke path, while `make codex-smoke` covers real provider execution where Codex
-is installed.
+should remain the stable way to start Core/Web and the infrastructure smoke
+path, while `make node-r` and `make codex-smoke` cover host Node enrollment,
+workspace access and real provider execution where Codex is installed.
 
 ## Rust Stack
 
@@ -367,7 +367,6 @@ This is not the final structure, but it reflects the main separation:
 - Whether Tauri appears in V01 as launcher or waits for a feature queue item.
 - Exact package manager for frontend.
 - Exact monorepo tooling for frontend.
-- Exact Docker Compose service split for host-node and all-in-compose profiles.
 
 ## Current Recommendation
 

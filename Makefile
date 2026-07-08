@@ -5,12 +5,14 @@ WEB_DIR := apps/web
 WEB_PACKAGE := $(WEB_DIR)/package.json
 WEB_NODE_MODULES := $(WEB_DIR)/node_modules
 COMPOSE ?= docker compose
+DEV_COMPOSE_FILE ?= compose.dev.yaml
 COMPOSE_PARALLEL_LIMIT ?= 1
 RUST_TOOL_TOML_FILES := $(wildcard Cargo.toml crates/*/Cargo.toml deny.toml taplo.toml)
 # rsa is retained in Cargo.lock as an inactive optional dependency and
 # RUSTSEC-2023-0071 has no fixed release.
 CARGO_AUDIT_IGNORE := --ignore RUSTSEC-2023-0071
 CLAWPATCH ?= npx --yes clawpatch@0.3.0
+DEV_COMPOSE_CMD = $(COMPOSE) -f $(DEV_COMPOSE_FILE)
 
 ifneq (,$(wildcard pnpm-lock.yaml))
 WEB_PM := pnpm
@@ -193,55 +195,73 @@ node-r: ## Run Node Daemon locally when Cargo workspace exists
 		echo "No Cargo.toml found; skipping Node run"; \
 	fi
 
-compose-up: ## Start local Core/Web/Node development profile
+dev-up: ## Start local Core/Web development profile
 	@set -e; \
-	if [ -f compose.yaml ]; then \
-		COMPOSE_PARALLEL_LIMIT=$(COMPOSE_PARALLEL_LIMIT) $(COMPOSE) build core; \
-		COMPOSE_PARALLEL_LIMIT=$(COMPOSE_PARALLEL_LIMIT) $(COMPOSE) build node; \
-		COMPOSE_PARALLEL_LIMIT=$(COMPOSE_PARALLEL_LIMIT) $(COMPOSE) build web; \
-		COMPOSE_PARALLEL_LIMIT=$(COMPOSE_PARALLEL_LIMIT) $(COMPOSE) up --no-build; \
+	if [ -f "$(DEV_COMPOSE_FILE)" ]; then \
+		COMPOSE_PARALLEL_LIMIT=$(COMPOSE_PARALLEL_LIMIT) $(DEV_COMPOSE_CMD) build core; \
+		COMPOSE_PARALLEL_LIMIT=$(COMPOSE_PARALLEL_LIMIT) $(DEV_COMPOSE_CMD) build web; \
+		COMPOSE_PARALLEL_LIMIT=$(COMPOSE_PARALLEL_LIMIT) $(DEV_COMPOSE_CMD) up --no-build; \
 	else \
-		echo "No compose.yaml found; skipping compose up"; \
+		echo "No $(DEV_COMPOSE_FILE) found; skipping dev up"; \
 	fi
 
-compose-down: ## Stop local Docker Compose profile
-	@if [ -f compose.yaml ]; then \
-		$(COMPOSE) down; \
+dev-down: ## Stop local Core/Web development profile
+	@if [ -f "$(DEV_COMPOSE_FILE)" ]; then \
+		$(DEV_COMPOSE_CMD) down; \
 	else \
-		echo "No compose.yaml found; skipping compose down"; \
+		echo "No $(DEV_COMPOSE_FILE) found; skipping dev down"; \
 	fi
 
-compose-logs: ## Show local Docker Compose logs
-	@if [ -f compose.yaml ]; then \
-		$(COMPOSE) logs -f; \
+dev-logs: ## Show local Core/Web development logs
+	@if [ -f "$(DEV_COMPOSE_FILE)" ]; then \
+		$(DEV_COMPOSE_CMD) logs -f; \
 	else \
-		echo "No compose.yaml found; skipping compose logs"; \
+		echo "No $(DEV_COMPOSE_FILE) found; skipping dev logs"; \
 	fi
 
-compose-reset: ## Remove local Docker Compose state volume intentionally
-	@if [ -f compose.yaml ]; then \
-		$(COMPOSE) down -v; \
+dev-reset: ## Remove local Core/Web development state volume intentionally
+	@if [ -f "$(DEV_COMPOSE_FILE)" ]; then \
+		$(DEV_COMPOSE_CMD) down -v; \
 	else \
-		echo "No compose.yaml found; skipping compose reset"; \
+		echo "No $(DEV_COMPOSE_FILE) found; skipping dev reset"; \
 	fi
 
-compose-smoke: ## Smoke-check Core, Web and synthetic Compose Node
+dev-smoke: ## Smoke-check local Core/Web development profile
 	@set -e; \
 	if [ "$${SMOKE_SKIP_COMPOSE_UP:-0}" != "1" ]; then \
-		if [ -f compose.yaml ]; then \
-			COMPOSE_PARALLEL_LIMIT=$(COMPOSE_PARALLEL_LIMIT) $(COMPOSE) build core; \
-			COMPOSE_PARALLEL_LIMIT=$(COMPOSE_PARALLEL_LIMIT) $(COMPOSE) build node; \
-			COMPOSE_PARALLEL_LIMIT=$(COMPOSE_PARALLEL_LIMIT) $(COMPOSE) build web; \
-			COMPOSE_PARALLEL_LIMIT=$(COMPOSE_PARALLEL_LIMIT) $(COMPOSE) up -d --no-build; \
+		if [ -f "$(DEV_COMPOSE_FILE)" ]; then \
+			COMPOSE_PARALLEL_LIMIT=$(COMPOSE_PARALLEL_LIMIT) $(DEV_COMPOSE_CMD) build core; \
+			COMPOSE_PARALLEL_LIMIT=$(COMPOSE_PARALLEL_LIMIT) $(DEV_COMPOSE_CMD) build web; \
+			COMPOSE_PARALLEL_LIMIT=$(COMPOSE_PARALLEL_LIMIT) $(DEV_COMPOSE_CMD) up -d --no-build; \
 		else \
-			echo "No compose.yaml found; skipping compose startup"; \
+			echo "No $(DEV_COMPOSE_FILE) found; skipping dev startup"; \
 		fi; \
 	fi
-	@if [ -f scripts/compose-smoke.sh ]; then \
-		sh scripts/compose-smoke.sh; \
+	@if [ -f scripts/dev-smoke.sh ]; then \
+		sh scripts/dev-smoke.sh; \
 	else \
-		echo "No scripts/compose-smoke.sh found; skipping compose smoke"; \
+		echo "No scripts/dev-smoke.sh found; skipping dev smoke"; \
 	fi
+
+compose-up: ## Deprecated alias for dev-up
+	@echo "compose-up is deprecated; use dev-up"
+	@$(MAKE) --no-print-directory dev-up
+
+compose-down: ## Deprecated alias for dev-down
+	@echo "compose-down is deprecated; use dev-down"
+	@$(MAKE) --no-print-directory dev-down
+
+compose-logs: ## Deprecated alias for dev-logs
+	@echo "compose-logs is deprecated; use dev-logs"
+	@$(MAKE) --no-print-directory dev-logs
+
+compose-reset: ## Deprecated alias for dev-reset
+	@echo "compose-reset is deprecated; use dev-reset"
+	@$(MAKE) --no-print-directory dev-reset
+
+compose-smoke: ## Deprecated alias for dev-smoke
+	@echo "compose-smoke is deprecated; use dev-smoke"
+	@$(MAKE) --no-print-directory dev-smoke
 
 codex-smoke: ## Smoke-check real Codex provider with host Core/Web/Node
 	@if [ -f scripts/codex-provider-smoke.sh ]; then \
@@ -293,4 +313,4 @@ clean: ## Remove common local build and cache artifacts
 	rm -rf target htmlcov coverage .pytest_cache .ruff_cache .mypy_cache .ty
 	rm -rf $(WEB_DIR)/dist $(WEB_DIR)/coverage
 
-.PHONY: help init fmt l dl t c pc claw-doctor claw-init claw-map claw-review claw-report claw-ci claw-show claw-fix docs-fmt docs-l rust-fmt rust-l rust-dl rust-tools-install rust-t web-r web-fmt web-l web-dl web-t web-e2e core-r node-r compose-up compose-down compose-logs compose-reset compose-smoke codex-smoke clean
+.PHONY: help init fmt l dl t c pc claw-doctor claw-init claw-map claw-review claw-report claw-ci claw-show claw-fix docs-fmt docs-l rust-fmt rust-l rust-dl rust-tools-install rust-t web-r web-fmt web-l web-dl web-t web-e2e core-r node-r dev-up dev-down dev-logs dev-reset dev-smoke compose-up compose-down compose-logs compose-reset compose-smoke codex-smoke clean

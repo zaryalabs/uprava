@@ -52,6 +52,7 @@ Target layout:
   compose.yaml
   .env
   .env.release -> builds/releases/<release-id>.env.release
+  current -> builds/releases/<release-id>/
   builds/
     releases/
       <release-id>.env.release
@@ -69,13 +70,16 @@ Host-level files:
 ```text
 /etc/systemd/system/uprava-node.service
 /etc/uprava/node.env
+/var/lib/uprava/
 /var/lib/uprava-node/node.json
 /var/log/uprava-node/ optional local fallback logs
+/srv/uprava-workspaces/ root-created workspace boundary with uprava ACL
+/srv/uprava-workspaces/uprava/ editable self-hosting checkout
 ```
 
 The product repository owns templates and docs for host-level files. The server
-owns the installed unit file, env file, local state and actual workspace
-permissions.
+owns the installed unit file, env file, local state, workspace root and actual
+workspace permissions.
 
 ## Runtime Units
 
@@ -102,7 +106,7 @@ production. Local development may keep `http://127.0.0.1:8080/api/v1`.
 
 `uprava-node.service` should manage only the host Node Daemon. It should:
 
-- run as a dedicated user when practical;
+- run as the dedicated Unix user `uprava`;
 - read `/etc/uprava/node.env`;
 - use `/var/lib/uprava-node` for local state;
 - configure explicit `UPRAVA_NODE_WORKSPACES`;
@@ -113,6 +117,38 @@ production. Local development may keep `http://127.0.0.1:8080/api/v1`.
 Installing or changing the unit file is an operational contract change, not an
 ordinary release deploy. Ordinary deploy may restart the declared product-owned
 unit through the installation Makefile or approved deploy wrapper.
+
+### Self-Hosting Workspace
+
+Self-hosting workspace намеренно отделен от runtime installation:
+
+```text
+/opt/apps/uprava/                 # deployed runtime installation
+/srv/uprava-workspaces/uprava/    # editable git checkout for agent work
+```
+
+`/srv/uprava-workspaces` should be created by root как dedicated workspace
+boundary, но он должен быть writable by `uprava` group и иметь default ACLs,
+чтобы все под `/srv/uprava-workspaces/*` оставалось writable для Node Daemon
+user. Configure the Node Daemon with:
+
+```text
+UPRAVA_NODE_WORKSPACES=/srv/uprava-workspaces
+```
+
+У пользователя `uprava` может быть GitHub deploy key or machine credential,
+который умеет push-ить feature branches в `zaryalabs/uprava`. Нельзя
+использовать root key или personal operator credential.
+
+Agent sessions могут редактировать workspace clone, запускать checks, commit
+and push feature branches. Они не должны напрямую редактировать
+`/opt/apps/uprava`, production `.env` files, systemd units, proxy
+configuration, active release symlinks, volumes or backups. Production changes
+должны попадать на сервер через branch, review, merge and CI/CD, а не через
+direct runtime mutation.
+
+Detailed user-facing flow lives in
+[`self-hosting-golden-path.md`](self-hosting-golden-path.md).
 
 ## Release Manifest
 
@@ -218,7 +254,8 @@ restore
 Suggested meanings:
 
 - `pull` - pull Core/Web images and fetch/verify the Node artifact.
-- `activate` - update `.env.release` to point to the selected release manifest.
+- `activate` - update `.env.release` and `current` to point to the selected
+  release manifest and extracted host artifact directory.
 - `up` - apply Compose Core/Web state and start/restart `uprava-node.service`.
 - `status` - show Compose status and `systemctl status uprava-node.service`.
 - `logs` - show Compose logs and `journalctl -u uprava-node`.
@@ -231,7 +268,7 @@ Suggested meanings:
 Default release activation:
 
 1. Copy the release manifest to `/opt/apps/uprava/builds/releases/`.
-2. `make activate RELEASE=<release-id>`.
+2. `make activate RELEASE=<release-id>` updates `.env.release` and `current`.
 3. `make pull` fetches images and the Node artifact.
 4. Core/Web update through Compose.
 5. Node Daemon restarts through the approved product-owned systemd path.
@@ -271,6 +308,11 @@ Adding/changing the installed systemd unit, Linux users/groups, workspace
 permissions or sudoers policy is a manual server setup step, not ordinary CI/CD
 deploy.
 
+Unix user `uprava`, от которого работает Node Daemon, не является deploy
+runner. Он может писать в allowed workspace checkout и push-ить branches, когда
+Git credentials configured, но не должен иметь sudo rights для arbitrary
+systemd, Docker, proxy or production file operations.
+
 ## Rollback
 
 Rollback should use the same path as deploy:
@@ -301,10 +343,14 @@ Server-owned state:
 
 - `/opt/apps/uprava/.env`;
 - active `.env.release` symlink;
+- active `current` release symlink;
 - persisted Core data;
 - installed systemd unit;
 - `/etc/uprava/node.env`;
+- `/var/lib/uprava/`;
 - `/var/lib/uprava-node/node.json`;
+- `/srv/uprava-workspaces/`;
+- `/srv/uprava-workspaces/uprava/`;
 - real workspace files and credentials;
 - backups.
 
@@ -321,7 +367,6 @@ Oreol:
   asset, or another registry.
 - Whether production Web remains a separate container or Core serves built
   static assets later.
-- Exact production domain.
-- Exact Unix user and filesystem policy for real workspaces.
+- Exact Git credential mechanism for the `uprava` server user.
 - Whether release id should be reported by Node heartbeat before the first
   production deploy.

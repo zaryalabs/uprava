@@ -41,6 +41,7 @@ Synchronized product and architecture docs:
 - [Feature Inventory](docs/en/feature-inventory.md)
 - [Project Workspace Inspector](docs/en/workspace-inspector.md)
 - [Workspace Editing and IDE Sidecar](docs/en/workspace-editing-and-ide-sidecar.md)
+- [Self-Hosting Golden Path](docs/en/self-hosting-golden-path.md)
 - [Design Docs](docs/en/design)
 - [Source Notes](docs/en/uprava-notes.md)
 - [TMP Plans](docs/tmp-plans) - temporary implementation plans for intermediate development slices
@@ -110,9 +111,10 @@ Rust tooling: cargo, rust-analyzer, rustfmt, clippy, bacon, nextest, audit, deny
 
 Next.js is not the required V01 runtime. It remains an option for cloud/web frontend, BFF, SSR, public pages, or SaaS needs if those become strong enough reasons.
 
-Local development should have a Docker Compose profile that starts the stable
-Core/Web/Node path with predictable ports, volumes, enrollment, and reset
-behavior.
+Local development should have a Docker Compose dev profile that starts the
+stable Core/Web path with predictable ports, Core state volume, healthcheck and
+reset behavior. Run the Node Daemon as a host process when it needs real local
+workspace and provider access.
 UI verification should use Playwright in two modes: automated E2E tests and
 agent/operator inspection through `playwright-cli` against the same local setup.
 
@@ -131,7 +133,8 @@ The `0.1.7` implementation baseline now includes:
   PTY terminal sessions routed through Core and owned by Node;
 - unified audit hardening for quality gates, Node state/file safety, command
   retry semantics, session stream cursors, healthcheck and web error states;
-- Docker Compose local profile for Core, Web and a synthetic Node Daemon.
+- Docker Compose dev profile for Core and Web, plus host Node Daemon run and
+  smoke paths.
 
 Start the local stack from separate terminals:
 
@@ -146,10 +149,10 @@ make web-r
 Set `UPRAVA_NODE_WORKSPACES=/path/to/workspace-root` before running it when the
 Node should manage a different local workspace tree.
 
-Or use the Compose profile:
+Or use the Docker Compose dev profile for Core/Web:
 
 ```sh
-make compose-up
+make dev-up
 ```
 
 The current local runbook is

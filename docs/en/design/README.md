@@ -121,8 +121,8 @@ These principles should run through all key mechanisms:
   layer for interactive sessions, future task runs, and sandboxed runtimes.
 - Human UI and agent-readable UI should evolve together.
 - Local development and UI verification are part of the system design: Docker
-  Compose should provide a reproducible hardened Core/Web/Node setup, while
-  Codex provider execution is covered by a separate real-provider smoke path.
+  Compose should provide a reproducible hardened Core/Web setup, while host
+  Node Daemon and Codex provider execution are covered by separate smoke paths.
   Playwright should cover both automated E2E checks and agent/operator
   inspection through `playwright-cli`.
 - V01 should be small, but should not block plugins, visual blocks, task-based

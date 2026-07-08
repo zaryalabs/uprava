@@ -27,6 +27,7 @@ Current documents:
 - [`workspace-editing-and-ide-sidecar.md`](workspace-editing-and-ide-sidecar.md) - lightweight file editing and optional full-IDE sidecar direction.
 - [`deployment.md`](deployment.md) - Uprava deployment model: Core/Web in Docker, Node Daemon through systemd and `.env.release`.
 - [`deployment-observability.md`](deployment-observability.md) - working position on Core/Web in Docker, bare-metal Node Daemon and observability.
+- [`self-hosting-golden-path.md`](self-hosting-golden-path.md) - server workflow where Uprava edits a separate clone of itself and pushes branches through normal review and CI/CD.
 - [`uprava-notes.md`](uprava-notes.md) - source notes mirror.
 - [`design/`](design/) - deep design documents for key Uprava mechanisms.
 

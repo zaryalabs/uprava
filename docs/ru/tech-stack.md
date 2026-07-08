@@ -43,26 +43,27 @@ Desktop Client      Tauri later, wraps Web Control Panel or talks to Core
 
 ## Local development environment
 
-Docker Compose - canonical local bootstrap and smoke-test environment для V01
-development. Это не production deployment model, а инструмент стабильности:
-Core, Web, Node-facing protocol paths, hardened enrollment/auth and diagnostics
-должны воспроизводимо стартовать на каждой машине.
+Docker Compose - canonical local Core/Web bootstrap and smoke-test environment
+для V01 development. Это не production deployment model, а инструмент
+стабильности: browser-facing Core/Web startup, hardened local auth and basic
+diagnostics должны воспроизводимо стартовать на каждой машине. Node-facing
+protocol paths идут через host Node Daemon, когда нужен реальный workspace or
+provider access.
 
 Базовый Compose setup должен давать:
 
 - predictable ports для Core and Web;
 - persistent but resettable SQLite/Core state volumes;
-- hardened Core/Web/Node smoke path, который работает без Codex;
-- вариант запуска Node Daemon внутри Compose для synthetic workspaces;
-- вариант запуска Node Daemon на host, если он должен работать с реальными
-  local workspaces and host credentials;
+- hardened Core/Web smoke path, который работает без Codex;
+- host Node Daemon path для реальных local workspaces and host credentials;
 - health checks, useful for `make`, Playwright and CI;
 - documented reset and log-collection commands.
 
 Для реального контроля local workspace может понадобиться Node Daemon на host.
-Compose все равно остается стабильным способом стартовать Core/Web/Node and
-infrastructure smoke path, while `make codex-smoke` covers real provider
-execution там, где Codex установлен.
+Compose остается стабильным способом стартовать Core/Web and infrastructure
+smoke path, while `make node-r` and `make codex-smoke` cover host Node
+enrollment, workspace access and real provider execution там, где Codex
+установлен.
 
 ## Rust stack
 
@@ -348,7 +349,6 @@ apps/
 - Whether Tauri appears in V01 as launcher or waits for a feature queue item.
 - Exact package manager for frontend.
 - Exact monorepo tooling for frontend.
-- Exact Docker Compose service split for host-node and all-in-compose profiles.
 
 ## Current recommendation
 

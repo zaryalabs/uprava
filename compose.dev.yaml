@@ -1,4 +1,4 @@
-name: uprava
+name: uprava-dev
 
 services:
   core:
@@ -14,29 +14,12 @@ services:
     ports:
       - "127.0.0.1:8080:8080"
     volumes:
-      - uprava-core-data:/data
+      - uprava-dev-core-data:/data
     healthcheck:
       test: ["CMD", "uprava-server", "healthcheck", "127.0.0.1:8080"]
       interval: 5s
       timeout: 2s
       retries: 20
-
-  node:
-    build:
-      context: .
-      dockerfile: Dockerfile.node
-    environment:
-      UPRAVA_CORE_URL: http://core:8080
-      UPRAVA_NODE_DISPLAY_NAME: Compose Node
-      UPRAVA_NODE_STATE_PATH: /state/node.json
-      UPRAVA_NODE_WORKSPACES: /workspace
-      RUST_LOG: info,uprava_node=debug
-    volumes:
-      - uprava-node-state:/state
-      - ./docs:/workspace:ro
-    depends_on:
-      core:
-        condition: service_healthy
 
   web:
     build:
@@ -49,5 +32,4 @@ services:
         condition: service_healthy
 
 volumes:
-  uprava-core-data:
-  uprava-node-state:
+  uprava-dev-core-data:

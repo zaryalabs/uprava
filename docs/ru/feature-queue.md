@@ -217,7 +217,7 @@ diff/review workflows без ослабления Core/Node authority boundary.
 feature-complete в отдельных flows.
 
 **Dependency:** `0.1.7` workspace renderer/PTY baseline, controlled-dev security
-baseline and current Core/Web/Node local profile.
+baseline, current Core/Web dev profile and host Node run path.
 
 **First useful slice:** Переработать Web Control Panel под длительное
 использование: расположение панелей, информационную плотность, навигационный

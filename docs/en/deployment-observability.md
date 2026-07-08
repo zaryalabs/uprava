@@ -107,13 +107,14 @@ The Node Daemon should run as a systemd unit on the host:
 ```text
 /etc/systemd/system/uprava-node.service
 /etc/uprava/node.env
+/var/lib/uprava/
 /var/lib/uprava-node/node.json
 /var/log/uprava-node/ optional local fallback logs
 ```
 
 Default service posture:
 
-- run as a dedicated Unix user such as `uprava-node`, not root;
+- run as the dedicated Unix user `uprava`, not root;
 - grant workspace access explicitly through filesystem ownership/group policy;
 - configure `UPRAVA_NODE_WORKSPACES` with explicit allowed roots;
 - configure `UPRAVA_CORE_URL=https://uprava.zrya.io`;
@@ -135,13 +136,13 @@ After=network-online.target
 Wants=network-online.target
 
 [Service]
-User=uprava-node
-Group=uprava-node
+User=uprava
+Group=uprava
 EnvironmentFile=/etc/uprava/node.env
-ExecStart=/opt/apps/uprava-node/uprava-node
+ExecStart=/opt/apps/uprava/current/uprava-node
 Restart=on-failure
 RestartSec=5s
-WorkingDirectory=/var/lib/uprava-node
+WorkingDirectory=/var/lib/uprava
 
 [Install]
 WantedBy=multi-user.target

@@ -214,7 +214,7 @@ should make it comfortable and reliable for everyday work, not only
 feature-complete in isolated flows.
 
 **Dependency:** The `0.1.7` workspace renderer/PTY baseline, controlled-dev
-security baseline, and current Core/Web/Node local profile.
+security baseline, current Core/Web dev profile, and host Node run path.
 
 **First useful slice:** Rework the Web Control Panel around sustained use:
 panel placement, information density, navigation rhythm, workspace/session

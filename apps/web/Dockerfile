@@ -1,5 +1,6 @@
 FROM node:24-bookworm-slim AS builder
 WORKDIR /app
+ENV NODE_OPTIONS=--max-old-space-size=4096
 COPY package.json package-lock.json* ./
 RUN npm install
 COPY . .

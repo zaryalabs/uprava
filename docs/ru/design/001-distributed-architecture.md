@@ -185,8 +185,8 @@ channel или то, что эта machine является одной из но
 Для Distributed Agent Control Panel достаточно:
 
 - один Core URL;
-- Docker Compose local profile for reproducible hardened Core/Web/Node startup,
-  with an explicit host-node option for real local workspace access and
+- Docker Compose local profile for reproducible hardened Core/Web startup,
+  with an explicit host Node path for real local workspace access and
   `codex-smoke` for real provider execution;
 - Playwright verification against that local profile, split into automated E2E
   tests and agent/operator inspection through `playwright-cli`;
