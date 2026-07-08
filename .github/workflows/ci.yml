@@ -25,14 +25,13 @@ env:
   IMAGE_NAMESPACE: ghcr.io/${{ github.repository_owner }}
   INSTALL_DIR: /opt/apps/uprava
 
-concurrency:
-  group: uprava-${{ github.workflow }}-${{ github.event_name == 'workflow_dispatch' && 'deploy' || github.ref }}
-  cancel-in-progress: false
-
 jobs:
   check:
     if: github.event_name != 'workflow_dispatch'
     runs-on: [self-hosted, zarya-main, geo-eu, ci]
+    concurrency:
+      group: uprava-check-${{ github.ref }}
+      cancel-in-progress: false
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -47,6 +46,9 @@ jobs:
     if: github.event_name == 'push'
     needs: check
     runs-on: [self-hosted, zarya-main, geo-eu, ci]
+    concurrency:
+      group: uprava-release-${{ github.ref }}
+      cancel-in-progress: false
     permissions:
       contents: read
       packages: write
@@ -72,7 +74,9 @@ jobs:
   deploy:
     if: github.event_name == 'workflow_dispatch'
     runs-on: [self-hosted, zarya-main, geo-eu, deploy]
-    environment: production-main
+    concurrency:
+      group: uprava-deploy-production-main
+      cancel-in-progress: false
     permissions:
       contents: read
       packages: read
