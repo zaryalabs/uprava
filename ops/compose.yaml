@@ -25,6 +25,7 @@ services:
     labels:
       - traefik.enable=true
       - traefik.docker.network=platform
+      - traefik.http.middlewares.uprava-https-redirect.redirectscheme.scheme=https
       - traefik.http.routers.uprava-core.rule=Host(`${UPRAVA_DOMAIN:-uprava.zrya.io}`) && PathPrefix(`/api/v1`)
       - traefik.http.routers.uprava-core.entrypoints=websecure
       - traefik.http.routers.uprava-core.tls.certresolver=letsencrypt
@@ -47,6 +48,8 @@ services:
     depends_on:
       core:
         condition: service_healthy
+    environment:
+      __VITE_ADDITIONAL_SERVER_ALLOWED_HOSTS: ${UPRAVA_DOMAIN:-uprava.zrya.io}
     labels:
       - traefik.enable=true
       - traefik.docker.network=platform
