@@ -2,7 +2,7 @@
 
 Статус: `active`
 
-Current release baseline: `0.1.7`.
+Current release baseline: `0.1.8`.
 
 Этот ledger фиксирует implementation baselines. Он не заменяет
 [`feature-queue.md`](feature-queue.md), где остается ранжированная очередь
@@ -19,13 +19,14 @@ future work.
 | `0.1.4` | 2026-07-06 | shipped | Read-only Project Workspace Inspector |
 | `0.1.5` | 2026-07-06 | shipped | Workspace intervention layer |
 | `0.1.6` | 2026-07-06 | shipped | Unified audit hardening |
-| `0.1.7` | 2026-07-06 | current | Workspace renderer and PTY terminal layer |
+| `0.1.7` | 2026-07-06 | shipped | Workspace renderer and PTY terminal layer |
+| `0.1.8` | 2026-07-08 | current | CI/CD deployment automation and self-hosted Codex execution posture |
 
 ## Current Baseline
 
-`0.1.7` включает первый working distributed control panel, пять закрытых
+`0.1.8` включает первый working distributed control panel, пять закрытых
 feature queue slices после `0.1.0`, unified audit hardening slice и workspace
-renderer/PTY terminal layer:
+renderer/PTY terminal layer, а также первый deployable self-hosted release path:
 
 - controlled-development security baseline;
 - runtime/session hardening;
@@ -50,7 +51,14 @@ renderer/PTY terminal layer:
 - xterm.js terminal tabs with WebSocket attach, fit resize and interactive
   input/output streaming;
 - retained bounded command runner для traceable controlled checks вроде
-  `make l` and `make c`.
+  `make l` and `make c`;
+- GitHub Actions CI/CD для Core/Web images, Node artifact publishing, release
+  manifest generation and deploy activation;
+- server Make targets and scripts для release manifests, host Node artifact
+  extraction, activation and deploy;
+- self-hosted Codex adapter launch flags для noninteractive execution на
+  production server, где effective boundary остается Unix user `uprava`,
+  workspace allow-list and deployment ACLs.
 
 Новые аудиты и temporary plans должны считать это фактами текущей реализации.
 Они могут ссылаться на `V01`, когда обсуждают исторический первый продуктовый

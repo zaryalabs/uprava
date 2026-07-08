@@ -21,11 +21,12 @@ Uprava should be a control plane and work surface for agent workloads:
 
 ## Current State
 
-The current repository state is a working `0.1.7` implementation baseline plus
+The current repository state is a working `0.1.8` implementation baseline plus
 product and architecture documentation. `V01` names the first product cut that
 shipped as `0.1.0`; the current implementation has moved through five completed
 feature queue slices, one unified audit hardening slice, and one workspace
-renderer/PTY terminal slice after that baseline.
+renderer/PTY terminal slice plus the first self-hosted CI/CD deploy baseline
+after that cut.
 
 Synchronized product and architecture docs:
 
@@ -120,7 +121,7 @@ agent/operator inspection through `playwright-cli` against the same local setup.
 
 ## Local Development Scaffold
 
-The `0.1.7` implementation baseline now includes:
+The `0.1.8` implementation baseline now includes:
 
 - Rust workspace crates for shared protocol/domain contracts, Core Backend and
   Node Daemon;
@@ -133,6 +134,8 @@ The `0.1.7` implementation baseline now includes:
   PTY terminal sessions routed through Core and owned by Node;
 - unified audit hardening for quality gates, Node state/file safety, command
   retry semantics, session stream cursors, healthcheck and web error states;
+- GitHub Actions release automation, deploy manifests and server activation
+  scripts for the self-hosted Core/Web/Node release path;
 - Docker Compose dev profile for Core and Web, plus host Node Daemon run and
   smoke paths.
 

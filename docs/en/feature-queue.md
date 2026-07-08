@@ -36,9 +36,10 @@ That belongs in [v01.md](v01.md).
 
 ## Queue Overview
 
-Current release baseline: `0.1.7`. Done items `0` through `5`, the unified
-audit hardening release, and the `5a` workspace renderer release correspond to
-the shipped versions recorded in [`releases.md`](releases.md).
+Current release baseline: `0.1.8`. Done items `0` through `5`, the unified
+audit hardening release, the `5a` workspace renderer release and the first
+self-hosted CI/CD deployment baseline correspond to the shipped versions
+recorded in [`releases.md`](releases.md).
 The next planned queue item is a daily-use hardening and deployment readiness
 slice before new product mechanisms are added.
 
@@ -51,7 +52,7 @@ slice before new product mechanisms are added.
 | 4 | + | Read-only Project Workspace Inspector | File tree, metadata, safe text viewer | Workspace refs, Node file reads | Medium |
 | 5 | + | Workspace intervention layer | Lightweight editor, terminal, command history, diff/check entry points | Read-only inspector, events | High |
 | 5a | + | Workspace renderer and PTY terminal layer | Monaco file/diff renderers and xterm-backed interactive PTY sessions | Workspace intervention, Core/Node control channel | High |
-| 6 | - | Daily-use hardening and deployment readiness | Stable panel layout, product polish, server deploy path, CI/CD baseline | `0.1.7` workbench, security baseline | High |
+| 6 | - | Daily-use hardening and deployment readiness | Stable panel layout, product polish, server deploy path, CI/CD baseline | `0.1.8` deployable workbench, security baseline | High |
 | 7 | - | Causality and trace UX | Coarse source/cause links with raw fallback | Workspace refs, event log | Medium |
 | 8 | - | Git and review basics | Better diff, branch/worktree awareness, check results | Workspace intervention, trace | Medium |
 | 9 | - | Tool Registry v1 | Real tool metadata, permissions, routing, and audit policy | V01 capability model, events | High |

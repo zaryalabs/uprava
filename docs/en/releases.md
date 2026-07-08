@@ -2,7 +2,7 @@
 
 Status: `active`
 
-Current release baseline: `0.1.7`.
+Current release baseline: `0.1.8`.
 
 This ledger records implementation baselines. It does not replace
 [`feature-queue.md`](feature-queue.md), which remains the ranked list of future
@@ -19,13 +19,15 @@ work.
 | `0.1.4` | 2026-07-06 | shipped | Read-only Project Workspace Inspector |
 | `0.1.5` | 2026-07-06 | shipped | Workspace intervention layer |
 | `0.1.6` | 2026-07-06 | shipped | Unified audit hardening |
-| `0.1.7` | 2026-07-06 | current | Workspace renderer and PTY terminal layer |
+| `0.1.7` | 2026-07-06 | shipped | Workspace renderer and PTY terminal layer |
+| `0.1.8` | 2026-07-08 | current | CI/CD deployment automation and self-hosted Codex execution posture |
 
 ## Current Baseline
 
-`0.1.7` includes the first working distributed control panel, the five
+`0.1.8` includes the first working distributed control panel, the five
 completed feature queue slices after `0.1.0`, the unified audit hardening slice,
-and the workspace renderer/PTY terminal layer:
+the workspace renderer/PTY terminal layer, and the first deployable self-hosted
+release path:
 
 - controlled-development security baseline;
 - runtime/session hardening;
@@ -50,7 +52,14 @@ and the workspace renderer/PTY terminal layer:
 - xterm.js terminal tabs with WebSocket attach, fit resize and interactive
   input/output streaming;
 - retained bounded command runner for traceable controlled checks such as
-  `make l` and `make c`.
+  `make l` and `make c`;
+- GitHub Actions CI/CD for Core/Web images, Node artifact publishing, release
+  manifest generation and deploy activation;
+- server Make targets and scripts for release manifests, host Node artifact
+  extraction, activation and deploy;
+- self-hosted Codex adapter launch flags for noninteractive execution on the
+  production server while the effective boundary remains the `uprava` Unix user,
+  workspace allow-list and deployment ACLs.
 
 New audits and temporary plans should treat these as current implementation
 facts. They may still refer to `V01` when discussing the historical first

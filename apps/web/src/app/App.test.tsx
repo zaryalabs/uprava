@@ -74,7 +74,7 @@ describe("App routes", () => {
     expect(
       await screen.findByRole("heading", { name: "Runtime Settings" }),
     ).toBeVisible();
-    expect(await screen.findByText("uprava-core 0.1.7")).toBeVisible();
+    expect(await screen.findByText("uprava-core 0.1.8")).toBeVisible();
     expect(screen.getByText("v1")).toBeVisible();
     expect(screen.getByText("1")).toBeVisible();
   });
@@ -141,7 +141,7 @@ function responseForPath(pathname: string) {
     case "/api/v1/version":
       return {
         name: "uprava-core",
-        version: "0.1.7",
+        version: "0.1.8",
         api_version: "v1",
         schema_version: 1,
         profile: "controlled_dev",
