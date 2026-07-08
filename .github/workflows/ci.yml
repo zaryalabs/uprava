@@ -12,26 +12,17 @@ on:
       git_sha:
         description: "Commit SHA whose pushed artifacts should be deployed"
         required: true
-        type: string
       release_id:
         description: "Release id. Defaults to the first 12 chars of git_sha when empty."
         required: false
-        type: string
 
 permissions:
   contents: read
 
-env:
-  IMAGE_NAMESPACE: ghcr.io/${{ github.repository_owner }}
-  INSTALL_DIR: /opt/apps/uprava
-
 jobs:
   check:
-    if: github.event_name != 'workflow_dispatch'
+    if: ${{ github.event_name != 'workflow_dispatch' }}
     runs-on: [self-hosted, zarya-main, geo-eu, ci]
-    concurrency:
-      group: uprava-check-${{ github.ref }}
-      cancel-in-progress: false
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -43,12 +34,9 @@ jobs:
         run: make prepare
 
   release:
-    if: github.event_name == 'push'
+    if: ${{ github.event_name == 'push' }}
     needs: check
     runs-on: [self-hosted, zarya-main, geo-eu, ci]
-    concurrency:
-      group: uprava-release-${{ github.ref }}
-      cancel-in-progress: false
     permissions:
       contents: read
       packages: write
@@ -72,11 +60,8 @@ jobs:
         run: make push
 
   deploy:
-    if: github.event_name == 'workflow_dispatch'
+    if: ${{ github.event_name == 'workflow_dispatch' }}
     runs-on: [self-hosted, zarya-main, geo-eu, deploy]
-    concurrency:
-      group: uprava-deploy-production-main
-      cancel-in-progress: false
     permissions:
       contents: read
       packages: read
