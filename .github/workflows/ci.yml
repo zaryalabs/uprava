@@ -1,6 +1,6 @@
-name: Uprava CI/CD
+name: Uprava CI
 
-on:
+"on":
   pull_request:
     branches:
       - main
