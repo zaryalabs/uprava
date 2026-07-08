@@ -1,0 +1,117 @@
+name: Uprava CI/CD
+
+on:
+  pull_request:
+    branches:
+      - main
+  push:
+    branches:
+      - main
+  workflow_dispatch:
+    inputs:
+      git_sha:
+        description: "Commit SHA whose pushed artifacts should be deployed"
+        required: true
+        type: string
+      release_id:
+        description: "Release id. Defaults to the first 12 chars of git_sha when empty."
+        required: false
+        type: string
+
+permissions:
+  contents: read
+
+env:
+  IMAGE_NAMESPACE: ghcr.io/${{ github.repository_owner }}
+  INSTALL_DIR: /opt/apps/uprava
+
+concurrency:
+  group: uprava-${{ github.workflow }}-${{ github.event_name == 'workflow_dispatch' && 'deploy' || github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  check:
+    if: github.event_name != 'workflow_dispatch'
+    runs-on: [self-hosted, zarya-main, geo-eu, ci]
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install web dependencies
+        run: npm ci --prefix apps/web
+
+      - name: Prepare
+        run: make prepare
+
+  release:
+    if: github.event_name == 'push'
+    needs: check
+    runs-on: [self-hosted, zarya-main, geo-eu, ci]
+    permissions:
+      contents: read
+      packages: write
+    env:
+      DOCKER_CONFIG: ${{ runner.temp }}/docker-config
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Login to GHCR
+        run: |
+          mkdir -p "${DOCKER_CONFIG}"
+          echo "${GITHUB_TOKEN}" | docker login ghcr.io -u "${GITHUB_ACTOR}" --password-stdin
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Build release artifacts
+        run: make build
+
+      - name: Push release artifacts
+        run: make push
+
+  deploy:
+    if: github.event_name == 'workflow_dispatch'
+    runs-on: [self-hosted, zarya-main, geo-eu, deploy]
+    environment: production-main
+    permissions:
+      contents: read
+      packages: read
+    env:
+      DOCKER_CONFIG: ${{ runner.temp }}/docker-config
+    steps:
+      - name: Checkout selected release
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.git_sha }}
+
+      - name: Login to GHCR
+        run: |
+          mkdir -p "${DOCKER_CONFIG}"
+          echo "${GITHUB_TOKEN}" | docker login ghcr.io -u "${GITHUB_ACTOR}" --password-stdin
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Generate and install release manifest
+        run: |
+          release_id="${RELEASE_ID}"
+          if [[ -z "${release_id}" ]]; then
+            release_id="$(printf '%.12s' "${GIT_SHA}")"
+          fi
+
+          make release-manifest GIT_SHA="${GIT_SHA}" RELEASE_ID="${release_id}"
+          make install-release-manifest RELEASE_ID="${release_id}" SUDO=sudo
+        env:
+          GIT_SHA: ${{ inputs.git_sha }}
+          RELEASE_ID: ${{ inputs.release_id }}
+
+      - name: Deploy active release
+        run: |
+          release_id="${RELEASE_ID}"
+          if [[ -z "${release_id}" ]]; then
+            release_id="$(printf '%.12s' "${GIT_SHA}")"
+          fi
+
+          make deploy DEPLOY_MODE=local RELEASE_ID="${release_id}" SUDO=sudo
+        env:
+          GIT_SHA: ${{ inputs.git_sha }}
+          RELEASE_ID: ${{ inputs.release_id }}

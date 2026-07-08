@@ -1,11 +1,13 @@
 SHELL := /bin/sh
 
-COMPOSE ?= sudo docker compose
+SUDO ?= sudo
+COMPOSE ?= $(SUDO) docker compose
 COMPOSE_FILE ?= compose.yaml
 COMPOSE_CMD = $(COMPOSE) --env-file .env --env-file .env.release -f $(COMPOSE_FILE)
-SOURCE_GIT ?= sudo -Hu uprava git
+SOURCE_GIT ?= $(SUDO) -Hu uprava git
 SOURCE_DIR ?= /srv/uprava-workspaces/uprava
 SYSTEMD_UNIT ?= uprava-node.service
+RELEASES_DIR ?= builds/releases
 RELEASE ?=
 
 .DEFAULT_GOAL := help
@@ -25,7 +27,7 @@ logs: ## Show recent Core/Web and Node logs
 	sudo journalctl -u $(SYSTEMD_UNIT) -n 150 --no-pager || true
 
 releases: ## List locally available release manifests
-	@find builds/releases -maxdepth 1 -type f -name '*.env.release' -print 2>/dev/null | sort || true
+	@find $(RELEASES_DIR) -maxdepth 1 -type f -name '*.env.release' -print 2>/dev/null | sort || true
 
 require-release:
 	@if [ -z "$(RELEASE)" ]; then echo "Set RELEASE=<release-id>"; exit 1; fi
@@ -58,13 +60,57 @@ build-local: require-release ## Build a bootstrap release from SOURCE_DIR
 	} > "builds/releases/$(RELEASE).env.release"
 
 activate: require-release ## Activate a locally available release
-	@test -f "builds/releases/$(RELEASE).env.release" || { echo "Missing builds/releases/$(RELEASE).env.release"; exit 1; }
-	@test -x "builds/releases/$(RELEASE)/uprava-node" || { echo "Missing executable builds/releases/$(RELEASE)/uprava-node"; exit 1; }
-	ln -sfn "builds/releases/$(RELEASE).env.release" .env.release
-	ln -sfn "builds/releases/$(RELEASE)" current
+	@test -f "$(RELEASES_DIR)/$(RELEASE).env.release" || { echo "Missing $(RELEASES_DIR)/$(RELEASE).env.release"; exit 1; }
+	$(SUDO) mkdir -p "$(RELEASES_DIR)/$(RELEASE)"
+	$(SUDO) ln -sfn "$(RELEASES_DIR)/$(RELEASE).env.release" .env.release
+	$(SUDO) ln -sfn "$(RELEASES_DIR)/$(RELEASE)" current
 
 pull: ## Pull Core/Web images when they come from a registry
 	$(COMPOSE_CMD) pull --ignore-pull-failures
+	$(MAKE) --no-print-directory node-artifact
+
+node-artifact: ## Fetch, extract and verify the active Node artifact
+	@test -e .env.release || { echo "Missing .env.release; run make activate RELEASE=<release-id> first"; exit 1; }
+	@set -eu; \
+	. ./.env.release; \
+	checksum_file() { \
+		if command -v sha256sum >/dev/null 2>&1; then sha256sum "$$1" | awk '{print $$1}'; \
+		elif command -v shasum >/dev/null 2>&1; then shasum -a 256 "$$1" | awk '{print $$1}'; \
+		else echo "sha256sum or shasum is required" >&2; exit 1; fi; \
+	}; \
+	release_id="$${UPRAVA_RELEASE_ID:-}"; \
+	artifact="$${UPRAVA_NODE_ARTIFACT:-}"; \
+	expected_sha="$${UPRAVA_NODE_SHA256:-}"; \
+	if [ -z "$$release_id" ]; then echo "UPRAVA_RELEASE_ID is missing from .env.release" >&2; exit 1; fi; \
+	if [ -z "$$artifact" ]; then echo "UPRAVA_NODE_ARTIFACT is missing from .env.release" >&2; exit 1; fi; \
+	if [ -z "$$expected_sha" ]; then echo "UPRAVA_NODE_SHA256 is missing from .env.release" >&2; exit 1; fi; \
+	release_dir="$(RELEASES_DIR)/$$release_id"; \
+	output="$$release_dir/uprava-node"; \
+	case "$$artifact" in \
+		local-docker-extracted:*) \
+			test -x "$$output" || { echo "Missing executable $$output for local bootstrap artifact"; exit 1; }; \
+			actual_sha="$$(checksum_file "$$output")"; \
+			test "$$actual_sha" = "$$expected_sha" || { echo "Checksum mismatch for $$output"; exit 1; }; \
+			echo "Node artifact already installed at $$output"; \
+			exit 0; \
+			;; \
+	esac; \
+	$(SUDO) mkdir -p "$$release_dir"; \
+	if ! $(SUDO) docker image inspect "$$artifact" >/dev/null 2>&1; then \
+		$(SUDO) docker pull "$$artifact"; \
+	fi; \
+	container_id="$$( $(SUDO) docker create "$$artifact" )"; \
+	tmp_file="$$output.tmp.$$"; \
+	cleanup() { $(SUDO) docker rm -f "$$container_id" >/dev/null 2>&1 || true; $(SUDO) rm -f "$$tmp_file"; }; \
+	trap cleanup EXIT; \
+	$(SUDO) docker cp "$$container_id:/usr/local/bin/uprava-node" "$$tmp_file"; \
+	$(SUDO) chmod 755 "$$tmp_file"; \
+	actual_sha="$$(checksum_file "$$tmp_file")"; \
+	test "$$actual_sha" = "$$expected_sha" || { echo "Checksum mismatch for $$artifact"; echo "expected $$expected_sha"; echo "actual   $$actual_sha"; exit 1; }; \
+	$(SUDO) mv "$$tmp_file" "$$output"; \
+	trap - EXIT; \
+	$(SUDO) docker rm -f "$$container_id" >/dev/null 2>&1 || true; \
+	echo "Installed Node artifact at $$output"
 
 up: ## Start or update Core/Web and Node
 	$(COMPOSE_CMD) up -d --remove-orphans

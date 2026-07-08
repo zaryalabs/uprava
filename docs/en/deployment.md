@@ -166,15 +166,16 @@ UPRAVA_RELEASE_AT=2026-07-08T12:00:00Z
 UPRAVA_CORE_IMAGE=ghcr.io/zaryalabs/uprava-core@sha256:<digest>
 UPRAVA_WEB_IMAGE=ghcr.io/zaryalabs/uprava-web@sha256:<digest>
 
-UPRAVA_NODE_ARTIFACT=ghcr.io/zaryalabs/uprava-node:sha-abcdef0
+UPRAVA_NODE_ARTIFACT=ghcr.io/zaryalabs/uprava-node@sha256:<digest>
 UPRAVA_NODE_SHA256=<sha256>
 UPRAVA_NODE_VERSION=0.1.x
 ```
 
-The exact host artifact transport can be GHCR OCI artifact, GitHub Release
-asset, or another explicitly documented immutable store. The release manifest
-must contain a stable artifact reference and checksum. Deploy must not download
-a mutable `latest` daemon binary.
+The host artifact transport is the `uprava-node` GHCR image. CI extracts
+`/usr/local/bin/uprava-node` from that image to calculate `UPRAVA_NODE_SHA256`.
+Server deploy pulls the same digest-pinned image, extracts the binary into the
+active release directory and verifies the checksum before restarting systemd.
+Deploy must not download a mutable `latest` daemon binary.
 
 ## CI/CD Stages
 
@@ -209,7 +210,7 @@ Expected outputs:
 Expected outputs:
 
 - pushed Core and Web image digests;
-- published Node artifact;
+- published digest-pinned Node artifact image;
 - `builds/releases/<release-id>.env.release`.
 
 ### `deploy`
@@ -364,8 +365,6 @@ Oreol:
 
 ## Open Questions
 
-- Exact artifact transport for `uprava-node`: GHCR OCI artifact, GitHub Release
-  asset, or another registry.
 - Whether production Web remains a separate container or Core serves built
   static assets later.
 - Exact Git credential mechanism for the `uprava` server user.

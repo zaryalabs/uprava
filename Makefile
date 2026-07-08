@@ -13,6 +13,26 @@ RUST_TOOL_TOML_FILES := $(wildcard Cargo.toml crates/*/Cargo.toml deny.toml tapl
 CARGO_AUDIT_IGNORE := --ignore RUSTSEC-2023-0071
 CLAWPATCH ?= npx --yes clawpatch@0.3.0
 DEV_COMPOSE_CMD = $(COMPOSE) -f $(DEV_COMPOSE_FILE)
+GIT_SHA ?= $(shell git rev-parse HEAD)
+SHORT_SHA ?= $(shell printf '%.12s' "$(GIT_SHA)")
+IMAGE_REGISTRY ?= ghcr.io
+IMAGE_OWNER ?= zaryalabs
+IMAGE_NAMESPACE ?= $(IMAGE_REGISTRY)/$(IMAGE_OWNER)
+IMAGE_TAG ?= sha-$(GIT_SHA)
+UPRAVA_CORE_IMAGE ?= $(IMAGE_NAMESPACE)/uprava-core:$(IMAGE_TAG)
+UPRAVA_WEB_IMAGE ?= $(IMAGE_NAMESPACE)/uprava-web:$(IMAGE_TAG)
+UPRAVA_NODE_IMAGE ?= $(IMAGE_NAMESPACE)/uprava-node:$(IMAGE_TAG)
+UPRAVA_NODE_VERSION ?= $(shell awk -F'"' '/^version = / { print $$2; exit }' crates/uprava-node/Cargo.toml)
+RELEASE_ID ?= $(SHORT_SHA)
+RELEASE_DIR ?= builds/releases/$(RELEASE_ID)
+RELEASE_MANIFEST ?= $(RELEASE_DIR).env.release
+NODE_ARTIFACT_PATH ?= $(RELEASE_DIR)/uprava-node
+BUILD_TIMESTAMP ?= $(shell date -u "+%Y-%m-%dT%H:%M:%SZ")
+ALLOW_UNRESOLVED_DIGESTS ?= 0
+DEPLOY_HOST ?= zsa
+DEPLOY_MODE ?= ssh
+INSTALL_DIR ?= /opt/apps/uprava
+SUDO ?=
 
 ifneq (,$(wildcard pnpm-lock.yaml))
 WEB_PM := pnpm
@@ -32,6 +52,50 @@ endif
 
 help: ## Show available make targets
 	@awk 'BEGIN {FS = ":.*## "}; /^[a-zA-Z0-9_.-]+:.*## / {printf "  %-14s %s\n", $$1, $$2}' $(MAKEFILE_LIST)
+
+prepare: rust-l rust-t web-l web-t web-dl ops-config systemd-check scripts-check ## Run CI pre-release checks
+
+build: ## Build releasable Core/Web images and Node artifact
+	docker build -t "$(UPRAVA_CORE_IMAGE)" -f Dockerfile.core .
+	docker build \
+		--build-arg VITE_UPRAVA_API_BASE=/api/v1 \
+		-t "$(UPRAVA_WEB_IMAGE)" \
+		-f apps/web/Dockerfile \
+		apps/web
+	docker build -t "$(UPRAVA_NODE_IMAGE)" -f Dockerfile.node .
+	scripts/extract-node-artifact.sh "$(UPRAVA_NODE_IMAGE)" "$(NODE_ARTIFACT_PATH)" >/dev/null
+
+push: ## Push releasable artifacts and write release manifest
+	docker push "$(UPRAVA_CORE_IMAGE)"
+	docker push "$(UPRAVA_WEB_IMAGE)"
+	docker push "$(UPRAVA_NODE_IMAGE)"
+	$(MAKE) --no-print-directory release-manifest
+
+release-manifest: ## Write builds/releases/<release-id>.env.release
+	RELEASE_MANIFEST="$(RELEASE_MANIFEST)" \
+	RELEASE_ID="$(RELEASE_ID)" \
+	GIT_SHA="$(GIT_SHA)" \
+	BUILD_TIMESTAMP="$(BUILD_TIMESTAMP)" \
+	UPRAVA_CORE_IMAGE="$(UPRAVA_CORE_IMAGE)" \
+	UPRAVA_WEB_IMAGE="$(UPRAVA_WEB_IMAGE)" \
+	UPRAVA_NODE_IMAGE="$(UPRAVA_NODE_IMAGE)" \
+	UPRAVA_NODE_VERSION="$(UPRAVA_NODE_VERSION)" \
+	NODE_ARTIFACT_PATH="$(NODE_ARTIFACT_PATH)" \
+	ALLOW_UNRESOLVED_DIGESTS="$(ALLOW_UNRESOLVED_DIGESTS)" \
+	scripts/write_release_manifest.sh
+
+install-release-manifest: ## Install active release manifest into INSTALL_DIR
+	@test -f "$(RELEASE_MANIFEST)" || { echo "Missing $(RELEASE_MANIFEST); run make release-manifest first"; exit 1; }
+	$(SUDO) install -d "$(INSTALL_DIR)/builds/releases"
+	$(SUDO) install -m 644 "$(RELEASE_MANIFEST)" "$(INSTALL_DIR)/builds/releases/$(RELEASE_ID).env.release"
+
+deploy: ## Deploy the selected release through the server installation Makefile
+	RELEASE_ID="$(RELEASE_ID)" \
+	DEPLOY_HOST="$(DEPLOY_HOST)" \
+	DEPLOY_MODE="$(DEPLOY_MODE)" \
+	INSTALL_DIR="$(INSTALL_DIR)" \
+	SUDO="$(SUDO)" \
+	scripts/deploy.sh
 
 init: ## Install local hooks and project dependencies when manifests exist
 	@set -e; \
@@ -102,6 +166,19 @@ docs-fmt: ## Format/check docs when a formatter is available
 docs-l: ## Run lightweight docs checks
 	@find README.md AGENTS.md CONTRIBUTING.md docs -type f \( -name '*.md' -o -name '*.toml' -o -name '*.yaml' -o -name '*.yml' -o -name '*.json' \) -print >/dev/null
 	@echo "Docs files are present"
+
+ops-config: ## Validate production ops Compose config
+	@cd ops && $(COMPOSE) -f compose.yaml config >/dev/null
+
+systemd-check: ## Validate product-owned systemd unit template is present
+	@test -s ops/systemd/uprava-node.service.example
+	@grep -q '^ExecStart=/opt/apps/uprava/current/uprava-node$$' ops/systemd/uprava-node.service.example
+
+scripts-check: ## Run shell syntax checks for product scripts
+	@set -e; \
+	for script in scripts/*.sh; do \
+		sh -n "$$script"; \
+	done
 
 rust-fmt: ## Format Rust code when Cargo workspace exists
 	@if [ -f "$(RUST_MANIFEST)" ]; then \
@@ -313,4 +390,4 @@ clean: ## Remove common local build and cache artifacts
 	rm -rf target htmlcov coverage .pytest_cache .ruff_cache .mypy_cache .ty
 	rm -rf $(WEB_DIR)/dist $(WEB_DIR)/coverage
 
-.PHONY: help init fmt l dl t c pc claw-doctor claw-init claw-map claw-review claw-report claw-ci claw-show claw-fix docs-fmt docs-l rust-fmt rust-l rust-dl rust-tools-install rust-t web-r web-fmt web-l web-dl web-t web-e2e core-r node-r dev-up dev-down dev-logs dev-reset dev-smoke compose-up compose-down compose-logs compose-reset compose-smoke codex-smoke clean
+.PHONY: help prepare build push release-manifest install-release-manifest deploy init fmt l dl t c pc claw-doctor claw-init claw-map claw-review claw-report claw-ci claw-show claw-fix docs-fmt docs-l ops-config systemd-check scripts-check rust-fmt rust-l rust-dl rust-tools-install rust-t web-r web-fmt web-l web-dl web-t web-e2e core-r node-r dev-up dev-down dev-logs dev-reset dev-smoke compose-up compose-down compose-logs compose-reset compose-smoke codex-smoke clean
