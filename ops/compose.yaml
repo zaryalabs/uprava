@@ -1,0 +1,71 @@
+name: uprava
+
+services:
+  core:
+    image: ${UPRAVA_CORE_IMAGE:-uprava-core:local}
+    container_name: uprava-core
+    restart: unless-stopped
+    environment:
+      UPRAVA_CORE_BIND: 0.0.0.0:8080
+      UPRAVA_DATABASE_URL: ${UPRAVA_DATABASE_URL:-sqlite:///data/core.sqlite}
+      UPRAVA_DEPLOYMENT_PROFILE: ${UPRAVA_DEPLOYMENT_PROFILE:-production}
+      UPRAVA_ALLOWED_ORIGINS: ${UPRAVA_ALLOWED_ORIGINS:-https://uprava.zrya.io}
+      UPRAVA_COOKIE_SECURE: ${UPRAVA_COOKIE_SECURE:-true}
+      UPRAVA_CLIENT_LOG_FILE: ${UPRAVA_CLIENT_LOG_FILE:-/data/client.log}
+      UPRAVA_CORE_LOG_FILE: ${UPRAVA_CORE_LOG_FILE:-/data/core.log}
+      RUST_LOG: ${UPRAVA_CORE_RUST_LOG:-info}
+    volumes:
+      - ./volumes/core-data:/data
+    healthcheck:
+      test: ["CMD", "uprava-server", "healthcheck", "127.0.0.1:8080"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
+    labels:
+      - traefik.enable=true
+      - traefik.docker.network=platform
+      - traefik.http.routers.uprava-core.rule=Host(`${UPRAVA_DOMAIN:-uprava.zrya.io}`) && PathPrefix(`/api/v1`)
+      - traefik.http.routers.uprava-core.entrypoints=websecure
+      - traefik.http.routers.uprava-core.tls.certresolver=letsencrypt
+      - traefik.http.routers.uprava-core.middlewares=platform-headers@file
+      - traefik.http.routers.uprava-core.priority=100
+      - traefik.http.routers.uprava-core.service=uprava-core
+      - traefik.http.routers.uprava-core-http.rule=Host(`${UPRAVA_DOMAIN:-uprava.zrya.io}`) && PathPrefix(`/api/v1`)
+      - traefik.http.routers.uprava-core-http.entrypoints=web
+      - traefik.http.routers.uprava-core-http.middlewares=uprava-https-redirect@docker
+      - traefik.http.routers.uprava-core-http.priority=100
+      - traefik.http.routers.uprava-core-http.service=uprava-core
+      - traefik.http.services.uprava-core.loadbalancer.server.port=8080
+    networks:
+      - platform
+
+  web:
+    image: ${UPRAVA_WEB_IMAGE:-uprava-web:local}
+    container_name: uprava-web
+    restart: unless-stopped
+    depends_on:
+      core:
+        condition: service_healthy
+    labels:
+      - traefik.enable=true
+      - traefik.docker.network=platform
+      - traefik.http.middlewares.uprava-https-redirect.redirectscheme.scheme=https
+      - traefik.http.routers.uprava-web.rule=Host(`${UPRAVA_DOMAIN:-uprava.zrya.io}`)
+      - traefik.http.routers.uprava-web.entrypoints=websecure
+      - traefik.http.routers.uprava-web.tls.certresolver=letsencrypt
+      - traefik.http.routers.uprava-web.middlewares=platform-headers@file
+      - traefik.http.routers.uprava-web.priority=10
+      - traefik.http.routers.uprava-web.service=uprava-web
+      - traefik.http.routers.uprava-web-http.rule=Host(`${UPRAVA_DOMAIN:-uprava.zrya.io}`)
+      - traefik.http.routers.uprava-web-http.entrypoints=web
+      - traefik.http.routers.uprava-web-http.middlewares=uprava-https-redirect@docker
+      - traefik.http.routers.uprava-web-http.priority=10
+      - traefik.http.routers.uprava-web-http.service=uprava-web
+      - traefik.http.services.uprava-web.loadbalancer.server.port=5173
+    networks:
+      - platform
+
+networks:
+  platform:
+    external: true

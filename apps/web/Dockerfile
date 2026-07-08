@@ -1,6 +1,8 @@
 FROM node:24-bookworm-slim AS builder
 WORKDIR /app
 ENV NODE_OPTIONS=--max-old-space-size=4096
+ARG VITE_UPRAVA_API_BASE=http://127.0.0.1:8080/api/v1
+ENV VITE_UPRAVA_API_BASE=${VITE_UPRAVA_API_BASE}
 COPY package.json package-lock.json* ./
 RUN npm install
 COPY . .

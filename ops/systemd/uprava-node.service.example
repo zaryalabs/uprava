@@ -1,0 +1,16 @@
+[Unit]
+Description=Uprava Node Daemon
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+User=uprava
+Group=uprava
+EnvironmentFile=/etc/uprava/node.env
+WorkingDirectory=/var/lib/uprava
+ExecStart=/opt/apps/uprava/current/uprava-node
+Restart=on-failure
+RestartSec=5s
+
+[Install]
+WantedBy=multi-user.target
