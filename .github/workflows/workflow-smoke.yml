@@ -1,0 +1,17 @@
+name: Workflow Smoke
+
+"on":
+  push:
+    branches:
+      - main
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  smoke:
+    runs-on: [self-hosted, zarya-main, geo-eu, ci]
+    steps:
+      - name: Smoke
+        run: true
