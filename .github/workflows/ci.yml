@@ -1,6 +1,9 @@
 name: Uprava CI
 
 "on":
+  pull_request:
+    branches:
+      - main
   push:
     branches:
       - main
@@ -13,5 +16,18 @@ jobs:
   check:
     runs-on: [self-hosted, zarya-main, geo-eu, ci]
     steps:
-      - name: Smoke
-        run: true
+      - name: Checkout
+        run: |
+          git init .
+          git remote add origin "https://x-access-token:${GITHUB_TOKEN}@github.com/${GITHUB_REPOSITORY}.git"
+          git fetch --depth=1 origin "${CHECKOUT_REF}"
+          git checkout --force --detach FETCH_HEAD
+        env:
+          CHECKOUT_REF: ${{ github.ref }}
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Install web dependencies
+        run: npm ci --prefix apps/web
+
+      - name: Prepare
+        run: make prepare
