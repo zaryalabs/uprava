@@ -25,7 +25,14 @@ jobs:
     runs-on: [self-hosted, zarya-main, geo-eu, ci]
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        run: |
+          git init .
+          git remote add origin "https://x-access-token:${GITHUB_TOKEN}@github.com/${GITHUB_REPOSITORY}.git"
+          git fetch --depth=1 origin "${CHECKOUT_REF}"
+          git checkout --force --detach FETCH_HEAD
+        env:
+          CHECKOUT_REF: ${{ github.ref }}
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Install web dependencies
         run: npm ci --prefix apps/web
@@ -44,7 +51,14 @@ jobs:
       DOCKER_CONFIG: ${{ runner.temp }}/docker-config
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        run: |
+          git init .
+          git remote add origin "https://x-access-token:${GITHUB_TOKEN}@github.com/${GITHUB_REPOSITORY}.git"
+          git fetch --depth=1 origin "${CHECKOUT_REF}"
+          git checkout --force --detach FETCH_HEAD
+        env:
+          CHECKOUT_REF: ${{ github.ref }}
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Login to GHCR
         run: |
@@ -69,9 +83,14 @@ jobs:
       DOCKER_CONFIG: ${{ runner.temp }}/docker-config
     steps:
       - name: Checkout selected release
-        uses: actions/checkout@v4
-        with:
-          ref: ${{ inputs.git_sha }}
+        run: |
+          git init .
+          git remote add origin "https://x-access-token:${GITHUB_TOKEN}@github.com/${GITHUB_REPOSITORY}.git"
+          git fetch --depth=1 origin "${CHECKOUT_REF}"
+          git checkout --force --detach FETCH_HEAD
+        env:
+          CHECKOUT_REF: ${{ inputs.git_sha }}
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Login to GHCR
         run: |
