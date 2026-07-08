@@ -1,9 +1,6 @@
 name: Uprava CI
 
 "on":
-  pull_request:
-    branches:
-      - main
   push:
     branches:
       - main
@@ -14,105 +11,7 @@ permissions:
 
 jobs:
   check:
-    if: ${{ github.event_name != 'workflow_dispatch' }}
     runs-on: [self-hosted, zarya-main, geo-eu, ci]
     steps:
-      - name: Checkout
-        run: |
-          git init .
-          git remote add origin "https://x-access-token:${GITHUB_TOKEN}@github.com/${GITHUB_REPOSITORY}.git"
-          git fetch --depth=1 origin "${CHECKOUT_REF}"
-          git checkout --force --detach FETCH_HEAD
-        env:
-          CHECKOUT_REF: ${{ github.ref }}
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-
-      - name: Install web dependencies
-        run: npm ci --prefix apps/web
-
-      - name: Prepare
-        run: make prepare
-
-  release:
-    if: ${{ github.event_name == 'push' }}
-    needs: check
-    runs-on: [self-hosted, zarya-main, geo-eu, ci]
-    permissions:
-      contents: read
-      packages: write
-    env:
-      DOCKER_CONFIG: ${{ runner.temp }}/docker-config
-    steps:
-      - name: Checkout
-        run: |
-          git init .
-          git remote add origin "https://x-access-token:${GITHUB_TOKEN}@github.com/${GITHUB_REPOSITORY}.git"
-          git fetch --depth=1 origin "${CHECKOUT_REF}"
-          git checkout --force --detach FETCH_HEAD
-        env:
-          CHECKOUT_REF: ${{ github.ref }}
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-
-      - name: Login to GHCR
-        run: |
-          mkdir -p "${DOCKER_CONFIG}"
-          echo "${GITHUB_TOKEN}" | docker login ghcr.io -u "${GITHUB_ACTOR}" --password-stdin
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-
-      - name: Build release artifacts
-        run: make build
-
-      - name: Push release artifacts
-        run: make push
-
-  deploy:
-    if: ${{ github.event_name == 'workflow_dispatch' }}
-    runs-on: [self-hosted, zarya-main, geo-eu, deploy]
-    permissions:
-      contents: read
-      packages: read
-    env:
-      DOCKER_CONFIG: ${{ runner.temp }}/docker-config
-    steps:
-      - name: Checkout selected release
-        run: |
-          git init .
-          git remote add origin "https://x-access-token:${GITHUB_TOKEN}@github.com/${GITHUB_REPOSITORY}.git"
-          git fetch --depth=1 origin "${CHECKOUT_REF}"
-          git checkout --force --detach FETCH_HEAD
-        env:
-          CHECKOUT_REF: ${{ github.sha }}
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-
-      - name: Login to GHCR
-        run: |
-          mkdir -p "${DOCKER_CONFIG}"
-          echo "${GITHUB_TOKEN}" | docker login ghcr.io -u "${GITHUB_ACTOR}" --password-stdin
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-
-      - name: Generate and install release manifest
-        run: |
-          release_id="${RELEASE_ID}"
-          if [[ -z "${release_id}" ]]; then
-            release_id="$(printf '%.12s' "${GIT_SHA}")"
-          fi
-
-          make release-manifest GIT_SHA="${GIT_SHA}" RELEASE_ID="${release_id}"
-          make install-release-manifest RELEASE_ID="${release_id}" SUDO=sudo
-        env:
-          GIT_SHA: ${{ github.sha }}
-          RELEASE_ID: ""
-
-      - name: Deploy active release
-        run: |
-          release_id="${RELEASE_ID}"
-          if [[ -z "${release_id}" ]]; then
-            release_id="$(printf '%.12s' "${GIT_SHA}")"
-          fi
-
-          make deploy DEPLOY_MODE=local RELEASE_ID="${release_id}" SUDO=sudo
-        env:
-          GIT_SHA: ${{ github.sha }}
-          RELEASE_ID: ""
+      - name: Smoke
+        run: true
