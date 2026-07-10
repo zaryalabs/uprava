@@ -2205,14 +2205,28 @@ async fn validate_placement_with_correlation(
     let placement_id = ProjectPlacementId::new();
     let display_name = request.display_name.trim().to_owned();
     let workspace_path = placement_identity.workspace_path().to_owned();
+    let mut placement_transaction = state.pool.begin().await?;
     sqlx::query(
         "delete from deleted_workspace_bindings where node_id = ?1 and workspace_path = ?2",
     )
     .bind(node_id.as_str())
     .bind(&workspace_path)
-    .execute(&state.pool)
+    .execute(&mut *placement_transaction)
     .await?;
-    upsert_project(state, &project_id, &display_name, now).await?;
+    sqlx::query(
+        r#"
+        insert into projects (project_id, display_name, repo_id, created_at, updated_at)
+        values (?1, ?2, null, ?3, ?3)
+        on conflict(project_id) do update set
+            display_name = excluded.display_name,
+            updated_at = excluded.updated_at
+        "#,
+    )
+    .bind(project_id.as_str())
+    .bind(&display_name)
+    .bind(now)
+    .execute(&mut *placement_transaction)
+    .await?;
     sqlx::query(
         r#"
         insert into project_placements (
@@ -2231,8 +2245,9 @@ async fn validate_placement_with_correlation(
     .bind(serde_json::to_string(&Vec::<ResourceBadge>::new())?)
     .bind(Option::<DateTime<Utc>>::None)
     .bind(now)
-    .execute(&state.pool)
+    .execute(&mut *placement_transaction)
     .await?;
+    placement_transaction.commit().await?;
 
     record_and_dispatch_command(
         state,
@@ -3057,6 +3072,7 @@ async fn create_session_with_correlation(
         .title
         .unwrap_or_else(|| format!("Session for {}", placement.display_name));
 
+    let mut aggregate_transaction = state.pool.begin().await?;
     sqlx::query(
         r#"
         insert into session_threads (
@@ -3072,7 +3088,7 @@ async fn create_session_with_correlation(
     .bind(title)
     .bind(&provider)
     .bind(now)
-    .execute(&state.pool)
+    .execute(&mut *aggregate_transaction)
     .await?;
 
     sqlx::query(
@@ -3089,8 +3105,9 @@ async fn create_session_with_correlation(
     .bind(session_thread_id.as_str())
     .bind(&provider)
     .bind(now)
-    .execute(&state.pool)
+    .execute(&mut *aggregate_transaction)
     .await?;
+    aggregate_transaction.commit().await?;
 
     let command = CommandEnvelope {
         command_id: CommandId::new(),
@@ -3337,24 +3354,16 @@ async fn send_turn_with_correlation(
             "turn_id": turn_id.as_str(),
         })),
     };
-    record_command(state, command).await?;
-    insert_turn(state, &turn_id, &session_id, &command_id, &content, now).await?;
-
-    insert_message(
+    record_turn_submission(
         state,
-        &Message {
-            message_id: user_message_id,
-            session_thread_id: session_id.clone(),
-            turn_id: Some(turn_id.clone()),
-            role: MessageRole::User,
-            content,
-            created_at: now,
-            completed_at: Some(now),
-            source_event_id: None,
-        },
+        &command,
+        &turn_id,
+        &user_message_id,
+        &session_id,
+        &content,
+        now,
     )
     .await?;
-    update_command_state(state, &command_id, CommandState::PendingDispatch).await?;
     dispatch_pending_commands(state, &detail.placement.node_id).await?;
 
     let session = load_session_detail(state, &session_id).await?;
@@ -4502,6 +4511,7 @@ async fn claim_enrollment(
     let capabilities_json: String = row.try_get("capabilities_json")?;
     let capabilities = serde_json::from_str::<Vec<CapabilitySummary>>(&capabilities_json)?;
 
+    let mut claim_transaction = state.pool.begin().await?;
     sqlx::query(
         r#"
         insert into nodes (
@@ -4518,29 +4528,84 @@ async fn claim_enrollment(
     .bind(capabilities_json)
     .bind(credential_hash)
     .bind(now)
-    .execute(&state.pool)
+    .execute(&mut *claim_transaction)
     .await?;
 
-    replace_node_capabilities(state, &node_id, &capabilities, now).await?;
+    sqlx::query("delete from node_capabilities where node_id = ?1")
+        .bind(node_id.as_str())
+        .execute(&mut *claim_transaction)
+        .await?;
+    for capability in &capabilities {
+        sqlx::query(
+            r#"
+            insert into node_capabilities (
+                node_id, capability_key, value_json, updated_at
+            ) values (?1, ?2, ?3, ?4)
+            "#,
+        )
+        .bind(node_id.as_str())
+        .bind(&capability.key)
+        .bind(serde_json::to_string(&capability.value)?)
+        .bind(now)
+        .execute(&mut *claim_transaction)
+        .await?;
+    }
 
-    sqlx::query(
+    let updated = sqlx::query(
         r#"
         update node_enrollments
         set status = 'registered', claimed_node_id = ?1, updated_at = ?2
         where enrollment_id = ?3
+          and claimed_node_id is null
+          and status in ('pending_user_approval', 'approved')
+          and expires_at > ?4
         "#,
     )
     .bind(node_id.as_str())
     .bind(now)
     .bind(request.enrollment_id.as_str())
-    .execute(&state.pool)
+    .bind(now)
+    .execute(&mut *claim_transaction)
     .await?;
+    if updated.rows_affected() == 0 {
+        claim_transaction.rollback().await?;
+        let current: Option<(String, Option<String>, DateTime<Utc>)> = sqlx::query_as(
+            "select status, claimed_node_id, expires_at from node_enrollments where enrollment_id = ?1",
+        )
+        .bind(request.enrollment_id.as_str())
+        .fetch_optional(&state.pool)
+        .await?
+        ;
+        let Some((current_status, claimed_node_id, current_expires_at)) = current else {
+            return Err(AppError::not_found(
+                "node_enrollment.not_found",
+                "Enrollment not found",
+            ));
+        };
+        if current_expires_at <= now {
+            return Ok(NodeEnrollmentClaimResponse {
+                accepted: false,
+                pending: false,
+                node_id: None,
+                credential: None,
+                message: "Enrollment expired".to_owned(),
+            });
+        }
+        return Ok(NodeEnrollmentClaimResponse {
+            accepted: claimed_node_id.is_some(),
+            pending: current_status == "pending_user_approval",
+            node_id: claimed_node_id.map(NodeId::from),
+            credential: None,
+            message: "Enrollment already claimed; existing credential is not returned".to_owned(),
+        });
+    }
+    claim_transaction.commit().await?;
     tracing::info!(
         enrollment_id = %request.enrollment_id,
         node_id = %node_id,
         "node enrollment claimed"
     );
-    audit_security_event(
+    if let Err(error) = audit_security_event(
         state,
         "node.enrollment.claimed",
         Some(&node_id),
@@ -4548,7 +4613,10 @@ async fn claim_enrollment(
         "accepted",
         JsonValue(json!({ "enrollment_id": request.enrollment_id })),
     )
-    .await?;
+    .await
+    {
+        tracing::error!(%error, enrollment_id = %request.enrollment_id, "enrollment claim audit failed after commit");
+    }
 
     Ok(NodeEnrollmentClaimResponse {
         accepted: true,
@@ -6110,38 +6178,100 @@ async fn insert_message(state: &AppState, message: &Message) -> Result<(), AppEr
     Ok(())
 }
 
-async fn insert_turn(
+async fn record_turn_submission(
     state: &AppState,
+    command: &CommandEnvelope,
     turn_id: &TurnId,
-    session_thread_id: &SessionThreadId,
-    command_id: &CommandId,
+    user_message_id: &MessageId,
+    session_id: &SessionThreadId,
     content: &str,
-    created_at: DateTime<Utc>,
+    now: DateTime<Utc>,
 ) -> Result<(), AppError> {
+    let mut transaction = state.pool.begin().await?;
+    let (actor_key, actor_kind, actor_display_name) = actor_identity(&command.actor_ref);
+    sqlx::query(
+        r#"
+        insert into actors (
+            actor_key, actor_kind, display_name, actor_ref_json, first_seen_at, last_seen_at
+        ) values (?1, ?2, ?3, ?4, ?5, ?5)
+        on conflict(actor_key) do update set
+            actor_ref_json = excluded.actor_ref_json,
+            display_name = excluded.display_name,
+            last_seen_at = excluded.last_seen_at
+        "#,
+    )
+    .bind(actor_key)
+    .bind(actor_kind)
+    .bind(actor_display_name)
+    .bind(serde_json::to_string(&command.actor_ref)?)
+    .bind(command.issued_at)
+    .execute(&mut *transaction)
+    .await?;
+    sqlx::query(
+        r#"
+        insert into commands (
+            command_id, kind, state, target_node_id, session_thread_id,
+            runtime_session_id, project_placement_id, actor_ref_json, correlation_id,
+            source_refs_json, cause_refs_json, payload_json, dedupe_key, command_json,
+            created_at, completed_at
+        ) values (?1, ?2, 'pending_dispatch', ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, null)
+        "#,
+    )
+    .bind(command.command_id.as_str())
+    .bind(format!("{:?}", command.kind))
+    .bind(command.target_node_id.as_str())
+    .bind(command.session_thread_id.as_ref().map(SessionThreadId::as_str))
+    .bind(command.runtime_session_id.as_ref().map(RuntimeSessionId::as_str))
+    .bind(command.project_placement_id.as_ref().map(ProjectPlacementId::as_str))
+    .bind(serde_json::to_string(&command.actor_ref)?)
+    .bind(command.correlation_id.as_str())
+    .bind(serde_json::to_string(&command.source_refs)?)
+    .bind(serde_json::to_string(&command.cause_refs)?)
+    .bind(serde_json::to_string(&command.payload)?)
+    .bind(command.command_id.as_str())
+    .bind(serde_json::to_string(command)?)
+    .bind(command.issued_at)
+    .execute(&mut *transaction)
+    .await?;
+
     let turn_index: i64 = sqlx::query_scalar(
         "select coalesce(max(turn_index), 0) + 1 from turns where session_thread_id = ?1",
     )
-    .bind(session_thread_id.as_str())
-    .fetch_one(&state.pool)
+    .bind(session_id.as_str())
+    .fetch_one(&mut *transaction)
     .await?;
     sqlx::query(
         r#"
         insert into turns (
             turn_id, session_thread_id, command_id, turn_index, state, content,
             blocked_approval_id, created_at, updated_at, completed_at
-        )
-        values (?1, ?2, ?3, ?4, ?5, ?6, null, ?7, ?7, null)
+        ) values (?1, ?2, ?3, ?4, 'created', ?5, null, ?6, ?6, null)
         "#,
     )
     .bind(turn_id.as_str())
-    .bind(session_thread_id.as_str())
-    .bind(command_id.as_str())
+    .bind(session_id.as_str())
+    .bind(command.command_id.as_str())
     .bind(turn_index)
-    .bind(format_turn_state(TurnState::Created))
     .bind(content)
-    .bind(created_at)
-    .execute(&state.pool)
+    .bind(now)
+    .execute(&mut *transaction)
     .await?;
+    sqlx::query(
+        r#"
+        insert into messages (
+            message_id, session_thread_id, turn_id, role, content,
+            created_at, completed_at, source_event_id
+        ) values (?1, ?2, ?3, 'user', ?4, ?5, ?5, null)
+        "#,
+    )
+    .bind(user_message_id.as_str())
+    .bind(session_id.as_str())
+    .bind(turn_id.as_str())
+    .bind(content)
+    .bind(now)
+    .execute(&mut *transaction)
+    .await?;
+    transaction.commit().await?;
     Ok(())
 }
 
