@@ -457,8 +457,12 @@ impl NodeLocalState {
         }
         let snapshot: String = row.try_get("snapshot_json")?;
         pool.close().await;
-        serde_json::from_str(&snapshot)
-            .with_context(|| format!("failed to decode node state {}", path.display()))
+        let mut state: Self = serde_json::from_str(&snapshot)
+            .with_context(|| format!("failed to decode node state {}", path.display()))?;
+        let pool = open_state_store(path).await?;
+        hydrate_from_normalized_tables(&pool, &mut state).await?;
+        pool.close().await;
+        Ok(state)
     }
 
     async fn save_async(&self, path: &Path) -> anyhow::Result<()> {
@@ -501,7 +505,7 @@ impl NodeLocalState {
                 "insert into node_command_cache (command_id, state, result_payload_json, updated_at) values (?1, ?2, ?3, strftime('%Y-%m-%dT%H:%M:%fZ', 'now'))",
             )
             .bind(command_id)
-            .bind(format!("{status:?}"))
+            .bind(command_state_storage(*status))
             .bind(
                 snapshot
                     .command_result_payloads
@@ -737,6 +741,147 @@ async fn initialize_state_store(pool: &SqlitePool) -> anyhow::Result<()> {
     )
     .execute(pool)
     .await?;
+    Ok(())
+}
+
+fn command_state_storage(state: CommandState) -> &'static str {
+    match state {
+        CommandState::Recorded => "recorded",
+        CommandState::PendingDispatch => "pending_dispatch",
+        CommandState::Dispatched => "dispatched",
+        CommandState::Acknowledged => "acknowledged",
+        CommandState::Completed => "completed",
+        CommandState::Failed => "failed",
+        CommandState::Blocked => "blocked",
+        CommandState::Expired => "expired",
+    }
+}
+
+fn command_state_from_storage(value: &str) -> Option<CommandState> {
+    Some(match value {
+        "recorded" => CommandState::Recorded,
+        "pending_dispatch" => CommandState::PendingDispatch,
+        "dispatched" => CommandState::Dispatched,
+        "acknowledged" => CommandState::Acknowledged,
+        "completed" => CommandState::Completed,
+        "failed" => CommandState::Failed,
+        "blocked" => CommandState::Blocked,
+        "expired" => CommandState::Expired,
+        _ => return None,
+    })
+}
+
+async fn hydrate_from_normalized_tables(
+    pool: &SqlitePool,
+    state: &mut NodeLocalState,
+) -> anyhow::Result<()> {
+    if let Some(row) = sqlx::query(
+        "select daemon_installation_id, node_id, credential, enrollment_id, pairing_code from node_registration where state_id = 1",
+    )
+    .fetch_optional(pool)
+    .await?
+    {
+        state.daemon_installation_id = row.try_get("daemon_installation_id")?;
+        state.node_id = row
+            .try_get::<Option<String>, _>("node_id")?
+            .map(NodeId::from);
+        state.credential = row.try_get("credential")?;
+        state.enrollment_id = row
+            .try_get::<Option<String>, _>("enrollment_id")?
+            .map(EnrollmentId::from);
+        state.pairing_code = row.try_get("pairing_code")?;
+    }
+
+    let command_rows =
+        sqlx::query("select command_id, state, result_payload_json from node_command_cache")
+            .fetch_all(pool)
+            .await?;
+    if !command_rows.is_empty() {
+        state.command_status.clear();
+        state.command_result_payloads.clear();
+        for row in command_rows {
+            let command_id: String = row.try_get("command_id")?;
+            let stored_state: String = row.try_get("state")?;
+            if let Some(command_state) = command_state_from_storage(&stored_state) {
+                state
+                    .command_status
+                    .insert(command_id.clone(), command_state);
+            }
+            if let Some(payload) = row.try_get::<Option<String>, _>("result_payload_json")? {
+                state
+                    .command_result_payloads
+                    .insert(command_id, serde_json::from_str(&payload)?);
+            }
+        }
+    }
+
+    let event_rows = sqlx::query("select event_json from node_event_outbox order by rowid")
+        .fetch_all(pool)
+        .await?;
+    if !event_rows.is_empty() {
+        state.event_outbox = event_rows
+            .into_iter()
+            .map(|row| {
+                let event_json: String = row.try_get("event_json")?;
+                serde_json::from_str(&event_json).map_err(anyhow::Error::from)
+            })
+            .collect::<anyhow::Result<Vec<EventEnvelope>>>()?;
+    }
+
+    let runtime_rows = sqlx::query(
+        "select runtime_session_id, runtime_seq, provider, workspace_path, state_json, transcript_json, resume_ref_json from node_runtime_metadata",
+    )
+    .fetch_all(pool)
+    .await?;
+    if !runtime_rows.is_empty() {
+        state.runtime_seqs.clear();
+        state.runtime_providers.clear();
+        state.runtime_workspace_paths.clear();
+        state.runtime_states.clear();
+        state.runtime_transcripts.clear();
+        state.runtime_provider_resume_refs.clear();
+        for row in runtime_rows {
+            let runtime_id: String = row.try_get("runtime_session_id")?;
+            if let Some(seq) = row.try_get::<Option<i64>, _>("runtime_seq")? {
+                state.runtime_seqs.insert(runtime_id.clone(), seq);
+            }
+            if let Some(provider) = row.try_get::<Option<String>, _>("provider")? {
+                state.runtime_providers.insert(runtime_id.clone(), provider);
+            }
+            if let Some(path) = row.try_get::<Option<String>, _>("workspace_path")? {
+                state
+                    .runtime_workspace_paths
+                    .insert(runtime_id.clone(), path);
+            }
+            if let Some(value) = row.try_get::<Option<String>, _>("state_json")? {
+                state
+                    .runtime_states
+                    .insert(runtime_id.clone(), serde_json::from_str(&value)?);
+            }
+            if let Some(value) = row.try_get::<Option<String>, _>("transcript_json")? {
+                state
+                    .runtime_transcripts
+                    .insert(runtime_id.clone(), serde_json::from_str(&value)?);
+            }
+            if let Some(value) = row.try_get::<Option<String>, _>("resume_ref_json")? {
+                state
+                    .runtime_provider_resume_refs
+                    .insert(runtime_id, serde_json::from_str(&value)?);
+            }
+        }
+    }
+
+    let placement_rows = sqlx::query("select placement_id, seq from node_placement_sequences")
+        .fetch_all(pool)
+        .await?;
+    if !placement_rows.is_empty() {
+        state.placement_seqs.clear();
+        for row in placement_rows {
+            state
+                .placement_seqs
+                .insert(row.try_get("placement_id")?, row.try_get("seq")?);
+        }
+    }
     Ok(())
 }
 
@@ -5483,6 +5628,15 @@ mod tests {
             .insert("placement-sqlite".to_owned(), 3);
 
         state.save_async(&path).await.expect("sqlite state saves");
+        let pool = open_state_store(&path).await.expect("store opens");
+        sqlx::query("update node_state set snapshot_json = ?1 where state_id = 1")
+            .bind(
+                r#"{"state_slot":"0.2.0","schema_version":1,"daemon_installation_id":"snapshot-fallback"}"#,
+            )
+            .execute(&pool)
+            .await
+            .expect("snapshot is replaceable for hydration test");
+        pool.close().await;
         let reloaded = NodeLocalState::load_async(&path)
             .await
             .expect("sqlite state reloads");
