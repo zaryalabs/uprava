@@ -201,7 +201,8 @@ scripts-check: ## Run shell syntax checks for product scripts
 	done; \
 	sh scripts/check-container-runtime-users.sh; \
 	sh scripts/check-ci-policy.sh; \
-	sh scripts/check-ops-rollback.sh
+	sh scripts/check-ops-rollback.sh; \
+	sh scripts/check-backup-restore.sh
 
 rust-fmt: ## Format Rust code when Cargo workspace exists
 	@if [ -f "$(RUST_MANIFEST)" ]; then \
