@@ -2303,31 +2303,28 @@ async fn validate_placement_with_correlation(
     .bind(now)
     .execute(&mut *placement_transaction)
     .await?;
+    let command = CommandEnvelope {
+        command_id: CommandId::new(),
+        kind: CommandKind::ValidateWorkspace,
+        target_node_id: node_id,
+        actor_ref: ActorRef::local_user(),
+        session_thread_id: None,
+        runtime_session_id: None,
+        project_placement_id: Some(placement_id.clone()),
+        source_refs: vec![UpravaRef::Placement {
+            placement_id: placement_id.clone(),
+        }],
+        cause_refs: vec![],
+        issued_at: now,
+        correlation_id,
+        payload: JsonValue(json!({
+            "display_name": display_name,
+            "workspace_path": workspace_path,
+        })),
+    };
+    record_command_on_connection(&mut placement_transaction, &command).await?;
     placement_transaction.commit().await?;
-
-    record_and_dispatch_command(
-        state,
-        CommandEnvelope {
-            command_id: CommandId::new(),
-            kind: CommandKind::ValidateWorkspace,
-            target_node_id: node_id,
-            actor_ref: ActorRef::local_user(),
-            session_thread_id: None,
-            runtime_session_id: None,
-            project_placement_id: Some(placement_id.clone()),
-            source_refs: vec![UpravaRef::Placement {
-                placement_id: placement_id.clone(),
-            }],
-            cause_refs: vec![],
-            issued_at: now,
-            correlation_id,
-            payload: JsonValue(json!({
-                "display_name": display_name,
-                "workspace_path": workspace_path,
-            })),
-        },
-    )
-    .await?;
+    dispatch_pending_commands(state, &command.target_node_id).await?;
 
     load_placement(state, &placement_id).await
 }
@@ -3214,8 +3211,6 @@ async fn create_session_with_correlation(
     .bind(now)
     .execute(&mut *aggregate_transaction)
     .await?;
-    aggregate_transaction.commit().await?;
-
     let command = CommandEnvelope {
         command_id: CommandId::new(),
         kind: CommandKind::StartRuntime,
@@ -3233,7 +3228,9 @@ async fn create_session_with_correlation(
             "workspace_path": placement.workspace_path,
         })),
     };
-    record_and_dispatch_command(state, command).await?;
+    record_command_on_connection(&mut aggregate_transaction, &command).await?;
+    aggregate_transaction.commit().await?;
+    dispatch_pending_commands(state, &command.target_node_id).await?;
 
     load_session_detail(state, &session_thread_id).await
 }
@@ -6252,6 +6249,34 @@ fn actor_identity(actor_ref: &ActorRef) -> (String, &'static str, String) {
 
 async fn record_command(state: &AppState, command: CommandEnvelope) -> Result<(), AppError> {
     upsert_actor(state, &command.actor_ref, command.issued_at).await?;
+    let mut connection = state.pool.acquire().await?;
+    record_command_on_connection(&mut connection, &command).await
+}
+
+async fn record_command_on_connection(
+    connection: &mut sqlx::SqliteConnection,
+    command: &CommandEnvelope,
+) -> Result<(), AppError> {
+    let (actor_key, actor_kind, display_name) = actor_identity(&command.actor_ref);
+    sqlx::query(
+        r#"
+        insert into actors (
+            actor_key, actor_kind, display_name, actor_ref_json, first_seen_at, last_seen_at
+        )
+        values (?1, ?2, ?3, ?4, ?5, ?5)
+        on conflict(actor_key) do update set
+            actor_ref_json = excluded.actor_ref_json,
+            display_name = excluded.display_name,
+            last_seen_at = excluded.last_seen_at
+        "#,
+    )
+    .bind(actor_key)
+    .bind(actor_kind)
+    .bind(display_name)
+    .bind(serde_json::to_string(&command.actor_ref)?)
+    .bind(command.issued_at)
+    .execute(&mut *connection)
+    .await?;
     tracing::info!(
         command_id = %command.command_id,
         command_kind = ?command.kind,
@@ -6314,7 +6339,7 @@ async fn record_command(state: &AppState, command: CommandEnvelope) -> Result<()
     .bind(command.command_id.as_str())
     .bind(serde_json::to_string(&command)?)
     .bind(command.issued_at)
-    .execute(&state.pool)
+    .execute(&mut *connection)
     .await?;
     Ok(())
 }
