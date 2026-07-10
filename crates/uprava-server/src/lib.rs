@@ -4176,11 +4176,33 @@ async fn complete_event_projection(
     .bind(event.happened_at)
     .execute(&mut *transaction)
     .await?;
-    if event.kind == EventKind::ProviderMessageCompleted {
-        if let Some(session_thread_id) = &event.session_thread_id {
-            let message_id = MessageId::new();
-            sqlx::query(
-                r#"
+    let durable_message = match event.kind {
+        EventKind::ProviderMessageCompleted => Some((
+            MessageRole::Assistant,
+            event
+                .payload
+                .0
+                .get("content")
+                .and_then(serde_json::Value::as_str)
+                .unwrap_or("Provider completed a message"),
+        )),
+        EventKind::RuntimeError => Some((
+            MessageRole::Runtime,
+            event
+                .payload
+                .0
+                .get("message")
+                .and_then(serde_json::Value::as_str)
+                .unwrap_or("Runtime error"),
+        )),
+        _ => None,
+    };
+    if let (Some((role, content)), Some(session_thread_id)) =
+        (durable_message, event.session_thread_id.as_ref())
+    {
+        let message_id = MessageId::new();
+        sqlx::query(
+            r#"
                 insert into messages (
                     message_id, session_thread_id, turn_id, role, content,
                     created_at, completed_at, source_event_id
@@ -4188,25 +4210,17 @@ async fn complete_event_projection(
                 values (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)
                 on conflict do nothing
                 "#,
-            )
-            .bind(message_id.as_str())
-            .bind(session_thread_id.as_str())
-            .bind(event.turn_id.as_ref().map(TurnId::as_str))
-            .bind(format_message_role(MessageRole::Assistant))
-            .bind(
-                event
-                    .payload
-                    .0
-                    .get("content")
-                    .and_then(serde_json::Value::as_str)
-                    .unwrap_or("Provider completed a message"),
-            )
-            .bind(event.happened_at)
-            .bind(event.happened_at)
-            .bind(event.event_id.as_str())
-            .execute(&mut *transaction)
-            .await?;
-        }
+        )
+        .bind(message_id.as_str())
+        .bind(session_thread_id.as_str())
+        .bind(event.turn_id.as_ref().map(TurnId::as_str))
+        .bind(format_message_role(role))
+        .bind(content)
+        .bind(event.happened_at)
+        .bind(event.happened_at)
+        .bind(event.event_id.as_str())
+        .execute(&mut *transaction)
+        .await?;
     }
     transaction.commit().await?;
     Ok(())
@@ -4306,18 +4320,8 @@ async fn apply_event_projection(state: &AppState, event: &EventEnvelope) -> Resu
                 update_runtime_state(state, runtime_session_id, RuntimeSessionState::Error).await?;
             }
             update_session_state_from_event(state, event, SessionThreadState::Degraded).await?;
-            insert_event_message(
-                state,
-                event,
-                MessageRole::Runtime,
-                event
-                    .payload
-                    .0
-                    .get("message")
-                    .and_then(serde_json::Value::as_str)
-                    .unwrap_or("Runtime error"),
-            )
-            .await?;
+            // The durable message is inserted with the event completion
+            // boundary below, keeping projection and publication coupled.
         }
         EventKind::TurnInterrupted => {
             if let Some(runtime_session_id) = &event.runtime_session_id {
@@ -11375,6 +11379,42 @@ mod tests {
             .messages
             .iter()
             .any(|message| message.role == MessageRole::Runtime && message.content == "boom"));
+    }
+
+    #[tokio::test]
+    async fn duplicate_runtime_error_event_does_not_duplicate_runtime_message() {
+        let state = test_state().await;
+        let (node_id, detail, workspace_path) = create_test_session(&state).await;
+        let event = node_event_fixture(
+            &detail,
+            node_id,
+            "runtime-error-duplicate",
+            1,
+            EventKind::RuntimeError,
+            json!({ "message": "boom" }),
+        );
+
+        accept_node_event(&state, event.clone())
+            .await
+            .expect("first runtime error accepts");
+        accept_node_event(&state, event)
+            .await
+            .expect("duplicate runtime error accepts");
+        let detail = load_session_detail(&state, &detail.session.session_thread_id)
+            .await
+            .expect("session reloads");
+        std::fs::remove_dir_all(&workspace_path).expect("workspace dir removes");
+
+        assert_eq!(
+            detail
+                .messages
+                .iter()
+                .filter(|message| {
+                    message.role == MessageRole::Runtime && message.content == "boom"
+                })
+                .count(),
+            1
+        );
     }
 
     #[tokio::test]
