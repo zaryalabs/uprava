@@ -6248,9 +6248,10 @@ fn actor_identity(actor_ref: &ActorRef) -> (String, &'static str, String) {
 }
 
 async fn record_command(state: &AppState, command: CommandEnvelope) -> Result<(), AppError> {
-    upsert_actor(state, &command.actor_ref, command.issued_at).await?;
-    let mut connection = state.pool.acquire().await?;
-    record_command_on_connection(&mut connection, &command).await
+    let mut transaction = state.pool.begin().await?;
+    record_command_on_connection(&mut transaction, &command).await?;
+    transaction.commit().await?;
+    Ok(())
 }
 
 async fn record_command_on_connection(
