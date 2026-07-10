@@ -24,7 +24,7 @@ Traefik / platform network
 Uprava Core stack in Docker
   uprava-core  - Rust Core Backend, API, auth, state, event log
   uprava-web   - built Vite Web Control Panel, same public origin as Core
-  core.sqlite  - product-owned persistent volume or bind-mounted state
+  versioned core.sqlite - product-owned state slot 0.1.8 or 0.2.0
 
 Host systemd
   uprava-node.service - Rust Node Daemon near real files, PTY, Codex, tools
@@ -96,9 +96,11 @@ The Web build should support same-origin API configuration, preferably with a
 relative base such as `/api/v1` in production. The current local default
 `http://127.0.0.1:8080/api/v1` should remain a development default only.
 
-Core state remains product-owned. SQLite is acceptable for the current
-single-server controlled deployment, but the volume must be included in backup
-and restore procedures.
+Core state remains product-owned. SQLite acceptable для current single-server
+controlled deployment, но выбранный versioned state slot должен входить в
+backup and restore procedures. Slots 0.1.8 and 0.2.0 и matching configuration
+остаются раздельными по контракту
+[`deployment.md`](deployment.md).
 
 ### Bare-metal Node Daemon
 
@@ -106,9 +108,10 @@ The Node Daemon should run as a systemd unit on the host:
 
 ```text
 /etc/systemd/system/uprava-node.service
-/etc/uprava/node.env
+/etc/uprava/node.env -> /etc/uprava/releases/<active-version>/node.env
 /var/lib/uprava/
-/var/lib/uprava-node/node.json
+/var/lib/uprava-node/0.1.8/node.json
+/var/lib/uprava-node/0.2.0/node.sqlite
 /var/log/uprava-node/ optional local fallback logs
 ```
 
@@ -533,6 +536,10 @@ Core down:
 - Node retries heartbeat and control connection.
 - Node local state remains intact.
 - systemd should not restart Node solely because Core is unavailable.
+
+Reset или telemetry incident не должны удалять retained release-family
+state/config slots. В частности, reset 0.2.0 никогда не удаляет state или
+configuration 0.1.8.
 
 ## Rollout Plan
 

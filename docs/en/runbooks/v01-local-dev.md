@@ -53,6 +53,40 @@ includes a clean empty database and the previous dev `nodes` table shape without
 you need evidence, then delete the broken local state or use `make
 dev-reset` for the Compose volume.
 
+## 0.2.0 Breaking Reset Contract
+
+The existing unversioned paths above are the 0.1.8 sources. Before the first
+0.2.0 run, preserve them and the effective environment in these reserved local
+slots:
+
+| Release | Core state | Core config | Node state | Node config |
+| --- | --- | --- | --- | --- |
+| `0.1.8` | `.local/state/0.1.8/core.sqlite` | `.local/config/0.1.8/core.env` | `~/.local/share/uprava-node/0.1.8/node.json` | `~/.config/uprava-node/0.1.8/node.env` |
+| `0.2.0` | `.local/state/0.2.0/core.sqlite` | `.local/config/0.2.0/core.env` | `~/.local/share/uprava-node/0.2.0/node.sqlite` | `~/.config/uprava-node/0.2.0/node.env` |
+
+These are release-family slots, not an in-place migration. The 0.2.0
+implementation must select only its 0.2.0 state and config. The retained 0.1.8
+slots are read only during 0.2.0 work and stay available for rollback. If a
+selected state has the wrong schema or format, startup fails with an actionable
+incompatible-state error; it does not import, reinterpret or delete that state.
+
+Clean 0.2.0 reset procedure:
+
+1. stop Core, Web and Node and copy any 0.2.0 evidence needed for diagnosis;
+2. remove or reinitialize only the 0.2.0 Core and Node state slots;
+3. start Core with the empty 0.2.0 Core slot and matching config;
+4. start Node with the empty 0.2.0 SQLite slot and matching config;
+5. create and explicitly approve a new enrollment, then rebind Projects and
+   Placements;
+6. run the clean-state smoke flow.
+
+The old Node JSON state is not imported, so re-enrollment is mandatory. Reset
+must never delete or rewrite a 0.1.8 state/config slot. `make dev-reset` may be
+extended to initialize or clear the selected 0.2.0 development slot, but it
+must preserve all 0.1.8 slots. Rolling back means selecting the 0.1.8 binaries,
+Core config/state and Node config/state together; work created only in 0.2.0 is
+not present after rollback.
+
 ## Security Profile
 
 `controlled_dev` is the only supported V01 development profile. Browser auth is
@@ -160,6 +194,10 @@ credential in the authorization header, sends a `control.hello` frame, receives
 `command.result` frames. If either side receives a control frame with an
 unsupported protocol version, it replies with `control.error` using
 `control.protocol_incompatible` and does not execute that command batch.
+
+For 0.2.0 this becomes protocol v2 as one coordinated breaking release across
+Core, Node and Web. Protocol-v1 API/schema/state compatibility is not required,
+and there is no in-place 0.1.x migration.
 
 Core records node-routed commands before dispatch. The command envelope remains
 stored as JSON for replay, and the command table also keeps queryable actor,

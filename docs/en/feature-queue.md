@@ -53,6 +53,7 @@ slice before new product mechanisms are added.
 | 5 | + | Workspace intervention layer | Lightweight editor, terminal, command history, diff/check entry points | Read-only inspector, events | High |
 | 5a | + | Workspace renderer and PTY terminal layer | Monaco file/diff renderers and xterm-backed interactive PTY sessions | Workspace intervention, Core/Node control channel | High |
 | 6 | - | Daily-use hardening and deployment readiness | Stable panel layout, product polish, server deploy path, CI/CD baseline | `0.1.8` deployable workbench, security baseline | High |
+| 6a | - | Provider-native persistent execution policy | Safe provider defaults, explicit unsafe mode, real approvals and visible effective policy | 0.2.0 quality foundation, provider-native persistent runtime | Very high |
 | 7 | - | Causality and trace UX | Coarse source/cause links with raw fallback | Workspace refs, event log | Medium |
 | 8 | - | Git and review basics | Better diff, branch/worktree awareness, check results | Workspace intervention, trace | Medium |
 | 9 | - | Tool Registry v1 | Real tool metadata, permissions, routing, and audit policy | V01 capability model, events | High |
@@ -234,6 +235,34 @@ checklist from actual daily use.
 **Target direction:** Establish a stable personal/server operating mode that can
 be used continuously while later trace, git/review, registry, plugin, artifact,
 and task-runtime work is built.
+
+### 6a. Provider-native persistent execution policy
+
+**Value:** Makes persistent provider execution safe and understandable without
+mistaking a workspace allow-list or Unix account for a provider sandbox.
+
+**Dependency:** The 0.2.0 quality foundation and a provider-native persistent
+runtime path that can pause for policy and approval decisions.
+
+**First useful slice and exit criteria:** All four conditions are required:
+
+1. sandboxed execution is the safe default;
+2. unrestricted execution is available only through an explicit unsafe-mode
+   switch;
+3. provider approval requests are handled by a real Core/User/Node approval
+   flow before execution continues;
+4. the effective sandbox and approval policy is visible before start and in
+   runtime trace/evidence.
+
+**Accepted risk before delivery:** Audit finding P0-3 remains an accepted risk
+for the controlled deployment. The 0.2.0 quality-foundation release does not
+change the existing Codex launch flags, does not treat the current normalized
+approval events as real enforcement, and does not claim team, cloud or
+hostile-workload isolation.
+
+**Target direction:** Apply the same explicit policy contract to later
+provider-native persistent runtimes while preserving provider-specific
+enforcement and evidence.
 
 ### 7. Causality and trace UX
 

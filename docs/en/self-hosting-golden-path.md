@@ -34,7 +34,7 @@ Use a dedicated server user:
 ```text
 user:        uprava
 home:        /var/lib/uprava
-node state:  /var/lib/uprava-node/node.json
+node state:  /var/lib/uprava-node/0.1.8/node.json or 0.2.0/node.sqlite
 workspace:   /srv/uprava-workspaces/*
 ```
 
@@ -82,9 +82,15 @@ The first self-hosting env file should include:
 
 ```text
 UPRAVA_CORE_URL=https://uprava.zrya.io
-UPRAVA_NODE_STATE_PATH=/var/lib/uprava-node/node.json
+UPRAVA_NODE_STATE_PATH=/var/lib/uprava-node/0.1.8/node.json
 UPRAVA_NODE_WORKSPACES=/srv/uprava-workspaces
 ```
+
+For 0.2.0 activation, use the matching config slot
+`/etc/uprava/releases/0.2.0/node.env` and
+`UPRAVA_NODE_STATE_PATH=/var/lib/uprava-node/0.2.0/node.sqlite`. Retain the
+0.1.8 config and JSON state separately. Resetting or re-enrolling 0.2.0 must
+never delete them.
 
 `UPRAVA_NODE_WORKSPACES` intentionally points at the workspace root so every
 checkout under `/srv/uprava-workspaces/*` can be used without another server
@@ -98,6 +104,13 @@ server, so the effective boundary is the `uprava` Unix user, the
 `UPRAVA_NODE_WORKSPACES` allow-list, inherited workspace ACLs, and the
 production boundary below. A future live provider/runtime path should replace
 this with finer-grained permissions and approval handling.
+
+This is accepted audit risk P0-3, not production-grade hostile-workload
+isolation. The exact follow-up and its exit criteria are tracked in
+[`feature-queue.md`](feature-queue.md#6a-provider-native-persistent-execution-policy):
+safe-by-default sandboxing, an explicit unsafe-mode switch, real approval
+handling and visible effective policy. The 0.2.0 quality-foundation work does
+not change the current launch flags.
 
 ## Git Credentials
 
@@ -126,12 +139,14 @@ Uprava edits /srv/uprava-workspaces/uprava
 -> creates a branch and commit
 -> pushes the branch to GitHub
 -> human reviews and merges to main
--> CI/CD builds, publishes and deploys the release
+-> CI/CD may build and publish immutable artifacts from main
+-> an operator explicitly runs the production workflow_dispatch activation
 -> https://uprava.zrya.io runs the updated Uprava
 ```
 
 This is the intended self-improvement loop. Production changes still pass
 through GitHub, review, merge and the normal CI/CD deployment contract.
+Successful build or publish never activates production implicitly.
 
 ## Production Boundary
 

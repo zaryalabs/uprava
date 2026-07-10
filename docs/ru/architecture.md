@@ -339,6 +339,71 @@ Client should not own durable workflow state.
 - exposing unresolved risks;
 - following mode-specific contract.
 
+## Контракты Quality Foundation 0.2.0
+
+### Identity Project, Placement И Workspace
+
+- `Project` — логический aggregate под authority Core. Его identity не зависит
+  от Node или локального path.
+- `ProjectPlacement` — физическая привязка одной Node к одному canonical local
+  workspace path. Core persistence обязана обеспечивать uniqueness пары
+  `(node_id, canonical_workspace_path)`.
+- `Workspace` — пользовательский workbench поверх Placement, а не ещё одна
+  persisted identity. Core resource route — `/placements/:id`, Web workbench
+  route — `/workspaces/:placement_id`.
+- Один Project может владеть Placements на нескольких Nodes. Core создаёт
+  identifiers Project и Placement; Node canonicalizes and validates paths и
+  сообщает local facts.
+- Heartbeat discovery и explicit binding сходятся к одному Placement для пары
+  Node/path. Discovery создаёт или обновляет один unbound Placement; explicit
+  binding привязывает его к выбранному или новому Project. Один path никогда не
+  задаёт cross-node Project identity автоматически.
+
+### Authority Durable State
+
+Core владеет durable product state, legal domain transitions и глобальной
+event record. Схему задают numbered SQLx migrations with checksums. Неизвестные
+persisted enum или state values — corruption or compatibility errors, а не
+fallback к initial state. У каждого duplicated index или projection есть одна
+документированная authority и rebuild rule; normalized capability rows
+authoritative; immutable event envelopes и searchable projections фиксируются
+в одной transaction; у session/runtime links одна authoritative relation.
+Enrollment claim, Project/Placement binding, session creation, turn submission
+и event ingestion являются units of work, а in-memory notification происходит
+только после commit.
+
+Node владеет одним transactional local state store и long-lived local
+resources, которыми управляет. Daemon-level `NodeSupervisor` владеет
+registration, heartbeat snapshots, command deduplication, runtime metadata,
+outbox state и shutdown. Единственный state-store actor является единственным
+writer durable state. Store 0.2.0 использует SQLite с отдельными tables для
+identity, command cache, outbox, runtime metadata, transcripts и provider
+resume references. `RuntimeSupervisor` владеет provider processes,
+cancellation, transcripts и resume state; `TerminalSupervisor` владеет PTY
+children независимо от control connection. Retention completed commands,
+stopped runtimes, transcripts и acknowledged outbox entries задаётся явно и
+имеет bounds.
+
+### Protocol V2 И Compatibility
+
+Protocol v2 — единый coordinated breaking release для Core, Node и Web. Rust
+types в `uprava-protocol` являются source of truth; tracked JSON Schema,
+TypeScript types, runtime validators и canonical fixtures генерируются для
+Web-facing roots и проверяются на drift. Built-in commands and events используют
+tagged typed payloads; known kinds не используют arbitrary JSON, а
+extensibility остаётся explicit extension variant. Node-only control contracts
+не попадают в browser bundle, а ingress validation доказывает связи scope,
+target и identifiers.
+
+Compatibility с API, schemas и state 0.1.x не требуется. In-place migration
+0.1.x отсутствует: incompatible state должна явно останавливать startup с
+инструкцией по reset и re-enrollment, а не молча переинтерпретироваться или
+удаляться. Первый запуск 0.2.0 использует отдельные versioned Core and Node
+state/config slots; сохранённые Core database 0.1.8, Node JSON state и matching
+configuration остаются доступны для rollback. Rollback выбирает old binaries,
+configuration и state вместе и не переносит в 0.1.8 работу, созданную только в
+0.2.0.
+
 ## Connection model
 
 Базовая безопасная модель: Node Daemon сам устанавливает outbound connection к Core.

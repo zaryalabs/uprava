@@ -62,17 +62,24 @@ Target layout:
   systemd/
     uprava-node.service.example
   backups/
-  volumes/
-    core-data/
+  config/
+    0.1.8/core.env
+    0.2.0/core.env
+  state/
+    0.1.8/core/core.sqlite
+    0.2.0/core/core.sqlite
 ```
 
 Host-level files:
 
 ```text
 /etc/systemd/system/uprava-node.service
-/etc/uprava/node.env
+/etc/uprava/node.env -> /etc/uprava/releases/<active-version>/node.env
+/etc/uprava/releases/0.1.8/node.env
+/etc/uprava/releases/0.2.0/node.env
 /var/lib/uprava/
-/var/lib/uprava-node/node.json
+/var/lib/uprava-node/0.1.8/node.json
+/var/lib/uprava-node/0.2.0/node.sqlite
 /var/log/uprava-node/ optional local fallback logs
 /srv/uprava-workspaces/ root-created workspace boundary with uprava ACL
 /srv/uprava-workspaces/uprava/ editable self-hosting checkout
@@ -81,6 +88,22 @@ Host-level files:
 The product repository owns templates and docs for host-level files. The server
 owns the installed unit file, env file, local state, workspace root and actual
 workspace permissions.
+
+### Breaking 0.2.0 State And Configuration Slots
+
+The paths above reserve independent release-family slots. Before the first
+0.2.0 candidate is activated, the operator preserves and verifies the current
+0.1.8 Core database, Node JSON state and their effective Core/Node environment
+files in the `0.1.8` slots. The 0.2.0 Core starts only against
+`state/0.2.0/core/core.sqlite`; the 0.2.0 Node starts only against
+`/var/lib/uprava-node/0.2.0/node.sqlite` and the 0.2.0 configuration slots.
+
+The active Core config and systemd `EnvironmentFile` may be stable symlinks,
+but activation must switch binaries, release manifest, Core config/state and
+Node config/state as one operation. A 0.1.8 binary must never be started
+against 0.2.0 state, or the reverse. The legacy database must be preserved by
+SQLite online backup or a quiesced snapshot; do not copy or archive a live
+SQLite file blindly.
 
 ## Runtime Units
 
@@ -185,6 +208,11 @@ The top-level product contract stays:
 prepare -> build -> push -> deploy
 ```
 
+Ordinary checks, builds and immutable artifact publishing may run after changes
+land on `main`. They do not activate production. Production activation remains
+an explicit manual GitHub Actions `workflow_dispatch` using a selected release
+id; no push, merge or successful publish event implicitly runs `deploy`.
+
 ### `prepare`
 
 Expected checks:
@@ -281,6 +309,10 @@ product contract. Ordinary releases should tolerate the short mixed-version
 window during restart. Breaking protocol changes need explicit release notes and
 maintenance planning.
 
+For protocol v2, the release id is Git-SHA-based and Core, Web and Node move as
+one coordinated release. `0.2.0-rc.N` artifacts are never activated against a
+0.1.8 state/config slot.
+
 ## Smoke Checks
 
 Minimum production smoke:
@@ -325,9 +357,29 @@ make activate RELEASE=<previous-release-id>
 make deploy
 ```
 
-Rollback works only if the previous release manifest still points to available
-Core/Web images and Node artifact, and if Core state is compatible. Any release
-that changes durable state must document rollback limits.
+For the 0.2.0 breaking release, rollback selects the 0.1.8 release manifest,
+Core config, Core state, Node config and Node JSON state together. It never
+starts the old binary against the new schema. The retained 0.1.8 slots stay
+unchanged until 0.2.0 is accepted. Work created only in 0.2.0 is absent after
+rollback and this loss boundary must be shown before activation.
+
+### 0.2.0 Clean Reset And Re-enrollment
+
+A clean reset is allowed to stop the candidate, back up evidence, and remove or
+reinitialize only the `0.2.0` Core and Node state slots. It must never delete,
+truncate or rewrite any `0.1.8` state or configuration slot. After reset:
+
+1. start Core with the empty 0.2.0 Core slot and 0.2.0 Core config;
+2. start Node with the empty 0.2.0 SQLite slot and 0.2.0 Node config;
+3. create a new enrollment, approve it explicitly and let Node store the new
+   0.2.0 credential;
+4. rebind Projects and Placements; no 0.1.8 Project, Placement, session,
+   transcript or resume state is imported in place;
+5. run smoke checks against the candidate release id.
+
+If either process sees incompatible state in its selected 0.2.0 slot, startup
+must fail with an actionable incompatible-state error rather than migrate,
+reinterpret or delete it automatically.
 
 ## What Belongs Where
 
@@ -346,11 +398,11 @@ Server-owned state:
 - `/opt/apps/uprava/.env`;
 - active `.env.release` symlink;
 - active `current` release symlink;
-- persisted Core data;
+- versioned Core state and matching Core config slots;
 - installed systemd unit;
-- `/etc/uprava/node.env`;
+- `/etc/uprava/node.env` and versioned Node config slots;
 - `/var/lib/uprava/`;
-- `/var/lib/uprava-node/node.json`;
+- versioned 0.1.8 Node JSON and 0.2.0 Node SQLite state slots;
 - `/srv/uprava-workspaces/`;
 - `/srv/uprava-workspaces/uprava/`;
 - real workspace files and credentials;

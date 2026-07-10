@@ -35,6 +35,24 @@ documents должны ссылаться на текущий release baseline, 
 
 Current baseline: `0.1.8`.
 
+## Release Candidates 0.2.0
+
+- Каждый candidate build с source changes использует уникальную SemVer
+  pre-release version `0.2.0-rc.N`; `N` растёт монотонно, и candidate version
+  никогда не пересобирается с другим содержимым.
+- У каждого candidate также есть immutable Git-SHA-based release id. Core, Web
+  and Node artifacts этого candidate имеют общие version, Git SHA and release
+  id.
+- Release candidates фиксируются во временном RC checklist и build manifest, а
+  не как current shipped baseline в [`releases.md`](releases.md).
+- Final version `0.2.0` назначается только после прохождения final RC полного
+  clean-state release gate. Final build обязан повторно пройти тот же gate. При
+  failure он отбрасывается, работа возвращается к следующему `0.2.0-rc.N`, fix
+  и проверка повторяются; нельзя публиковать два разных artifacts `0.2.0`.
+- `0.2.0` — coordinated breaking protocol-v2 release. Compatibility с API,
+  schemas или state 0.1.x и in-place state migration не являются release
+  requirements.
+
 ## Правила обновления
 
 Когда закрывается пункт feature queue или другой большой этап работы:

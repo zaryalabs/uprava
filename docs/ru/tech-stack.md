@@ -79,7 +79,7 @@ dependencies к более старому provisional toolchain.
 - Tokio;
 - Axum;
 - Serde;
-- SQLx or SeaORM later, decision deferred;
+- SQLx with numbered, checksummed migrations;
 - SQLite for local/single-user first;
 - Postgres-compatible architecture later;
 - WebSocket or SSE for live session/events;
@@ -274,7 +274,10 @@ React Hook Form + Zod нужны для:
 - future integration credentials forms;
 - future task run forms.
 
-Zod полезен как frontend validation boundary. Backend contracts все равно должны быть Rust-first; позже можно подумать о generated schemas.
+Для protocol v2 Rust schema roots в `uprava-protocol` являются source of truth.
+Из них генерируются tracked JSON Schema, TypeScript types and Ajv runtime
+validators для Web-facing HTTP, SSE and terminal payloads. Node control-only
+roots не попадают в browser bundle, а generated artifacts проверяются на drift.
 
 ### Testing
 
@@ -341,10 +344,8 @@ apps/
 
 ## Deferred decisions
 
-- SQLx vs SeaORM vs another DB layer.
 - SQLite-only first or immediate SQLite/Postgres abstraction.
 - WebSocket vs SSE for event streams.
-- OpenAPI vs custom generated client vs shared schema generation.
 - Whether frontend lives under `apps/web` with Vite or later moves to Next.js.
 - Whether Tauri appears in V01 as launcher or waits for a feature queue item.
 - Exact package manager for frontend.
