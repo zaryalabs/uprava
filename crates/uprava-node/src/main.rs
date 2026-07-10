@@ -526,6 +526,77 @@ impl NodeLocalState {
             .execute(&mut *transaction)
             .await?;
         }
+        sqlx::query("delete from node_registration")
+            .execute(&mut *transaction)
+            .await?;
+        sqlx::query(
+            "insert into node_registration (state_id, daemon_installation_id, node_id, credential, enrollment_id, pairing_code, updated_at) values (1, ?1, ?2, ?3, ?4, ?5, strftime('%Y-%m-%dT%H:%M:%fZ', 'now'))",
+        )
+        .bind(&snapshot.daemon_installation_id)
+        .bind(snapshot.node_id.as_ref().map(NodeId::as_str))
+        .bind(snapshot.credential.as_deref())
+        .bind(snapshot.enrollment_id.as_ref().map(EnrollmentId::as_str))
+        .bind(snapshot.pairing_code.as_deref())
+        .execute(&mut *transaction)
+        .await?;
+
+        let runtime_ids = snapshot
+            .runtime_seqs
+            .keys()
+            .chain(snapshot.runtime_providers.keys())
+            .chain(snapshot.runtime_workspace_paths.keys())
+            .chain(snapshot.runtime_states.keys())
+            .chain(snapshot.runtime_transcripts.keys())
+            .chain(snapshot.runtime_provider_resume_refs.keys())
+            .cloned()
+            .collect::<HashSet<_>>();
+        sqlx::query("delete from node_runtime_metadata")
+            .execute(&mut *transaction)
+            .await?;
+        for runtime_id in runtime_ids {
+            sqlx::query(
+                "insert into node_runtime_metadata (runtime_session_id, runtime_seq, provider, workspace_path, state_json, transcript_json, resume_ref_json, updated_at) values (?1, ?2, ?3, ?4, ?5, ?6, ?7, strftime('%Y-%m-%dT%H:%M:%fZ', 'now'))",
+            )
+            .bind(&runtime_id)
+            .bind(snapshot.runtime_seqs.get(&runtime_id).copied())
+            .bind(snapshot.runtime_providers.get(&runtime_id))
+            .bind(snapshot.runtime_workspace_paths.get(&runtime_id))
+            .bind(
+                snapshot
+                    .runtime_states
+                    .get(&runtime_id)
+                    .map(serde_json::to_string)
+                    .transpose()?,
+            )
+            .bind(
+                snapshot
+                    .runtime_transcripts
+                    .get(&runtime_id)
+                    .map(serde_json::to_string)
+                    .transpose()?,
+            )
+            .bind(
+                snapshot
+                    .runtime_provider_resume_refs
+                    .get(&runtime_id)
+                    .map(serde_json::to_string)
+                    .transpose()?,
+            )
+            .execute(&mut *transaction)
+            .await?;
+        }
+        sqlx::query("delete from node_placement_sequences")
+            .execute(&mut *transaction)
+            .await?;
+        for (placement_id, seq) in &snapshot.placement_seqs {
+            sqlx::query(
+                "insert into node_placement_sequences (placement_id, seq, updated_at) values (?1, ?2, strftime('%Y-%m-%dT%H:%M:%fZ', 'now'))",
+            )
+            .bind(placement_id)
+            .bind(*seq)
+            .execute(&mut *transaction)
+            .await?;
+        }
         transaction.commit().await?;
         pool.close().await;
         #[cfg(unix)]
@@ -619,6 +690,48 @@ async fn initialize_state_store(pool: &SqlitePool) -> anyhow::Result<()> {
             event_json text not null,
             seq integer not null,
             created_at text not null
+        )
+        "#,
+    )
+    .execute(pool)
+    .await?;
+    sqlx::query(
+        r#"
+        create table if not exists node_registration (
+            state_id integer primary key check (state_id = 1),
+            daemon_installation_id text not null,
+            node_id text,
+            credential text,
+            enrollment_id text,
+            pairing_code text,
+            updated_at text not null
+        )
+        "#,
+    )
+    .execute(pool)
+    .await?;
+    sqlx::query(
+        r#"
+        create table if not exists node_runtime_metadata (
+            runtime_session_id text primary key,
+            runtime_seq integer,
+            provider text,
+            workspace_path text,
+            state_json text,
+            transcript_json text,
+            resume_ref_json text,
+            updated_at text not null
+        )
+        "#,
+    )
+    .execute(pool)
+    .await?;
+    sqlx::query(
+        r#"
+        create table if not exists node_placement_sequences (
+            placement_id text primary key,
+            seq integer not null,
+            updated_at text not null
         )
         "#,
     )
@@ -5358,6 +5471,16 @@ mod tests {
         state
             .command_status
             .insert("command-sqlite".to_owned(), CommandState::Completed);
+        state.runtime_seqs.insert("runtime-sqlite".to_owned(), 7);
+        state
+            .runtime_providers
+            .insert("runtime-sqlite".to_owned(), "codex".to_owned());
+        state
+            .runtime_states
+            .insert("runtime-sqlite".to_owned(), RuntimeSessionState::Running);
+        state
+            .placement_seqs
+            .insert("placement-sqlite".to_owned(), 3);
 
         state.save_async(&path).await.expect("sqlite state saves");
         let reloaded = NodeLocalState::load_async(&path)
@@ -5387,9 +5510,25 @@ mod tests {
             .fetch_one(&pool)
             .await
             .expect("event outbox persists");
+        let registration_count: i64 = sqlx::query_scalar("select count(*) from node_registration")
+            .fetch_one(&pool)
+            .await
+            .expect("registration persists");
+        let runtime_count: i64 = sqlx::query_scalar("select count(*) from node_runtime_metadata")
+            .fetch_one(&pool)
+            .await
+            .expect("runtime metadata persists");
+        let placement_count: i64 =
+            sqlx::query_scalar("select count(*) from node_placement_sequences")
+                .fetch_one(&pool)
+                .await
+                .expect("placement sequences persist");
         pool.close().await;
         assert_eq!(command_count, 1);
         assert_eq!(outbox_count, 0);
+        assert_eq!(registration_count, 1);
+        assert_eq!(runtime_count, 1);
+        assert_eq!(placement_count, 1);
         std::fs::remove_dir_all(dir).expect("sqlite state fixture removes");
     }
 
