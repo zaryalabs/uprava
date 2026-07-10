@@ -8278,6 +8278,98 @@ sleep 2
         let _ = std::fs::remove_file(path);
     }
 
+    #[tokio::test]
+    async fn state_store_command_merge_propagates_removals_without_clobbering_newer_values() {
+        let baseline = NodeLocalState {
+            runtime_provider_resume_refs: HashMap::from([(
+                "runtime-remove".to_owned(),
+                ProviderResumeRef {
+                    provider_session_id: Some("session-old".to_owned()),
+                    resume_cursor: Some("cursor-old".to_owned()),
+                },
+            )]),
+            ..NodeLocalState::default()
+        };
+        let command_state = NodeLocalState {
+            // The command snapshot explicitly removed the resume reference.
+            ..baseline.clone()
+        };
+        let mut command_state = command_state;
+        command_state.runtime_provider_resume_refs.clear();
+
+        let removal_path = std::env::temp_dir().join(format!(
+            "uprava-node-store-removal-{}.sqlite",
+            Uuid::new_v4()
+        ));
+        baseline
+            .clone()
+            .save_async(&removal_path)
+            .await
+            .expect("baseline removal state persists");
+        let removal_store = NodeStateStore::new(baseline.clone(), removal_path.clone());
+        removal_store
+            .merge_command_state(&baseline, &command_state)
+            .await
+            .expect("removal merge persists");
+        assert!(!removal_store
+            .snapshot()
+            .await
+            .runtime_provider_resume_refs
+            .contains_key("runtime-remove"));
+        let removal_reopened = NodeLocalState::load_async(&removal_path)
+            .await
+            .expect("removal state reopens");
+        assert!(!removal_reopened
+            .runtime_provider_resume_refs
+            .contains_key("runtime-remove"));
+
+        let newer_path = std::env::temp_dir().join(format!(
+            "uprava-node-store-newer-ref-{}.sqlite",
+            Uuid::new_v4()
+        ));
+        let newer_ref = ProviderResumeRef {
+            provider_session_id: Some("session-new".to_owned()),
+            resume_cursor: Some("cursor-new".to_owned()),
+        };
+        let newer_owner = NodeLocalState {
+            runtime_provider_resume_refs: HashMap::from([(
+                "runtime-remove".to_owned(),
+                newer_ref.clone(),
+            )]),
+            ..NodeLocalState::default()
+        };
+        newer_owner
+            .clone()
+            .save_async(&newer_path)
+            .await
+            .expect("newer owner state persists");
+        let newer_store = NodeStateStore::new(newer_owner, newer_path.clone());
+        newer_store
+            .merge_command_state(&baseline, &command_state)
+            .await
+            .expect("stale removal merge persists");
+        assert_eq!(
+            newer_store
+                .snapshot()
+                .await
+                .runtime_provider_resume_refs
+                .get("runtime-remove"),
+            Some(&newer_ref)
+        );
+        let newer_reopened = NodeLocalState::load_async(&newer_path)
+            .await
+            .expect("newer state reopens");
+        assert_eq!(
+            newer_reopened
+                .runtime_provider_resume_refs
+                .get("runtime-remove"),
+            Some(&newer_ref)
+        );
+
+        let _ = std::fs::remove_file(removal_path);
+        let _ = std::fs::remove_file(newer_path);
+    }
+
     #[test]
     fn live_event_sink_only_records_until_durable_dispatch_phase() {
         let mut local_state = NodeLocalState::default();
