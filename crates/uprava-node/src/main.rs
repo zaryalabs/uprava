@@ -1,6 +1,7 @@
 use std::{
     collections::{BTreeMap, HashMap, HashSet, VecDeque},
     fs::{self, OpenOptions},
+    hash::Hash,
     io::{ErrorKind, Read, Seek, SeekFrom, Write},
     path::{Path, PathBuf},
     process::{Command as StdCommand, ExitStatus, Stdio},
@@ -83,9 +84,10 @@ async fn main() -> anyhow::Result<()> {
 
     let config = NodeConfig::from_env()?;
     let client = reqwest::Client::new();
-    let local_state = Arc::new(Mutex::new(
+    let state_store = NodeStateStore::new(
         NodeLocalState::load_async(&config.state_path).await?,
-    ));
+        config.state_path.clone(),
+    );
     let mut control_task: Option<tokio::task::JoinHandle<()>> = None;
     tracing::info!(
         core_url = %config.core_url,
@@ -96,18 +98,15 @@ async fn main() -> anyhow::Result<()> {
     );
 
     loop {
-        let mut state = local_state.lock().await;
-        if !state.is_enrolled() {
-            match ensure_enrollment(&client, &config, &mut state).await {
+        if !state_store.is_enrolled().await {
+            match state_store.ensure_enrollment(&client, &config).await {
                 Ok(true) => {}
                 Ok(false) => {
-                    drop(state);
                     tokio::time::sleep(config.heartbeat_interval).await;
                     continue;
                 }
                 Err(error) => {
                     tracing::warn!(error = %error, "enrollment step failed");
-                    drop(state);
                     tokio::time::sleep(config.heartbeat_interval).await;
                     continue;
                 }
@@ -121,7 +120,7 @@ async fn main() -> anyhow::Result<()> {
             control_task = None;
         }
 
-        match send_heartbeat(&client, &config, &state).await {
+        match state_store.send_heartbeat(&client, &config).await {
             Ok(response) => {
                 tracing::info!(
                     accepted = response.accepted,
@@ -132,7 +131,7 @@ async fn main() -> anyhow::Result<()> {
                 if response.open_control_channel && control_task.is_none() {
                     control_task = Some(tokio::spawn(control_channel_loop(
                         config.clone(),
-                        local_state.clone(),
+                        state_store.clone(),
                     )));
                 }
             }
@@ -146,8 +145,7 @@ async fn main() -> anyhow::Result<()> {
                     if let Some(task) = control_task.take() {
                         task.abort();
                     }
-                    state.clear_core_registration();
-                    if let Err(save_error) = state.save_async(&config.state_path).await {
+                    if let Err(save_error) = state_store.clear_core_registration().await {
                         tracing::warn!(
                             error = %save_error,
                             state_path = %config.state_path.display(),
@@ -159,7 +157,6 @@ async fn main() -> anyhow::Result<()> {
                 }
             }
         }
-        drop(state);
         tokio::time::sleep(config.heartbeat_interval).await;
     }
 }
@@ -362,6 +359,35 @@ fn default_node_state_slot() -> String {
 
 fn default_node_state_schema_version() -> u32 {
     NODE_STATE_SCHEMA_VERSION
+}
+
+fn merge_changed_map<K, V>(
+    owner: &mut HashMap<K, V>,
+    baseline: &HashMap<K, V>,
+    candidate: &HashMap<K, V>,
+) where
+    K: Eq + Hash + Clone,
+    V: Clone + PartialEq,
+{
+    let keys = baseline
+        .keys()
+        .chain(candidate.keys())
+        .cloned()
+        .collect::<HashSet<_>>();
+    for key in keys {
+        match (baseline.get(&key), candidate.get(&key)) {
+            (Some(previous), Some(next)) if previous != next => {
+                owner.insert(key, next.clone());
+            }
+            (None, Some(next)) => {
+                owner.insert(key, next.clone());
+            }
+            (Some(previous), None) if owner.get(&key) == Some(previous) => {
+                owner.remove(&key);
+            }
+            _ => {}
+        }
+    }
 }
 
 impl NodeLocalState {
@@ -648,20 +674,148 @@ impl NodeLocalState {
         self.pairing_code = None;
     }
 
-    fn merge_command_state_from(&mut self, command_state: &Self) {
-        self.command_status = command_state.command_status.clone();
-        self.command_result_payloads = command_state.command_result_payloads.clone();
-        self.runtime_seqs = command_state.runtime_seqs.clone();
-        self.event_outbox = command_state.event_outbox.clone();
-        self.runtime_providers = command_state.runtime_providers.clone();
-        self.runtime_workspace_paths = command_state.runtime_workspace_paths.clone();
-        self.runtime_states = command_state.runtime_states.clone();
-        self.runtime_transcripts = command_state.runtime_transcripts.clone();
-        self.runtime_provider_resume_refs = command_state.runtime_provider_resume_refs.clone();
-        self.placement_seqs = command_state.placement_seqs.clone();
+    fn merge_command_state_from(&mut self, baseline: &Self, command_state: &Self) {
+        // Apply only changes made to the command snapshot. A stale snapshot
+        // must never replace an ACKed outbox or newer runtime metadata.
+        merge_changed_map(
+            &mut self.command_status,
+            &baseline.command_status,
+            &command_state.command_status,
+        );
+        merge_changed_map(
+            &mut self.command_result_payloads,
+            &baseline.command_result_payloads,
+            &command_state.command_result_payloads,
+        );
+        for event in &command_state.event_outbox {
+            if !baseline
+                .event_outbox
+                .iter()
+                .any(|old| old.event_id == event.event_id)
+                && !self
+                    .event_outbox
+                    .iter()
+                    .any(|old| old.event_id == event.event_id)
+            {
+                self.event_outbox.push(event.clone());
+            }
+        }
+        for (runtime_id, seq) in &command_state.runtime_seqs {
+            if baseline.runtime_seqs.get(runtime_id) != Some(seq) {
+                let current = self.runtime_seqs.entry(runtime_id.clone()).or_default();
+                *current = (*current).max(*seq);
+            }
+        }
+        merge_changed_map(
+            &mut self.runtime_providers,
+            &baseline.runtime_providers,
+            &command_state.runtime_providers,
+        );
+        merge_changed_map(
+            &mut self.runtime_workspace_paths,
+            &baseline.runtime_workspace_paths,
+            &command_state.runtime_workspace_paths,
+        );
+        merge_changed_map(
+            &mut self.runtime_states,
+            &baseline.runtime_states,
+            &command_state.runtime_states,
+        );
+        merge_changed_map(
+            &mut self.runtime_transcripts,
+            &baseline.runtime_transcripts,
+            &command_state.runtime_transcripts,
+        );
+        merge_changed_map(
+            &mut self.runtime_provider_resume_refs,
+            &baseline.runtime_provider_resume_refs,
+            &command_state.runtime_provider_resume_refs,
+        );
+        for (placement_id, seq) in &command_state.placement_seqs {
+            if baseline.placement_seqs.get(placement_id) != Some(seq) {
+                let current = self.placement_seqs.entry(placement_id.clone()).or_default();
+                *current = (*current).max(*seq);
+            }
+        }
         self.dropped_event_count = self
             .dropped_event_count
             .max(command_state.dropped_event_count);
+    }
+}
+
+/// The single owner boundary for durable Node state mutations.
+///
+/// Runtime tasks may keep a short-lived in-memory snapshot while doing I/O,
+/// but every mutation that crosses the control path goes through this store.
+#[derive(Clone)]
+struct NodeStateStore {
+    state: Arc<Mutex<NodeLocalState>>,
+    path: PathBuf,
+}
+
+impl NodeStateStore {
+    fn new(state: NodeLocalState, path: PathBuf) -> Self {
+        Self {
+            state: Arc::new(Mutex::new(state)),
+            path,
+        }
+    }
+
+    async fn snapshot(&self) -> NodeLocalState {
+        self.state.lock().await.clone()
+    }
+
+    async fn is_enrolled(&self) -> bool {
+        self.state.lock().await.is_enrolled()
+    }
+
+    async fn ensure_enrollment(
+        &self,
+        client: &reqwest::Client,
+        config: &NodeConfig,
+    ) -> anyhow::Result<bool> {
+        let mut state = self.state.lock().await;
+        ensure_enrollment(client, config, &mut state).await
+    }
+
+    async fn send_heartbeat(
+        &self,
+        client: &reqwest::Client,
+        config: &NodeConfig,
+    ) -> anyhow::Result<NodeHeartbeatResponse> {
+        let state = self.snapshot().await;
+        send_heartbeat(client, config, &state).await
+    }
+
+    async fn clear_core_registration(&self) -> anyhow::Result<()> {
+        let mut state = self.state.lock().await;
+        state.clear_core_registration();
+        state.save_async(&self.path).await
+    }
+
+    async fn persist_reconnect_attempt(&self) -> anyhow::Result<()> {
+        let mut state = self.state.lock().await;
+        state.reconnect_attempts = state.reconnect_attempts.saturating_add(1);
+        state.save_async(&self.path).await
+    }
+
+    async fn persist_event_ack(&self, accepted_event_ids: &[EventId]) -> anyhow::Result<usize> {
+        let mut state = self.state.lock().await;
+        let removed = remove_acked_events(&mut state.event_outbox, accepted_event_ids);
+        if removed > 0 {
+            state.save_async(&self.path).await?;
+        }
+        Ok(removed)
+    }
+
+    async fn merge_command_state(
+        &self,
+        baseline: &NodeLocalState,
+        command_state: &NodeLocalState,
+    ) -> anyhow::Result<()> {
+        let mut state = self.state.lock().await;
+        state.merge_command_state_from(baseline, command_state);
+        state.save_async(&self.path).await
     }
 }
 
@@ -1150,16 +1304,13 @@ fn node_diagnostics(local_state: &NodeLocalState) -> String {
     )
 }
 
-async fn control_channel_loop(config: NodeConfig, state: Arc<Mutex<NodeLocalState>>) {
+async fn control_channel_loop(config: NodeConfig, store: NodeStateStore) {
     let mut terminal_manager = WorkspaceTerminalManager::default();
     loop {
-        let mut local_state = state.lock().await;
-        local_state.reconnect_attempts = local_state.reconnect_attempts.saturating_add(1);
-        if let Err(error) = local_state.save_async(&config.state_path).await {
+        if let Err(error) = store.persist_reconnect_attempt().await {
             tracing::warn!(error = %error, "failed to persist reconnect metric");
         }
-        drop(local_state);
-        match run_control_channel(&config, state.clone(), &mut terminal_manager).await {
+        match run_control_channel(&config, &store, &mut terminal_manager).await {
             Ok(()) => tracing::warn!("control channel closed"),
             Err(error) => tracing::warn!(error = %error, "control channel failed"),
         }
@@ -1169,24 +1320,20 @@ async fn control_channel_loop(config: NodeConfig, state: Arc<Mutex<NodeLocalStat
 
 async fn run_control_channel(
     config: &NodeConfig,
-    state: Arc<Mutex<NodeLocalState>>,
+    store: &NodeStateStore,
     terminal_manager: &mut WorkspaceTerminalManager,
 ) -> anyhow::Result<()> {
-    let (node_id, credential, active_runtime_ids, event_outbox) = {
-        let local_state = state.lock().await;
-        (
-            local_state
-                .node_id
-                .clone()
-                .context("node id is missing for control channel")?,
-            local_state
-                .credential
-                .clone()
-                .context("credential is missing for control channel")?,
-            active_runtime_ids(&local_state),
-            local_state.event_outbox.clone(),
-        )
-    };
+    let local_state = store.snapshot().await;
+    let node_id = local_state
+        .node_id
+        .clone()
+        .context("node id is missing for control channel")?;
+    let credential = local_state
+        .credential
+        .clone()
+        .context("credential is missing for control channel")?;
+    let active_runtime_ids = active_runtime_ids(&local_state);
+    let event_outbox = local_state.event_outbox.clone();
     let url = control_url(&config.core_url)?;
     let mut request = url
         .as_str()
@@ -1251,14 +1398,16 @@ async fn run_control_channel(
         }
         match frame {
             ControlFrame::CommandDispatch { command, .. } => {
-                let mut local_state = state.lock().await.clone();
+                let baseline = store.snapshot().await;
+                let mut local_state = baseline.clone();
                 handle_command_dispatch(
                     config,
                     &outbound_tx,
                     command,
                     &mut local_state,
+                    &baseline,
                     terminal_manager,
-                    Some(&state),
+                    Some(store),
                 )
                 .await?;
             }
@@ -1276,11 +1425,9 @@ async fn run_control_channel(
             ControlFrame::EventBatchAck {
                 accepted_event_ids, ..
             } => {
-                let mut local_state = state.lock().await;
-                let removed =
-                    remove_acked_events(&mut local_state.event_outbox, &accepted_event_ids);
+                let removed = store.persist_event_ack(&accepted_event_ids).await?;
                 if removed > 0 {
-                    local_state.save_async(&config.state_path).await?;
+                    let local_state = store.snapshot().await;
                     tracing::info!(
                         removed,
                         remaining = local_state.event_outbox.len(),
@@ -1321,8 +1468,9 @@ async fn handle_command_dispatch(
     sender: &ControlFrameSender,
     command: CommandEnvelope,
     local_state: &mut NodeLocalState,
+    baseline: &NodeLocalState,
     terminal_manager: &mut WorkspaceTerminalManager,
-    shared_state: Option<&Arc<Mutex<NodeLocalState>>>,
+    shared_state: Option<&NodeStateStore>,
 ) -> anyhow::Result<()> {
     let outcome = prepare_command_dispatch_with_live_socket(
         config,
@@ -1334,9 +1482,9 @@ async fn handle_command_dispatch(
     .await;
     if outcome.state_changed {
         if let Some(shared_state) = shared_state {
-            let mut shared = shared_state.lock().await;
-            shared.merge_command_state_from(local_state);
-            shared.save_async(&config.state_path).await?;
+            shared_state
+                .merge_command_state(baseline, local_state)
+                .await?;
         } else {
             local_state.save_async(&config.state_path).await?;
         }
@@ -8039,11 +8187,95 @@ sleep 2
             ..NodeLocalState::default()
         };
 
-        shared.merge_command_state_from(&command_state);
+        let baseline = shared.clone();
+        shared.merge_command_state_from(&baseline, &command_state);
 
         assert_eq!(shared.node_id, Some(NodeId::from("node-owner")));
         assert_eq!(shared.credential.as_deref(), Some("credential-owner"));
         assert_eq!(shared.runtime_seqs.get("runtime-1"), Some(&4));
+    }
+
+    #[tokio::test]
+    async fn state_store_serializes_command_merges_and_preserves_registration() {
+        let path =
+            std::env::temp_dir().join(format!("uprava-node-store-{}.sqlite", Uuid::new_v4()));
+        let mut initial = NodeLocalState {
+            node_id: Some(NodeId::from("node-owner")),
+            credential: Some("credential-owner".to_owned()),
+            ..NodeLocalState::default()
+        };
+        let event = runtime_outbox_retention_event(
+            &mut initial,
+            RuntimeSessionId::from("runtime-store"),
+            None,
+            None,
+        );
+        let event_id = event.event_id.clone();
+        initial.event_outbox.push(event);
+        initial
+            .save_async(&path)
+            .await
+            .expect("initial state persists");
+        let store = NodeStateStore::new(initial, path.clone());
+        let baseline = store.snapshot().await;
+        let first = NodeLocalState {
+            node_id: Some(NodeId::from("stale-first-copy")),
+            command_status: HashMap::from([("command-1".to_owned(), CommandState::Completed)]),
+            event_outbox: baseline.event_outbox.clone(),
+            ..NodeLocalState::default()
+        };
+        let second = NodeLocalState {
+            node_id: Some(NodeId::from("stale-second-copy")),
+            command_status: HashMap::from([("command-2".to_owned(), CommandState::Failed)]),
+            event_outbox: baseline.event_outbox.clone(),
+            ..NodeLocalState::default()
+        };
+
+        let (first_result, second_result) = tokio::join!(
+            store.merge_command_state(&baseline, &first),
+            store.merge_command_state(&baseline, &second)
+        );
+        first_result.expect("first command merge persists");
+        second_result.expect("second command merge persists");
+
+        let merged = store.snapshot().await;
+        assert_eq!(merged.node_id, Some(NodeId::from("node-owner")));
+        assert_eq!(merged.credential.as_deref(), Some("credential-owner"));
+        assert!(merged.command_status.contains_key("command-1"));
+        assert!(merged.command_status.contains_key("command-2"));
+        assert!(merged
+            .event_outbox
+            .iter()
+            .any(|event| event.event_id == event_id));
+
+        let stale = baseline.clone();
+        let (ack_result, merge_result) = tokio::join!(
+            store.persist_event_ack(std::slice::from_ref(&event_id)),
+            store.merge_command_state(&baseline, &stale)
+        );
+        ack_result.expect("event ACK persists");
+        merge_result.expect("stale command merge persists");
+        let merged = store.snapshot().await;
+        assert!(merged
+            .event_outbox
+            .iter()
+            .all(|event| event.event_id != event_id));
+        assert!(merged.command_status.contains_key("command-1"));
+        let reopened = NodeLocalState::load_async(&path)
+            .await
+            .expect("sqlite state reopens");
+        assert!(reopened
+            .event_outbox
+            .iter()
+            .all(|event| event.event_id != event_id));
+        let pool = open_state_store(&path).await.expect("sqlite store opens");
+        let outbox_rows: i64 = sqlx::query_scalar("select count(*) from node_event_outbox")
+            .fetch_one(&pool)
+            .await
+            .expect("outbox rows query");
+        pool.close().await;
+        assert_eq!(outbox_rows, 0);
+        let _ = std::fs::remove_file(path);
     }
 
     #[test]
