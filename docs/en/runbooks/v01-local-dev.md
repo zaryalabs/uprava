@@ -164,7 +164,7 @@ make node-r
 ```
 
 The Node writes local development state to
-`~/.local/share/uprava-node/node.json` by default and logs the short-lived
+`~/.local/share/uprava-node/0.2.0/node.sqlite` by default and logs the short-lived
 `enrollment_id`. That state includes a stable `daemon_installation_id` used for
 local diagnostics; the pairing code stays in local Node state for the claim
 request and is not logged. Approve the enrollment through Core:
