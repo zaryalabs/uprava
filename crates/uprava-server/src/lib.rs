@@ -4013,18 +4013,11 @@ async fn accept_node_event(state: &AppState, event: EventEnvelope) -> Result<(),
         .execute(&state.pool)
         .await?;
         apply_event_projection(state, &event).await?;
-        sqlx::query(
-            "update events set projection_state = 'projected', projected_at = ?2 where event_id = ?1",
-        )
-        .bind(event.event_id.as_str())
-        .bind(event.happened_at)
-        .execute(&state.pool)
-        .await?;
+        complete_event_projection(state, &event).await?;
         state
             .core_metrics
             .accepted_events
             .fetch_add(1, Ordering::Relaxed);
-        enqueue_event_publication(state, &event).await?;
         drain_event_publication_outbox(state).await?;
         return Ok(());
     }
@@ -4091,13 +4084,7 @@ async fn accept_node_event(state: &AppState, event: EventEnvelope) -> Result<(),
     insert_event_record(state, &scope_key, &event).await?;
 
     apply_event_projection(state, &event).await?;
-    sqlx::query(
-        "update events set projection_state = 'projected', projected_at = ?2 where event_id = ?1",
-    )
-    .bind(event.event_id.as_str())
-    .bind(event.happened_at)
-    .execute(&state.pool)
-    .await?;
+    complete_event_projection(state, &event).await?;
     state
         .core_metrics
         .accepted_events
@@ -4155,6 +4142,29 @@ async fn insert_event_record(
     .bind(serde_json::to_string(&event.result_refs)?)
     .bind(serde_json::to_string(&event.payload)?)
     .bind(serde_json::to_string(event)?)
+    .bind(event.happened_at)
+    .execute(&mut *transaction)
+    .await?;
+    transaction.commit().await?;
+    Ok(())
+}
+
+/// Atomically closes the durable projection boundary for an event.
+///
+/// Individual projection helpers intentionally still use the pool and commit
+/// their own statements.  Keeping the final state transition and publication
+/// enqueue in one transaction means a projection failure leaves the event
+/// pending and never advertises a partially projected event as complete.  A
+/// subsequent ingest/replay can safely retry the pending event.
+async fn complete_event_projection(
+    state: &AppState,
+    event: &EventEnvelope,
+) -> Result<(), AppError> {
+    let mut transaction = state.pool.begin().await?;
+    sqlx::query(
+        "update events set projection_state = 'projected', projected_at = ?2 where event_id = ?1 and projection_state <> 'projected'",
+    )
+    .bind(event.event_id.as_str())
     .bind(event.happened_at)
     .execute(&mut *transaction)
     .await?;
@@ -4517,6 +4527,9 @@ async fn record_warning_acknowledgement(
     .execute(&state.pool)
     .await?;
 
+    // Locally-authored warning events have no separate projection phase, so
+    // publish only after the acknowledgement projection is durable.
+    enqueue_event_publication(state, &event).await?;
     drain_event_publication_outbox(state).await?;
     log_event_appended(&event, None);
     Ok(event)
@@ -6742,6 +6755,7 @@ async fn append_event(state: &AppState, new_event: NewEvent) -> Result<EventEnve
         payload: JsonValue(new_event.payload),
     };
     insert_event_record(state, &scope_key, &event).await?;
+    enqueue_event_publication(state, &event).await?;
     drain_event_publication_outbox(state).await?;
     Ok(event)
 }
@@ -10933,6 +10947,62 @@ mod tests {
             .count();
         assert_eq!(duplicate_count, 1);
         assert_eq!(projection_state, ("projected".to_owned(), 1));
+    }
+
+    #[tokio::test]
+    async fn projection_completion_couples_state_and_publication_enqueue() {
+        let state = test_state().await;
+        let (node_id, detail, workspace_path) = create_test_session(&state).await;
+        let event = node_event_fixture(
+            &detail,
+            node_id,
+            "projection-boundary-provider-completed",
+            1,
+            EventKind::ProviderMessageCompleted,
+            json!({ "content": "boundary" }),
+        );
+        let scope_key = scope_key(&event.scope_ref);
+        insert_event_record(&state, &scope_key, &event)
+            .await
+            .expect("event record inserts");
+
+        let pending: (String, i64) = sqlx::query_as(
+            "select projection_state, (select count(*) from event_publication_outbox where event_id = events.event_id) from events where event_id = ?1",
+        )
+        .bind(event.event_id.as_str())
+        .fetch_one(&state.pool)
+        .await
+        .expect("pending boundary loads");
+        // Node ingest must not expose an event for publication while its
+        // projection is still pending.  The completion boundary below is the
+        // first operation allowed to enqueue it.
+        assert_eq!(pending, ("pending".to_owned(), 0));
+
+        complete_event_projection(&state, &event)
+            .await
+            .expect("projection completion commits");
+        let projected: (String, i64) = sqlx::query_as(
+            "select projection_state, (select count(*) from event_publication_outbox where event_id = events.event_id) from events where event_id = ?1",
+        )
+        .bind(event.event_id.as_str())
+        .fetch_one(&state.pool)
+        .await
+        .expect("projected boundary loads");
+        assert_eq!(projected, ("projected".to_owned(), 1));
+
+        // Repeating the completion is idempotent and does not duplicate the
+        // publication row.
+        complete_event_projection(&state, &event)
+            .await
+            .expect("repeated projection completion commits");
+        let outbox_count: i64 =
+            sqlx::query_scalar("select count(*) from event_publication_outbox where event_id = ?1")
+                .bind(event.event_id.as_str())
+                .fetch_one(&state.pool)
+                .await
+                .expect("outbox count loads");
+        assert_eq!(outbox_count, 1);
+        std::fs::remove_dir_all(&workspace_path).expect("workspace dir removes");
     }
 
     #[tokio::test]
