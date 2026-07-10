@@ -4204,6 +4204,15 @@ async fn complete_event_projection(
                 .and_then(serde_json::Value::as_str)
                 .unwrap_or("Approval requested"),
         )),
+        EventKind::ApprovalResolved => Some((
+            MessageRole::Approval,
+            event
+                .payload
+                .0
+                .get("message")
+                .and_then(serde_json::Value::as_str)
+                .unwrap_or("Approval resolved"),
+        )),
         _ => None,
     };
     if let (Some((role, content)), Some(session_thread_id)) =
@@ -4355,18 +4364,9 @@ async fn apply_event_projection(state: &AppState, event: &EventEnvelope) -> Resu
             // coupled.
         }
         EventKind::ApprovalResolved => {
-            insert_event_message(
-                state,
-                event,
-                MessageRole::Approval,
-                event
-                    .payload
-                    .0
-                    .get("message")
-                    .and_then(serde_json::Value::as_str)
-                    .unwrap_or("Approval resolved"),
-            )
-            .await?;
+            // The durable message is inserted with the event completion
+            // boundary below, keeping approval resolution and publication
+            // coupled.
         }
         EventKind::WorkspaceValidated | EventKind::ResourceSnapshotUpdated => {
             update_placement_from_workspace_event(state, event).await?;
@@ -4446,28 +4446,6 @@ async fn update_placement_from_workspace_event(
     .execute(&state.pool)
     .await?;
 
-    Ok(())
-}
-
-async fn insert_event_message(
-    state: &AppState,
-    event: &EventEnvelope,
-    role: MessageRole,
-    content: &str,
-) -> Result<(), AppError> {
-    if let Some(session_thread_id) = &event.session_thread_id {
-        let message = Message {
-            message_id: MessageId::new(),
-            session_thread_id: session_thread_id.clone(),
-            turn_id: event.turn_id.clone(),
-            role,
-            content: content.to_owned(),
-            created_at: event.happened_at,
-            completed_at: Some(event.happened_at),
-            source_event_id: Some(event.event_id.clone()),
-        };
-        insert_message(state, &message).await?;
-    }
     Ok(())
 }
 
@@ -6442,30 +6420,6 @@ async fn record_command_on_connection(
     .bind(serde_json::to_string(command)?)
     .bind(command.issued_at)
     .execute(&mut *connection)
-    .await?;
-    Ok(())
-}
-
-async fn insert_message(state: &AppState, message: &Message) -> Result<(), AppError> {
-    sqlx::query(
-        r#"
-        insert into messages (
-            message_id, session_thread_id, turn_id, role, content,
-            created_at, completed_at, source_event_id
-        )
-        values (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)
-        on conflict do nothing
-        "#,
-    )
-    .bind(message.message_id.as_str())
-    .bind(message.session_thread_id.as_str())
-    .bind(message.turn_id.as_ref().map(TurnId::as_str))
-    .bind(format_message_role(message.role.clone()))
-    .bind(&message.content)
-    .bind(message.created_at)
-    .bind(message.completed_at)
-    .bind(message.source_event_id.as_ref().map(EventId::as_str))
-    .execute(&state.pool)
     .await?;
     Ok(())
 }
@@ -11387,6 +11341,62 @@ mod tests {
                 .filter(|message| {
                     message.role == MessageRole::Approval
                         && message.content == "Allow duplicate command"
+                })
+                .count(),
+            1
+        );
+    }
+
+    #[tokio::test]
+    async fn duplicate_approval_resolved_event_does_not_duplicate_resolution_message() {
+        let state = test_state().await;
+        let (node_id, detail, workspace_path) = create_test_session(&state).await;
+        accept_node_event(
+            &state,
+            node_event_fixture(
+                &detail,
+                node_id.clone(),
+                "approval-resolution-requested",
+                1,
+                EventKind::ApprovalRequested,
+                json!({
+                    "approval_id": "approval-resolution-duplicate",
+                    "prompt": "Allow resolution test"
+                }),
+            ),
+        )
+        .await
+        .expect("approval request accepts");
+        let event = node_event_fixture(
+            &detail,
+            node_id,
+            "approval-resolution-duplicate",
+            2,
+            EventKind::ApprovalResolved,
+            json!({
+                "approval_id": "approval-resolution-duplicate",
+                "approved": true,
+                "message": "approved once"
+            }),
+        );
+
+        accept_node_event(&state, event.clone())
+            .await
+            .expect("first approval resolution accepts");
+        accept_node_event(&state, event)
+            .await
+            .expect("duplicate approval resolution accepts");
+        let detail = load_session_detail(&state, &detail.session.session_thread_id)
+            .await
+            .expect("session reloads");
+        std::fs::remove_dir_all(&workspace_path).expect("workspace dir removes");
+
+        assert_eq!(
+            detail
+                .messages
+                .iter()
+                .filter(|message| {
+                    message.role == MessageRole::Approval && message.content == "approved once"
                 })
                 .count(),
             1
