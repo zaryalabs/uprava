@@ -65,6 +65,41 @@ activate: require-release ## Activate a locally available release
 	$(SUDO) ln -sfn "$(RELEASES_DIR)/$(RELEASE).env.release" .env.release
 	$(SUDO) ln -sfn "$(RELEASES_DIR)/$(RELEASE)" current
 
+rollback: require-release ## Activate a selected prior release; deploy and smoke remain explicit
+	@set -eu; \
+	release="$(RELEASE)"; \
+	case "$$release" in \
+		''|[!A-Za-z0-9]*|*[!A-Za-z0-9._-]*) \
+			echo "Unsafe RELEASE=$$release; use an alphanumeric release id with only . _ - after the first character" >&2; \
+			exit 1; \
+		;; \
+	esac; \
+	manifest="$(RELEASES_DIR)/$$release.env.release"; \
+	test -f "$$manifest" || { echo "Missing $$manifest" >&2; exit 1; }; \
+	target_release="$$(sed -n 's/^UPRAVA_RELEASE_ID=//p' "$$manifest")"; \
+	if [ "$$target_release" != "$$release" ]; then \
+		echo "Refusing rollback: $$manifest declares UPRAVA_RELEASE_ID=$$target_release, expected $$release" >&2; \
+		exit 1; \
+	fi; \
+	if [ ! -e .env.release ]; then \
+		echo "Missing active .env.release; activate a release before rollback" >&2; \
+		exit 1; \
+	fi; \
+	active_release="$$(sed -n 's/^UPRAVA_RELEASE_ID=//p' .env.release | head -n 1)"; \
+	if [ -z "$$active_release" ]; then \
+		echo "Active .env.release is missing UPRAVA_RELEASE_ID" >&2; \
+		exit 1; \
+	fi; \
+	if [ "$$active_release" = "$$release" ]; then \
+		echo "Refusing rollback: RELEASE=$$release is already active" >&2; \
+		exit 1; \
+	fi; \
+	echo "Rollback preflight passed: $$active_release -> $$release"; \
+	echo "Ensure a verified backup exists before continuing; activation changes only release symlinks."; \
+	$(MAKE) --no-print-directory -f "$(firstword $(MAKEFILE_LIST))" activate RELEASE="$$release" RELEASES_DIR="$(RELEASES_DIR)" SUDO="$(SUDO)"; \
+	echo "Rollback release activated: $$release"; \
+	echo "Required follow-up (explicit): make deploy, then make smoke; inspect make status.";
+
 pull: ## Pull Core/Web images when they come from a registry
 	$(COMPOSE_CMD) pull --ignore-pull-failures
 	$(MAKE) --no-print-directory node-artifact

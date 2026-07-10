@@ -276,6 +276,7 @@ restart
 deploy
 smoke
 backup
+rollback
 restore
 ```
 
@@ -288,8 +289,8 @@ Suggested meanings:
 - `status` - show Compose status and `systemctl status uprava-node.service`.
 - `logs` - show Compose logs and `journalctl -u uprava-node`.
 - `deploy` - run `pull`, optional migrations, `up`, `status` and `smoke`.
-- `rollback` if added later - activate previous release and run the same
-  deploy path.
+- `rollback` - проверяет и активирует выбранный предыдущий release только.
+  Deploy и smoke остаются явными последующими действиями.
 
 ## Deploy Order
 
@@ -347,13 +348,24 @@ systemd, Docker, proxy or production file operations.
 
 ## Rollback
 
-Rollback should use the same path as deploy:
+Rollback использует явный preflight target и затем проходит обычные deploy и
+smoke gates:
 
 ```bash
 cd /opt/apps/uprava
-make activate RELEASE=<previous-release-id>
+make backup                         # сначала снять/проверить state backup
+make rollback RELEASE=<previous-release-id>
 make deploy
+make smoke
+make status
 ```
+
+`make rollback` требует `RELEASE`, проверяет наличие
+`builds/releases/<release-id>.env.release`, отказывается выбирать уже
+активный release и только затем выполняет существующее переключение symlink
+через `activate`. Target намеренно не запускает Compose, systemd, pull,
+migration или smoke. Оператор должен подтвердить пригодный backup до
+activation и явно выполнить `make deploy` и `make smoke` после неё.
 
 Для breaking release 0.2.0 rollback вместе выбирает release manifest 0.1.8,
 Core config, Core state, Node config и Node JSON state. Он никогда не запускает
