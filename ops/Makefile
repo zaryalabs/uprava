@@ -149,3 +149,12 @@ restore: ## Restore Core state from BACKUP=<file>
 	@if [ -z "$(BACKUP)" ]; then echo "Set BACKUP=<file>"; exit 1; fi
 	@test -f "$(BACKUP)" || { echo "Missing backup $(BACKUP)"; exit 1; }
 	tar -xzf "$(BACKUP)"
+
+restore-verify: ## Verify a SQLite backup archive without activating it
+	@if [ -z "$(BACKUP)" ]; then echo "Set BACKUP=<file>"; exit 1; fi
+	@test -f "$(BACKUP)" || { echo "Missing backup $(BACKUP)"; exit 1; }
+	@set -eu; \
+	tmp_dir="$$(mktemp -d)"; \
+	trap 'rm -rf "$$tmp_dir"' EXIT INT TERM; \
+	tar -xzf "$(BACKUP)" -C "$$tmp_dir"; \
+	"$(CURDIR)/../scripts/verify-sqlite-backup.sh" "$$(find "$$tmp_dir" -name core.sqlite -type f -print -quit)"
