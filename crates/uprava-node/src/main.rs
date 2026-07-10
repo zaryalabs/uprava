@@ -21,7 +21,7 @@ use sqlx::{sqlite::SqliteConnectOptions, Row, SqlitePool};
 use tokio::{
     io::{AsyncBufReadExt, AsyncRead, AsyncReadExt, AsyncWriteExt, BufReader},
     process::Command as TokioCommand,
-    sync::{mpsc, RwLock},
+    sync::{mpsc, Mutex, RwLock},
     time::timeout,
 };
 use tokio_tungstenite::{
@@ -83,7 +83,9 @@ async fn main() -> anyhow::Result<()> {
 
     let config = NodeConfig::from_env()?;
     let client = reqwest::Client::new();
-    let mut local_state = NodeLocalState::load_async(&config.state_path).await?;
+    let local_state = Arc::new(Mutex::new(
+        NodeLocalState::load_async(&config.state_path).await?,
+    ));
     let mut control_task: Option<tokio::task::JoinHandle<()>> = None;
     tracing::info!(
         core_url = %config.core_url,
@@ -94,15 +96,18 @@ async fn main() -> anyhow::Result<()> {
     );
 
     loop {
-        if !local_state.is_enrolled() {
-            match ensure_enrollment(&client, &config, &mut local_state).await {
+        let mut state = local_state.lock().await;
+        if !state.is_enrolled() {
+            match ensure_enrollment(&client, &config, &mut state).await {
                 Ok(true) => {}
                 Ok(false) => {
+                    drop(state);
                     tokio::time::sleep(config.heartbeat_interval).await;
                     continue;
                 }
                 Err(error) => {
                     tracing::warn!(error = %error, "enrollment step failed");
+                    drop(state);
                     tokio::time::sleep(config.heartbeat_interval).await;
                     continue;
                 }
@@ -116,15 +121,7 @@ async fn main() -> anyhow::Result<()> {
             control_task = None;
         }
 
-        if control_task.is_some() {
-            match NodeLocalState::load_async(&config.state_path).await {
-                Ok(updated_state) if updated_state.is_enrolled() => local_state = updated_state,
-                Ok(_) => tracing::warn!("node state refresh returned unenrolled state"),
-                Err(error) => tracing::warn!(error = %error, "failed to refresh node state"),
-            }
-        }
-
-        match send_heartbeat(&client, &config, &local_state).await {
+        match send_heartbeat(&client, &config, &state).await {
             Ok(response) => {
                 tracing::info!(
                     accepted = response.accepted,
@@ -149,8 +146,8 @@ async fn main() -> anyhow::Result<()> {
                     if let Some(task) = control_task.take() {
                         task.abort();
                     }
-                    local_state.clear_core_registration();
-                    if let Err(save_error) = local_state.save_async(&config.state_path).await {
+                    state.clear_core_registration();
+                    if let Err(save_error) = state.save_async(&config.state_path).await {
                         tracing::warn!(
                             error = %save_error,
                             state_path = %config.state_path.display(),
@@ -162,6 +159,7 @@ async fn main() -> anyhow::Result<()> {
                 }
             }
         }
+        drop(state);
         tokio::time::sleep(config.heartbeat_interval).await;
     }
 }
@@ -1136,9 +1134,10 @@ fn node_diagnostics(local_state: &NodeLocalState) -> String {
     )
 }
 
-async fn control_channel_loop(config: NodeConfig, mut local_state: NodeLocalState) {
+async fn control_channel_loop(config: NodeConfig, state: Arc<Mutex<NodeLocalState>>) {
     let mut terminal_manager = WorkspaceTerminalManager::default();
     loop {
+        let mut local_state = state.lock().await;
         local_state.reconnect_attempts = local_state.reconnect_attempts.saturating_add(1);
         if let Err(error) = local_state.save_async(&config.state_path).await {
             tracing::warn!(error = %error, "failed to persist reconnect metric");
@@ -1147,6 +1146,7 @@ async fn control_channel_loop(config: NodeConfig, mut local_state: NodeLocalStat
             Ok(()) => tracing::warn!("control channel closed"),
             Err(error) => tracing::warn!(error = %error, "control channel failed"),
         }
+        drop(local_state);
         tokio::time::sleep(Duration::from_secs(2)).await;
     }
 }
