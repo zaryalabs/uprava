@@ -4176,6 +4176,38 @@ async fn complete_event_projection(
     .bind(event.happened_at)
     .execute(&mut *transaction)
     .await?;
+    if event.kind == EventKind::ProviderMessageCompleted {
+        if let Some(session_thread_id) = &event.session_thread_id {
+            let message_id = MessageId::new();
+            sqlx::query(
+                r#"
+                insert into messages (
+                    message_id, session_thread_id, turn_id, role, content,
+                    created_at, completed_at, source_event_id
+                )
+                values (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)
+                on conflict do nothing
+                "#,
+            )
+            .bind(message_id.as_str())
+            .bind(session_thread_id.as_str())
+            .bind(event.turn_id.as_ref().map(TurnId::as_str))
+            .bind(format_message_role(MessageRole::Assistant))
+            .bind(
+                event
+                    .payload
+                    .0
+                    .get("content")
+                    .and_then(serde_json::Value::as_str)
+                    .unwrap_or("Provider completed a message"),
+            )
+            .bind(event.happened_at)
+            .bind(event.happened_at)
+            .bind(event.event_id.as_str())
+            .execute(&mut *transaction)
+            .await?;
+        }
+    }
     transaction.commit().await?;
     Ok(())
 }
@@ -4295,18 +4327,9 @@ async fn apply_event_projection(state: &AppState, event: &EventEnvelope) -> Resu
             update_session_state_from_event(state, event, SessionThreadState::Active).await?;
         }
         EventKind::ProviderMessageCompleted => {
-            insert_event_message(
-                state,
-                event,
-                MessageRole::Assistant,
-                event
-                    .payload
-                    .0
-                    .get("content")
-                    .and_then(serde_json::Value::as_str)
-                    .unwrap_or("Provider completed a message"),
-            )
-            .await?;
+            // The durable message is inserted with the event completion
+            // boundary below. Keeping this branch side-effect free avoids a
+            // projected event whose publication/message write can diverge.
         }
         EventKind::ApprovalRequested => {
             if let Some(runtime_session_id) = &event.runtime_session_id {
