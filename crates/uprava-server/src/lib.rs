@@ -258,6 +258,7 @@ pub struct AppState {
     control_channels: RwLock<HashMap<String, mpsc::UnboundedSender<ControlFrame>>>,
     event_tx: broadcast::Sender<EventEnvelope>,
     event_ingest_lock: Mutex<()>,
+    event_publish_lock: Mutex<()>,
     command_result_tx: broadcast::Sender<CommandResultNotice>,
     command_waiters: RwLock<HashMap<String, oneshot::Sender<CommandResultNotice>>>,
     terminal_tx: broadcast::Sender<TerminalFrameNotice>,
@@ -316,6 +317,7 @@ impl AppState {
             control_channels: RwLock::new(HashMap::new()),
             event_tx: broadcast::channel(256).0,
             event_ingest_lock: Mutex::new(()),
+            event_publish_lock: Mutex::new(()),
             command_result_tx: broadcast::channel(256).0,
             command_waiters: RwLock::new(HashMap::new()),
             terminal_tx: broadcast::channel(1024).0,
@@ -3299,6 +3301,7 @@ async fn session_stream(
     let session_id = SessionThreadId::from(session_thread_id);
     let after_seq = stream_resume_after_seq(&query, &headers);
     let mut event_rx = state.event_tx.subscribe();
+    drain_event_publication_outbox(&state).await?;
     let events = load_events(&state, &session_id, after_seq).await?;
 
     let stream = async_stream::stream! {
@@ -3968,6 +3971,8 @@ async fn accept_node_event(state: &AppState, event: EventEnvelope) -> Result<(),
                 seq = event.seq,
                 "duplicate projected node event ignored"
             );
+            enqueue_event_publication(state, &event).await?;
+            drain_event_publication_outbox(state).await?;
             return Ok(());
         }
         sqlx::query(
@@ -3988,7 +3993,8 @@ async fn accept_node_event(state: &AppState, event: EventEnvelope) -> Result<(),
             .core_metrics
             .accepted_events
             .fetch_add(1, Ordering::Relaxed);
-        publish_event(state, &event);
+        enqueue_event_publication(state, &event).await?;
+        drain_event_publication_outbox(state).await?;
         return Ok(());
     }
     if sqlx::query_scalar::<_, i64>("select count(*) from events where event_id = ?1")
@@ -4068,7 +4074,7 @@ async fn accept_node_event(state: &AppState, event: EventEnvelope) -> Result<(),
     if let Some(expected_seq) = stream_gap {
         mark_event_stream_gap(state, &event, expected_seq).await?;
     }
-    publish_event(state, &event);
+    drain_event_publication_outbox(state).await?;
     log_event_appended(&event, stream_gap);
     Ok(())
 }
@@ -4078,6 +4084,7 @@ async fn insert_event_record(
     scope_key: &str,
     event: &EventEnvelope,
 ) -> Result<(), AppError> {
+    let mut transaction = state.pool.begin().await?;
     sqlx::query(
         r#"
         insert into events (
@@ -4118,8 +4125,17 @@ async fn insert_event_record(
     .bind(serde_json::to_string(&event.payload)?)
     .bind(serde_json::to_string(event)?)
     .bind(event.happened_at)
-    .execute(&state.pool)
+    .execute(&mut *transaction)
     .await?;
+    sqlx::query(
+        "insert into event_publication_outbox (event_id, event_json, enqueued_at) values (?1, ?2, ?3) on conflict(event_id) do nothing",
+    )
+    .bind(event.event_id.as_str())
+    .bind(serde_json::to_string(event)?)
+    .bind(event.happened_at)
+    .execute(&mut *transaction)
+    .await?;
+    transaction.commit().await?;
     Ok(())
 }
 
@@ -4470,7 +4486,7 @@ async fn record_warning_acknowledgement(
     .execute(&state.pool)
     .await?;
 
-    publish_event(state, &event);
+    drain_event_publication_outbox(state).await?;
     log_event_appended(&event, None);
     Ok(event)
 }
@@ -6667,12 +6683,52 @@ async fn append_event(state: &AppState, new_event: NewEvent) -> Result<EventEnve
         payload: JsonValue(new_event.payload),
     };
     insert_event_record(state, &scope_key, &event).await?;
-    publish_event(state, &event);
+    drain_event_publication_outbox(state).await?;
     Ok(event)
 }
 
-fn publish_event(state: &AppState, event: &EventEnvelope) {
-    let _ = state.event_tx.send(event.clone());
+async fn enqueue_event_publication(
+    state: &AppState,
+    event: &EventEnvelope,
+) -> Result<(), AppError> {
+    sqlx::query(
+        "insert into event_publication_outbox (event_id, event_json, enqueued_at) values (?1, ?2, ?3) on conflict(event_id) do nothing",
+    )
+    .bind(event.event_id.as_str())
+    .bind(serde_json::to_string(event)?)
+    .bind(event.happened_at)
+    .execute(&state.pool)
+    .await?;
+    Ok(())
+}
+
+async fn drain_event_publication_outbox(state: &AppState) -> Result<(), AppError> {
+    let _publish_guard = state.event_publish_lock.lock().await;
+    let rows: Vec<(String, String)> = sqlx::query_as(
+        "select event_id, event_json from event_publication_outbox where published_at is null order by enqueued_at, event_id",
+    )
+    .fetch_all(&state.pool)
+    .await?;
+    for (event_id, event_json) in rows {
+        let event: EventEnvelope = serde_json::from_str(&event_json)?;
+        if state.event_tx.send(event).is_err() {
+            sqlx::query(
+                "update event_publication_outbox set attempts = attempts + 1 where event_id = ?1",
+            )
+            .bind(&event_id)
+            .execute(&state.pool)
+            .await?;
+            continue;
+        }
+        sqlx::query(
+            "update event_publication_outbox set published_at = ?2 where event_id = ?1 and published_at is null",
+        )
+        .bind(&event_id)
+        .bind(Utc::now())
+        .execute(&state.pool)
+        .await?;
+    }
+    Ok(())
 }
 
 fn log_event_appended(event: &EventEnvelope, stream_gap_expected_seq: Option<i64>) {
@@ -7958,6 +8014,23 @@ const MIGRATION_5: &[&str] = &[
     "#,
 ];
 
+const MIGRATION_6: &[&str] = &[
+    r#"
+    create table if not exists event_publication_outbox (
+        event_id text primary key references events(event_id) on delete cascade,
+        event_json text not null,
+        attempts integer not null default 0,
+        enqueued_at text not null,
+        published_at text
+    )
+    "#,
+    r#"
+    create index if not exists event_publication_outbox_pending_idx
+    on event_publication_outbox(enqueued_at, event_id)
+    where published_at is null
+    "#,
+];
+
 const MIGRATIONS: &[Migration] = &[
     Migration {
         version: 1,
@@ -7983,6 +8056,11 @@ const MIGRATIONS: &[Migration] = &[
         version: 5,
         statements: MIGRATION_5,
         ignore_duplicate_columns: true,
+    },
+    Migration {
+        version: 6,
+        statements: MIGRATION_6,
+        ignore_duplicate_columns: false,
     },
 ];
 
@@ -8329,7 +8407,8 @@ mod tests {
                   'messages',
                   'commands',
                   'events',
-                  'warning_acknowledgements'
+                  'warning_acknowledgements',
+                  'event_publication_outbox'
               )
             "#,
         )
@@ -8337,14 +8416,14 @@ mod tests {
         .await
         .expect("baseline tables count loads");
 
-        assert_eq!(table_count, 14);
+        assert_eq!(table_count, 15);
 
         let applied_versions: Vec<i64> =
             sqlx::query_scalar("select version from schema_migrations order by version")
                 .fetch_all(&state.pool)
                 .await
                 .expect("migration versions load");
-        assert_eq!(applied_versions, vec![1, 2, 3, 4, 5]);
+        assert_eq!(applied_versions, vec![1, 2, 3, 4, 5, 6]);
 
         let metadata: (String, i64) =
             sqlx::query_as("select slot, schema_version from core_schema_meta")
@@ -8369,7 +8448,7 @@ mod tests {
             .fetch_one(&state.pool)
             .await
             .expect("migration count loads");
-        assert_eq!(migration_count, 5);
+        assert_eq!(migration_count, 6);
     }
 
     #[tokio::test]
@@ -8584,7 +8663,7 @@ mod tests {
             .fetch_one(&pool)
             .await
             .expect("migration count loads");
-        assert_eq!(count, 5);
+        assert_eq!(count, 6);
         drop(first);
         drop(second);
         pool.close().await;
@@ -10728,6 +10807,10 @@ mod tests {
         );
         let expected_event_id = event.event_id.clone();
         let mut event_rx = state.event_tx.subscribe();
+        drain_event_publication_outbox(&state)
+            .await
+            .expect("pre-existing outbox rows drain");
+        while event_rx.try_recv().is_ok() {}
 
         accept_node_event(&state, event)
             .await
@@ -10744,6 +10827,73 @@ mod tests {
             &detail.session.session_thread_id,
             0
         ));
+    }
+
+    #[tokio::test]
+    async fn event_publication_outbox_retries_without_duplicate_delivery() {
+        let state = test_state().await;
+        let (node_id, detail, workspace_path) = create_test_session(&state).await;
+        let mut event_rx = state.event_tx.subscribe();
+        drain_event_publication_outbox(&state)
+            .await
+            .expect("pre-existing outbox rows drain");
+        while event_rx.try_recv().is_ok() {}
+        drop(event_rx);
+        let event = node_event_fixture(
+            &detail,
+            node_id,
+            "outbox-retry-provider-completed",
+            1,
+            EventKind::ProviderMessageCompleted,
+            json!({ "content": "outbox" }),
+        );
+        let event_id = event.event_id.clone();
+
+        // With no subscribers the durable row remains pending and records the
+        // failed publication attempt.
+        accept_node_event(&state, event.clone())
+            .await
+            .expect("event accepts without subscribers");
+        let pending: (i64, Option<String>) = sqlx::query_as(
+            "select attempts, published_at from event_publication_outbox where event_id = ?1",
+        )
+        .bind(event_id.as_str())
+        .fetch_one(&state.pool)
+        .await
+        .expect("pending outbox row loads");
+        assert_eq!(pending.0, 1);
+        assert!(pending.1.is_none());
+
+        let mut event_rx = state.event_tx.subscribe();
+        drain_event_publication_outbox(&state)
+            .await
+            .expect("outbox drains after subscriber joins");
+        let published = tokio::time::timeout(std::time::Duration::from_secs(1), event_rx.recv())
+            .await
+            .expect("retry publishes")
+            .expect("event bus stays open");
+        assert_eq!(published.event_id, event_id);
+
+        let published_at: Option<String> = sqlx::query_scalar(
+            "select published_at from event_publication_outbox where event_id = ?1",
+        )
+        .bind(event_id.as_str())
+        .fetch_one(&state.pool)
+        .await
+        .expect("published outbox row loads");
+        assert!(published_at.is_some());
+
+        // A projected duplicate is idempotent: its existing published row is
+        // not re-enqueued and no second broadcast is emitted.
+        accept_node_event(&state, event)
+            .await
+            .expect("duplicate event is idempotent");
+        assert!(
+            tokio::time::timeout(std::time::Duration::from_millis(50), event_rx.recv())
+                .await
+                .is_err()
+        );
+        std::fs::remove_dir_all(&workspace_path).expect("workspace dir removes");
     }
 
     #[test]
