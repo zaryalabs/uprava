@@ -137,8 +137,13 @@ smoke: ## Run local server smoke checks
 
 backup: ## Archive Core state directory
 	@set -eu; \
-	mkdir -p backups; \
-	tar -czf "backups/uprava-core-data-$$(date -u +%Y%m%d-%H%M%S).tgz" volumes/core-data
+	backup_id="$$(date -u +%Y%m%d-%H%M%S)"; \
+	mkdir -p "backups/$$backup_id"; \
+	"$(CURDIR)/../scripts/backup-sqlite.sh" \
+		"volumes/core-data/core.sqlite" \
+		"backups/$$backup_id/core.sqlite"; \
+	tar -czf "backups/uprava-core-data-$$backup_id.tgz" -C "backups/$$backup_id" core.sqlite; \
+	rm -rf "backups/$$backup_id"
 
 restore: ## Restore Core state from BACKUP=<file>
 	@if [ -z "$(BACKUP)" ]; then echo "Set BACKUP=<file>"; exit 1; fi
