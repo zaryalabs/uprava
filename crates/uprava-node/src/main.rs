@@ -45,6 +45,7 @@ use uprava_protocol::{
 use uuid::Uuid;
 
 type ControlFrameSender = mpsc::UnboundedSender<ControlFrame>;
+type TerminalSenderRoute = Arc<RwLock<Option<ControlFrameSender>>>;
 
 const MAX_EVENT_OUTBOX_EVENTS: usize = 1024;
 const MAX_RETAINED_COMMANDS: usize = 1024;
@@ -711,12 +712,13 @@ fn node_diagnostics(local_state: &NodeLocalState) -> String {
 }
 
 async fn control_channel_loop(config: NodeConfig, mut local_state: NodeLocalState) {
+    let mut terminal_manager = WorkspaceTerminalManager::default();
     loop {
         local_state.reconnect_attempts = local_state.reconnect_attempts.saturating_add(1);
         if let Err(error) = local_state.save(&config.state_path) {
             tracing::warn!(error = %error, "failed to persist reconnect metric");
         }
-        match run_control_channel(&config, &mut local_state).await {
+        match run_control_channel(&config, &mut local_state, &mut terminal_manager).await {
             Ok(()) => tracing::warn!("control channel closed"),
             Err(error) => tracing::warn!(error = %error, "control channel failed"),
         }
@@ -727,6 +729,7 @@ async fn control_channel_loop(config: NodeConfig, mut local_state: NodeLocalStat
 async fn run_control_channel(
     config: &NodeConfig,
     local_state: &mut NodeLocalState,
+    terminal_manager: &mut WorkspaceTerminalManager,
 ) -> anyhow::Result<()> {
     let node_id = local_state
         .node_id
@@ -771,6 +774,7 @@ async fn run_control_channel(
         }
     });
     tracing::info!(node_id = %node_id, "control channel connected");
+    terminal_manager.rebind_sender(&outbound_tx).await;
     send_frame(
         &outbound_tx,
         ControlFrame::Hello {
@@ -786,7 +790,6 @@ async fn run_control_channel(
 
     replay_event_outbox(&outbound_tx, &local_state.event_outbox).await?;
 
-    let mut terminal_manager = WorkspaceTerminalManager::default();
     while let Some(message) = socket_receiver.next().await {
         let message = message.context("control channel read failed")?;
         let WsMessage::Text(text) = message else {
@@ -805,7 +808,7 @@ async fn run_control_channel(
                     &outbound_tx,
                     command,
                     local_state,
-                    &mut terminal_manager,
+                    terminal_manager,
                 )
                 .await?;
             }
@@ -857,6 +860,7 @@ async fn run_control_channel(
             _ => {}
         }
     }
+    terminal_manager.detach_sender().await;
     send_task.abort();
     Ok(())
 }
@@ -1048,6 +1052,7 @@ struct WorkspaceTerminalManager {
 struct WorkspaceTerminalHandle {
     replay: Arc<RwLock<VecDeque<WorkspaceTerminalOutputFrame>>>,
     control_tx: mpsc::UnboundedSender<WorkspaceTerminalControl>,
+    sender_route: TerminalSenderRoute,
 }
 
 enum WorkspaceTerminalControl {
@@ -1057,6 +1062,18 @@ enum WorkspaceTerminalControl {
 }
 
 impl WorkspaceTerminalManager {
+    async fn rebind_sender(&self, sender: &ControlFrameSender) {
+        for handle in self.terminals.values() {
+            *handle.sender_route.write().await = Some(sender.clone());
+        }
+    }
+
+    async fn detach_sender(&self) {
+        for handle in self.terminals.values() {
+            *handle.sender_route.write().await = None;
+        }
+    }
+
     async fn open(
         &mut self,
         config: &NodeConfig,
@@ -1085,6 +1102,7 @@ impl WorkspaceTerminalManager {
             .map_err(|error| workspace_terminal_error("workspace_terminal.spawn_failed", error))?;
         let (control_tx, control_rx) = mpsc::unbounded_channel();
         let replay = Arc::new(RwLock::new(VecDeque::new()));
+        let sender_route = Arc::new(RwLock::new(Some(sender.clone())));
         let now = Utc::now();
         let summary = WorkspaceTerminalSummary {
             placement_id: placement_id.clone(),
@@ -1108,13 +1126,14 @@ impl WorkspaceTerminalManager {
             WorkspaceTerminalHandle {
                 replay: replay.clone(),
                 control_tx,
+                sender_route: sender_route.clone(),
             },
         );
         tokio::spawn(run_workspace_terminal(
             pty,
             child,
             control_rx,
-            sender.clone(),
+            sender_route,
             terminal_id.clone(),
             replay,
         ));
@@ -1193,7 +1212,7 @@ async fn run_workspace_terminal(
     mut pty: pty_process::Pty,
     mut child: tokio::process::Child,
     mut control_rx: mpsc::UnboundedReceiver<WorkspaceTerminalControl>,
-    sender: ControlFrameSender,
+    sender_route: TerminalSenderRoute,
     terminal_id: TerminalId,
     replay: Arc<RwLock<VecDeque<WorkspaceTerminalOutputFrame>>>,
 ) {
@@ -1214,8 +1233,8 @@ async fn run_workspace_terminal(
                     }
                     WorkspaceTerminalControl::Resize { cols, rows } => {
                         if let Err(error) = pty.resize(PtySize::new(rows, cols)) {
-                            send_terminal_status(
-                                &sender,
+                            send_terminal_status_via_route(
+                                &sender_route,
                                 &terminal_id,
                                 WorkspaceTerminalState::Error,
                                 None,
@@ -1227,8 +1246,8 @@ async fn run_workspace_terminal(
                     WorkspaceTerminalControl::Close => {
                         let _ = child.start_kill();
                         let _ = child.wait().await;
-                        send_terminal_status(
-                            &sender,
+                        send_terminal_status_via_route(
+                            &sender_route,
                             &terminal_id,
                             WorkspaceTerminalState::Closed,
                             None,
@@ -1255,8 +1274,8 @@ async fn run_workspace_terminal(
                                 sent_at,
                             },
                         ).await;
-                        let _ = send_frame(
-                            &sender,
+                        let _ = send_terminal_frame(
+                            &sender_route,
                             ControlFrame::WorkspaceTerminalOutput {
                                 frame_id: Uuid::new_v4().to_string(),
                                 protocol_version: API_VERSION.to_owned(),
@@ -1274,12 +1293,45 @@ async fn run_workspace_terminal(
         }
     }
     let exit_code = child.wait().await.ok().and_then(|status| status.code());
-    send_terminal_status(
-        &sender,
+    send_terminal_status_via_route(
+        &sender_route,
         &terminal_id,
         WorkspaceTerminalState::Exited,
         exit_code,
         Some("terminal exited".to_owned()),
+    )
+    .await;
+}
+
+async fn send_terminal_frame(
+    route: &TerminalSenderRoute,
+    frame: ControlFrame,
+) -> anyhow::Result<()> {
+    let sender = route.read().await.clone();
+    let Some(sender) = sender else {
+        return Ok(());
+    };
+    send_frame(&sender, frame).await
+}
+
+async fn send_terminal_status_via_route(
+    route: &TerminalSenderRoute,
+    terminal_id: &TerminalId,
+    state: WorkspaceTerminalState,
+    exit_code: Option<i32>,
+    message: Option<String>,
+) {
+    let _ = send_terminal_frame(
+        route,
+        ControlFrame::WorkspaceTerminalStatus {
+            frame_id: Uuid::new_v4().to_string(),
+            protocol_version: API_VERSION.to_owned(),
+            sent_at: Utc::now(),
+            terminal_id: terminal_id.clone(),
+            state,
+            exit_code,
+            message,
+        },
     )
     .await;
 }
@@ -7435,5 +7487,30 @@ sleep 2
 
     fn badge_kinds(badges: &[ResourceBadge]) -> Vec<&str> {
         badges.iter().map(|badge| badge.kind.as_str()).collect()
+    }
+
+    #[tokio::test]
+    async fn terminal_manager_rebinds_routes_without_dropping_pty_handles() {
+        let (old_sender, _old_receiver) = mpsc::unbounded_channel();
+        let (new_sender, _new_receiver) = mpsc::unbounded_channel();
+        let route = Arc::new(RwLock::new(Some(old_sender)));
+        let control_tx = mpsc::unbounded_channel().0;
+        let mut manager = WorkspaceTerminalManager::default();
+        manager.terminals.insert(
+            "terminal-1".to_owned(),
+            WorkspaceTerminalHandle {
+                replay: Arc::new(RwLock::new(VecDeque::new())),
+                control_tx,
+                sender_route: route.clone(),
+            },
+        );
+
+        manager.rebind_sender(&new_sender).await;
+        assert!(route.read().await.is_some());
+        assert_eq!(manager.terminals.len(), 1);
+
+        manager.detach_sender().await;
+        assert!(route.read().await.is_none());
+        assert_eq!(manager.terminals.len(), 1);
     }
 }
