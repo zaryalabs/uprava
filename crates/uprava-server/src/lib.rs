@@ -3853,11 +3853,44 @@ async fn accept_node_event(state: &AppState, event: EventEnvelope) -> Result<(),
     // interleaving projections before the transaction-backed outbox work lands.
     let _ingest_guard = state.event_ingest_lock.lock().await;
     let mut event = event;
-    let exists: i64 = sqlx::query_scalar("select count(*) from events where event_id = ?1")
+    let existing_projection_state: Option<String> =
+        sqlx::query_scalar("select projection_state from events where event_id = ?1")
+            .bind(event.event_id.as_str())
+            .fetch_optional(&state.pool)
+            .await?;
+    if let Some(projection_state) = existing_projection_state {
+        if projection_state == "projected" {
+            tracing::debug!(
+                event_id = %event.event_id,
+                event_kind = ?&event.kind,
+                seq = event.seq,
+                "duplicate projected node event ignored"
+            );
+            return Ok(());
+        }
+        sqlx::query(
+            "update events set projection_attempts = projection_attempts + 1 where event_id = ?1",
+        )
+        .bind(event.event_id.as_str())
+        .execute(&state.pool)
+        .await?;
+        apply_event_projection(state, &event).await?;
+        sqlx::query(
+            "update events set projection_state = 'projected', projected_at = ?2 where event_id = ?1",
+        )
+        .bind(event.event_id.as_str())
+        .bind(event.happened_at)
+        .execute(&state.pool)
+        .await?;
+        publish_event(state, &event);
+        return Ok(());
+    }
+    if sqlx::query_scalar::<_, i64>("select count(*) from events where event_id = ?1")
         .bind(event.event_id.as_str())
         .fetch_one(&state.pool)
-        .await?;
-    if exists > 0 {
+        .await?
+        > 0
+    {
         tracing::debug!(
             event_id = %event.event_id,
             event_kind = ?&event.kind,
@@ -3915,6 +3948,13 @@ async fn accept_node_event(state: &AppState, event: EventEnvelope) -> Result<(),
     insert_event_record(state, &scope_key, &event).await?;
 
     apply_event_projection(state, &event).await?;
+    sqlx::query(
+        "update events set projection_state = 'projected', projected_at = ?2 where event_id = ?1",
+    )
+    .bind(event.event_id.as_str())
+    .bind(event.happened_at)
+    .execute(&state.pool)
+    .await?;
     if let Some(expected_seq) = stream_gap {
         mark_event_stream_gap(state, &event, expected_seq).await?;
     }
@@ -6170,6 +6210,7 @@ async fn insert_message(state: &AppState, message: &Message) -> Result<(), AppEr
             created_at, completed_at, source_event_id
         )
         values (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)
+        on conflict do nothing
         "#,
     )
     .bind(message.message_id.as_str())
@@ -7754,6 +7795,17 @@ const MIGRATION_4: &[&str] = &[
     "#,
 ];
 
+const MIGRATION_5: &[&str] = &[
+    "alter table events add column projection_state text not null default 'pending'",
+    "alter table events add column projection_attempts integer not null default 0",
+    "alter table events add column projected_at text",
+    r#"
+    create index if not exists events_projection_pending_idx
+    on events(projection_state, happened_at)
+    where projection_state <> 'projected'
+    "#,
+];
+
 const MIGRATIONS: &[Migration] = &[
     Migration {
         version: 1,
@@ -7774,6 +7826,11 @@ const MIGRATIONS: &[Migration] = &[
         version: 4,
         statements: MIGRATION_4,
         ignore_duplicate_columns: false,
+    },
+    Migration {
+        version: 5,
+        statements: MIGRATION_5,
+        ignore_duplicate_columns: true,
     },
 ];
 
@@ -8135,7 +8192,7 @@ mod tests {
                 .fetch_all(&state.pool)
                 .await
                 .expect("migration versions load");
-        assert_eq!(applied_versions, vec![1, 2, 3, 4]);
+        assert_eq!(applied_versions, vec![1, 2, 3, 4, 5]);
 
         let metadata: (String, i64) =
             sqlx::query_as("select slot, schema_version from core_schema_meta")
@@ -8160,7 +8217,7 @@ mod tests {
             .fetch_one(&state.pool)
             .await
             .expect("migration count loads");
-        assert_eq!(migration_count, 4);
+        assert_eq!(migration_count, 5);
     }
 
     #[tokio::test]
@@ -8375,7 +8432,7 @@ mod tests {
             .fetch_one(&pool)
             .await
             .expect("migration count loads");
-        assert_eq!(count, 4);
+        assert_eq!(count, 5);
         drop(first);
         drop(second);
         pool.close().await;
@@ -10426,13 +10483,28 @@ mod tests {
             EventKind::ProviderMessageCompleted,
             json!({ "content": "deduped" }),
         );
+        let event_id = event.event_id.clone();
 
         accept_node_event(&state, event.clone())
             .await
             .expect("first event accepts");
+        sqlx::query(
+            "update events set projection_state = 'pending', projected_at = null where event_id = ?1",
+        )
+        .bind(event_id.as_str())
+        .execute(&state.pool)
+        .await
+        .expect("projection is reset for replay");
         accept_node_event(&state, event)
             .await
-            .expect("duplicate event accepts");
+            .expect("pending duplicate replays");
+        let projection_state: (String, i64) = sqlx::query_as(
+            "select projection_state, projection_attempts from events where event_id = ?1",
+        )
+        .bind(event_id.as_str())
+        .fetch_one(&state.pool)
+        .await
+        .expect("projection state loads");
         let messages = load_messages(&state, &detail.session.session_thread_id)
             .await
             .expect("messages load");
@@ -10445,6 +10517,7 @@ mod tests {
             })
             .count();
         assert_eq!(duplicate_count, 1);
+        assert_eq!(projection_state, ("projected".to_owned(), 1));
     }
 
     #[tokio::test]
