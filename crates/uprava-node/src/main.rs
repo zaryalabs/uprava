@@ -787,8 +787,37 @@ impl NodeStateStore {
         client: &reqwest::Client,
         config: &NodeConfig,
     ) -> anyhow::Result<bool> {
+        ensure_enrollment(client, config, self).await
+    }
+
+    async fn persist_enrollment_attempt(
+        &self,
+        enrollment_id: EnrollmentId,
+        pairing_code: String,
+    ) -> anyhow::Result<()> {
         let mut state = self.state.lock().await;
-        ensure_enrollment(client, config, &mut state).await
+        state.enrollment_id = Some(enrollment_id);
+        state.pairing_code = Some(pairing_code);
+        state.save_async(&self.path).await
+    }
+
+    async fn clear_enrollment_attempt(&self) -> anyhow::Result<()> {
+        let mut state = self.state.lock().await;
+        state.clear_enrollment_attempt();
+        state.save_async(&self.path).await
+    }
+
+    async fn persist_enrollment_identity(
+        &self,
+        node_id: NodeId,
+        credential: String,
+    ) -> anyhow::Result<()> {
+        let mut state = self.state.lock().await;
+        state.node_id = Some(node_id);
+        state.credential = Some(credential);
+        state.enrollment_id = None;
+        state.pairing_code = None;
+        state.save_async(&self.path).await
     }
 
     async fn send_heartbeat(
@@ -1166,8 +1195,9 @@ fn enrollment_claim_invalidates_attempt(error: &anyhow::Error) -> bool {
 async fn ensure_enrollment(
     client: &reqwest::Client,
     config: &NodeConfig,
-    local_state: &mut NodeLocalState,
+    store: &NodeStateStore,
 ) -> anyhow::Result<bool> {
+    let mut local_state = store.snapshot().await;
     if local_state.enrollment_id.is_none() || local_state.pairing_code.is_none() {
         let response = request_enrollment(client, config).await?;
         tracing::info!(
@@ -1175,12 +1205,17 @@ async fn ensure_enrollment(
             expires_at = %response.expires_at,
             "enrollment requested; approve this enrollment in Core"
         );
+        store
+            .persist_enrollment_attempt(
+                response.enrollment_id.clone(),
+                response.pairing_code.clone(),
+            )
+            .await?;
         local_state.enrollment_id = Some(response.enrollment_id);
         local_state.pairing_code = Some(response.pairing_code);
-        local_state.save_async(&config.state_path).await?;
     }
 
-    let claim = match claim_enrollment(client, config, local_state).await {
+    let claim = match claim_enrollment(client, config, &local_state).await {
         Ok(claim) => claim,
         Err(error) if enrollment_claim_invalidates_attempt(&error) => {
             tracing::warn!(
@@ -1192,8 +1227,7 @@ async fn ensure_enrollment(
                     .unwrap_or("missing"),
                 "enrollment claim was rejected; clearing stale local enrollment"
             );
-            local_state.clear_enrollment_attempt();
-            local_state.save_async(&config.state_path).await?;
+            store.clear_enrollment_attempt().await?;
             return Ok(false);
         }
         Err(error) => return Err(error),
@@ -1204,20 +1238,17 @@ async fn ensure_enrollment(
     }
     if !claim.accepted {
         tracing::warn!(message = %claim.message, "enrollment was not accepted");
-        local_state.clear_enrollment_attempt();
-        local_state.save_async(&config.state_path).await?;
+        store.clear_enrollment_attempt().await?;
         return Ok(false);
     }
     if let (Some(node_id), Some(credential)) = (claim.node_id, claim.credential) {
-        local_state.node_id = Some(node_id);
-        local_state.credential = Some(credential);
-        local_state.enrollment_id = None;
-        local_state.pairing_code = None;
-        local_state.save_async(&config.state_path).await?;
+        store
+            .persist_enrollment_identity(node_id, credential)
+            .await?;
         tracing::info!("enrollment claimed and credential stored");
         return Ok(true);
     }
-    Ok(local_state.is_enrolled())
+    Ok(store.is_enrolled().await)
 }
 
 async fn request_enrollment(
@@ -5894,6 +5925,47 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn enrollment_owner_api_reopens_attempt_and_identity() {
+        let dir = std::env::temp_dir().join(format!("uprava-node-enrollment-{}", Uuid::new_v4()));
+        let path = dir.join(NODE_STATE_SLOT).join("node.sqlite");
+        let store = NodeStateStore::new(NodeLocalState::default(), path.clone());
+
+        store
+            .persist_enrollment_attempt(
+                EnrollmentId::from("enrollment-reopen"),
+                "pairing-reopen".to_owned(),
+            )
+            .await
+            .expect("enrollment attempt persists");
+        let reopened = NodeLocalState::load_async(&path)
+            .await
+            .expect("enrollment attempt reopens");
+        assert_eq!(
+            reopened.enrollment_id,
+            Some(EnrollmentId::from("enrollment-reopen"))
+        );
+        assert_eq!(reopened.pairing_code.as_deref(), Some("pairing-reopen"));
+
+        let reopened_store = NodeStateStore::new(reopened, path.clone());
+        reopened_store
+            .persist_enrollment_identity(
+                NodeId::from("node-reopen"),
+                "credential-reopen".to_owned(),
+            )
+            .await
+            .expect("enrollment identity persists");
+        let enrolled = NodeLocalState::load_async(&path)
+            .await
+            .expect("enrollment identity reopens");
+        assert_eq!(enrolled.node_id, Some(NodeId::from("node-reopen")));
+        assert_eq!(enrolled.credential.as_deref(), Some("credential-reopen"));
+        assert_eq!(enrolled.enrollment_id, None);
+        assert_eq!(enrolled.pairing_code, None);
+
+        std::fs::remove_dir_all(dir).expect("enrollment state fixture removes");
+    }
+
+    #[tokio::test]
     async fn sqlite_state_store_reconnect_replays_pending_work_without_duplication() {
         let dir = std::env::temp_dir().join(format!("uprava-node-reconnect-{}", Uuid::new_v4()));
         let path = dir.join(NODE_STATE_SLOT).join("node.sqlite");
@@ -6157,22 +6229,25 @@ mod tests {
             .parse()
             .expect("test core URL parses");
         config.state_path = state_path.clone();
-        let mut local_state = NodeLocalState {
+        let local_state = NodeLocalState {
             enrollment_id: Some(EnrollmentId::from("stale-enrollment")),
             pairing_code: Some("stale-pairing-code".to_owned()),
             ..NodeLocalState::default()
         };
 
-        let enrolled = ensure_enrollment(&reqwest::Client::new(), &config, &mut local_state)
+        let store = NodeStateStore::new(local_state, state_path.clone());
+        let enrolled = store
+            .ensure_enrollment(&reqwest::Client::new(), &config)
             .await
             .expect("stale enrollment clears");
         server.await.expect("test server finishes");
         let saved_state = NodeLocalState::load(&state_path).expect("state reloads");
+        let current_state = store.snapshot().await;
         std::fs::remove_file(state_path).expect("node state fixture is removed");
 
         assert!(!enrolled);
-        assert_eq!(local_state.enrollment_id, None);
-        assert_eq!(local_state.pairing_code, None);
+        assert_eq!(current_state.enrollment_id, None);
+        assert_eq!(current_state.pairing_code, None);
         assert_eq!(saved_state.enrollment_id, None);
         assert_eq!(saved_state.pairing_code, None);
     }
