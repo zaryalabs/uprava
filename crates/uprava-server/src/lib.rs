@@ -8,6 +8,10 @@ use std::{
     time::Duration,
 };
 
+use argon2::{
+    password_hash::{PasswordHash, PasswordHasher, PasswordVerifier, SaltString},
+    Argon2,
+};
 use axum::{
     body::Body,
     extract::{
@@ -28,6 +32,7 @@ use axum::{
 };
 use chrono::{DateTime, Utc};
 use futures_util::{SinkExt, Stream, StreamExt};
+use rand_core::OsRng;
 use serde::{de::DeserializeOwned, Deserialize, Serialize};
 use serde_json::json;
 use sha2::{Digest, Sha256};
@@ -683,7 +688,7 @@ async fn auth_setup(
     validate_local_password(&request.password)?;
 
     let now = Utc::now();
-    let password_hash = hash_password(&request.password);
+    let password_hash = hash_password(&request.password)?;
     sqlx::query(
         r#"
         insert into web_admin (id, password_hash, created_at, updated_at)
@@ -7020,30 +7025,21 @@ fn hash_secret(secret: &str) -> String {
     hex_prefix(&digest, digest.len())
 }
 
-fn hash_password(password: &str) -> String {
-    let salt = new_secret("pwd-salt");
-    let digest = hash_secret(&format!("{salt}:{password}"));
-    format!("pwd-sha256:{salt}:{digest}")
+fn hash_password(password: &str) -> Result<String, AppError> {
+    let salt = SaltString::generate(&mut OsRng);
+    Argon2::default()
+        .hash_password(password.as_bytes(), &salt)
+        .map(|hash| hash.to_string())
+        .map_err(|error| AppError::internal(format!("password hashing failed: {error}")))
 }
 
 fn verify_password(stored: &str, password: &str) -> bool {
-    let mut parts = stored.splitn(3, ':');
-    let Some(version) = parts.next() else {
+    let Ok(parsed) = PasswordHash::new(stored) else {
         return false;
     };
-    let Some(salt) = parts.next() else {
-        return false;
-    };
-    let Some(expected) = parts.next() else {
-        return false;
-    };
-    if version != "pwd-sha256" {
-        return false;
-    }
-    constant_time_eq(
-        expected.as_bytes(),
-        hash_secret(&format!("{salt}:{password}")).as_bytes(),
-    )
+    Argon2::default()
+        .verify_password(password.as_bytes(), &parsed)
+        .is_ok()
 }
 
 fn validate_local_password(password: &str) -> Result<(), AppError> {
@@ -7432,6 +7428,8 @@ pub enum AppError {
     Io(#[from] std::io::Error),
     #[error("background task error: {0}")]
     TaskJoin(#[from] tokio::task::JoinError),
+    #[error("internal error: {message}")]
+    Internal { code: &'static str, message: String },
     #[error("not found: {message}")]
     NotFound { code: &'static str, message: String },
     #[error("bad request: {message}")]
@@ -7458,6 +7456,13 @@ impl AppError {
     fn auth(code: &'static str, message: impl Into<String>) -> Self {
         Self::Auth {
             code,
+            message: message.into(),
+        }
+    }
+
+    fn internal(message: impl Into<String>) -> Self {
+        Self::Internal {
+            code: "internal.error",
             message: message.into(),
         }
     }
@@ -7500,6 +7505,15 @@ impl IntoResponse for AppError {
                     StatusCode::INTERNAL_SERVER_ERROR,
                     "internal.task_join",
                     "Core background task failed".to_owned(),
+                    true,
+                )
+            }
+            Self::Internal { code, message } => {
+                tracing::error!(%correlation_id, %message, "internal Core error");
+                (
+                    StatusCode::INTERNAL_SERVER_ERROR,
+                    code,
+                    "Core encountered an internal error".to_owned(),
                     true,
                 )
             }
@@ -8826,6 +8840,16 @@ mod tests {
         assert!(auth_status.auth_required);
         assert!(auth_status.setup_required);
         assert!(!auth_status.authenticated);
+    }
+
+    #[test]
+    fn password_hash_uses_argon2id_and_rejects_legacy_sha256_records() {
+        let password = "very-secure-local-password";
+        let hash = hash_password(password).expect("Argon2id hash creates");
+        assert!(hash.starts_with("$argon2id$"));
+        assert!(verify_password(&hash, password));
+        assert!(!verify_password(&hash, "wrong-password"));
+        assert!(!verify_password("pwd-sha256:salt:digest", password));
     }
 
     #[tokio::test]
