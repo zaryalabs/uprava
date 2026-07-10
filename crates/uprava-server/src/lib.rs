@@ -3806,10 +3806,12 @@ async fn record_and_dispatch_command(
 async fn dispatch_pending_commands(state: &AppState, node_id: &NodeId) -> Result<(), AppError> {
     let rows = sqlx::query(
         r#"
-        select command_id, command_json
-        from commands
-        where target_node_id = ?1 and state in ('recorded', 'pending_dispatch', 'dispatched', 'acknowledged')
-        order by created_at asc
+        select o.command_id, o.command_json
+        from command_dispatch_outbox o
+        join commands c on c.command_id = o.command_id
+        where o.target_node_id = ?1
+          and c.state in ('recorded', 'pending_dispatch', 'dispatched', 'acknowledged')
+        order by o.enqueued_at asc, o.command_id asc
         "#,
     )
     .bind(node_id.as_str())
@@ -3848,6 +3850,13 @@ async fn dispatch_pending_commands(state: &AppState, node_id: &NodeId) -> Result
             })
             .is_ok()
         {
+            sqlx::query(
+                "update command_dispatch_outbox set attempts = attempts + 1, last_attempt_at = ?1 where command_id = ?2",
+            )
+            .bind(Utc::now())
+            .bind(command_id.as_str())
+            .execute(&state.pool)
+            .await?;
             tracing::info!(
                 node_id = %node_id,
                 command_id = %command_id,
@@ -3900,12 +3909,20 @@ async fn update_command_state(
             | CommandState::Expired
     )
     .then(Utc::now);
+    let mut transaction = state.pool.begin().await?;
     sqlx::query("update commands set state = ?1, completed_at = coalesce(?2, completed_at) where command_id = ?3")
         .bind(format_command_state(command_state))
         .bind(completed_at)
         .bind(command_id.as_str())
-        .execute(&state.pool)
+        .execute(&mut *transaction)
         .await?;
+    if completed_at.is_some() {
+        sqlx::query("delete from command_dispatch_outbox where command_id = ?1")
+            .bind(command_id.as_str())
+            .execute(&mut *transaction)
+            .await?;
+    }
+    transaction.commit().await?;
     tracing::debug!(
         command_id = %command_id,
         command_state = ?command_state,
@@ -3928,6 +3945,7 @@ async fn update_command_result(
             | CommandState::Expired
     )
     .then(Utc::now);
+    let mut transaction = state.pool.begin().await?;
     sqlx::query(
         r#"
         update commands
@@ -3941,8 +3959,21 @@ async fn update_command_result(
     .bind(completed_at)
     .bind(serde_json::to_string(result_payload)?)
     .bind(command_id.as_str())
-    .execute(&state.pool)
+    .execute(&mut *transaction)
     .await?;
+    if matches!(
+        command_state,
+        CommandState::Completed
+            | CommandState::Failed
+            | CommandState::Blocked
+            | CommandState::Expired
+    ) {
+        sqlx::query("delete from command_dispatch_outbox where command_id = ?1")
+            .bind(command_id.as_str())
+            .execute(&mut *transaction)
+            .await?;
+    }
+    transaction.commit().await?;
     tracing::debug!(
         command_id = %command_id,
         command_state = ?command_state,
@@ -6358,6 +6389,20 @@ async fn record_command_on_connection(
     .bind(command.issued_at)
     .execute(&mut *connection)
     .await?;
+    sqlx::query(
+        r#"
+        insert into command_dispatch_outbox (
+            command_id, target_node_id, command_json, enqueued_at
+        ) values (?1, ?2, ?3, ?4)
+        on conflict(command_id) do nothing
+        "#,
+    )
+    .bind(command.command_id.as_str())
+    .bind(command.target_node_id.as_str())
+    .bind(serde_json::to_string(command)?)
+    .bind(command.issued_at)
+    .execute(&mut *connection)
+    .await?;
     Ok(())
 }
 
@@ -6436,6 +6481,20 @@ async fn record_turn_submission(
     .bind(serde_json::to_string(&command.cause_refs)?)
     .bind(serde_json::to_string(&command.payload)?)
     .bind(command.command_id.as_str())
+    .bind(serde_json::to_string(command)?)
+    .bind(command.issued_at)
+    .execute(&mut *transaction)
+    .await?;
+    sqlx::query(
+        r#"
+        insert into command_dispatch_outbox (
+            command_id, target_node_id, command_json, enqueued_at
+        ) values (?1, ?2, ?3, ?4)
+        on conflict(command_id) do nothing
+        "#,
+    )
+    .bind(command.command_id.as_str())
+    .bind(command.target_node_id.as_str())
     .bind(serde_json::to_string(command)?)
     .bind(command.issued_at)
     .execute(&mut *transaction)
@@ -8031,6 +8090,35 @@ const MIGRATION_6: &[&str] = &[
     "#,
 ];
 
+const MIGRATION_7: &[&str] = &[
+    r#"
+    create table if not exists command_dispatch_outbox (
+        command_id text primary key references commands(command_id) on delete cascade,
+        target_node_id text not null,
+        command_json text not null,
+        attempts integer not null default 0,
+        enqueued_at text not null,
+        last_attempt_at text
+    )
+    "#,
+    r#"
+    create index if not exists command_dispatch_outbox_pending_idx
+    on command_dispatch_outbox(target_node_id, enqueued_at, command_id)
+    "#,
+    r#"
+    insert into command_dispatch_outbox (
+        command_id, target_node_id, command_json, enqueued_at
+    )
+    select command_id, target_node_id, command_json, created_at
+    from commands
+    where state in ('recorded', 'pending_dispatch', 'dispatched', 'acknowledged')
+      and not exists (
+          select 1 from command_dispatch_outbox outbox
+          where outbox.command_id = commands.command_id
+      )
+    "#,
+];
+
 const MIGRATIONS: &[Migration] = &[
     Migration {
         version: 1,
@@ -8060,6 +8148,11 @@ const MIGRATIONS: &[Migration] = &[
     Migration {
         version: 6,
         statements: MIGRATION_6,
+        ignore_duplicate_columns: false,
+    },
+    Migration {
+        version: 7,
+        statements: MIGRATION_7,
         ignore_duplicate_columns: false,
     },
 ];
@@ -8408,7 +8501,8 @@ mod tests {
                   'commands',
                   'events',
                   'warning_acknowledgements',
-                  'event_publication_outbox'
+                  'event_publication_outbox',
+                  'command_dispatch_outbox'
               )
             "#,
         )
@@ -8416,14 +8510,14 @@ mod tests {
         .await
         .expect("baseline tables count loads");
 
-        assert_eq!(table_count, 15);
+        assert_eq!(table_count, 16);
 
         let applied_versions: Vec<i64> =
             sqlx::query_scalar("select version from schema_migrations order by version")
                 .fetch_all(&state.pool)
                 .await
                 .expect("migration versions load");
-        assert_eq!(applied_versions, vec![1, 2, 3, 4, 5, 6]);
+        assert_eq!(applied_versions, vec![1, 2, 3, 4, 5, 6, 7]);
 
         let metadata: (String, i64) =
             sqlx::query_as("select slot, schema_version from core_schema_meta")
@@ -8448,7 +8542,7 @@ mod tests {
             .fetch_one(&state.pool)
             .await
             .expect("migration count loads");
-        assert_eq!(migration_count, 6);
+        assert_eq!(migration_count, 7);
     }
 
     #[tokio::test]
@@ -8663,7 +8757,7 @@ mod tests {
             .fetch_one(&pool)
             .await
             .expect("migration count loads");
-        assert_eq!(count, 6);
+        assert_eq!(count, 7);
         drop(first);
         drop(second);
         pool.close().await;
@@ -10389,6 +10483,54 @@ mod tests {
                 if command.command_id == command_id
         ));
         assert_eq!(command_state, "dispatched");
+        let attempts: i64 = sqlx::query_scalar(
+            "select attempts from command_dispatch_outbox where command_id = ?1",
+        )
+        .bind(command_id.as_str())
+        .fetch_one(&state.pool)
+        .await
+        .expect("outbox attempts load");
+        assert_eq!(attempts, 1);
+    }
+
+    #[tokio::test]
+    async fn command_dispatch_outbox_is_idempotent_and_clears_on_terminal_result() {
+        let state = test_state().await;
+        let claim = enroll_test_node(&state).await;
+        let node_id = claim.node_id.expect("node id returned");
+        let command_id = CommandId::from("outbox-idempotent-command-1");
+        let command = command_fixture(command_id.clone(), node_id.clone());
+
+        record_command(&state, command.clone())
+            .await
+            .expect("command records");
+        let duplicate = record_command(&state, command).await;
+        assert!(duplicate.is_err(), "command id remains database-idempotent");
+        let outbox_count: i64 = sqlx::query_scalar(
+            "select count(*) from command_dispatch_outbox where command_id = ?1",
+        )
+        .bind(command_id.as_str())
+        .fetch_one(&state.pool)
+        .await
+        .expect("outbox count loads");
+        assert_eq!(outbox_count, 1);
+
+        update_command_result(
+            &state,
+            &command_id,
+            CommandState::Completed,
+            &JsonValue(json!({"ok": true})),
+        )
+        .await
+        .expect("terminal result stores");
+        let remaining: i64 = sqlx::query_scalar(
+            "select count(*) from command_dispatch_outbox where command_id = ?1",
+        )
+        .bind(command_id.as_str())
+        .fetch_one(&state.pool)
+        .await
+        .expect("outbox cleanup loads");
+        assert_eq!(remaining, 0);
     }
 
     #[tokio::test]
