@@ -198,7 +198,8 @@ scripts-check: ## Run shell syntax checks for product scripts
 	@set -e; \
 	for script in scripts/*.sh; do \
 		sh -n "$$script"; \
-	done
+	done; \
+	sh scripts/check-ci-policy.sh
 
 rust-fmt: ## Format Rust code when Cargo workspace exists
 	@if [ -f "$(RUST_MANIFEST)" ]; then \
