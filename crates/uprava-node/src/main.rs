@@ -647,6 +647,22 @@ impl NodeLocalState {
         self.enrollment_id = None;
         self.pairing_code = None;
     }
+
+    fn merge_command_state_from(&mut self, command_state: &Self) {
+        self.command_status = command_state.command_status.clone();
+        self.command_result_payloads = command_state.command_result_payloads.clone();
+        self.runtime_seqs = command_state.runtime_seqs.clone();
+        self.event_outbox = command_state.event_outbox.clone();
+        self.runtime_providers = command_state.runtime_providers.clone();
+        self.runtime_workspace_paths = command_state.runtime_workspace_paths.clone();
+        self.runtime_states = command_state.runtime_states.clone();
+        self.runtime_transcripts = command_state.runtime_transcripts.clone();
+        self.runtime_provider_resume_refs = command_state.runtime_provider_resume_refs.clone();
+        self.placement_seqs = command_state.placement_seqs.clone();
+        self.dropped_event_count = self
+            .dropped_event_count
+            .max(command_state.dropped_event_count);
+    }
 }
 
 async fn open_state_store(path: &Path) -> anyhow::Result<SqlitePool> {
@@ -1235,13 +1251,14 @@ async fn run_control_channel(
         }
         match frame {
             ControlFrame::CommandDispatch { command, .. } => {
-                let mut local_state = state.lock().await;
+                let mut local_state = state.lock().await.clone();
                 handle_command_dispatch(
                     config,
                     &outbound_tx,
                     command,
                     &mut local_state,
                     terminal_manager,
+                    Some(&state),
                 )
                 .await?;
             }
@@ -1305,6 +1322,7 @@ async fn handle_command_dispatch(
     command: CommandEnvelope,
     local_state: &mut NodeLocalState,
     terminal_manager: &mut WorkspaceTerminalManager,
+    shared_state: Option<&Arc<Mutex<NodeLocalState>>>,
 ) -> anyhow::Result<()> {
     let outcome = prepare_command_dispatch_with_live_socket(
         config,
@@ -1315,7 +1333,13 @@ async fn handle_command_dispatch(
     )
     .await;
     if outcome.state_changed {
-        local_state.save_async(&config.state_path).await?;
+        if let Some(shared_state) = shared_state {
+            let mut shared = shared_state.lock().await;
+            shared.merge_command_state_from(local_state);
+            shared.save_async(&config.state_path).await?;
+        } else {
+            local_state.save_async(&config.state_path).await?;
+        }
     }
 
     send_frame(
@@ -7999,6 +8023,27 @@ sleep 2
         manager.detach_sender().await;
         assert!(route.read().await.is_none());
         assert_eq!(manager.terminals.len(), 1);
+    }
+
+    #[test]
+    fn command_state_merge_preserves_registration_and_replaces_runtime_fields() {
+        let mut shared = NodeLocalState {
+            node_id: Some(NodeId::from("node-owner")),
+            credential: Some("credential-owner".to_owned()),
+            ..NodeLocalState::default()
+        };
+        let command_state = NodeLocalState {
+            node_id: Some(NodeId::from("stale-command-copy")),
+            credential: Some("stale-credential".to_owned()),
+            runtime_seqs: HashMap::from([("runtime-1".to_owned(), 4)]),
+            ..NodeLocalState::default()
+        };
+
+        shared.merge_command_state_from(&command_state);
+
+        assert_eq!(shared.node_id, Some(NodeId::from("node-owner")));
+        assert_eq!(shared.credential.as_deref(), Some("credential-owner"));
+        assert_eq!(shared.runtime_seqs.get("runtime-1"), Some(&4));
     }
 
     #[test]
