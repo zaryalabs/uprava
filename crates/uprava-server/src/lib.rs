@@ -33,7 +33,7 @@ use serde_json::json;
 use sha2::{Digest, Sha256};
 use sqlx::{Row, SqlitePool};
 use subtle::ConstantTimeEq;
-use tokio::sync::{broadcast, mpsc, RwLock};
+use tokio::sync::{broadcast, mpsc, Mutex, RwLock};
 use tower_http::{
     cors::{AllowOrigin, CorsLayer},
     limit::RequestBodyLimitLayer,
@@ -251,6 +251,7 @@ pub struct AppState {
     pool: SqlitePool,
     control_channels: RwLock<HashMap<String, mpsc::UnboundedSender<ControlFrame>>>,
     event_tx: broadcast::Sender<EventEnvelope>,
+    event_ingest_lock: Mutex<()>,
     command_result_tx: broadcast::Sender<CommandResultNotice>,
     terminal_tx: broadcast::Sender<TerminalFrameNotice>,
     workspace_terminals: RwLock<HashMap<String, WorkspaceTerminalSummary>>,
@@ -288,6 +289,7 @@ impl AppState {
             pool,
             control_channels: RwLock::new(HashMap::new()),
             event_tx: broadcast::channel(256).0,
+            event_ingest_lock: Mutex::new(()),
             command_result_tx: broadcast::channel(256).0,
             terminal_tx: broadcast::channel(1024).0,
             workspace_terminals: RwLock::new(HashMap::new()),
@@ -3845,6 +3847,11 @@ async fn update_command_result(
 }
 
 async fn accept_node_event(state: &AppState, event: EventEnvelope) -> Result<(), AppError> {
+    // Serialize the read/allocate/insert/projection sequence. SQLite write
+    // transactions still protect individual statements, while this lock
+    // prevents concurrent event handlers from allocating duplicate cursors or
+    // interleaving projections before the transaction-backed outbox work lands.
+    let _ingest_guard = state.event_ingest_lock.lock().await;
     let mut event = event;
     let exists: i64 = sqlx::query_scalar("select count(*) from events where event_id = ?1")
         .bind(event.event_id.as_str())
