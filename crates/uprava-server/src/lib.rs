@@ -4195,6 +4195,15 @@ async fn complete_event_projection(
                 .and_then(serde_json::Value::as_str)
                 .unwrap_or("Runtime error"),
         )),
+        EventKind::ApprovalRequested => Some((
+            MessageRole::Approval,
+            event
+                .payload
+                .0
+                .get("prompt")
+                .and_then(serde_json::Value::as_str)
+                .unwrap_or("Approval requested"),
+        )),
         _ => None,
     };
     if let (Some((role, content)), Some(session_thread_id)) =
@@ -4341,18 +4350,9 @@ async fn apply_event_projection(state: &AppState, event: &EventEnvelope) -> Resu
                     .await?;
             }
             update_session_state_from_event(state, event, SessionThreadState::Active).await?;
-            insert_event_message(
-                state,
-                event,
-                MessageRole::Approval,
-                event
-                    .payload
-                    .0
-                    .get("prompt")
-                    .and_then(serde_json::Value::as_str)
-                    .unwrap_or("Approval requested"),
-            )
-            .await?;
+            // The durable message is inserted with the event completion
+            // boundary below, keeping approval projection and publication
+            // coupled.
         }
         EventKind::ApprovalResolved => {
             insert_event_message(
@@ -11351,6 +11351,46 @@ mod tests {
         assert!(detail.messages.iter().any(|message| {
             message.role == MessageRole::Approval && message.content == "Allow test command"
         }));
+    }
+
+    #[tokio::test]
+    async fn duplicate_approval_requested_event_does_not_duplicate_approval_message() {
+        let state = test_state().await;
+        let (node_id, detail, workspace_path) = create_test_session(&state).await;
+        let event = node_event_fixture(
+            &detail,
+            node_id,
+            "approval-requested-duplicate",
+            1,
+            EventKind::ApprovalRequested,
+            json!({
+                "approval_id": "approval-duplicate",
+                "prompt": "Allow duplicate command"
+            }),
+        );
+
+        accept_node_event(&state, event.clone())
+            .await
+            .expect("first approval event accepts");
+        accept_node_event(&state, event)
+            .await
+            .expect("duplicate approval event accepts");
+        let detail = load_session_detail(&state, &detail.session.session_thread_id)
+            .await
+            .expect("session reloads");
+        std::fs::remove_dir_all(&workspace_path).expect("workspace dir removes");
+
+        assert_eq!(
+            detail
+                .messages
+                .iter()
+                .filter(|message| {
+                    message.role == MessageRole::Approval
+                        && message.content == "Allow duplicate command"
+                })
+                .count(),
+            1
+        );
     }
 
     #[tokio::test]
