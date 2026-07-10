@@ -72,6 +72,7 @@ const MAX_CODEX_TRANSCRIPT_CHARS: usize = 12_000;
 const MAX_PROVIDER_ACTIVITY_RAW_CHARS: usize = 16_000;
 const MAX_PROVIDER_ACTIVITY_SUMMARY_CHARS: usize = 1_200;
 const MAX_PROVIDER_ACTIVITY_LINE_CHARS: usize = 4_000;
+const NODE_STATE_SLOT: &str = "0.2.0";
 
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
@@ -341,6 +342,15 @@ fn new_daemon_installation_id() -> String {
 impl NodeLocalState {
     fn load(path: &Path) -> anyhow::Result<Self> {
         if !path.exists() {
+            if let Some(legacy_path) = legacy_state_path(path) {
+                if legacy_path.exists() {
+                    anyhow::bail!(
+                        "legacy Uprava Node state found at {}; state slot {} is isolated; move or remove the legacy state and re-enroll",
+                        legacy_path.display(),
+                        NODE_STATE_SLOT
+                    );
+                }
+            }
             return Ok(Self::default());
         }
         let content = std::fs::read_to_string(path)
@@ -4948,7 +4958,16 @@ fn default_state_path() -> PathBuf {
     home.join(".local")
         .join("share")
         .join("uprava-node")
+        .join(NODE_STATE_SLOT)
         .join("node.json")
+}
+
+fn legacy_state_path(path: &Path) -> Option<PathBuf> {
+    let slot_dir = path.parent()?;
+    if slot_dir.file_name()?.to_string_lossy() != NODE_STATE_SLOT {
+        return None;
+    }
+    Some(slot_dir.parent()?.join("node.json"))
 }
 
 #[cfg(test)]
