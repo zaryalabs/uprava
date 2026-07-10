@@ -2951,7 +2951,7 @@ where
         },
     )
     .await?;
-    let result = wait_for_command_result(&mut command_results, &command_id, timeout).await?;
+    let result = wait_for_command_result(state, &mut command_results, &command_id, timeout).await?;
     if result.status == CommandState::Completed {
         return serde_json::from_value::<T>(result.payload.0).map_err(AppError::from);
     }
@@ -2984,11 +2984,12 @@ fn ensure_placement_intervention_allowed(
 }
 
 async fn wait_for_command_result(
+    state: &AppState,
     command_results: &mut broadcast::Receiver<CommandResultNotice>,
     command_id: &CommandId,
     timeout_duration: Duration,
 ) -> Result<CommandResultNotice, AppError> {
-    tokio::time::timeout(timeout_duration, async {
+    match tokio::time::timeout(timeout_duration, async {
         loop {
             match command_results.recv().await {
                 Ok(result) if result.command_id == *command_id => return Ok(result),
@@ -3004,12 +3005,51 @@ async fn wait_for_command_result(
         }
     })
     .await
-    .map_err(|_| {
-        AppError::bad_request(
-            "workspace.command_timeout",
-            "Timed out waiting for the node workspace inspector",
-        )
-    })?
+    {
+        Ok(result) => result,
+        Err(_) => {
+            if let Some(result) = load_durable_command_result(state, command_id).await? {
+                return Ok(result);
+            }
+            Err(AppError::bad_request(
+                "workspace.command_timeout",
+                "Timed out waiting for the node workspace inspector",
+            ))
+        }
+    }
+}
+
+async fn load_durable_command_result(
+    state: &AppState,
+    command_id: &CommandId,
+) -> Result<Option<CommandResultNotice>, AppError> {
+    let row: Option<(String, Option<String>)> =
+        sqlx::query_as("select state, result_payload_json from commands where command_id = ?1")
+            .bind(command_id.as_str())
+            .fetch_optional(&state.pool)
+            .await?;
+    let Some((state_value, payload)) = row else {
+        return Ok(None);
+    };
+    let status = parse_command_state(&state_value);
+    if !matches!(
+        status,
+        CommandState::Completed
+            | CommandState::Failed
+            | CommandState::Blocked
+            | CommandState::Expired
+    ) {
+        return Ok(None);
+    }
+    let payload = payload
+        .map(|value| serde_json::from_str(&value))
+        .transpose()?
+        .unwrap_or_else(|| JsonValue(json!({})));
+    Ok(Some(CommandResultNotice {
+        command_id: command_id.clone(),
+        status,
+        payload,
+    }))
 }
 
 fn workspace_command_failed(result: CommandResultNotice) -> AppError {
