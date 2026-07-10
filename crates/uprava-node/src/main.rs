@@ -1142,28 +1142,35 @@ async fn control_channel_loop(config: NodeConfig, state: Arc<Mutex<NodeLocalStat
         if let Err(error) = local_state.save_async(&config.state_path).await {
             tracing::warn!(error = %error, "failed to persist reconnect metric");
         }
-        match run_control_channel(&config, &mut local_state, &mut terminal_manager).await {
+        drop(local_state);
+        match run_control_channel(&config, state.clone(), &mut terminal_manager).await {
             Ok(()) => tracing::warn!("control channel closed"),
             Err(error) => tracing::warn!(error = %error, "control channel failed"),
         }
-        drop(local_state);
         tokio::time::sleep(Duration::from_secs(2)).await;
     }
 }
 
 async fn run_control_channel(
     config: &NodeConfig,
-    local_state: &mut NodeLocalState,
+    state: Arc<Mutex<NodeLocalState>>,
     terminal_manager: &mut WorkspaceTerminalManager,
 ) -> anyhow::Result<()> {
-    let node_id = local_state
-        .node_id
-        .clone()
-        .context("node id is missing for control channel")?;
-    let credential = local_state
-        .credential
-        .as_deref()
-        .context("credential is missing for control channel")?;
+    let (node_id, credential, active_runtime_ids, event_outbox) = {
+        let local_state = state.lock().await;
+        (
+            local_state
+                .node_id
+                .clone()
+                .context("node id is missing for control channel")?,
+            local_state
+                .credential
+                .clone()
+                .context("credential is missing for control channel")?,
+            active_runtime_ids(&local_state),
+            local_state.event_outbox.clone(),
+        )
+    };
     let url = control_url(&config.core_url)?;
     let mut request = url
         .as_str()
@@ -1208,12 +1215,12 @@ async fn run_control_channel(
             sent_at: Utc::now(),
             node_id: node_id.clone(),
             daemon_version: env!("CARGO_PKG_VERSION").to_owned(),
-            active_runtime_ids: active_runtime_ids(local_state),
+            active_runtime_ids,
         },
     )
     .await?;
 
-    replay_event_outbox(&outbound_tx, &local_state.event_outbox).await?;
+    replay_event_outbox(&outbound_tx, &event_outbox).await?;
 
     while let Some(message) = socket_receiver.next().await {
         let message = message.context("control channel read failed")?;
@@ -1228,11 +1235,12 @@ async fn run_control_channel(
         }
         match frame {
             ControlFrame::CommandDispatch { command, .. } => {
+                let mut local_state = state.lock().await;
                 handle_command_dispatch(
                     config,
                     &outbound_tx,
                     command,
-                    local_state,
+                    &mut local_state,
                     terminal_manager,
                 )
                 .await?;
@@ -1251,6 +1259,7 @@ async fn run_control_channel(
             ControlFrame::EventBatchAck {
                 accepted_event_ids, ..
             } => {
+                let mut local_state = state.lock().await;
                 let removed =
                     remove_acked_events(&mut local_state.event_outbox, &accepted_event_ids);
                 if removed > 0 {
