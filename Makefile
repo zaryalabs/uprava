@@ -199,6 +199,7 @@ scripts-check: ## Run shell syntax checks for product scripts
 	for script in scripts/*.sh; do \
 		sh -n "$$script"; \
 	done; \
+	sh scripts/check-container-runtime-users.sh; \
 	sh scripts/check-ci-policy.sh; \
 	sh scripts/check-ops-rollback.sh
 

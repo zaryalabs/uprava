@@ -123,6 +123,18 @@ https://uprava.zrya.io/api/v1 -> Core API
 The Web build should use a same-origin API base such as `/api/v1` in
 production. Local development may keep `http://127.0.0.1:8080/api/v1`.
 
+### Идентичность контейнеров
+
+Release images не запускают application processes от root. Core и image с
+Node artifact используют выделенного пользователя `uprava` (UID/GID `10001`),
+а Web — пользователя `node` из базового image. Images заранее создают и
+назначают владельца runtime directories, затем переключаются на non-root
+пользователя. Core хранит SQLite и logs в `/data`; Node image по умолчанию
+использует `/var/lib/uprava-node/0.2.0` для state и `/workspaces` для workspace
+access. Production Compose или host mounts должны сохранять write access для
+соответствующего non-root identity; нельзя исправлять permission failures,
+переопределяя `USER` на root.
+
 ### Systemd Unit
 
 `uprava-node.service` should manage only the host Node Daemon. It should:

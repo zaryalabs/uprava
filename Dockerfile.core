@@ -6,6 +6,17 @@ COPY . .
 RUN cargo build --release --bin uprava-server --bin uprava-node
 
 FROM debian:bookworm-slim
+RUN groupadd --system --gid 10001 uprava \
+    && useradd --system --uid 10001 --gid uprava --home-dir /var/lib/uprava \
+        --create-home --shell /usr/sbin/nologin uprava \
+    && install -d -o uprava -g uprava /data /var/lib/uprava/.local/share \
+        /var/lib/uprava/.local/state /var/lib/uprava/.local/logs
 COPY --from=builder /app/target/release/uprava-server /usr/local/bin/uprava-server
+ENV HOME=/var/lib/uprava \
+    XDG_DATA_HOME=/var/lib/uprava/.local/share \
+    UPRAVA_DATABASE_URL=sqlite:///data/core.sqlite \
+    UPRAVA_CORE_LOG_FILE=/data/core.log \
+    UPRAVA_CLIENT_LOG_FILE=/data/client.log
+USER uprava
 EXPOSE 8080
 CMD ["uprava-server"]

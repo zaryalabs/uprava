@@ -126,6 +126,17 @@ https://uprava.zrya.io/api/v1 -> Core API
 The Web build should use a same-origin API base such as `/api/v1` in
 production. Local development may keep `http://127.0.0.1:8080/api/v1`.
 
+### Container Runtime Identity
+
+Release images do not run application processes as root. Core and the Node
+artifact image use the dedicated `uprava` user (UID/GID `10001`); Web uses the
+base image's `node` user. The images create and own their runtime directories
+before switching users. Core persists SQLite and logs under `/data`, while the
+Node image defaults to `/var/lib/uprava-node/0.2.0` for state and `/workspaces`
+for workspace access. Production Compose or host mounts must preserve write
+access for the corresponding non-root identity; do not solve permission
+failures by overriding `USER` to root.
+
 ### Systemd Unit
 
 `uprava-node.service` should manage only the host Node Daemon. It should:
