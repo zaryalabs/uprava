@@ -136,6 +136,12 @@ async fn main() -> anyhow::Result<()> {
                 }
             }
             Err(error) => {
+                if let Err(metric_error) = state_store.persist_heartbeat_failure().await {
+                    tracing::warn!(
+                        error = %metric_error,
+                        "failed to persist heartbeat failure metric"
+                    );
+                }
                 if heartbeat_auth_rejected(&error) {
                     tracing::warn!(
                         error = %error,
@@ -262,6 +268,8 @@ struct NodeLocalState {
     reconnect_attempts: u64,
     #[serde(default)]
     dropped_event_count: u64,
+    #[serde(default)]
+    heartbeat_failures: u64,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
@@ -300,6 +308,7 @@ impl Default for NodeLocalState {
             placement_seqs: HashMap::new(),
             reconnect_attempts: 0,
             dropped_event_count: 0,
+            heartbeat_failures: 0,
         }
     }
 }
@@ -345,6 +354,7 @@ impl std::fmt::Debug for NodeLocalState {
             .field("placement_seqs", &self.placement_seqs)
             .field("reconnect_attempts", &self.reconnect_attempts)
             .field("dropped_event_count", &self.dropped_event_count)
+            .field("heartbeat_failures", &self.heartbeat_failures)
             .finish()
     }
 }
@@ -740,6 +750,9 @@ impl NodeLocalState {
         self.dropped_event_count = self
             .dropped_event_count
             .max(command_state.dropped_event_count);
+        self.heartbeat_failures = self
+            .heartbeat_failures
+            .max(command_state.heartbeat_failures);
     }
 }
 
@@ -796,6 +809,12 @@ impl NodeStateStore {
     async fn persist_reconnect_attempt(&self) -> anyhow::Result<()> {
         let mut state = self.state.lock().await;
         state.reconnect_attempts = state.reconnect_attempts.saturating_add(1);
+        state.save_async(&self.path).await
+    }
+
+    async fn persist_heartbeat_failure(&self) -> anyhow::Result<()> {
+        let mut state = self.state.lock().await;
+        state.heartbeat_failures = state.heartbeat_failures.saturating_add(1);
         state.save_async(&self.path).await
     }
 
@@ -1295,12 +1314,13 @@ async fn send_heartbeat(
 
 fn node_diagnostics(local_state: &NodeLocalState) -> String {
     format!(
-        "daemon_installation_id={}; outbox_events={}; cached_commands={}; reconnect_attempts={}; dropped_events={}",
+        "daemon_installation_id={}; outbox_events={}; cached_commands={}; reconnect_attempts={}; dropped_events={}; heartbeat_failures={}",
         local_state.daemon_installation_id,
         local_state.event_outbox.len(),
         local_state.command_status.len(),
         local_state.reconnect_attempts,
         local_state.dropped_event_count,
+        local_state.heartbeat_failures,
     )
 }
 
@@ -5906,8 +5926,33 @@ mod tests {
 
         assert_eq!(
             diagnostics,
-            "daemon_installation_id=daemon-test; outbox_events=0; cached_commands=1; reconnect_attempts=0; dropped_events=0"
+            "daemon_installation_id=daemon-test; outbox_events=0; cached_commands=1; reconnect_attempts=0; dropped_events=0; heartbeat_failures=0"
         );
+    }
+
+    #[tokio::test]
+    async fn state_store_persists_heartbeat_failures_and_merges_concurrently() {
+        let path = std::env::temp_dir().join(format!(
+            "uprava-node-heartbeat-metric-{}.sqlite",
+            Uuid::new_v4()
+        ));
+        let state = NodeLocalState::default();
+        state.save_async(&path).await.expect("state persists");
+        let store = NodeStateStore::new(state, path.clone());
+
+        let (first, second) = tokio::join!(
+            store.persist_heartbeat_failure(),
+            store.persist_heartbeat_failure()
+        );
+        first.expect("first heartbeat failure persists");
+        second.expect("second heartbeat failure persists");
+
+        assert_eq!(store.snapshot().await.heartbeat_failures, 2);
+        let reopened = NodeLocalState::load_async(&path)
+            .await
+            .expect("heartbeat metric reloads");
+        assert_eq!(reopened.heartbeat_failures, 2);
+        let _ = std::fs::remove_file(path);
     }
 
     #[test]
