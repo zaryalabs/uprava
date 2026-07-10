@@ -33,7 +33,7 @@ use serde_json::json;
 use sha2::{Digest, Sha256};
 use sqlx::{Row, SqlitePool};
 use subtle::ConstantTimeEq;
-use tokio::sync::{broadcast, mpsc, Mutex, RwLock};
+use tokio::sync::{broadcast, mpsc, oneshot, Mutex, RwLock};
 use tower_http::{
     cors::{AllowOrigin, CorsLayer},
     limit::RequestBodyLimitLayer,
@@ -253,6 +253,7 @@ pub struct AppState {
     event_tx: broadcast::Sender<EventEnvelope>,
     event_ingest_lock: Mutex<()>,
     command_result_tx: broadcast::Sender<CommandResultNotice>,
+    command_waiters: RwLock<HashMap<String, oneshot::Sender<CommandResultNotice>>>,
     terminal_tx: broadcast::Sender<TerminalFrameNotice>,
     workspace_terminals: RwLock<HashMap<String, WorkspaceTerminalSummary>>,
     auth_failures: RwLock<HashMap<String, Vec<DateTime<Utc>>>>,
@@ -291,6 +292,7 @@ impl AppState {
             event_tx: broadcast::channel(256).0,
             event_ingest_lock: Mutex::new(()),
             command_result_tx: broadcast::channel(256).0,
+            command_waiters: RwLock::new(HashMap::new()),
             terminal_tx: broadcast::channel(1024).0,
             workspace_terminals: RwLock::new(HashMap::new()),
             auth_failures: RwLock::new(HashMap::new()),
@@ -1764,11 +1766,20 @@ async fn handle_node_control_frame(
                 "node command result received"
             );
             update_command_result(state, &command_id, status, &payload).await?;
-            let _ = state.command_result_tx.send(CommandResultNotice {
+            let notice = CommandResultNotice {
                 command_id,
                 status,
                 payload,
-            });
+            };
+            let _ = state.command_result_tx.send(notice.clone());
+            if let Some(waiter) = state
+                .command_waiters
+                .write()
+                .await
+                .remove(notice.command_id.as_str())
+            {
+                let _ = waiter.send(notice);
+            }
             Ok(())
         }
         ControlFrame::EventBatch { events, .. } => {
@@ -2924,7 +2935,12 @@ where
     ensure_placement_inspectable(placement)?;
     ensure_node_commandable(state, &placement.node_id).await?;
     let command_id = CommandId::new();
-    let mut command_results = state.command_result_tx.subscribe();
+    let (result_sender, result_receiver) = oneshot::channel();
+    state
+        .command_waiters
+        .write()
+        .await
+        .insert(command_id.to_string(), result_sender);
     let mut payload = match payload {
         serde_json::Value::Object(payload) => payload,
         _ => serde_json::Map::new(),
@@ -2933,7 +2949,7 @@ where
         "workspace_path".to_owned(),
         serde_json::Value::String(placement.workspace_path.clone()),
     );
-    record_and_dispatch_command(
+    if let Err(error) = record_and_dispatch_command(
         state,
         CommandEnvelope {
             command_id: command_id.clone(),
@@ -2950,8 +2966,16 @@ where
             payload: JsonValue(serde_json::Value::Object(payload)),
         },
     )
-    .await?;
-    let result = wait_for_command_result(state, &mut command_results, &command_id, timeout).await?;
+    .await
+    {
+        state
+            .command_waiters
+            .write()
+            .await
+            .remove(command_id.as_str());
+        return Err(error);
+    }
+    let result = wait_for_command_result(state, result_receiver, &command_id, timeout).await?;
     if result.status == CommandState::Completed {
         return serde_json::from_value::<T>(result.payload.0).map_err(AppError::from);
     }
@@ -2985,29 +3009,27 @@ fn ensure_placement_intervention_allowed(
 
 async fn wait_for_command_result(
     state: &AppState,
-    command_results: &mut broadcast::Receiver<CommandResultNotice>,
+    result_receiver: oneshot::Receiver<CommandResultNotice>,
     command_id: &CommandId,
     timeout_duration: Duration,
 ) -> Result<CommandResultNotice, AppError> {
-    match tokio::time::timeout(timeout_duration, async {
-        loop {
-            match command_results.recv().await {
-                Ok(result) if result.command_id == *command_id => return Ok(result),
-                Ok(_) => {}
-                Err(broadcast::error::RecvError::Lagged(_)) => {}
-                Err(broadcast::error::RecvError::Closed) => {
-                    return Err(AppError::bad_request(
-                        "workspace.command_result_unavailable",
-                        "Workspace command result channel closed",
-                    ));
-                }
+    match tokio::time::timeout(timeout_duration, result_receiver).await {
+        Ok(Ok(result)) => Ok(result),
+        Ok(Err(_)) => {
+            if let Some(result) = load_durable_command_result(state, command_id).await? {
+                return Ok(result);
             }
+            Err(AppError::bad_request(
+                "workspace.command_result_unavailable",
+                "Workspace command result channel closed",
+            ))
         }
-    })
-    .await
-    {
-        Ok(result) => result,
         Err(_) => {
+            state
+                .command_waiters
+                .write()
+                .await
+                .remove(command_id.as_str());
             if let Some(result) = load_durable_command_result(state, command_id).await? {
                 return Ok(result);
             }
