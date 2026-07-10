@@ -5,7 +5,7 @@ use std::{
     time::Duration,
 };
 
-use sqlx::sqlite::{SqliteConnectOptions, SqliteJournalMode, SqlitePoolOptions};
+use sqlx::sqlite::{SqliteConnectOptions, SqlitePoolOptions};
 use uprava_logging::init_tracing;
 use uprava_server::{build_router, shutdown_signal, AppConfig, AppState};
 
@@ -25,7 +25,6 @@ async fn main() -> anyhow::Result<()> {
     let options = config
         .database_url
         .parse::<SqliteConnectOptions>()?
-        .journal_mode(SqliteJournalMode::Wal)
         .create_if_missing(true);
     let pool = SqlitePoolOptions::new()
         .max_connections(5)

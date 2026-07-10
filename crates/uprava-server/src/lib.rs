@@ -69,6 +69,7 @@ use uuid::Uuid;
 const API_VERSION: &str = "v1";
 const APP_VERSION: &str = env!("CARGO_PKG_VERSION");
 const SCHEMA_VERSION: i64 = 1;
+const CORE_STATE_SLOT: &str = "0.2.0";
 const CORRELATION_ID_HEADER: &str = "x-correlation-id";
 const REQUEST_ID_HEADER: &str = "x-request-id";
 const CSRF_HEADER: &str = "x-uprava-csrf";
@@ -114,7 +115,7 @@ impl AppConfig {
             bind_address: std::env::var("UPRAVA_CORE_BIND")
                 .unwrap_or_else(|_| "127.0.0.1:8080".to_owned()),
             database_url: std::env::var("UPRAVA_DATABASE_URL")
-                .unwrap_or_else(|_| "sqlite://.local/state/core.sqlite".to_owned()),
+                .unwrap_or_else(|_| "sqlite://.local/state/0.2.0/core/core.sqlite".to_owned()),
             profile,
             allowed_origins: parse_allowed_origins(std::env::var("UPRAVA_ALLOWED_ORIGINS").ok())?,
             stale_after_seconds: parse_env_i64("UPRAVA_HEARTBEAT_STALE_SECONDS", 15)?,
@@ -293,12 +294,21 @@ impl AppState {
     }
 
     async fn migrate(&self) -> Result<(), AppError> {
+        self.ensure_compatible_state().await?;
         sqlx::query("pragma foreign_keys = on")
             .execute(&self.pool)
             .await?;
         sqlx::query("pragma busy_timeout = 5000")
             .execute(&self.pool)
             .await?;
+        let journal_mode: String = sqlx::query_scalar("pragma journal_mode")
+            .fetch_one(&self.pool)
+            .await?;
+        if !journal_mode.eq_ignore_ascii_case("wal") {
+            sqlx::query("pragma journal_mode = wal")
+                .execute(&self.pool)
+                .await?;
+        }
         sqlx::query(
             "create table if not exists schema_migrations (version integer primary key, checksum text not null, applied_at text not null)",
         )
@@ -354,6 +364,82 @@ impl AppState {
                 Err(error) => {
                     let _ = sqlx::query("rollback").execute(&mut *connection).await;
                     return Err(error.into());
+                }
+            }
+        }
+        Ok(())
+    }
+
+    async fn ensure_compatible_state(&self) -> Result<(), AppError> {
+        let metadata_table_exists: i64 = sqlx::query_scalar(
+            "select count(*) from sqlite_master where type = 'table' and name = 'core_schema_meta'",
+        )
+        .fetch_one(&self.pool)
+        .await?;
+        if metadata_table_exists > 0 {
+            let metadata_count: i64 = sqlx::query_scalar("select count(*) from core_schema_meta")
+                .fetch_one(&self.pool)
+                .await?;
+            if metadata_count != 1 {
+                return Err(incompatible_state_error(format!(
+                    "expected exactly one Core schema metadata row, found {metadata_count}"
+                )));
+            }
+            let metadata: Option<(String, i64)> =
+                sqlx::query_as("select slot, schema_version from core_schema_meta")
+                    .fetch_optional(&self.pool)
+                    .await?;
+            let Some((slot, schema_version)) = metadata else {
+                return Err(incompatible_state_error("core schema metadata is empty"));
+            };
+            if slot != CORE_STATE_SLOT || schema_version != SCHEMA_VERSION {
+                return Err(incompatible_state_error(format!(
+                    "expected slot {CORE_STATE_SLOT} schema {SCHEMA_VERSION}, found slot {slot} schema {schema_version}"
+                )));
+            }
+            return Ok(());
+        }
+
+        let unexpected_table_count: i64 = sqlx::query_scalar(
+            "select count(*) from sqlite_master where type = 'table' and name not like 'sqlite_%' and name not in ('schema_migrations', 'core_schema_meta')",
+        )
+        .fetch_one(&self.pool)
+        .await?;
+        let numbered_migration_table_exists: i64 = sqlx::query_scalar(
+            "select count(*) from sqlite_master where type = 'table' and name = 'schema_migrations'",
+        )
+        .fetch_one(&self.pool)
+        .await?;
+        let applied_migration_count: i64 = if numbered_migration_table_exists == 0 {
+            0
+        } else {
+            sqlx::query_scalar("select count(*) from schema_migrations")
+                .fetch_one(&self.pool)
+                .await?
+        };
+        if unexpected_table_count > 0 && applied_migration_count == 0 {
+            return Err(incompatible_state_error(
+                "unversioned or retained 0.1.x Core state was not modified",
+            ));
+        }
+        if applied_migration_count > 0 {
+            let applied: Vec<(i64, String)> =
+                sqlx::query_as("select version, checksum from schema_migrations")
+                    .fetch_all(&self.pool)
+                    .await?;
+            for (version, checksum) in applied {
+                let Some(migration) = MIGRATIONS
+                    .iter()
+                    .find(|migration| migration.version == version)
+                else {
+                    return Err(incompatible_state_error(format!(
+                        "unknown numbered migration {version}"
+                    )));
+                };
+                if migration.checksum() != checksum {
+                    return Err(incompatible_state_error(format!(
+                        "numbered migration {version} checksum mismatch"
+                    )));
                 }
             }
         }
@@ -7060,6 +7146,13 @@ fn format_message_role(value: MessageRole) -> &'static str {
     }
 }
 
+fn incompatible_state_error(message: impl Into<String>) -> AppError {
+    AppError::Database(sqlx::Error::Protocol(format!(
+        "incompatible Core state: {}",
+        message.into()
+    )))
+}
+
 #[derive(Debug, thiserror::Error)]
 pub enum AppError {
     #[error("database error: {0}")]
@@ -7463,6 +7556,21 @@ const MIGRATION_2: &[&str] = &[
     "#,
 ];
 
+const MIGRATION_3: &[&str] = &[
+    r#"
+    create table if not exists core_schema_meta (
+        slot text primary key,
+        schema_version integer not null,
+        created_at text not null,
+        updated_at text not null
+    )
+    "#,
+    r#"
+    insert into core_schema_meta (slot, schema_version, created_at, updated_at)
+    values ('0.2.0', 1, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
+    "#,
+];
+
 const MIGRATIONS: &[Migration] = &[
     Migration {
         version: 1,
@@ -7473,6 +7581,11 @@ const MIGRATIONS: &[Migration] = &[
         version: 2,
         statements: MIGRATION_2,
         ignore_duplicate_columns: true,
+    },
+    Migration {
+        version: 3,
+        statements: MIGRATION_3,
+        ignore_duplicate_columns: false,
     },
 ];
 
@@ -7648,7 +7761,10 @@ mod tests {
         let config = AppConfig::from_env().expect("default core config parses");
 
         assert_eq!(config.bind_address, "127.0.0.1:8080");
-        assert_eq!(config.database_url, "sqlite://.local/state/core.sqlite");
+        assert_eq!(
+            config.database_url,
+            "sqlite://.local/state/0.2.0/core/core.sqlite"
+        );
         assert_eq!(config.profile, DeploymentProfile::ControlledDev);
         assert_eq!(
             config
@@ -7831,7 +7947,14 @@ mod tests {
                 .fetch_all(&state.pool)
                 .await
                 .expect("migration versions load");
-        assert_eq!(applied_versions, vec![1, 2]);
+        assert_eq!(applied_versions, vec![1, 2, 3]);
+
+        let metadata: (String, i64) =
+            sqlx::query_as("select slot, schema_version from core_schema_meta")
+                .fetch_one(&state.pool)
+                .await
+                .expect("core schema metadata loads");
+        assert_eq!(metadata, (CORE_STATE_SLOT.to_owned(), SCHEMA_VERSION));
     }
 
     #[tokio::test]
@@ -7849,7 +7972,7 @@ mod tests {
             .fetch_one(&state.pool)
             .await
             .expect("migration count loads");
-        assert_eq!(migration_count, 2);
+        assert_eq!(migration_count, 3);
     }
 
     #[tokio::test]
@@ -7865,6 +7988,89 @@ mod tests {
             .await
             .expect_err("tampered migration must be rejected");
         assert!(error.to_string().contains("checksum mismatch"));
+    }
+
+    #[tokio::test]
+    async fn migration_rejects_mismatched_state_slot_before_schema_writes() {
+        let pool = memory_pool().await;
+        sqlx::query(
+            "create table core_schema_meta (slot text primary key, schema_version integer not null, created_at text not null, updated_at text not null)",
+        )
+        .execute(&pool)
+        .await
+        .expect("schema metadata table creates");
+        sqlx::query(
+            "insert into core_schema_meta (slot, schema_version, created_at, updated_at) values ('0.1.8', 1, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)",
+        )
+        .execute(&pool)
+        .await
+        .expect("legacy metadata inserts");
+
+        let error = match AppState::new(test_config(86_400), pool.clone()).await {
+            Ok(_) => panic!("mismatched state slot must be rejected"),
+            Err(error) => error,
+        };
+        assert!(error.to_string().contains("expected slot 0.2.0"));
+        let migration_table_count: i64 = sqlx::query_scalar(
+            "select count(*) from sqlite_master where type = 'table' and name = 'schema_migrations'",
+        )
+        .fetch_one(&pool)
+        .await
+        .expect("migration table count loads");
+        assert_eq!(migration_table_count, 0);
+    }
+
+    #[tokio::test]
+    async fn migration_rejects_partial_unversioned_schema_before_writes() {
+        let pool = memory_pool().await;
+        sqlx::query("create table legacy_partial_state (value text)")
+            .execute(&pool)
+            .await
+            .expect("partial legacy table creates");
+
+        let error = match AppState::new(test_config(86_400), pool.clone()).await {
+            Ok(_) => panic!("partial unversioned state must be rejected"),
+            Err(error) => error,
+        };
+        assert!(error.to_string().contains("retained 0.1.x Core state"));
+        let migration_table_count: i64 = sqlx::query_scalar(
+            "select count(*) from sqlite_master where type = 'table' and name = 'schema_migrations'",
+        )
+        .fetch_one(&pool)
+        .await
+        .expect("migration table count loads");
+        assert_eq!(migration_table_count, 0);
+    }
+
+    #[tokio::test]
+    async fn migration_rejects_multiple_core_schema_metadata_rows() {
+        let pool = memory_pool().await;
+        sqlx::query(
+            "create table core_schema_meta (slot text primary key, schema_version integer not null, created_at text not null, updated_at text not null)",
+        )
+        .execute(&pool)
+        .await
+        .expect("schema metadata table creates");
+        sqlx::query(
+            "insert into core_schema_meta (slot, schema_version, created_at, updated_at) values ('0.2.0', 1, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)",
+        )
+        .execute(&pool)
+        .await
+        .expect("first metadata row inserts");
+        sqlx::query(
+            "insert into core_schema_meta (slot, schema_version, created_at, updated_at) values ('0.2.0-duplicate', 1, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)",
+        )
+        .execute(&pool)
+        .await
+        .expect("second metadata row inserts");
+
+        let error = match AppState::new(test_config(86_400), pool).await {
+            Ok(_) => panic!("multiple metadata rows must be rejected"),
+            Err(error) => error,
+        };
+        assert!(error
+            .to_string()
+            .contains("exactly one Core schema metadata"));
     }
 
     #[tokio::test]
@@ -7893,7 +8099,7 @@ mod tests {
             .fetch_one(&pool)
             .await
             .expect("migration count loads");
-        assert_eq!(count, 2);
+        assert_eq!(count, 3);
         drop(first);
         drop(second);
         pool.close().await;
@@ -7901,7 +8107,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn migration_adds_credential_hash_to_previous_dev_nodes_table() {
+    async fn migration_rejects_unversioned_previous_dev_nodes_table_without_mutation() {
         let pool = memory_pool().await;
         sqlx::query(
             r#"
@@ -7924,17 +8130,19 @@ mod tests {
         .await
         .expect("legacy nodes table creates");
 
-        let state = AppState::new(test_config(86_400), pool)
-            .await
-            .expect("legacy state migrates");
+        let error = match AppState::new(test_config(86_400), pool.clone()).await {
+            Ok(_) => panic!("unversioned state must be rejected"),
+            Err(error) => error,
+        };
+        assert!(error.to_string().contains("retained 0.1.x Core state"));
         let column_count: i64 = sqlx::query_scalar(
             "select count(*) from pragma_table_info('nodes') where name = 'credential_hash'",
         )
-        .fetch_one(&state.pool)
+        .fetch_one(&pool)
         .await
         .expect("nodes columns load");
 
-        assert_eq!(column_count, 1);
+        assert_eq!(column_count, 0);
     }
 
     #[tokio::test]
