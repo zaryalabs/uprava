@@ -293,82 +293,70 @@ impl AppState {
     }
 
     async fn migrate(&self) -> Result<(), AppError> {
-        for statement in MIGRATIONS {
-            sqlx::query(statement).execute(&self.pool).await?;
-        }
-        self.ensure_optional_schema().await?;
-        Ok(())
-    }
-
-    async fn ensure_optional_schema(&self) -> Result<(), AppError> {
-        self.add_optional_column("alter table nodes add column credential_hash text")
+        sqlx::query("pragma foreign_keys = on")
+            .execute(&self.pool)
             .await?;
-        for statement in ["alter table runtime_sessions add column provider_resume_ref_json text"] {
-            self.add_optional_column(statement).await?;
-        }
-        for statement in [
-            "alter table commands add column actor_ref_json text",
-            "alter table commands add column correlation_id text",
-            "alter table commands add column source_refs_json text",
-            "alter table commands add column cause_refs_json text",
-            "alter table commands add column payload_json text",
-            "alter table commands add column result_payload_json text",
-            "alter table commands add column dedupe_key text",
-        ] {
-            self.add_optional_column(statement).await?;
-        }
-        for statement in [
-            "alter table events add column actor_ref_json text",
-            "alter table events add column scope_ref_json text",
-            "alter table events add column correlation_id text",
-            "alter table events add column source_refs_json text",
-            "alter table events add column evidence_refs_json text",
-            "alter table events add column cause_refs_json text",
-            "alter table events add column result_refs_json text",
-            "alter table events add column payload_json text",
-            "alter table events add column session_projection_seq integer",
-        ] {
-            self.add_optional_column(statement).await?;
-        }
-        self.backfill_session_projection_seq().await?;
-        Ok(())
-    }
-
-    async fn add_optional_column(&self, statement: &str) -> Result<(), AppError> {
-        match sqlx::query(statement).execute(&self.pool).await {
-            Ok(_) => Ok(()),
-            Err(sqlx::Error::Database(error))
-                if error.message().contains("duplicate column name") =>
-            {
-                Ok(())
-            }
-            Err(error) => Err(error.into()),
-        }
-    }
-
-    async fn backfill_session_projection_seq(&self) -> Result<(), AppError> {
+        sqlx::query("pragma busy_timeout = 5000")
+            .execute(&self.pool)
+            .await?;
         sqlx::query(
-            r#"
-            update events
-            set session_projection_seq = (
-                select count(*)
-                from events as ordered_events
-                where ordered_events.session_thread_id = events.session_thread_id
-                  and ordered_events.session_thread_id is not null
-                  and (
-                    ordered_events.happened_at < events.happened_at
-                    or (
-                        ordered_events.happened_at = events.happened_at
-                        and ordered_events.event_id <= events.event_id
-                    )
-                  )
-            )
-            where session_thread_id is not null
-              and session_projection_seq is null
-            "#,
+            "create table if not exists schema_migrations (version integer primary key, checksum text not null, applied_at text not null)",
         )
         .execute(&self.pool)
         .await?;
+
+        for migration in MIGRATIONS {
+            let checksum = migration.checksum();
+            let mut connection = self.pool.acquire().await?;
+            sqlx::query("begin immediate")
+                .execute(&mut *connection)
+                .await?;
+            let result = async {
+                let applied: Option<String> = sqlx::query_scalar(
+                    "select checksum from schema_migrations where version = ?1",
+                )
+                .bind(migration.version)
+                .fetch_optional(&mut *connection)
+                .await?;
+                if let Some(applied_checksum) = applied {
+                    if applied_checksum != checksum {
+                        return Err(sqlx::Error::Protocol(format!(
+                            "migration {} checksum mismatch",
+                            migration.version
+                        )));
+                    }
+                    return Ok(());
+                }
+
+                for statement in migration.statements {
+                    if let Err(error) = sqlx::query(statement).execute(&mut *connection).await {
+                        if migration.ignore_duplicate_columns && is_duplicate_column_error(&error) {
+                            continue;
+                        }
+                        return Err(error);
+                    }
+                }
+                sqlx::query(
+                    "insert into schema_migrations (version, checksum, applied_at) values (?1, ?2, ?3)",
+                )
+                .bind(migration.version)
+                .bind(&checksum)
+                .bind(Utc::now())
+                .execute(&mut *connection)
+                .await?;
+                Ok::<(), sqlx::Error>(())
+            }
+            .await;
+            match result {
+                Ok(()) => {
+                    sqlx::query("commit").execute(&mut *connection).await?;
+                }
+                Err(error) => {
+                    let _ = sqlx::query("rollback").execute(&mut *connection).await;
+                    return Err(error.into());
+                }
+            }
+        }
         Ok(())
     }
 }
@@ -7168,10 +7156,31 @@ impl IntoResponse for AppError {
     }
 }
 
-const MIGRATIONS: &[&str] = &[
-    "pragma foreign_keys = on",
-    "pragma journal_mode = wal",
-    "pragma busy_timeout = 5000",
+struct Migration {
+    version: i64,
+    statements: &'static [&'static str],
+    ignore_duplicate_columns: bool,
+}
+
+impl Migration {
+    fn checksum(&self) -> String {
+        let mut digest = Sha256::new();
+        digest.update(self.version.to_string().as_bytes());
+        digest.update([u8::from(self.ignore_duplicate_columns)]);
+        for statement in self.statements {
+            digest.update([0]);
+            digest.update(statement.as_bytes());
+        }
+        format!("{:x}", digest.finalize())
+    }
+}
+
+fn is_duplicate_column_error(error: &sqlx::Error) -> bool {
+    matches!(error, sqlx::Error::Database(database_error)
+        if database_error.message().contains("duplicate column name"))
+}
+
+const MIGRATION_1: &[&str] = &[
     r#"
     create table if not exists nodes (
         node_id text primary key,
@@ -7413,6 +7422,58 @@ const MIGRATIONS: &[&str] = &[
         acknowledged_at text not null
     )
     "#,
+];
+
+const MIGRATION_2: &[&str] = &[
+    "alter table nodes add column credential_hash text",
+    "alter table runtime_sessions add column provider_resume_ref_json text",
+    "alter table commands add column actor_ref_json text",
+    "alter table commands add column correlation_id text",
+    "alter table commands add column source_refs_json text",
+    "alter table commands add column cause_refs_json text",
+    "alter table commands add column payload_json text",
+    "alter table commands add column result_payload_json text",
+    "alter table commands add column dedupe_key text",
+    "alter table events add column actor_ref_json text",
+    "alter table events add column scope_ref_json text",
+    "alter table events add column correlation_id text",
+    "alter table events add column source_refs_json text",
+    "alter table events add column evidence_refs_json text",
+    "alter table events add column cause_refs_json text",
+    "alter table events add column result_refs_json text",
+    "alter table events add column payload_json text",
+    "alter table events add column session_projection_seq integer",
+    r#"
+    update events
+    set session_projection_seq = (
+        select count(*)
+        from events as ordered_events
+        where ordered_events.session_thread_id = events.session_thread_id
+          and ordered_events.session_thread_id is not null
+          and (
+            ordered_events.happened_at < events.happened_at
+            or (
+                ordered_events.happened_at = events.happened_at
+                and ordered_events.event_id <= events.event_id
+            )
+          )
+    )
+    where session_thread_id is not null
+      and session_projection_seq is null
+    "#,
+];
+
+const MIGRATIONS: &[Migration] = &[
+    Migration {
+        version: 1,
+        statements: MIGRATION_1,
+        ignore_duplicate_columns: false,
+    },
+    Migration {
+        version: 2,
+        statements: MIGRATION_2,
+        ignore_duplicate_columns: true,
+    },
 ];
 
 #[cfg(test)]
@@ -7764,6 +7825,79 @@ mod tests {
         .expect("baseline tables count loads");
 
         assert_eq!(table_count, 14);
+
+        let applied_versions: Vec<i64> =
+            sqlx::query_scalar("select version from schema_migrations order by version")
+                .fetch_all(&state.pool)
+                .await
+                .expect("migration versions load");
+        assert_eq!(applied_versions, vec![1, 2]);
+    }
+
+    #[tokio::test]
+    async fn migration_runner_is_idempotent_and_does_not_duplicate_versions() {
+        let pool = memory_pool().await;
+        let state = AppState::new(test_config(86_400), pool)
+            .await
+            .expect("state migrates");
+        state
+            .migrate()
+            .await
+            .expect("second migration run succeeds");
+
+        let migration_count: i64 = sqlx::query_scalar("select count(*) from schema_migrations")
+            .fetch_one(&state.pool)
+            .await
+            .expect("migration count loads");
+        assert_eq!(migration_count, 2);
+    }
+
+    #[tokio::test]
+    async fn migration_runner_rejects_changed_applied_migration() {
+        let state = test_state().await;
+        sqlx::query("update schema_migrations set checksum = 'tampered' where version = 1")
+            .execute(&state.pool)
+            .await
+            .expect("migration metadata updates");
+
+        let error = state
+            .migrate()
+            .await
+            .expect_err("tampered migration must be rejected");
+        assert!(error.to_string().contains("checksum mismatch"));
+    }
+
+    #[tokio::test]
+    async fn migration_concurrent_file_backed_starts_share_one_numbered_history() {
+        let db_path =
+            std::env::temp_dir().join(format!("uprava-migrations-{}.sqlite", Uuid::new_v4()));
+        remove_sqlite_file_set(&db_path);
+        let pool = SqlitePoolOptions::new()
+            .max_connections(4)
+            .connect_with(
+                SqliteConnectOptions::new()
+                    .filename(&db_path)
+                    .journal_mode(sqlx::sqlite::SqliteJournalMode::Wal)
+                    .create_if_missing(true),
+            )
+            .await
+            .expect("migration pool opens");
+        let config = test_config(86_400);
+        let (first, second) = tokio::join!(
+            AppState::new(config.clone(), pool.clone()),
+            AppState::new(config, pool.clone()),
+        );
+        let first = first.expect("first migration succeeds");
+        let second = second.expect("second migration succeeds");
+        let count: i64 = sqlx::query_scalar("select count(*) from schema_migrations")
+            .fetch_one(&pool)
+            .await
+            .expect("migration count loads");
+        assert_eq!(count, 2);
+        drop(first);
+        drop(second);
+        pool.close().await;
+        remove_sqlite_file_set(&db_path);
     }
 
     #[tokio::test]
