@@ -28,6 +28,9 @@ coordination document.
 
 ## Current Plans
 
+- [`0.2.0-completion-from-current.md`](0.2.0-completion-from-current.md)
+  - sequential execution plan from the current `0.2.0` implementation to the
+    automated RC handoff, user-owned live E2E gate and final release.
 - [`0.2.0-quality-foundation.md`](0.2.0-quality-foundation.md)
-  - ordered implementation, verification and release plan for the 0.2.0
-    quality foundation based on the 2026-07-09 audit.
+  - authoritative requirements, finding coverage and release criteria for the
+    0.2.0 quality foundation based on the 2026-07-09 audit.

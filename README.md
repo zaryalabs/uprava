@@ -43,7 +43,8 @@ Synchronized product and architecture docs:
 - [Project Workspace Inspector](docs/en/workspace-inspector.md)
 - [Workspace Editing and IDE Sidecar](docs/en/workspace-editing-and-ide-sidecar.md)
 - [Self-Hosting Golden Path](docs/en/self-hosting-golden-path.md)
-- [Unified Architecture and Code Quality Audit](docs/en/audit-2026-07-09.md)
+- [Unified Architecture and Code Quality Audit](docs/en/audit/audit-2026-07-09.md)
+- [0.2.0 Portable Polish Handoff](docs/polish/README.md)
 - [Design Docs](docs/en/design)
 - [Source Notes](docs/en/uprava-notes.md)
 - [TMP Plans](docs/tmp-plans) - temporary implementation plans for intermediate development slices
