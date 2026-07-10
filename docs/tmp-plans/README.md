@@ -28,9 +28,6 @@ coordination document.
 
 ## Current Plans
 
-- [`audit-20260706-unified-fix-plan.md`](audit-20260706-unified-fix-plan.md)
-  - consolidated remediation plan for the 2026-07-06 deep audit and Clawpatch
-    findings.
-- [`codex-jsonl-turn-activity-streaming.md`](codex-jsonl-turn-activity-streaming.md)
-  - plan for live Codex JSONL streaming into collapsible turn activity blocks
-  in the session dialogue.
+- [`0.2.0-quality-foundation.md`](0.2.0-quality-foundation.md)
+  - ordered implementation, verification and release plan for the 0.2.0
+    quality foundation based on the 2026-07-09 audit.
