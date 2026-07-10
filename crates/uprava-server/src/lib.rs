@@ -66,10 +66,14 @@ use uprava_protocol::{
 };
 use uuid::Uuid;
 
+mod domain;
+mod persistence;
+
+use domain::PlacementIdentity;
+use persistence::{CORE_STATE_SLOT, DEFAULT_CORE_DATABASE_URL, SCHEMA_VERSION};
+
 const API_VERSION: &str = "v1";
 const APP_VERSION: &str = env!("CARGO_PKG_VERSION");
-const SCHEMA_VERSION: i64 = 1;
-const CORE_STATE_SLOT: &str = "0.2.0";
 const CORRELATION_ID_HEADER: &str = "x-correlation-id";
 const REQUEST_ID_HEADER: &str = "x-request-id";
 const CSRF_HEADER: &str = "x-uprava-csrf";
@@ -115,7 +119,7 @@ impl AppConfig {
             bind_address: std::env::var("UPRAVA_CORE_BIND")
                 .unwrap_or_else(|_| "127.0.0.1:8080".to_owned()),
             database_url: std::env::var("UPRAVA_DATABASE_URL")
-                .unwrap_or_else(|_| "sqlite://.local/state/0.2.0/core/core.sqlite".to_owned()),
+                .unwrap_or_else(|_| DEFAULT_CORE_DATABASE_URL.to_owned()),
             profile,
             allowed_origins: parse_allowed_origins(std::env::var("UPRAVA_ALLOWED_ORIGINS").ok())?,
             stale_after_seconds: parse_env_i64("UPRAVA_HEARTBEAT_STALE_SECONDS", 15)?,
@@ -2161,29 +2165,50 @@ async fn validate_placement_with_correlation(
     request: CreatePlacementRequest,
     correlation_id: CorrelationId,
 ) -> Result<ProjectPlacementSummary, AppError> {
-    ensure_node_commandable(state, &request.node_id).await?;
     if request.display_name.trim().is_empty() {
         return Err(AppError::bad_request(
             "validation.display_name_required",
             "Display name is required",
         ));
     }
-    if request.workspace_path.trim().is_empty() {
-        return Err(AppError::bad_request(
-            "validation.workspace_path_required",
-            "Workspace path is required",
-        ));
+    let placement_identity =
+        PlacementIdentity::try_new(request.node_id.as_str(), request.workspace_path.as_str())
+            .map_err(|error| match error {
+                domain::PlacementIdentityError::MissingNode => {
+                    AppError::bad_request("validation.node_required", "Node identity is required")
+                }
+                domain::PlacementIdentityError::MissingWorkspace => AppError::bad_request(
+                    "validation.workspace_path_required",
+                    "Workspace path is required",
+                ),
+            })?;
+    let node_id = NodeId::from(placement_identity.node_id().to_owned());
+    ensure_node_commandable(state, &node_id).await?;
+
+    if let Some(existing_placement_id) = sqlx::query_scalar::<_, String>(
+        "select project_placement_id from project_placements where node_id = ?1 and workspace_path = ?2",
+    )
+    .bind(node_id.as_str())
+    .bind(placement_identity.workspace_path())
+    .fetch_optional(&state.pool)
+    .await?
+    {
+        return load_placement(
+            state,
+            &ProjectPlacementId::from(existing_placement_id),
+        )
+        .await;
     }
 
     let now = Utc::now();
     let project_id = ProjectId::new();
     let placement_id = ProjectPlacementId::new();
     let display_name = request.display_name.trim().to_owned();
-    let workspace_path = request.workspace_path.trim().to_owned();
+    let workspace_path = placement_identity.workspace_path().to_owned();
     sqlx::query(
         "delete from deleted_workspace_bindings where node_id = ?1 and workspace_path = ?2",
     )
-    .bind(request.node_id.as_str())
+    .bind(node_id.as_str())
     .bind(&workspace_path)
     .execute(&state.pool)
     .await?;
@@ -2199,7 +2224,7 @@ async fn validate_placement_with_correlation(
     )
     .bind(placement_id.as_str())
     .bind(project_id.as_str())
-    .bind(request.node_id.as_str())
+    .bind(node_id.as_str())
     .bind(&display_name)
     .bind(&workspace_path)
     .bind(format_placement_state(PlacementState::Pending))
@@ -2214,7 +2239,7 @@ async fn validate_placement_with_correlation(
         CommandEnvelope {
             command_id: CommandId::new(),
             kind: CommandKind::ValidateWorkspace,
-            target_node_id: request.node_id.clone(),
+            target_node_id: node_id,
             actor_ref: ActorRef::local_user(),
             session_thread_id: None,
             runtime_session_id: None,
@@ -7571,6 +7596,27 @@ const MIGRATION_3: &[&str] = &[
     "#,
 ];
 
+const MIGRATION_4: &[&str] = &[
+    r#"
+    create unique index if not exists project_placements_identity_idx
+    on project_placements(node_id, workspace_path)
+    "#,
+    r#"
+    create unique index if not exists runtime_sessions_session_thread_idx
+    on runtime_sessions(session_thread_id)
+    "#,
+    r#"
+    create unique index if not exists approvals_turn_idx
+    on approvals(turn_id)
+    where turn_id is not null
+    "#,
+    r#"
+    create unique index if not exists messages_source_event_idx
+    on messages(source_event_id)
+    where source_event_id is not null
+    "#,
+];
+
 const MIGRATIONS: &[Migration] = &[
     Migration {
         version: 1,
@@ -7585,6 +7631,11 @@ const MIGRATIONS: &[Migration] = &[
     Migration {
         version: 3,
         statements: MIGRATION_3,
+        ignore_duplicate_columns: false,
+    },
+    Migration {
+        version: 4,
+        statements: MIGRATION_4,
         ignore_duplicate_columns: false,
     },
 ];
@@ -7947,7 +7998,7 @@ mod tests {
                 .fetch_all(&state.pool)
                 .await
                 .expect("migration versions load");
-        assert_eq!(applied_versions, vec![1, 2, 3]);
+        assert_eq!(applied_versions, vec![1, 2, 3, 4]);
 
         let metadata: (String, i64) =
             sqlx::query_as("select slot, schema_version from core_schema_meta")
@@ -7972,7 +8023,7 @@ mod tests {
             .fetch_one(&state.pool)
             .await
             .expect("migration count loads");
-        assert_eq!(migration_count, 3);
+        assert_eq!(migration_count, 4);
     }
 
     #[tokio::test]
@@ -7988,6 +8039,94 @@ mod tests {
             .await
             .expect_err("tampered migration must be rejected");
         assert!(error.to_string().contains("checksum mismatch"));
+    }
+
+    #[tokio::test]
+    async fn migration_adds_core_identity_constraints() {
+        let state = test_state().await;
+        let index_count: i64 = sqlx::query_scalar(
+            "select count(*) from sqlite_master where type = 'index' and name in ('project_placements_identity_idx', 'runtime_sessions_session_thread_idx', 'approvals_turn_idx', 'messages_source_event_idx')",
+        )
+        .fetch_one(&state.pool)
+        .await
+        .expect("invariant indexes load");
+        assert_eq!(index_count, 4);
+
+        let (_node_id, detail, workspace_path) = create_test_session(&state).await;
+        let duplicate = sqlx::query(
+            r#"
+            insert into runtime_sessions (
+                runtime_session_id, session_thread_id, provider, state,
+                resume_supported, degraded_reason, created_at, updated_at
+            ) values (?1, ?2, 'codex', 'starting', 1, null, ?3, ?3)
+            "#,
+        )
+        .bind("duplicate-runtime-session")
+        .bind(detail.session.session_thread_id.as_str())
+        .bind(Utc::now())
+        .execute(&state.pool)
+        .await;
+        assert!(duplicate.is_err());
+
+        let duplicate_placement = sqlx::query(
+            r#"
+            insert into project_placements (
+                project_placement_id, project_id, node_id, display_name, workspace_path,
+                state, resource_badges_json, last_validated_at, created_at, updated_at
+            ) values (?1, ?2, ?3, 'duplicate', ?4, 'pending', '[]', null, ?5, ?5)
+            "#,
+        )
+        .bind("duplicate-placement")
+        .bind("different-project")
+        .bind(detail.placement.node_id.as_str())
+        .bind(detail.placement.workspace_path.as_str())
+        .bind(Utc::now())
+        .execute(&state.pool)
+        .await;
+        assert!(duplicate_placement.is_err());
+
+        let now = Utc::now();
+        for approval_id in ["approval-1", "approval-2"] {
+            let result = sqlx::query(
+                r#"
+                insert into approvals (
+                    approval_id, session_thread_id, turn_id, state,
+                    request_payload_json, created_at, updated_at
+                ) values (?1, ?2, 'turn-unique', 'requested', '{}', ?3, ?3)
+                "#,
+            )
+            .bind(approval_id)
+            .bind(detail.session.session_thread_id.as_str())
+            .bind(now)
+            .execute(&state.pool)
+            .await;
+            if approval_id == "approval-1" {
+                assert!(result.is_ok());
+            } else {
+                assert!(result.is_err());
+            }
+        }
+
+        for message_id in ["message-1", "message-2"] {
+            let result = sqlx::query(
+                r#"
+                insert into messages (
+                    message_id, session_thread_id, role, content, source_event_id, created_at
+                ) values (?1, ?2, 'assistant', 'duplicate source', 'event-unique', ?3)
+                "#,
+            )
+            .bind(message_id)
+            .bind(detail.session.session_thread_id.as_str())
+            .bind(now)
+            .execute(&state.pool)
+            .await;
+            if message_id == "message-1" {
+                assert!(result.is_ok());
+            } else {
+                assert!(result.is_err());
+            }
+        }
+        std::fs::remove_dir_all(workspace_path).expect("workspace dir removes");
     }
 
     #[tokio::test]
@@ -8099,7 +8238,7 @@ mod tests {
             .fetch_one(&pool)
             .await
             .expect("migration count loads");
-        assert_eq!(count, 3);
+        assert_eq!(count, 4);
         drop(first);
         drop(second);
         pool.close().await;
