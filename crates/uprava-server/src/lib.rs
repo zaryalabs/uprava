@@ -4,6 +4,7 @@ use std::{
     fs::OpenOptions,
     io::Write,
     path::PathBuf,
+    sync::atomic::{AtomicU64, Ordering},
     sync::Arc,
     time::Duration,
 };
@@ -262,6 +263,25 @@ pub struct AppState {
     terminal_tx: broadcast::Sender<TerminalFrameNotice>,
     workspace_terminals: RwLock<HashMap<String, WorkspaceTerminalSummary>>,
     auth_failures: RwLock<HashMap<String, Vec<DateTime<Utc>>>>,
+    core_metrics: Arc<CoreMetrics>,
+}
+
+#[derive(Default)]
+struct CoreMetrics {
+    accepted_events: AtomicU64,
+    command_results: AtomicU64,
+    auth_failures: AtomicU64,
+}
+
+impl CoreMetrics {
+    fn render(&self) -> String {
+        format!(
+            "# HELP uprava_core_events_accepted_total Accepted event envelopes.\n# TYPE uprava_core_events_accepted_total counter\nuprava_core_events_accepted_total {}\n# HELP uprava_core_command_results_total Command results received from Nodes.\n# TYPE uprava_core_command_results_total counter\nuprava_core_command_results_total {}\n# HELP uprava_core_auth_failures_total Rejected authentication attempts.\n# TYPE uprava_core_auth_failures_total counter\nuprava_core_auth_failures_total {}\n",
+            self.accepted_events.load(Ordering::Relaxed),
+            self.command_results.load(Ordering::Relaxed),
+            self.auth_failures.load(Ordering::Relaxed),
+        )
+    }
 }
 
 #[derive(Debug, Clone)]
@@ -301,6 +321,7 @@ impl AppState {
             terminal_tx: broadcast::channel(1024).0,
             workspace_terminals: RwLock::new(HashMap::new()),
             auth_failures: RwLock::new(HashMap::new()),
+            core_metrics: Arc::new(CoreMetrics::default()),
         });
         state.migrate().await?;
         Ok(state)
@@ -465,6 +486,7 @@ pub fn build_router(state: Arc<AppState>) -> Router {
     let public_api = Router::new()
         .route("/health", get(health))
         .route("/version", get(version))
+        .route("/metrics", get(metrics))
         .route("/auth/status", get(auth_status))
         .route("/auth/setup", post(auth_setup))
         .route("/auth/login", post(auth_login))
@@ -628,6 +650,14 @@ async fn health(State(state): State<Arc<AppState>>) -> Json<HealthResponse> {
         profile: state.config.profile,
         security: security_status(&state).await,
     })
+}
+
+async fn metrics(State(state): State<Arc<AppState>>) -> impl IntoResponse {
+    (
+        StatusCode::OK,
+        [("content-type", "text/plain; version=0.0.4; charset=utf-8")],
+        state.core_metrics.render(),
+    )
 }
 
 async fn version(State(state): State<Arc<AppState>>) -> Json<VersionResponse> {
@@ -862,6 +892,10 @@ async fn reject_if_auth_rate_limited(state: &AppState, key: &str) -> Result<(), 
 }
 
 async fn record_auth_failure(state: &AppState, key: &str) {
+    state
+        .core_metrics
+        .auth_failures
+        .fetch_add(1, Ordering::Relaxed);
     let cutoff = Utc::now() - chrono::Duration::seconds(AUTH_FAILURE_WINDOW_SECONDS);
     let mut failures = state.auth_failures.write().await;
     let entries = failures.entry(key.to_owned()).or_default();
@@ -1770,6 +1804,10 @@ async fn handle_node_control_frame(
                 command_state = ?status,
                 "node command result received"
             );
+            state
+                .core_metrics
+                .command_results
+                .fetch_add(1, Ordering::Relaxed);
             update_command_result(state, &command_id, status, &payload).await?;
             let notice = CommandResultNotice {
                 command_id,
@@ -3949,6 +3987,10 @@ async fn accept_node_event(state: &AppState, event: EventEnvelope) -> Result<(),
         .bind(event.happened_at)
         .execute(&state.pool)
         .await?;
+        state
+            .core_metrics
+            .accepted_events
+            .fetch_add(1, Ordering::Relaxed);
         publish_event(state, &event);
         return Ok(());
     }
@@ -4022,6 +4064,10 @@ async fn accept_node_event(state: &AppState, event: EventEnvelope) -> Result<(),
     .bind(event.happened_at)
     .execute(&state.pool)
     .await?;
+    state
+        .core_metrics
+        .accepted_events
+        .fetch_add(1, Ordering::Relaxed);
     if let Some(expected_seq) = stream_gap {
         mark_event_stream_gap(state, &event, expected_seq).await?;
     }
@@ -8686,6 +8732,31 @@ mod tests {
             .expect("router responds");
 
         assert_eq!(response.status(), StatusCode::OK);
+    }
+
+    #[tokio::test]
+    async fn metrics_endpoint_exposes_bounded_core_counters() {
+        let state = test_state().await;
+        state
+            .core_metrics
+            .accepted_events
+            .store(3, Ordering::Relaxed);
+        let response = build_router(state)
+            .oneshot(
+                Request::builder()
+                    .uri("/api/v1/metrics")
+                    .body(Body::empty())
+                    .expect("request builds"),
+            )
+            .await
+            .expect("router responds");
+        let body = to_bytes(response.into_body(), 64 * 1024)
+            .await
+            .expect("metrics body loads");
+        let body = String::from_utf8(body.to_vec()).expect("metrics are utf8");
+        assert!(body.contains("uprava_core_events_accepted_total 3"));
+        assert!(body.contains("uprava_core_command_results_total 0"));
+        assert!(body.contains("uprava_core_auth_failures_total 0"));
     }
 
     #[tokio::test]
