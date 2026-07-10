@@ -5887,6 +5887,90 @@ mod tests {
         std::fs::remove_dir_all(dir).expect("sqlite state fixture removes");
     }
 
+    #[tokio::test]
+    async fn sqlite_state_store_reconnect_replays_pending_work_without_duplication() {
+        let dir = std::env::temp_dir().join(format!("uprava-node-reconnect-{}", Uuid::new_v4()));
+        let path = dir.join(NODE_STATE_SLOT).join("node.sqlite");
+        let config = config_fixture();
+        let command = command_fixture("command-reconnect", CommandKind::SendTurn);
+        let mut initial = NodeLocalState {
+            node_id: Some(NodeId::from("node-reconnect")),
+            credential: Some("credential-reconnect".to_owned()),
+            ..NodeLocalState::default()
+        };
+        let first = prepare_command_dispatch(&config, &mut initial, &command).await;
+        let first_event_ids = event_ids(&first.events_to_send);
+        assert_eq!(first.status, CommandState::Failed);
+        assert_eq!(first_event_ids.len(), 1);
+
+        initial
+            .save_async(&path)
+            .await
+            .expect("initial reconnect state persists");
+
+        // Simulate a daemon restart followed by a reconnect attempt. The
+        // SQLite normalized tables, rather than only the snapshot, must retain
+        // both the command result and the unacknowledged event.
+        let reopened = NodeLocalState::load_async(&path)
+            .await
+            .expect("reconnect state reopens");
+        let store = NodeStateStore::new(reopened, path.clone());
+        store
+            .persist_reconnect_attempt()
+            .await
+            .expect("first reconnect attempt persists");
+        store
+            .persist_reconnect_attempt()
+            .await
+            .expect("second reconnect attempt persists");
+
+        let after_reconnect = store.snapshot().await;
+        assert_eq!(after_reconnect.reconnect_attempts, 2);
+        assert_eq!(
+            after_reconnect
+                .command_status
+                .get(command.command_id.as_str()),
+            Some(&CommandState::Failed)
+        );
+        assert_eq!(event_ids(&after_reconnect.event_outbox), first_event_ids);
+
+        // A duplicate command received after reconnect replays the cached
+        // result/event and must not append a second outbox entry.
+        let mut duplicate_snapshot = after_reconnect.clone();
+        let duplicate = prepare_command_dispatch(&config, &mut duplicate_snapshot, &command).await;
+        assert_eq!(duplicate.status, CommandState::Failed);
+        assert!(!duplicate.state_changed);
+        assert_eq!(event_ids(&duplicate.events_to_send), first_event_ids);
+        assert_eq!(event_ids(&duplicate_snapshot.event_outbox), first_event_ids);
+
+        let reopened_again = NodeLocalState::load_async(&path)
+            .await
+            .expect("reconnect state survives a second reopen");
+        assert_eq!(reopened_again.reconnect_attempts, 2);
+        assert_eq!(
+            reopened_again
+                .command_status
+                .get(command.command_id.as_str()),
+            Some(&CommandState::Failed)
+        );
+        assert_eq!(event_ids(&reopened_again.event_outbox), first_event_ids);
+
+        store
+            .persist_event_ack(&first_event_ids)
+            .await
+            .expect("event ACK persists after replay");
+        let acknowledged = NodeLocalState::load_async(&path)
+            .await
+            .expect("acknowledged reconnect state reopens");
+        assert!(acknowledged.event_outbox.is_empty());
+        assert_eq!(
+            acknowledged.command_status.get(command.command_id.as_str()),
+            Some(&CommandState::Failed)
+        );
+
+        std::fs::remove_dir_all(dir).expect("reconnect state fixture removes");
+    }
+
     #[cfg(unix)]
     #[test]
     fn node_local_state_save_uses_private_file_permissions() {
