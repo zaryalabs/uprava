@@ -32,9 +32,9 @@ import type {
   WorkspaceEntry,
   WorkspaceEntryStatus,
   WorkspaceTerminalState,
-  WorkspaceTerminalStreamFrame,
   WorkspaceTerminalSummary,
 } from "../../shared/protocol/types";
+import { parseTerminalStreamFrame } from "../../shared/protocol/validators";
 import { Badge } from "../../shared/ui/badge";
 import { Button } from "../../shared/ui/button";
 import { ErrorNotice } from "../../shared/ui/error-notice";
@@ -877,7 +877,13 @@ function XtermTerminalPanel({
     });
     socket.addEventListener("message", (event) => {
       const frame = parseTerminalStreamFrame(event.data);
-      if (!frame) return;
+      if (!frame) {
+        setState("error");
+        setExitCode(null);
+        term.writeln("\r\nTerminal stream protocol validation failed");
+        socket.close(1002, "protocol validation failed");
+        return;
+      }
       if (frame.kind === "output") {
         term.write(frame.data);
       } else if (frame.kind === "status") {
@@ -1188,85 +1194,6 @@ function terminalStateLabel(
     return `Exited ${exitCode ?? "n/a"}`;
   }
   return state.charAt(0).toUpperCase() + state.slice(1);
-}
-
-function parseTerminalStreamFrame(
-  value: unknown,
-): WorkspaceTerminalStreamFrame | null {
-  if (typeof value !== "string") {
-    return null;
-  }
-  let parsed: unknown;
-  try {
-    parsed = JSON.parse(value);
-  } catch {
-    return null;
-  }
-  if (!isRecord(parsed) || typeof parsed.kind !== "string") {
-    return null;
-  }
-  if (
-    parsed.kind === "output" &&
-    typeof parsed.terminal_id === "string" &&
-    typeof parsed.seq === "number" &&
-    typeof parsed.data === "string" &&
-    typeof parsed.sent_at === "string"
-  ) {
-    return {
-      kind: "output",
-      terminal_id: parsed.terminal_id,
-      seq: parsed.seq,
-      data: parsed.data,
-      sent_at: parsed.sent_at,
-    };
-  }
-  if (
-    parsed.kind === "status" &&
-    typeof parsed.terminal_id === "string" &&
-    isWorkspaceTerminalState(parsed.state) &&
-    (typeof parsed.exit_code === "number" || parsed.exit_code === null) &&
-    (typeof parsed.message === "string" || parsed.message === null) &&
-    typeof parsed.sent_at === "string"
-  ) {
-    return {
-      kind: "status",
-      terminal_id: parsed.terminal_id,
-      state: parsed.state,
-      exit_code: parsed.exit_code,
-      message: parsed.message,
-      sent_at: parsed.sent_at,
-    };
-  }
-  if (parsed.kind === "pong" && typeof parsed.sent_at === "string") {
-    return { kind: "pong", sent_at: parsed.sent_at };
-  }
-  if (
-    parsed.kind === "error" &&
-    typeof parsed.terminal_id === "string" &&
-    typeof parsed.message === "string" &&
-    typeof parsed.sent_at === "string"
-  ) {
-    return {
-      kind: "error",
-      terminal_id: parsed.terminal_id,
-      message: parsed.message,
-      sent_at: parsed.sent_at,
-    };
-  }
-  return null;
-}
-
-function isWorkspaceTerminalState(
-  value: unknown,
-): value is WorkspaceTerminalState {
-  return (
-    value === "opening" ||
-    value === "running" ||
-    value === "detached" ||
-    value === "exited" ||
-    value === "closed" ||
-    value === "error"
-  );
 }
 
 function commandStateTone(state: CommandState) {

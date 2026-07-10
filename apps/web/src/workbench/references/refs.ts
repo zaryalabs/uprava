@@ -85,7 +85,7 @@ export function routeForRef(
     case "project":
       return routeFromString("/projects", stringField(ref, "project_id"));
     case "placement":
-      return routeFromString("/placements", stringField(ref, "placement_id"));
+      return routeFromString("/workspaces", stringField(ref, "placement_id"));
     case "workspace":
       return routeFromString("/workspaces", stringField(ref, "placement_id"));
     case "session":

@@ -28,15 +28,13 @@ describe("App routes", () => {
     expect(screen.getByText("Pair Node")).toBeVisible();
     expect(screen.getByText("not production-secure")).toBeVisible();
 
-    renderApp("/placements/placement-1");
+    renderApp("/workspaces/placement-1");
 
     expect(
       await screen.findByRole("heading", { name: "Uprava" }),
     ).toBeVisible();
     expect(screen.getAllByText("Dirty workspace").length).toBeGreaterThan(0);
-    expect(
-      screen.getByRole("button", { name: "Start Codex" }),
-    ).toBeEnabled();
+    expect(screen.getByRole("button", { name: "Start Codex" })).toBeEnabled();
 
     renderApp("/workspaces/placement-1");
 
@@ -66,7 +64,9 @@ describe("App routes", () => {
       "href",
       "/workspaces/placement-1",
     );
-    expect(await screen.findByText("Session-local index")).toBeVisible();
+    expect(
+      await screen.findByText("Session evidence projection"),
+    ).toBeVisible();
     expect(await screen.findByText("session.sendTurn")).toBeVisible();
 
     renderApp("/settings/runtime");
@@ -160,8 +160,8 @@ function responseForPath(pathname: string) {
       return workspaceTerminals;
     case "/api/v1/sessions/session-1":
       return sessionDetail;
-    case "/api/v1/sessions/session-1/artifact-tree":
-      return artifactTree;
+    case "/api/v1/sessions/session-1/evidence-projection":
+      return evidenceProjection;
     case "/api/v1/sessions/session-1/agent-projection":
       return agentProjection;
     default:
@@ -304,12 +304,12 @@ const sessionDetail = {
   events: [messageEvent],
 };
 
-const artifactTree = {
+const evidenceProjection = {
   session_thread_id: "session-1",
   generated_at: "2026-06-17T00:00:00Z",
   root: {
-    artifact_id: "artifact-root",
-    label: "Session-local index",
+    evidence_id: "session:session-1",
+    label: "Session evidence projection",
     primary_ref: { kind: "session", session_thread_id: "session-1" },
     source_refs: [],
     evidence_refs: [],
@@ -327,7 +327,7 @@ const agentProjection = {
   active_warnings: [],
   recent_turn_summaries: ["turn-1 running"],
   recent_message_refs: [{ kind: "message", message_id: "message-assistant" }],
-  artifact_tree_summary: "Session-local index",
+  evidence_projection_summary: "Session evidence projection",
   available_block_types: ["core.assistant-message"],
   available_commands: ["session.sendTurn"],
   visible_refs: [{ kind: "session", session_thread_id: "session-1" }],

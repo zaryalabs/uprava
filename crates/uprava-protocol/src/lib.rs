@@ -78,6 +78,7 @@ id_type!(TerminalId);
 id_type!(EventId);
 id_type!(ApprovalId);
 id_type!(ArtifactId);
+id_type!(EvidenceId);
 id_type!(BlockId);
 id_type!(CorrelationId);
 
@@ -1168,35 +1169,8 @@ pub struct TextRange {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-pub struct UiBlock {
-    pub block_id: BlockId,
-    #[serde(rename = "type")]
-    pub block_type: String,
-    pub schema_version: i64,
-    pub surface_id: String,
-    pub primary_ref: UpravaRef,
-    pub parent_ref: Option<UpravaRef>,
-    #[serde(default)]
-    pub children: Vec<UiBlock>,
-    #[serde(default)]
-    pub source_refs: Vec<UpravaRef>,
-    #[serde(default)]
-    pub evidence_refs: Vec<UpravaRef>,
-    #[serde(default)]
-    pub cause_refs: Vec<UpravaRef>,
-    #[serde(default)]
-    pub related_refs: Vec<UpravaRef>,
-    #[serde(default)]
-    pub trace_refs: Vec<UpravaRef>,
-    pub data: serde_json_value::JsonValue,
-    #[serde(default)]
-    pub actions: Vec<String>,
-    pub fallback_text: Option<String>,
-}
-
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-pub struct ArtifactTreeNode {
-    pub artifact_id: ArtifactId,
+pub struct SessionEvidenceProjectionNode {
+    pub evidence_id: EvidenceId,
     pub label: String,
     pub primary_ref: UpravaRef,
     #[serde(default)]
@@ -1206,13 +1180,13 @@ pub struct ArtifactTreeNode {
     #[serde(default)]
     pub cause_refs: Vec<UpravaRef>,
     #[serde(default)]
-    pub children: Vec<ArtifactTreeNode>,
+    pub children: Vec<SessionEvidenceProjectionNode>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-pub struct ArtifactTree {
+pub struct SessionEvidenceProjection {
     pub session_thread_id: SessionThreadId,
-    pub root: ArtifactTreeNode,
+    pub root: SessionEvidenceProjectionNode,
     pub generated_at: DateTime<Utc>,
 }
 
@@ -1230,7 +1204,7 @@ pub struct AgentProjection {
     pub recent_turn_summaries: Vec<String>,
     #[serde(default)]
     pub recent_message_refs: Vec<UpravaRef>,
-    pub artifact_tree_summary: String,
+    pub evidence_projection_summary: String,
     #[serde(default)]
     pub available_block_types: Vec<String>,
     #[serde(default)]
@@ -1444,35 +1418,6 @@ mod tests {
         let decoded: ApiError = serde_json::from_str(&encoded).expect("error deserializes");
 
         assert_eq!(decoded.error_code, "validation.invalid");
-    }
-
-    #[test]
-    fn ui_block_reserved_refs_round_trip_through_json() {
-        let block = UiBlock {
-            block_id: BlockId::from("block-1"),
-            block_type: "core.unknown".to_owned(),
-            schema_version: 1,
-            surface_id: "session.timeline".to_owned(),
-            primary_ref: UpravaRef::TerminalCommand {
-                terminal_command_id: "terminal-command-1".to_owned(),
-                terminal_id: None,
-            },
-            parent_ref: None,
-            children: vec![],
-            source_refs: vec![],
-            evidence_refs: vec![],
-            cause_refs: vec![],
-            related_refs: vec![],
-            trace_refs: vec![],
-            data: json_payload(),
-            actions: vec!["reference.copy".to_owned()],
-            fallback_text: Some("Reserved reference unavailable in V01".to_owned()),
-        };
-
-        let encoded = serde_json::to_string(&block).expect("block serializes");
-        let decoded: UiBlock = serde_json::from_str(&encoded).expect("block deserializes");
-
-        assert_eq!(decoded.block_type, "core.unknown");
     }
 
     #[test]

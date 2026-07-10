@@ -22,7 +22,7 @@ use sqlx::{sqlite::SqliteConnectOptions, Row, SqlitePool};
 use tokio::{
     io::{AsyncBufReadExt, AsyncRead, AsyncReadExt, AsyncWriteExt, BufReader},
     process::Command as TokioCommand,
-    sync::{mpsc, Mutex, RwLock},
+    sync::{mpsc, oneshot, watch, Mutex, RwLock, Semaphore},
     time::timeout,
 };
 use tokio_tungstenite::{
@@ -46,10 +46,12 @@ use uprava_protocol::{
 };
 use uuid::Uuid;
 
-type ControlFrameSender = mpsc::UnboundedSender<ControlFrame>;
+type ControlFrameSender = mpsc::Sender<ControlFrame>;
 type TerminalSenderRoute = Arc<RwLock<Option<ControlFrameSender>>>;
 
 const MAX_EVENT_OUTBOX_EVENTS: usize = 1024;
+const MAX_EVENT_OUTBOX_BYTES: usize = 4 * 1024 * 1024;
+const MAX_EVENT_OUTBOX_AGE: Duration = Duration::from_secs(7 * 24 * 60 * 60);
 const MAX_RETAINED_COMMANDS: usize = 1024;
 const MAX_CODEX_TRANSCRIPT_MESSAGES: usize = 20;
 const MAX_WORKSPACE_TREE_DEPTH: usize = 3;
@@ -65,8 +67,10 @@ const ALLOWED_WORKSPACE_COMMANDS: &[&str] = &[
 const WORKSPACE_DIFF_STAT_BYTES: usize = 16 * 1024;
 const WORKSPACE_DIFF_BYTES: usize = 128 * 1024;
 const MAX_WORKSPACE_TERMINAL_REPLAY_FRAMES: usize = 256;
+const MAX_WORKSPACE_TERMINAL_REPLAY_BYTES: usize = 256 * 1024;
 const MAX_WORKSPACE_TERMINAL_INPUT_CHARS: usize = 16_384;
 const WORKSPACE_TERMINAL_READ_BYTES: usize = 4 * 1024;
+const WORKSPACE_TERMINAL_SHUTDOWN_TIMEOUT: Duration = Duration::from_secs(3);
 const MIN_WORKSPACE_TERMINAL_COLS: u16 = 20;
 const MAX_WORKSPACE_TERMINAL_COLS: u16 = 300;
 const MIN_WORKSPACE_TERMINAL_ROWS: u16 = 5;
@@ -75,8 +79,16 @@ const MAX_CODEX_TRANSCRIPT_CHARS: usize = 12_000;
 const MAX_PROVIDER_ACTIVITY_RAW_CHARS: usize = 16_000;
 const MAX_PROVIDER_ACTIVITY_SUMMARY_CHARS: usize = 1_200;
 const MAX_PROVIDER_ACTIVITY_LINE_CHARS: usize = 4_000;
+const MAX_PROVIDER_ACTIVITY_EVENTS: usize = 512;
+const MAX_PROVIDER_PROCESS_OUTPUT_BYTES: usize = 256 * 1024;
+const MAX_PROVIDER_APPROVAL_REQUESTS: usize = 16;
 const NODE_STATE_SLOT: &str = "0.2.0";
 const NODE_STATE_SCHEMA_VERSION: u32 = 1;
+const NODE_STATE_STORE_QUEUE_CAPACITY: usize = 256;
+const CONTROL_WRITER_QUEUE_CAPACITY: usize = 512;
+const NODE_COMMAND_DISPATCH_QUEUE_CAPACITY: usize = 128;
+const NODE_PRIORITY_COMMAND_DISPATCH_QUEUE_CAPACITY: usize = 64;
+const NODE_COMMAND_DISPATCH_CONCURRENCY: usize = 8;
 
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
@@ -88,7 +100,6 @@ async fn main() -> anyhow::Result<()> {
         NodeLocalState::load_async(&config.state_path).await?,
         config.state_path.clone(),
     );
-    let mut control_task: Option<tokio::task::JoinHandle<()>> = None;
     tracing::info!(
         core_url = %config.core_url,
         display_name = %config.display_name,
@@ -97,73 +108,144 @@ async fn main() -> anyhow::Result<()> {
         "starting uprava node"
     );
 
-    loop {
-        if !state_store.is_enrolled().await {
-            match state_store.ensure_enrollment(&client, &config).await {
-                Ok(true) => {}
-                Ok(false) => {
-                    tokio::time::sleep(config.heartbeat_interval).await;
+    NodeSupervisor::new(config, client, state_store).run().await
+}
+
+struct NodeSupervisor {
+    config: NodeConfig,
+    client: reqwest::Client,
+    state_store: NodeStateStore,
+    terminal_supervisor: TerminalSupervisor,
+    control_task: Option<tokio::task::JoinHandle<()>>,
+}
+
+impl NodeSupervisor {
+    fn new(config: NodeConfig, client: reqwest::Client, state_store: NodeStateStore) -> Self {
+        Self {
+            config,
+            client,
+            state_store,
+            terminal_supervisor: TerminalSupervisor::default(),
+            control_task: None,
+        }
+    }
+
+    async fn run(mut self) -> anyhow::Result<()> {
+        loop {
+            let enrolled = match self.state_store.is_enrolled().await {
+                Ok(enrolled) => enrolled,
+                Err(error) => {
+                    tracing::warn!(error = %error, "state store enrollment check failed");
+                    if self.sleep_or_shutdown().await? {
+                        break;
+                    }
                     continue;
+                }
+            };
+            if !enrolled {
+                match self
+                    .state_store
+                    .ensure_enrollment(&self.client, &self.config)
+                    .await
+                {
+                    Ok(true) => {}
+                    Ok(false) => {
+                        if self.sleep_or_shutdown().await? {
+                            break;
+                        }
+                        continue;
+                    }
+                    Err(error) => {
+                        tracing::warn!(error = %error, "enrollment step failed");
+                        if self.sleep_or_shutdown().await? {
+                            break;
+                        }
+                        continue;
+                    }
+                }
+            }
+
+            if self
+                .control_task
+                .as_ref()
+                .is_some_and(tokio::task::JoinHandle::is_finished)
+            {
+                self.control_task = None;
+            }
+
+            match self
+                .state_store
+                .send_heartbeat(&self.client, &self.config)
+                .await
+            {
+                Ok(response) => {
+                    tracing::info!(
+                        accepted = response.accepted,
+                        open_control_channel = response.open_control_channel,
+                        node_id = %response.node_id,
+                        "heartbeat accepted"
+                    );
+                    if response.open_control_channel && self.control_task.is_none() {
+                        self.control_task = Some(tokio::spawn(control_channel_loop(
+                            self.config.clone(),
+                            self.state_store.clone(),
+                            self.terminal_supervisor.clone(),
+                        )));
+                    }
                 }
                 Err(error) => {
-                    tracing::warn!(error = %error, "enrollment step failed");
-                    tokio::time::sleep(config.heartbeat_interval).await;
-                    continue;
-                }
-            }
-        }
-
-        if control_task
-            .as_ref()
-            .is_some_and(tokio::task::JoinHandle::is_finished)
-        {
-            control_task = None;
-        }
-
-        match state_store.send_heartbeat(&client, &config).await {
-            Ok(response) => {
-                tracing::info!(
-                    accepted = response.accepted,
-                    open_control_channel = response.open_control_channel,
-                    node_id = %response.node_id,
-                    "heartbeat accepted"
-                );
-                if response.open_control_channel && control_task.is_none() {
-                    control_task = Some(tokio::spawn(control_channel_loop(
-                        config.clone(),
-                        state_store.clone(),
-                    )));
-                }
-            }
-            Err(error) => {
-                if let Err(metric_error) = state_store.persist_heartbeat_failure().await {
-                    tracing::warn!(
-                        error = %metric_error,
-                        "failed to persist heartbeat failure metric"
-                    );
-                }
-                if heartbeat_auth_rejected(&error) {
-                    tracing::warn!(
-                        error = %error,
-                        state_path = %config.state_path.display(),
-                        "heartbeat auth rejected; clearing local node identity and re-enrolling"
-                    );
-                    if let Some(task) = control_task.take() {
-                        task.abort();
-                    }
-                    if let Err(save_error) = state_store.clear_core_registration().await {
+                    if let Err(metric_error) = self.state_store.persist_heartbeat_failure().await {
                         tracing::warn!(
-                            error = %save_error,
-                            state_path = %config.state_path.display(),
-                            "failed to persist cleared node identity"
+                            error = %metric_error,
+                            "failed to persist heartbeat failure metric"
                         );
                     }
-                } else {
-                    tracing::warn!(error = %error, "heartbeat failed");
+                    if heartbeat_auth_rejected(&error) {
+                        tracing::warn!(
+                            error = %error,
+                            state_path = %self.config.state_path.display(),
+                            "heartbeat auth rejected; clearing local node identity and re-enrolling"
+                        );
+                        if let Some(task) = self.control_task.take() {
+                            task.abort();
+                        }
+                        if let Err(save_error) = self.state_store.clear_core_registration().await {
+                            tracing::warn!(
+                                error = %save_error,
+                                state_path = %self.config.state_path.display(),
+                                "failed to persist cleared node identity"
+                            );
+                        }
+                    } else {
+                        tracing::warn!(error = %error, "heartbeat failed");
+                    }
                 }
             }
+            if self.sleep_or_shutdown().await? {
+                break;
+            }
         }
-        tokio::time::sleep(config.heartbeat_interval).await;
+        Ok(())
+    }
+
+    async fn sleep_or_shutdown(&mut self) -> anyhow::Result<bool> {
+        tokio::select! {
+            _ = tokio::signal::ctrl_c() => {
+                self.shutdown().await?;
+                Ok(true)
+            }
+            _ = tokio::time::sleep(self.config.heartbeat_interval) => Ok(false),
+        }
+    }
+
+    async fn shutdown(&mut self) -> anyhow::Result<()> {
+        tracing::info!("shutdown signal received; stopping uprava node");
+        if let Some(task) = self.control_task.take() {
+            task.abort();
+            let _ = task.await;
+        }
+        self.terminal_supervisor.shutdown().await;
+        self.state_store.shutdown().await
     }
 }
 
@@ -510,8 +592,8 @@ impl NodeLocalState {
         }
         let mut snapshot = self.clone();
         snapshot.compact_for_persistence();
-        let snapshot_json =
-            serde_json::to_string(&snapshot).context("failed to serialize node state snapshot")?;
+        let snapshot_json = serde_json::to_string(&snapshot.sqlite_compatibility_seed())
+            .context("failed to serialize node state snapshot")?;
         let pool = open_state_store(path).await?;
         initialize_state_store(&pool).await?;
         let mut transaction = pool.begin().await?;
@@ -577,6 +659,24 @@ impl NodeLocalState {
         .bind(snapshot.pairing_code.as_deref())
         .execute(&mut *transaction)
         .await?;
+        sqlx::query(
+            r#"
+            insert into node_metrics (
+                state_id, reconnect_attempts, dropped_event_count, heartbeat_failures, updated_at
+            )
+            values (1, ?1, ?2, ?3, strftime('%Y-%m-%dT%H:%M:%fZ', 'now'))
+            on conflict(state_id) do update set
+                reconnect_attempts = excluded.reconnect_attempts,
+                dropped_event_count = excluded.dropped_event_count,
+                heartbeat_failures = excluded.heartbeat_failures,
+                updated_at = excluded.updated_at
+            "#,
+        )
+        .bind(snapshot.reconnect_attempts as i64)
+        .bind(snapshot.dropped_event_count as i64)
+        .bind(snapshot.heartbeat_failures as i64)
+        .execute(&mut *transaction)
+        .await?;
 
         let runtime_ids = snapshot
             .runtime_seqs
@@ -640,6 +740,15 @@ impl NodeLocalState {
         #[cfg(unix)]
         std::fs::set_permissions(path, PermissionsExt::from_mode(0o600))?;
         Ok(())
+    }
+
+    fn sqlite_compatibility_seed(&self) -> Self {
+        Self {
+            state_slot: self.state_slot.clone(),
+            schema_version: self.schema_version,
+            daemon_installation_id: self.daemon_installation_id.clone(),
+            ..Self::default()
+        }
     }
 
     fn compact_for_persistence(&mut self) {
@@ -762,24 +871,79 @@ impl NodeLocalState {
 /// but every mutation that crosses the control path goes through this store.
 #[derive(Clone)]
 struct NodeStateStore {
-    state: Arc<Mutex<NodeLocalState>>,
-    path: PathBuf,
+    sender: mpsc::Sender<NodeStateRequest>,
+    actor: Arc<Mutex<Option<tokio::task::JoinHandle<()>>>>,
+}
+
+enum NodeStateRequest {
+    Snapshot {
+        respond_to: oneshot::Sender<anyhow::Result<NodeLocalState>>,
+    },
+    IsEnrolled {
+        respond_to: oneshot::Sender<anyhow::Result<bool>>,
+    },
+    Mutate {
+        mutation: Box<NodeStateMutation>,
+        respond_to: oneshot::Sender<anyhow::Result<NodeStateMutationResult>>,
+    },
+    Shutdown {
+        respond_to: oneshot::Sender<()>,
+    },
+}
+
+enum NodeStateMutation {
+    PersistEnrollmentAttempt {
+        enrollment_id: EnrollmentId,
+        pairing_code: String,
+    },
+    ClearEnrollmentAttempt,
+    PersistEnrollmentIdentity {
+        node_id: NodeId,
+        credential: String,
+    },
+    ClearCoreRegistration,
+    PersistReconnectAttempt,
+    PersistHeartbeatFailure,
+    PersistEventAck {
+        accepted_event_ids: Vec<EventId>,
+    },
+    MergeCommandState {
+        baseline: Box<NodeLocalState>,
+        command_state: Box<NodeLocalState>,
+    },
+}
+
+enum NodeStateMutationResult {
+    Unit,
+    RemovedEvents(usize),
 }
 
 impl NodeStateStore {
     fn new(state: NodeLocalState, path: PathBuf) -> Self {
+        let (sender, receiver) = mpsc::channel(NODE_STATE_STORE_QUEUE_CAPACITY);
+        let actor = tokio::spawn(run_node_state_store(state, path, receiver));
         Self {
-            state: Arc::new(Mutex::new(state)),
-            path,
+            sender,
+            actor: Arc::new(Mutex::new(Some(actor))),
         }
     }
 
-    async fn snapshot(&self) -> NodeLocalState {
-        self.state.lock().await.clone()
+    async fn snapshot(&self) -> anyhow::Result<NodeLocalState> {
+        let (respond_to, response) = oneshot::channel();
+        self.sender
+            .send(NodeStateRequest::Snapshot { respond_to })
+            .await
+            .map_err(|_| anyhow::anyhow!("node state store task stopped"))?;
+        response.await.context("node state store task stopped")?
     }
 
-    async fn is_enrolled(&self) -> bool {
-        self.state.lock().await.is_enrolled()
+    async fn is_enrolled(&self) -> anyhow::Result<bool> {
+        let (respond_to, response) = oneshot::channel();
+        self.sender
+            .send(NodeStateRequest::IsEnrolled { respond_to })
+            .await
+            .map_err(|_| anyhow::anyhow!("node state store task stopped"))?;
+        response.await.context("node state store task stopped")?
     }
 
     async fn ensure_enrollment(
@@ -795,16 +959,18 @@ impl NodeStateStore {
         enrollment_id: EnrollmentId,
         pairing_code: String,
     ) -> anyhow::Result<()> {
-        let mut state = self.state.lock().await;
-        state.enrollment_id = Some(enrollment_id);
-        state.pairing_code = Some(pairing_code);
-        state.save_async(&self.path).await
+        self.mutate(NodeStateMutation::PersistEnrollmentAttempt {
+            enrollment_id,
+            pairing_code,
+        })
+        .await?;
+        Ok(())
     }
 
     async fn clear_enrollment_attempt(&self) -> anyhow::Result<()> {
-        let mut state = self.state.lock().await;
-        state.clear_enrollment_attempt();
-        state.save_async(&self.path).await
+        self.mutate(NodeStateMutation::ClearEnrollmentAttempt)
+            .await?;
+        Ok(())
     }
 
     async fn persist_enrollment_identity(
@@ -812,12 +978,12 @@ impl NodeStateStore {
         node_id: NodeId,
         credential: String,
     ) -> anyhow::Result<()> {
-        let mut state = self.state.lock().await;
-        state.node_id = Some(node_id);
-        state.credential = Some(credential);
-        state.enrollment_id = None;
-        state.pairing_code = None;
-        state.save_async(&self.path).await
+        self.mutate(NodeStateMutation::PersistEnrollmentIdentity {
+            node_id,
+            credential,
+        })
+        .await?;
+        Ok(())
     }
 
     async fn send_heartbeat(
@@ -825,35 +991,38 @@ impl NodeStateStore {
         client: &reqwest::Client,
         config: &NodeConfig,
     ) -> anyhow::Result<NodeHeartbeatResponse> {
-        let state = self.snapshot().await;
+        let state = self.snapshot().await?;
         send_heartbeat(client, config, &state).await
     }
 
     async fn clear_core_registration(&self) -> anyhow::Result<()> {
-        let mut state = self.state.lock().await;
-        state.clear_core_registration();
-        state.save_async(&self.path).await
+        self.mutate(NodeStateMutation::ClearCoreRegistration)
+            .await?;
+        Ok(())
     }
 
     async fn persist_reconnect_attempt(&self) -> anyhow::Result<()> {
-        let mut state = self.state.lock().await;
-        state.reconnect_attempts = state.reconnect_attempts.saturating_add(1);
-        state.save_async(&self.path).await
+        self.mutate(NodeStateMutation::PersistReconnectAttempt)
+            .await?;
+        Ok(())
     }
 
     async fn persist_heartbeat_failure(&self) -> anyhow::Result<()> {
-        let mut state = self.state.lock().await;
-        state.heartbeat_failures = state.heartbeat_failures.saturating_add(1);
-        state.save_async(&self.path).await
+        self.mutate(NodeStateMutation::PersistHeartbeatFailure)
+            .await?;
+        Ok(())
     }
 
     async fn persist_event_ack(&self, accepted_event_ids: &[EventId]) -> anyhow::Result<usize> {
-        let mut state = self.state.lock().await;
-        let removed = remove_acked_events(&mut state.event_outbox, accepted_event_ids);
-        if removed > 0 {
-            state.save_async(&self.path).await?;
+        match self
+            .mutate(NodeStateMutation::PersistEventAck {
+                accepted_event_ids: accepted_event_ids.to_vec(),
+            })
+            .await?
+        {
+            NodeStateMutationResult::RemovedEvents(removed) => Ok(removed),
+            NodeStateMutationResult::Unit => Ok(0),
         }
-        Ok(removed)
     }
 
     async fn merge_command_state(
@@ -861,9 +1030,12 @@ impl NodeStateStore {
         baseline: &NodeLocalState,
         command_state: &NodeLocalState,
     ) -> anyhow::Result<()> {
-        let mut state = self.state.lock().await;
-        state.merge_command_state_from(baseline, command_state);
-        state.save_async(&self.path).await
+        self.mutate(NodeStateMutation::MergeCommandState {
+            baseline: Box::new(baseline.clone()),
+            command_state: Box::new(command_state.clone()),
+        })
+        .await?;
+        Ok(())
     }
 
     /// Persist a completed command's status, result payload, and generated
@@ -874,6 +1046,123 @@ impl NodeStateStore {
         command_state: &NodeLocalState,
     ) -> anyhow::Result<()> {
         self.merge_command_state(baseline, command_state).await
+    }
+
+    async fn shutdown(&self) -> anyhow::Result<()> {
+        let (respond_to, response) = oneshot::channel();
+        let _ = self
+            .sender
+            .send(NodeStateRequest::Shutdown { respond_to })
+            .await;
+        let _ = response.await;
+        if let Some(actor) = self.actor.lock().await.take() {
+            actor.await.context("node state store task join failed")?;
+        }
+        Ok(())
+    }
+
+    async fn mutate(&self, mutation: NodeStateMutation) -> anyhow::Result<NodeStateMutationResult> {
+        let (respond_to, response) = oneshot::channel();
+        self.sender
+            .send(NodeStateRequest::Mutate {
+                mutation: Box::new(mutation),
+                respond_to,
+            })
+            .await
+            .map_err(|_| anyhow::anyhow!("node state store task stopped"))?;
+        response.await.context("node state store task stopped")?
+    }
+}
+
+async fn run_node_state_store(
+    mut state: NodeLocalState,
+    path: PathBuf,
+    mut receiver: mpsc::Receiver<NodeStateRequest>,
+) {
+    while let Some(request) = receiver.recv().await {
+        match request {
+            NodeStateRequest::Snapshot { respond_to } => {
+                let _ = respond_to.send(Ok(state.clone()));
+            }
+            NodeStateRequest::IsEnrolled { respond_to } => {
+                let _ = respond_to.send(Ok(state.is_enrolled()));
+            }
+            NodeStateRequest::Mutate {
+                mutation,
+                respond_to,
+            } => {
+                let _ =
+                    respond_to.send(apply_node_state_mutation(&mut state, &path, *mutation).await);
+            }
+            NodeStateRequest::Shutdown { respond_to } => {
+                let _ = respond_to.send(());
+                break;
+            }
+        }
+    }
+}
+
+async fn apply_node_state_mutation(
+    state: &mut NodeLocalState,
+    path: &Path,
+    mutation: NodeStateMutation,
+) -> anyhow::Result<NodeStateMutationResult> {
+    match mutation {
+        NodeStateMutation::PersistEnrollmentAttempt {
+            enrollment_id,
+            pairing_code,
+        } => {
+            state.enrollment_id = Some(enrollment_id);
+            state.pairing_code = Some(pairing_code);
+            state.save_async(path).await?;
+            Ok(NodeStateMutationResult::Unit)
+        }
+        NodeStateMutation::ClearEnrollmentAttempt => {
+            state.clear_enrollment_attempt();
+            state.save_async(path).await?;
+            Ok(NodeStateMutationResult::Unit)
+        }
+        NodeStateMutation::PersistEnrollmentIdentity {
+            node_id,
+            credential,
+        } => {
+            state.node_id = Some(node_id);
+            state.credential = Some(credential);
+            state.enrollment_id = None;
+            state.pairing_code = None;
+            state.save_async(path).await?;
+            Ok(NodeStateMutationResult::Unit)
+        }
+        NodeStateMutation::ClearCoreRegistration => {
+            state.clear_core_registration();
+            state.save_async(path).await?;
+            Ok(NodeStateMutationResult::Unit)
+        }
+        NodeStateMutation::PersistReconnectAttempt => {
+            state.reconnect_attempts = state.reconnect_attempts.saturating_add(1);
+            state.save_async(path).await?;
+            Ok(NodeStateMutationResult::Unit)
+        }
+        NodeStateMutation::PersistHeartbeatFailure => {
+            state.heartbeat_failures = state.heartbeat_failures.saturating_add(1);
+            state.save_async(path).await?;
+            Ok(NodeStateMutationResult::Unit)
+        }
+        NodeStateMutation::PersistEventAck { accepted_event_ids } => {
+            let removed = remove_acked_events(&mut state.event_outbox, &accepted_event_ids);
+            if removed > 0 {
+                state.save_async(path).await?;
+            }
+            Ok(NodeStateMutationResult::RemovedEvents(removed))
+        }
+        NodeStateMutation::MergeCommandState {
+            baseline,
+            command_state,
+        } => {
+            state.merge_command_state_from(&baseline, &command_state);
+            state.save_async(path).await?;
+            Ok(NodeStateMutationResult::Unit)
+        }
     }
 }
 
@@ -934,6 +1223,19 @@ async fn initialize_state_store(pool: &SqlitePool) -> anyhow::Result<()> {
             credential text,
             enrollment_id text,
             pairing_code text,
+            updated_at text not null
+        )
+        "#,
+    )
+    .execute(pool)
+    .await?;
+    sqlx::query(
+        r#"
+        create table if not exists node_metrics (
+            state_id integer primary key check (state_id = 1),
+            reconnect_attempts integer not null,
+            dropped_event_count integer not null,
+            heartbeat_failures integer not null,
             updated_at text not null
         )
         "#,
@@ -1016,6 +1318,26 @@ async fn hydrate_from_normalized_tables(
             .try_get::<Option<String>, _>("enrollment_id")?
             .map(EnrollmentId::from);
         state.pairing_code = row.try_get("pairing_code")?;
+    }
+
+    if let Some(row) = sqlx::query(
+        "select reconnect_attempts, dropped_event_count, heartbeat_failures from node_metrics where state_id = 1",
+    )
+    .fetch_optional(pool)
+    .await?
+    {
+        state.reconnect_attempts = row
+            .try_get::<i64, _>("reconnect_attempts")?
+            .try_into()
+            .unwrap_or_default();
+        state.dropped_event_count = row
+            .try_get::<i64, _>("dropped_event_count")?
+            .try_into()
+            .unwrap_or_default();
+        state.heartbeat_failures = row
+            .try_get::<i64, _>("heartbeat_failures")?
+            .try_into()
+            .unwrap_or_default();
     }
 
     let command_rows =
@@ -1197,7 +1519,7 @@ async fn ensure_enrollment(
     config: &NodeConfig,
     store: &NodeStateStore,
 ) -> anyhow::Result<bool> {
-    let mut local_state = store.snapshot().await;
+    let mut local_state = store.snapshot().await?;
     if local_state.enrollment_id.is_none() || local_state.pairing_code.is_none() {
         let response = request_enrollment(client, config).await?;
         tracing::info!(
@@ -1248,7 +1570,7 @@ async fn ensure_enrollment(
         tracing::info!("enrollment claimed and credential stored");
         return Ok(true);
     }
-    Ok(store.is_enrolled().await)
+    store.is_enrolled().await
 }
 
 async fn request_enrollment(
@@ -1365,13 +1687,16 @@ fn node_diagnostics(local_state: &NodeLocalState) -> String {
     )
 }
 
-async fn control_channel_loop(config: NodeConfig, store: NodeStateStore) {
-    let mut terminal_manager = WorkspaceTerminalManager::default();
+async fn control_channel_loop(
+    config: NodeConfig,
+    store: NodeStateStore,
+    terminal_supervisor: TerminalSupervisor,
+) {
     loop {
         if let Err(error) = store.persist_reconnect_attempt().await {
             tracing::warn!(error = %error, "failed to persist reconnect metric");
         }
-        match run_control_channel(&config, &store, &mut terminal_manager).await {
+        match run_control_channel(&config, &store, &terminal_supervisor).await {
             Ok(()) => tracing::warn!("control channel closed"),
             Err(error) => tracing::warn!(error = %error, "control channel failed"),
         }
@@ -1382,9 +1707,9 @@ async fn control_channel_loop(config: NodeConfig, store: NodeStateStore) {
 async fn run_control_channel(
     config: &NodeConfig,
     store: &NodeStateStore,
-    terminal_manager: &mut WorkspaceTerminalManager,
+    terminal_supervisor: &TerminalSupervisor,
 ) -> anyhow::Result<()> {
-    let local_state = store.snapshot().await;
+    let local_state = store.snapshot().await?;
     let node_id = local_state
         .node_id
         .clone()
@@ -1414,7 +1739,8 @@ async fn run_control_channel(
         .await
         .context("control channel connection failed")?;
     let (mut socket_sender, mut socket_receiver) = socket.split();
-    let (outbound_tx, mut outbound_rx) = mpsc::unbounded_channel::<ControlFrame>();
+    let (outbound_tx, mut outbound_rx) =
+        mpsc::channel::<ControlFrame>(CONTROL_WRITER_QUEUE_CAPACITY);
     let send_task = tokio::spawn(async move {
         while let Some(frame) = outbound_rx.recv().await {
             let Ok(text) = serde_json::to_string(&frame) else {
@@ -1429,8 +1755,20 @@ async fn run_control_channel(
             }
         }
     });
+    let (dispatch_tx, dispatch_rx) =
+        mpsc::channel::<CommandDispatchJob>(NODE_COMMAND_DISPATCH_QUEUE_CAPACITY);
+    let (priority_dispatch_tx, priority_dispatch_rx) =
+        mpsc::channel::<CommandDispatchJob>(NODE_PRIORITY_COMMAND_DISPATCH_QUEUE_CAPACITY);
+    let dispatcher_task = tokio::spawn(run_command_dispatcher(
+        config.clone(),
+        store.clone(),
+        outbound_tx.clone(),
+        terminal_supervisor.clone(),
+        priority_dispatch_rx,
+        dispatch_rx,
+    ));
     tracing::info!(node_id = %node_id, "control channel connected");
-    terminal_manager.rebind_sender(&outbound_tx).await;
+    terminal_supervisor.rebind_sender(&outbound_tx).await;
     send_frame(
         &outbound_tx,
         ControlFrame::Hello {
@@ -1459,18 +1797,20 @@ async fn run_control_channel(
         }
         match frame {
             ControlFrame::CommandDispatch { command, .. } => {
-                let baseline = store.snapshot().await;
-                let mut local_state = baseline.clone();
-                handle_command_dispatch(
-                    config,
-                    &outbound_tx,
-                    command,
-                    &mut local_state,
-                    &baseline,
-                    terminal_manager,
-                    store,
-                )
-                .await?;
+                let dispatch_result = if is_runtime_cancellation_command(&command) {
+                    priority_dispatch_tx.try_send(CommandDispatchJob { command })
+                } else {
+                    dispatch_tx.try_send(CommandDispatchJob { command })
+                };
+                match dispatch_result {
+                    Ok(()) => {}
+                    Err(mpsc::error::TrySendError::Full(job)) => {
+                        send_dispatch_busy_result(&outbound_tx, &job.command).await?;
+                    }
+                    Err(mpsc::error::TrySendError::Closed(job)) => {
+                        send_dispatch_closed_result(&outbound_tx, &job.command).await?;
+                    }
+                }
             }
             ControlFrame::Ping { frame_id, .. } => {
                 send_frame(
@@ -1488,7 +1828,7 @@ async fn run_control_channel(
             } => {
                 let removed = store.persist_event_ack(&accepted_event_ids).await?;
                 if removed > 0 {
-                    let local_state = store.snapshot().await;
+                    let local_state = store.snapshot().await?;
                     tracing::info!(
                         removed,
                         remaining = local_state.event_outbox.len(),
@@ -1498,12 +1838,12 @@ async fn run_control_channel(
             }
             ControlFrame::HelloAck { .. } => {}
             ControlFrame::WorkspaceTerminalAttach { terminal_id, .. } => {
-                terminal_manager.attach(&outbound_tx, &terminal_id).await;
+                terminal_supervisor.attach(&outbound_tx, &terminal_id).await;
             }
             ControlFrame::WorkspaceTerminalInput {
                 terminal_id, data, ..
             } => {
-                terminal_manager.input(&terminal_id, data);
+                terminal_supervisor.input(&terminal_id, data).await;
             }
             ControlFrame::WorkspaceTerminalResize {
                 terminal_id,
@@ -1511,44 +1851,280 @@ async fn run_control_channel(
                 rows,
                 ..
             } => {
-                terminal_manager.resize(&terminal_id, cols, rows);
+                terminal_supervisor.resize(&terminal_id, cols, rows).await;
             }
             ControlFrame::WorkspaceTerminalClose { terminal_id, .. } => {
-                terminal_manager.close(&terminal_id);
+                terminal_supervisor.close(&terminal_id).await;
             }
             _ => {}
         }
     }
-    terminal_manager.detach_sender().await;
+    terminal_supervisor.detach_sender().await;
+    dispatcher_task.abort();
+    let _ = dispatcher_task.await;
     send_task.abort();
+    let _ = send_task.await;
     Ok(())
 }
 
+#[derive(Debug)]
+struct CommandDispatchJob {
+    command: CommandEnvelope,
+}
+
+#[derive(Clone, Default)]
+struct CommandExecutionLocks {
+    locks: Arc<Mutex<HashMap<String, Arc<Mutex<()>>>>>,
+}
+
+impl CommandExecutionLocks {
+    async fn lock_for(&self, key: String) -> Arc<Mutex<()>> {
+        let mut locks = self.locks.lock().await;
+        locks
+            .entry(key)
+            .or_insert_with(|| Arc::new(Mutex::new(())))
+            .clone()
+    }
+}
+
+#[derive(Clone, Default)]
+struct RuntimeCancellationRegistry {
+    senders: Arc<Mutex<HashMap<String, watch::Sender<bool>>>>,
+}
+
+struct RuntimeCancellationGuard {
+    runtime_id: String,
+    sender: watch::Sender<bool>,
+    receiver: watch::Receiver<bool>,
+}
+
+impl RuntimeCancellationRegistry {
+    async fn begin(&self, runtime_session_id: &RuntimeSessionId) -> RuntimeCancellationGuard {
+        let (sender, receiver) = watch::channel(false);
+        let runtime_id = runtime_session_id.to_string();
+        self.senders
+            .lock()
+            .await
+            .insert(runtime_id.clone(), sender.clone());
+        RuntimeCancellationGuard {
+            runtime_id,
+            sender,
+            receiver,
+        }
+    }
+
+    async fn cancel(&self, runtime_session_id: &RuntimeSessionId) -> bool {
+        let senders = self.senders.lock().await;
+        let Some(sender) = senders.get(runtime_session_id.as_str()) else {
+            return false;
+        };
+        sender.send(true).is_ok()
+    }
+
+    async fn finish(&self, guard: RuntimeCancellationGuard) {
+        let mut senders = self.senders.lock().await;
+        if senders
+            .get(guard.runtime_id.as_str())
+            .is_some_and(|sender| sender.same_channel(&guard.sender))
+        {
+            senders.remove(guard.runtime_id.as_str());
+        }
+    }
+}
+
+impl RuntimeCancellationGuard {
+    fn receiver(&self) -> watch::Receiver<bool> {
+        self.receiver.clone()
+    }
+}
+
+async fn run_command_dispatcher(
+    config: NodeConfig,
+    shared_state: NodeStateStore,
+    sender: ControlFrameSender,
+    terminal_supervisor: TerminalSupervisor,
+    mut priority_receiver: mpsc::Receiver<CommandDispatchJob>,
+    mut receiver: mpsc::Receiver<CommandDispatchJob>,
+) {
+    let shared = CommandDispatcherShared {
+        config,
+        shared_state,
+        sender,
+        terminal_supervisor,
+        locks: CommandExecutionLocks::default(),
+        cancellations: RuntimeCancellationRegistry::default(),
+        concurrency: Arc::new(Semaphore::new(NODE_COMMAND_DISPATCH_CONCURRENCY)),
+    };
+    let mut tasks = tokio::task::JoinSet::new();
+
+    loop {
+        tokio::select! {
+            biased;
+            Some(job) = priority_receiver.recv() => {
+                spawn_command_dispatch_task(&mut tasks, job, &shared);
+            }
+            Some(job) = receiver.recv() => {
+                spawn_command_dispatch_task(&mut tasks, job, &shared);
+            }
+            Some(result) = tasks.join_next(), if !tasks.is_empty() => {
+                if let Err(error) = result {
+                    tracing::warn!(error = %error, "command dispatcher task failed");
+                }
+            }
+            else => break,
+        }
+    }
+
+    while let Some(result) = tasks.join_next().await {
+        if let Err(error) = result {
+            tracing::warn!(error = %error, "command dispatcher task failed");
+        }
+    }
+}
+
+#[derive(Clone)]
+struct CommandDispatcherShared {
+    config: NodeConfig,
+    shared_state: NodeStateStore,
+    sender: ControlFrameSender,
+    terminal_supervisor: TerminalSupervisor,
+    locks: CommandExecutionLocks,
+    cancellations: RuntimeCancellationRegistry,
+    concurrency: Arc<Semaphore>,
+}
+
+fn spawn_command_dispatch_task(
+    tasks: &mut tokio::task::JoinSet<()>,
+    job: CommandDispatchJob,
+    shared: &CommandDispatcherShared,
+) {
+    let shared = shared.clone();
+    tasks.spawn(async move {
+        let Ok(_permit) = shared.concurrency.acquire_owned().await else {
+            tracing::warn!("command dispatcher semaphore closed");
+            return;
+        };
+        if is_runtime_cancellation_command(&job.command) {
+            if let Some(runtime_session_id) = &job.command.runtime_session_id {
+                let cancelled = shared.cancellations.cancel(runtime_session_id).await;
+                tracing::debug!(
+                    command_id = %job.command.command_id,
+                    runtime_session_id = %runtime_session_id,
+                    cancelled,
+                    "runtime cancellation command signalled active provider"
+                );
+            }
+        }
+        let execution_lock = shared
+            .locks
+            .lock_for(command_execution_key(&job.command))
+            .await;
+        let _guard = execution_lock.lock().await;
+        let cancellation_runtime_id = runtime_command_cancellation_target(&job.command).cloned();
+        let cancellation_guard = match cancellation_runtime_id.as_ref() {
+            Some(runtime_session_id) => Some(shared.cancellations.begin(runtime_session_id).await),
+            None => None,
+        };
+        let cancellation_receiver = cancellation_guard
+            .as_ref()
+            .map(RuntimeCancellationGuard::receiver);
+        let baseline = match shared.shared_state.snapshot().await {
+            Ok(snapshot) => snapshot,
+            Err(error) => {
+                tracing::warn!(
+                    command_id = %job.command.command_id,
+                    error = %error,
+                    "command dispatcher could not load state snapshot"
+                );
+                let _ = send_dispatch_internal_error_result(
+                    &shared.sender,
+                    &job.command,
+                    "node.dispatch_state_unavailable",
+                    "Node could not load durable state before command dispatch",
+                    false,
+                )
+                .await;
+                return;
+            }
+        };
+        let mut local_state = baseline.clone();
+        let context = CommandDispatchContext {
+            config: &shared.config,
+            sender: &shared.sender,
+            terminal_supervisor: &shared.terminal_supervisor,
+            shared_state: &shared.shared_state,
+            cancellation: cancellation_receiver,
+        };
+        if let Err(error) =
+            handle_command_dispatch(context, job.command, &mut local_state, &baseline).await
+        {
+            tracing::warn!(error = %error, "command dispatch failed");
+        }
+        if let Some(guard) = cancellation_guard {
+            shared.cancellations.finish(guard).await;
+        }
+    });
+}
+
+fn is_runtime_cancellation_command(command: &CommandEnvelope) -> bool {
+    matches!(
+        command.kind,
+        CommandKind::InterruptRuntime | CommandKind::StopRuntime
+    )
+}
+
+fn runtime_command_cancellation_target(command: &CommandEnvelope) -> Option<&RuntimeSessionId> {
+    matches!(command.kind, CommandKind::SendTurn)
+        .then_some(command.runtime_session_id.as_ref())
+        .flatten()
+}
+
+fn command_execution_key(command: &CommandEnvelope) -> String {
+    command
+        .runtime_session_id
+        .as_ref()
+        .map(|runtime_id| format!("runtime:{}", runtime_id.as_str()))
+        .or_else(|| {
+            command
+                .project_placement_id
+                .as_ref()
+                .map(|placement_id| format!("placement:{}", placement_id.as_str()))
+        })
+        .unwrap_or_else(|| format!("command:{}", command.command_id.as_str()))
+}
+
+struct CommandDispatchContext<'a> {
+    config: &'a NodeConfig,
+    sender: &'a ControlFrameSender,
+    terminal_supervisor: &'a TerminalSupervisor,
+    shared_state: &'a NodeStateStore,
+    cancellation: Option<watch::Receiver<bool>>,
+}
+
 async fn handle_command_dispatch(
-    config: &NodeConfig,
-    sender: &ControlFrameSender,
+    context: CommandDispatchContext<'_>,
     command: CommandEnvelope,
     local_state: &mut NodeLocalState,
     baseline: &NodeLocalState,
-    terminal_manager: &mut WorkspaceTerminalManager,
-    shared_state: &NodeStateStore,
 ) -> anyhow::Result<()> {
     let outcome = prepare_command_dispatch_with_live_socket(
-        config,
+        context.config,
         local_state,
         &command,
-        Some(sender),
-        Some(terminal_manager),
+        Some(context.sender),
+        Some(context.terminal_supervisor),
+        context.cancellation,
     )
     .await;
     if outcome.state_changed {
-        shared_state
+        context
+            .shared_state
             .persist_command_outcome(baseline, local_state)
             .await?;
     }
 
     send_frame(
-        sender,
+        context.sender,
         ControlFrame::CommandAck {
             frame_id: Uuid::new_v4().to_string(),
             protocol_version: API_VERSION.to_owned(),
@@ -1559,9 +2135,9 @@ async fn handle_command_dispatch(
     )
     .await?;
 
-    send_event_batch(sender, outcome.events_to_send).await?;
+    send_event_batch(context.sender, outcome.events_to_send).await?;
     send_command_result(
-        sender,
+        context.sender,
         &command.command_id,
         outcome.status,
         outcome.result_payload,
@@ -1619,8 +2195,67 @@ async fn send_event_batch(
     .await
 }
 
+async fn send_dispatch_busy_result(
+    sender: &ControlFrameSender,
+    command: &CommandEnvelope,
+) -> anyhow::Result<()> {
+    send_dispatch_internal_error_result(
+        sender,
+        command,
+        "node.dispatch_busy",
+        "Node command dispatcher is saturated; retry the command later",
+        true,
+    )
+    .await
+}
+
+async fn send_dispatch_closed_result(
+    sender: &ControlFrameSender,
+    command: &CommandEnvelope,
+) -> anyhow::Result<()> {
+    send_dispatch_internal_error_result(
+        sender,
+        command,
+        "node.dispatch_closed",
+        "Node command dispatcher is unavailable on this control connection",
+        true,
+    )
+    .await
+}
+
+async fn send_dispatch_internal_error_result(
+    sender: &ControlFrameSender,
+    command: &CommandEnvelope,
+    error_code: &'static str,
+    message: &'static str,
+    retryable: bool,
+) -> anyhow::Result<()> {
+    send_frame(
+        sender,
+        ControlFrame::CommandAck {
+            frame_id: Uuid::new_v4().to_string(),
+            protocol_version: API_VERSION.to_owned(),
+            sent_at: Utc::now(),
+            command_id: command.command_id.clone(),
+            status: CommandState::Acknowledged,
+        },
+    )
+    .await?;
+    send_command_result(
+        sender,
+        &command.command_id,
+        CommandState::Failed,
+        JsonValue(serde_json::json!({
+            "error_code": error_code,
+            "message": message,
+            "retryable": retryable,
+        })),
+    )
+    .await
+}
+
 async fn send_frame(sender: &ControlFrameSender, frame: ControlFrame) -> anyhow::Result<()> {
-    sender.send(frame).context("control frame send failed")
+    sender.try_send(frame).context("control frame send failed")
 }
 
 fn control_frame_protocol_error(frame: &ControlFrame) -> Option<ControlFrame> {
@@ -1707,6 +2342,54 @@ struct CommandDispatchOutcome {
     state_changed: bool,
 }
 
+#[derive(Clone, Default)]
+struct TerminalSupervisor {
+    manager: Arc<Mutex<WorkspaceTerminalManager>>,
+}
+
+impl TerminalSupervisor {
+    async fn rebind_sender(&self, sender: &ControlFrameSender) {
+        self.manager.lock().await.rebind_sender(sender).await;
+    }
+
+    async fn detach_sender(&self) {
+        self.manager.lock().await.detach_sender().await;
+    }
+
+    async fn open(
+        &self,
+        config: &NodeConfig,
+        command: &CommandEnvelope,
+        sender: &ControlFrameSender,
+    ) -> Result<WorkspaceTerminalOpenResponse, WorkspaceInspectError> {
+        self.manager
+            .lock()
+            .await
+            .open(config, command, sender)
+            .await
+    }
+
+    async fn attach(&self, sender: &ControlFrameSender, terminal_id: &TerminalId) {
+        self.manager.lock().await.attach(sender, terminal_id).await;
+    }
+
+    async fn input(&self, terminal_id: &TerminalId, data: String) {
+        self.manager.lock().await.input(terminal_id, data);
+    }
+
+    async fn resize(&self, terminal_id: &TerminalId, cols: u16, rows: u16) {
+        self.manager.lock().await.resize(terminal_id, cols, rows);
+    }
+
+    async fn close(&self, terminal_id: &TerminalId) {
+        self.manager.lock().await.close(terminal_id).await;
+    }
+
+    async fn shutdown(&self) {
+        self.manager.lock().await.shutdown().await;
+    }
+}
+
 #[derive(Default)]
 struct WorkspaceTerminalManager {
     terminals: HashMap<String, WorkspaceTerminalHandle>,
@@ -1716,6 +2399,7 @@ struct WorkspaceTerminalHandle {
     replay: Arc<RwLock<VecDeque<WorkspaceTerminalOutputFrame>>>,
     control_tx: mpsc::UnboundedSender<WorkspaceTerminalControl>,
     sender_route: TerminalSenderRoute,
+    task: tokio::task::JoinHandle<()>,
 }
 
 enum WorkspaceTerminalControl {
@@ -1784,22 +2468,23 @@ impl WorkspaceTerminalManager {
             created_at: now,
             updated_at: now,
         };
+        let task = tokio::spawn(run_workspace_terminal(
+            pty,
+            child,
+            control_rx,
+            sender_route.clone(),
+            terminal_id.clone(),
+            replay.clone(),
+        ));
         self.terminals.insert(
             terminal_id.to_string(),
             WorkspaceTerminalHandle {
                 replay: replay.clone(),
                 control_tx,
                 sender_route: sender_route.clone(),
+                task,
             },
         );
-        tokio::spawn(run_workspace_terminal(
-            pty,
-            child,
-            control_rx,
-            sender_route,
-            terminal_id.clone(),
-            replay,
-        ));
         send_terminal_status(
             sender,
             &terminal_id,
@@ -1828,6 +2513,16 @@ impl WorkspaceTerminalManager {
             return;
         };
         let replay = handle.replay.read().await;
+        if replay.front().is_some_and(|frame| frame.seq > 1) {
+            send_terminal_status(
+                sender,
+                terminal_id,
+                WorkspaceTerminalState::Detached,
+                None,
+                Some("terminal replay gap; older output is no longer retained".to_owned()),
+            )
+            .await;
+        }
         for frame in replay.iter() {
             let _ = send_frame(
                 sender,
@@ -1864,9 +2559,20 @@ impl WorkspaceTerminalManager {
         }
     }
 
-    fn close(&mut self, terminal_id: &TerminalId) {
+    async fn close(&mut self, terminal_id: &TerminalId) {
         if let Some(handle) = self.terminals.remove(terminal_id.as_str()) {
-            let _ = handle.control_tx.send(WorkspaceTerminalControl::Close);
+            stop_terminal_handle(handle).await;
+        }
+    }
+
+    async fn shutdown(&mut self) {
+        let handles = self
+            .terminals
+            .drain()
+            .map(|(_, handle)| handle)
+            .collect::<Vec<_>>();
+        for handle in handles {
+            stop_terminal_handle(handle).await;
         }
     }
 }
@@ -2005,8 +2711,34 @@ async fn record_terminal_replay(
 ) {
     let mut replay = replay.write().await;
     replay.push_back(frame);
-    while replay.len() > MAX_WORKSPACE_TERMINAL_REPLAY_FRAMES {
+    while replay.len() > MAX_WORKSPACE_TERMINAL_REPLAY_FRAMES
+        || terminal_replay_bytes(&replay) > MAX_WORKSPACE_TERMINAL_REPLAY_BYTES
+    {
         replay.pop_front();
+    }
+}
+
+fn terminal_replay_bytes(replay: &VecDeque<WorkspaceTerminalOutputFrame>) -> usize {
+    replay.iter().map(|frame| frame.data.len()).sum()
+}
+
+async fn stop_terminal_handle(handle: WorkspaceTerminalHandle) {
+    let _ = handle.control_tx.send(WorkspaceTerminalControl::Close);
+    join_terminal_task(handle.task).await;
+}
+
+async fn join_terminal_task(mut task: tokio::task::JoinHandle<()>) {
+    tokio::select! {
+        result = &mut task => {
+            if let Err(error) = result {
+                tracing::warn!(error = %error, "workspace terminal task failed");
+            }
+        }
+        _ = tokio::time::sleep(WORKSPACE_TERMINAL_SHUTDOWN_TIMEOUT) => {
+            task.abort();
+            let _ = task.await;
+            tracing::warn!("workspace terminal task aborted after shutdown timeout");
+        }
     }
 }
 
@@ -2091,7 +2823,7 @@ async fn prepare_command_dispatch(
     local_state: &mut NodeLocalState,
     command: &CommandEnvelope,
 ) -> CommandDispatchOutcome {
-    prepare_command_dispatch_with_live_socket(config, local_state, command, None, None).await
+    prepare_command_dispatch_with_live_socket(config, local_state, command, None, None, None).await
 }
 
 async fn prepare_command_dispatch_with_live_socket(
@@ -2099,7 +2831,8 @@ async fn prepare_command_dispatch_with_live_socket(
     local_state: &mut NodeLocalState,
     command: &CommandEnvelope,
     live_sender: Option<&ControlFrameSender>,
-    terminal_manager: Option<&mut WorkspaceTerminalManager>,
+    terminal_supervisor: Option<&TerminalSupervisor>,
+    cancellation: Option<watch::Receiver<bool>>,
 ) -> CommandDispatchOutcome {
     if let Some(status) = local_state
         .command_status
@@ -2184,7 +2917,7 @@ async fn prepare_command_dispatch_with_live_socket(
                 config,
                 command,
                 live_sender,
-                terminal_manager,
+                terminal_supervisor,
             )
             .await;
             record_command_result_payload(local_state, command, status, &payload);
@@ -2219,6 +2952,7 @@ async fn prepare_command_dispatch_with_live_socket(
                             &mut local_state.runtime_transcripts,
                             &mut local_state.runtime_provider_resume_refs,
                             live_event_sink.as_mut(),
+                            cancellation,
                         )
                         .await
                 } else {
@@ -2267,10 +3001,12 @@ fn command_status_for_events(events: &[EventEnvelope]) -> CommandState {
     if events.is_empty() {
         return CommandState::Failed;
     }
-    if events
-        .iter()
-        .any(|event| event.kind == EventKind::RuntimeError)
-    {
+    if events.iter().any(|event| {
+        matches!(
+            event.kind,
+            EventKind::RuntimeError | EventKind::TurnInterrupted
+        )
+    }) {
         return CommandState::Failed;
     }
     CommandState::Completed
@@ -2309,17 +3045,36 @@ fn enforce_event_outbox_retention(
     local_state: &mut NodeLocalState,
     max_events: usize,
 ) -> Vec<EventEnvelope> {
-    if max_events == 0 || local_state.event_outbox.len() <= max_events {
+    enforce_event_outbox_retention_with_limits(
+        local_state,
+        max_events,
+        MAX_EVENT_OUTBOX_AGE,
+        MAX_EVENT_OUTBOX_BYTES,
+    )
+}
+
+fn enforce_event_outbox_retention_with_limits(
+    local_state: &mut NodeLocalState,
+    max_events: usize,
+    max_age: Duration,
+    max_bytes: usize,
+) -> Vec<EventEnvelope> {
+    let drop_count = event_outbox_retention_drop_count(
+        &local_state.event_outbox,
+        max_events,
+        max_age,
+        max_bytes,
+    );
+    if drop_count == 0 {
         return vec![];
     }
 
-    let overflow = local_state.event_outbox.len() - max_events;
     local_state.dropped_event_count = local_state
         .dropped_event_count
-        .saturating_add(overflow as u64);
+        .saturating_add(drop_count as u64);
     let dropped = local_state
         .event_outbox
-        .drain(0..overflow)
+        .drain(0..drop_count)
         .collect::<Vec<_>>();
     let mut affected_runtimes =
         BTreeMap::<String, (RuntimeSessionId, Option<SessionThreadId>, Option<NodeId>)>::new();
@@ -2350,21 +3105,74 @@ fn enforce_event_outbox_retention(
         })
         .collect::<Vec<_>>();
     if notices.is_empty() {
-        trim_event_outbox_to_limit(&mut local_state.event_outbox, max_events);
+        trim_event_outbox_to_limits(&mut local_state.event_outbox, max_events, max_bytes);
         return notices;
     }
 
     apply_runtime_state_projection(local_state, &notices);
     local_state.event_outbox.extend(notices.iter().cloned());
-    trim_event_outbox_to_limit(&mut local_state.event_outbox, max_events);
+    trim_event_outbox_to_limits(&mut local_state.event_outbox, max_events, max_bytes);
     notices
 }
 
-fn trim_event_outbox_to_limit(outbox: &mut Vec<EventEnvelope>, max_events: usize) {
-    if outbox.len() > max_events {
-        let overflow = outbox.len() - max_events;
-        outbox.drain(0..overflow);
+fn event_outbox_retention_drop_count(
+    outbox: &[EventEnvelope],
+    max_events: usize,
+    max_age: Duration,
+    max_bytes: usize,
+) -> usize {
+    if outbox.is_empty() {
+        return 0;
     }
+    let cutoff = if max_age.is_zero() {
+        None
+    } else {
+        chrono::Duration::from_std(max_age)
+            .ok()
+            .map(|age| Utc::now() - age)
+    };
+    let event_sizes = outbox.iter().map(serialized_event_len).collect::<Vec<_>>();
+    let mut retained_bytes = event_sizes.iter().sum::<usize>();
+    let mut dropped = 0usize;
+    while dropped < outbox.len() {
+        let retained_count = outbox.len() - dropped;
+        let count_exceeded = max_events > 0 && retained_count > max_events;
+        let age_exceeded = cutoff
+            .as_ref()
+            .is_some_and(|cutoff| outbox[dropped].happened_at < *cutoff);
+        let bytes_exceeded = max_bytes > 0 && retained_bytes > max_bytes;
+        if !(count_exceeded || age_exceeded || bytes_exceeded) {
+            break;
+        }
+        retained_bytes = retained_bytes.saturating_sub(event_sizes[dropped]);
+        dropped += 1;
+    }
+    dropped
+}
+
+fn trim_event_outbox_to_limits(
+    outbox: &mut Vec<EventEnvelope>,
+    max_events: usize,
+    max_bytes: usize,
+) {
+    loop {
+        let count_exceeded = max_events > 0 && outbox.len() > max_events;
+        let bytes_exceeded =
+            max_bytes > 0 && outbox.iter().map(serialized_event_len).sum::<usize>() > max_bytes;
+        if !(count_exceeded || bytes_exceeded) {
+            break;
+        }
+        if outbox.is_empty() {
+            break;
+        }
+        outbox.remove(0);
+    }
+}
+
+fn serialized_event_len(event: &EventEnvelope) -> usize {
+    serde_json::to_vec(event)
+        .map(|value| value.len())
+        .unwrap_or(usize::MAX)
 }
 
 fn runtime_outbox_retention_event(
@@ -2775,7 +3583,7 @@ async fn workspace_terminal_open_command_result(
     config: &NodeConfig,
     command: &CommandEnvelope,
     live_sender: Option<&ControlFrameSender>,
-    terminal_manager: Option<&mut WorkspaceTerminalManager>,
+    terminal_supervisor: Option<&TerminalSupervisor>,
 ) -> (CommandState, JsonValue) {
     let Some(sender) = live_sender else {
         return (
@@ -2787,7 +3595,7 @@ async fn workspace_terminal_open_command_result(
             .into_payload(),
         );
     };
-    let Some(manager) = terminal_manager else {
+    let Some(terminal_supervisor) = terminal_supervisor else {
         return (
             CommandState::Failed,
             WorkspaceInspectError::new(
@@ -2797,7 +3605,7 @@ async fn workspace_terminal_open_command_result(
             .into_payload(),
         );
     };
-    match manager.open(config, command, sender).await {
+    match terminal_supervisor.open(config, command, sender).await {
         Ok(response) => workspace_success_payload(response),
         Err(error) => (CommandState::Failed, error.into_payload()),
     }
@@ -4140,6 +4948,10 @@ impl RuntimeManager {
         }
     }
 
+    #[expect(
+        clippy::too_many_arguments,
+        reason = "runtime execution bridges durable runtime maps, workspace context, live events, and cancellation"
+    )]
     async fn execute_command(
         &self,
         command: &CommandEnvelope,
@@ -4148,6 +4960,7 @@ impl RuntimeManager {
         runtime_transcripts: &mut HashMap<String, Vec<ProviderTranscriptMessage>>,
         runtime_provider_resume_refs: &mut HashMap<String, ProviderResumeRef>,
         live_event_sink: Option<&mut NodeLiveEventSink<'_>>,
+        cancellation: Option<watch::Receiver<bool>>,
     ) -> Vec<EventEnvelope> {
         match self {
             Self::Codex(provider) => {
@@ -4159,6 +4972,7 @@ impl RuntimeManager {
                         runtime_transcripts,
                         runtime_provider_resume_refs,
                         live_event_sink,
+                        cancellation,
                     )
                     .await
             }
@@ -4184,6 +4998,11 @@ struct CodexProcessOutput {
     status: ExitStatus,
     stdout: Vec<u8>,
     stderr: Vec<u8>,
+    stdout_truncated: bool,
+    stderr_truncated: bool,
+    dropped_activity_count: usize,
+    approval_requests: Vec<CodexApprovalRequest>,
+    provider_resume_ref: Option<serde_json::Value>,
     activity_events: Vec<EventEnvelope>,
 }
 
@@ -4217,6 +5036,10 @@ impl CodexProviderAdapter {
             .map(|path| path.display().to_string())
     }
 
+    #[expect(
+        clippy::too_many_arguments,
+        reason = "provider command execution updates runtime sequence, transcript, resume, live event, and cancellation state"
+    )]
     async fn events_for_command(
         &self,
         command: &CommandEnvelope,
@@ -4225,6 +5048,7 @@ impl CodexProviderAdapter {
         runtime_transcripts: &mut HashMap<String, Vec<ProviderTranscriptMessage>>,
         runtime_provider_resume_refs: &mut HashMap<String, ProviderResumeRef>,
         live_event_sink: Option<&mut NodeLiveEventSink<'_>>,
+        cancellation: Option<watch::Receiver<bool>>,
     ) -> Vec<EventEnvelope> {
         let Some(runtime_session_id) = command.runtime_session_id.clone() else {
             return vec![];
@@ -4336,6 +5160,7 @@ impl CodexProviderAdapter {
                     runtime_transcripts,
                     runtime_provider_resume_refs,
                     live_event_sink,
+                    cancellation,
                 )
                 .await
             }
@@ -4426,6 +5251,7 @@ impl CodexProviderAdapter {
         runtime_transcripts: &mut HashMap<String, Vec<ProviderTranscriptMessage>>,
         runtime_provider_resume_refs: &mut HashMap<String, ProviderResumeRef>,
         live_event_sink: Option<&mut NodeLiveEventSink<'_>>,
+        cancellation: Option<watch::Receiver<bool>>,
     ) -> Vec<EventEnvelope> {
         let turn_id = command
             .payload
@@ -4506,6 +5332,7 @@ impl CodexProviderAdapter {
                 &runtime_session_id,
                 turn_id.clone(),
                 live_event_sink,
+                cancellation,
             )
             .await
         } else {
@@ -4525,6 +5352,7 @@ impl CodexProviderAdapter {
                 &runtime_session_id,
                 turn_id.clone(),
                 live_event_sink,
+                cancellation,
             )
             .await
         };
@@ -4534,6 +5362,15 @@ impl CodexProviderAdapter {
         match output {
             Ok(output) if output.status.success() => {
                 events.extend(output.activity_events.iter().cloned());
+                append_codex_process_limit_events(
+                    self.provider_key(),
+                    command,
+                    runtime_seqs,
+                    runtime_session_id.clone(),
+                    turn_id.clone(),
+                    &output,
+                    &mut events,
+                );
                 let approval_requests = codex_approval_requests_from_output(&output);
                 let provider_resume_ref = codex_resume_ref_from_output(&output);
                 if let Some(provider_resume_ref) = provider_resume_ref
@@ -4628,6 +5465,15 @@ impl CodexProviderAdapter {
             }
             Ok(output) => {
                 events.extend(output.activity_events.iter().cloned());
+                append_codex_process_limit_events(
+                    self.provider_key(),
+                    command,
+                    runtime_seqs,
+                    runtime_session_id.clone(),
+                    turn_id.clone(),
+                    &output,
+                    &mut events,
+                );
                 events.push(runtime_error_event(
                     self.provider_key(),
                     command,
@@ -4636,6 +5482,21 @@ impl CodexProviderAdapter {
                     turn_id,
                     "provider.exec_failed",
                     codex_failure_message(&output),
+                ));
+            }
+            Err(error) if error.code == "provider.cancelled" => {
+                events.push(event_for_command(
+                    self.provider_key(),
+                    command,
+                    runtime_seqs,
+                    runtime_session_id,
+                    turn_id,
+                    EventKind::TurnInterrupted,
+                    serde_json::json!({
+                        "provider": self.provider_key(),
+                        "code": error.code,
+                        "message": error.message,
+                    }),
                 ));
             }
             Err(error) => {
@@ -4667,6 +5528,7 @@ impl CodexProviderAdapter {
         runtime_session_id: &RuntimeSessionId,
         turn_id: Option<TurnId>,
         live_event_sink: Option<&mut NodeLiveEventSink<'_>>,
+        cancellation: Option<watch::Receiver<bool>>,
     ) -> Result<CodexProcessOutput, ProviderStartFailure> {
         let mut command = TokioCommand::new(&self.codex_binary);
         command
@@ -4692,6 +5554,7 @@ impl CodexProviderAdapter {
             runtime_session_id,
             turn_id,
             live_event_sink,
+            cancellation,
         )
         .await
     }
@@ -4711,6 +5574,7 @@ impl CodexProviderAdapter {
         runtime_session_id: &RuntimeSessionId,
         turn_id: Option<TurnId>,
         live_event_sink: Option<&mut NodeLiveEventSink<'_>>,
+        cancellation: Option<watch::Receiver<bool>>,
     ) -> Result<CodexProcessOutput, ProviderStartFailure> {
         let mut command = TokioCommand::new(&self.codex_binary);
         command
@@ -4736,6 +5600,7 @@ impl CodexProviderAdapter {
             runtime_session_id,
             turn_id,
             live_event_sink,
+            cancellation,
         )
         .await
     }
@@ -4753,6 +5618,7 @@ impl CodexProviderAdapter {
         runtime_session_id: &RuntimeSessionId,
         turn_id: Option<TurnId>,
         mut live_event_sink: Option<&mut NodeLiveEventSink<'_>>,
+        mut cancellation: Option<watch::Receiver<bool>>,
     ) -> Result<CodexProcessOutput, ProviderStartFailure> {
         let mut child = command.spawn().map_err(|error| {
             let code = if error.kind() == ErrorKind::NotFound {
@@ -4787,7 +5653,12 @@ impl CodexProviderAdapter {
             let mut stderr_lines = BufReader::new(stderr).lines();
             let mut stdout = Vec::new();
             let mut stderr = Vec::new();
+            let mut stdout_truncated = false;
+            let mut stderr_truncated = false;
             let mut activity_events = Vec::new();
+            let mut approval_requests = Vec::new();
+            let mut provider_resume_ref = None;
+            let mut dropped_activity_count = 0usize;
             let mut stdout_done = false;
             let mut stderr_done = false;
             let mut status = None;
@@ -4803,8 +5674,22 @@ impl CodexProviderAdapter {
                     line = stdout_lines.next_line(), if !stdout_done => {
                         match line {
                             Ok(Some(line)) => {
-                                stdout.extend_from_slice(line.as_bytes());
-                                stdout.push(b'\n');
+                                if approval_requests.len() < MAX_PROVIDER_APPROVAL_REQUESTS {
+                                    if let Some(approval_request) =
+                                        codex_approval_request_from_json_line(&line)
+                                    {
+                                        approval_requests.push(approval_request);
+                                    }
+                                }
+                                if provider_resume_ref.is_none() {
+                                    provider_resume_ref = codex_resume_ref_from_json_line(&line);
+                                }
+                                append_capped_process_line(
+                                    &mut stdout,
+                                    &line,
+                                    MAX_PROVIDER_PROCESS_OUTPUT_BYTES,
+                                    &mut stdout_truncated,
+                                );
                                 let event = codex_stdout_activity_event(
                                     self.provider_key(),
                                     command_context,
@@ -4815,6 +5700,7 @@ impl CodexProviderAdapter {
                                 );
                                 emit_codex_activity_event(
                                     &mut activity_events,
+                                    &mut dropped_activity_count,
                                     event,
                                     &mut live_event_sink,
                                 )
@@ -4832,8 +5718,12 @@ impl CodexProviderAdapter {
                     line = stderr_lines.next_line(), if !stderr_done => {
                         match line {
                             Ok(Some(line)) => {
-                                stderr.extend_from_slice(line.as_bytes());
-                                stderr.push(b'\n');
+                                append_capped_process_line(
+                                    &mut stderr,
+                                    &line,
+                                    MAX_PROVIDER_PROCESS_OUTPUT_BYTES,
+                                    &mut stderr_truncated,
+                                );
                                 let event = codex_stderr_activity_event(
                                     self.provider_key(),
                                     command_context,
@@ -4844,6 +5734,7 @@ impl CodexProviderAdapter {
                                 );
                                 emit_codex_activity_event(
                                     &mut activity_events,
+                                    &mut dropped_activity_count,
                                     event,
                                     &mut live_event_sink,
                                 )
@@ -4866,6 +5757,12 @@ impl CodexProviderAdapter {
                             )
                         })?);
                     }
+                    _ = wait_for_runtime_cancellation(&mut cancellation), if cancellation.is_some() => {
+                        return Err(ProviderStartFailure::new(
+                            "provider.cancelled",
+                            format!("{command_label} was cancelled by a runtime control command"),
+                        ));
+                    }
                 }
             }
 
@@ -4880,6 +5777,11 @@ impl CodexProviderAdapter {
                 status,
                 stdout,
                 stderr,
+                stdout_truncated,
+                stderr_truncated,
+                dropped_activity_count,
+                approval_requests,
+                provider_resume_ref,
                 activity_events,
             })
         };
@@ -4897,16 +5799,99 @@ impl CodexProviderAdapter {
     }
 }
 
+async fn wait_for_runtime_cancellation(cancellation: &mut Option<watch::Receiver<bool>>) {
+    let Some(receiver) = cancellation.as_mut() else {
+        std::future::pending::<()>().await;
+        return;
+    };
+    loop {
+        if *receiver.borrow_and_update() {
+            return;
+        }
+        if receiver.changed().await.is_err() {
+            std::future::pending::<()>().await;
+        }
+    }
+}
+
 async fn emit_codex_activity_event(
     activity_events: &mut Vec<EventEnvelope>,
+    dropped_activity_count: &mut usize,
     event: EventEnvelope,
     live_event_sink: &mut Option<&mut NodeLiveEventSink<'_>>,
 ) -> Result<(), ProviderStartFailure> {
     if let Some(sink) = live_event_sink.as_mut() {
         sink.emit(&event);
     }
-    activity_events.push(event);
+    if activity_events.len() < MAX_PROVIDER_ACTIVITY_EVENTS {
+        activity_events.push(event);
+    } else {
+        *dropped_activity_count = dropped_activity_count.saturating_add(1);
+    }
     Ok(())
+}
+
+fn append_capped_process_line(
+    output: &mut Vec<u8>,
+    line: &str,
+    max_bytes: usize,
+    truncated: &mut bool,
+) {
+    if max_bytes == 0 {
+        *truncated = true;
+        return;
+    }
+    let remaining = max_bytes.saturating_sub(output.len());
+    if remaining == 0 {
+        *truncated = true;
+        return;
+    }
+    let line_bytes = line.as_bytes();
+    let copied = line_bytes.len().min(remaining);
+    output.extend_from_slice(&line_bytes[..copied]);
+    if copied < line_bytes.len() {
+        *truncated = true;
+        return;
+    }
+    if output.len() < max_bytes {
+        output.push(b'\n');
+    } else {
+        *truncated = true;
+    }
+}
+
+fn append_codex_process_limit_events(
+    provider_key: &str,
+    command: &CommandEnvelope,
+    runtime_seqs: &mut HashMap<String, i64>,
+    runtime_session_id: RuntimeSessionId,
+    turn_id: Option<TurnId>,
+    output: &CodexProcessOutput,
+    events: &mut Vec<EventEnvelope>,
+) {
+    if !output.stdout_truncated && !output.stderr_truncated && output.dropped_activity_count == 0 {
+        return;
+    }
+    events.push(provider_activity_event(
+        provider_key,
+        command,
+        runtime_seqs,
+        runtime_session_id,
+        turn_id,
+        serde_json::json!({
+            "provider": provider_key,
+            "source": "codex.exec.limits",
+            "provider_event_type": "output_truncated",
+            "phase": "warning",
+            "status": "warning",
+            "summary": "Codex provider output exceeded node retention limits",
+            "stdout_truncated": output.stdout_truncated,
+            "stderr_truncated": output.stderr_truncated,
+            "dropped_activity_count": output.dropped_activity_count,
+            "max_process_output_bytes": MAX_PROVIDER_PROCESS_OUTPUT_BYTES,
+            "max_activity_events": MAX_PROVIDER_ACTIVITY_EVENTS,
+        }),
+    ));
 }
 
 fn codex_stdout_activity_event(
@@ -5114,10 +6099,7 @@ struct CodexApprovalRequest {
 }
 
 fn codex_approval_requests_from_output(output: &CodexProcessOutput) -> Vec<CodexApprovalRequest> {
-    String::from_utf8_lossy(&output.stdout)
-        .lines()
-        .filter_map(codex_approval_request_from_json_line)
-        .collect()
+    output.approval_requests.clone()
 }
 
 fn codex_approval_request_from_json_line(line: &str) -> Option<CodexApprovalRequest> {
@@ -5185,41 +6167,46 @@ fn first_json_string_for_keys(value: &serde_json::Value, keys: &[&str]) -> Optio
 }
 
 fn codex_resume_ref_from_output(output: &CodexProcessOutput) -> Option<serde_json::Value> {
-    String::from_utf8_lossy(&output.stdout)
-        .lines()
-        .filter_map(|line| serde_json::from_str::<serde_json::Value>(line).ok())
-        .find_map(|value| {
-            let mut resume_ref = serde_json::Map::new();
-            if let Some(session_id) = first_json_string_for_keys(
-                &value,
-                &[
-                    "provider_session_id",
-                    "session_id",
-                    "conversation_id",
-                    "thread_id",
-                ],
-            )
-            .filter(|value| !value.trim().is_empty())
-            {
-                resume_ref.insert(
-                    "provider_session_id".to_owned(),
-                    serde_json::Value::String(bounded_text(session_id.trim(), 512)),
-                );
-            }
-            if let Some(cursor) = first_json_string_for_keys(&value, &["resume_cursor", "cursor"])
-                .filter(|value| !value.trim().is_empty())
-            {
-                resume_ref.insert(
-                    "resume_cursor".to_owned(),
-                    serde_json::Value::String(bounded_text(cursor.trim(), 512)),
-                );
-            }
-            if resume_ref.is_empty() {
-                None
-            } else {
-                Some(serde_json::Value::Object(resume_ref))
-            }
-        })
+    output.provider_resume_ref.clone()
+}
+
+fn codex_resume_ref_from_json_line(line: &str) -> Option<serde_json::Value> {
+    serde_json::from_str::<serde_json::Value>(line)
+        .ok()
+        .and_then(codex_resume_ref_from_json)
+}
+
+fn codex_resume_ref_from_json(value: serde_json::Value) -> Option<serde_json::Value> {
+    let mut resume_ref = serde_json::Map::new();
+    if let Some(session_id) = first_json_string_for_keys(
+        &value,
+        &[
+            "provider_session_id",
+            "session_id",
+            "conversation_id",
+            "thread_id",
+        ],
+    )
+    .filter(|value| !value.trim().is_empty())
+    {
+        resume_ref.insert(
+            "provider_session_id".to_owned(),
+            serde_json::Value::String(bounded_text(session_id.trim(), 512)),
+        );
+    }
+    if let Some(cursor) = first_json_string_for_keys(&value, &["resume_cursor", "cursor"])
+        .filter(|value| !value.trim().is_empty())
+    {
+        resume_ref.insert(
+            "resume_cursor".to_owned(),
+            serde_json::Value::String(bounded_text(cursor.trim(), 512)),
+        );
+    }
+    if resume_ref.is_empty() {
+        None
+    } else {
+        Some(serde_json::Value::Object(resume_ref))
+    }
 }
 
 fn codex_runtime_ready_payload(
@@ -5925,6 +6912,52 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn sqlite_state_store_snapshot_is_only_a_compatibility_seed() {
+        let dir = std::env::temp_dir().join(format!("uprava-node-seed-{}", Uuid::new_v4()));
+        let path = dir.join(NODE_STATE_SLOT).join("node.sqlite");
+        let mut state = NodeLocalState {
+            node_id: Some(NodeId::from("node-seed")),
+            reconnect_attempts: 4,
+            ..NodeLocalState::default()
+        };
+        state
+            .command_status
+            .insert("command-seed".to_owned(), CommandState::Completed);
+        state.runtime_seqs.insert("runtime-seed".to_owned(), 9);
+        state.runtime_provider_resume_refs.insert(
+            "runtime-seed".to_owned(),
+            ProviderResumeRef {
+                provider_session_id: Some("provider-session".to_owned()),
+                resume_cursor: Some("cursor".to_owned()),
+            },
+        );
+
+        state.save_async(&path).await.expect("sqlite state saves");
+        let pool = open_state_store(&path).await.expect("store opens");
+        let snapshot_json: String =
+            sqlx::query_scalar("select snapshot_json from node_state where state_id = 1")
+                .fetch_one(&pool)
+                .await
+                .expect("snapshot loads");
+        pool.close().await;
+        let seed = serde_json::from_str::<NodeLocalState>(&snapshot_json).expect("seed decodes");
+        let reloaded = NodeLocalState::load_async(&path)
+            .await
+            .expect("sqlite state reloads");
+        std::fs::remove_dir_all(dir).expect("sqlite state fixture removes");
+
+        assert!(seed.command_status.is_empty());
+        assert!(seed.runtime_seqs.is_empty());
+        assert!(seed.runtime_provider_resume_refs.is_empty());
+        assert_eq!(
+            reloaded.command_status.get("command-seed"),
+            Some(&CommandState::Completed)
+        );
+        assert_eq!(reloaded.runtime_seqs.get("runtime-seed").copied(), Some(9));
+        assert_eq!(reloaded.reconnect_attempts, 4);
+    }
+
+    #[tokio::test]
     async fn enrollment_owner_api_reopens_attempt_and_identity() {
         let dir = std::env::temp_dir().join(format!("uprava-node-enrollment-{}", Uuid::new_v4()));
         let path = dir.join(NODE_STATE_SLOT).join("node.sqlite");
@@ -6002,7 +7035,7 @@ mod tests {
             .await
             .expect("second reconnect attempt persists");
 
-        let after_reconnect = store.snapshot().await;
+        let after_reconnect = store.snapshot().await.expect("state snapshot");
         assert_eq!(after_reconnect.reconnect_attempts, 2);
         assert_eq!(
             after_reconnect
@@ -6109,12 +7142,72 @@ mod tests {
         first.expect("first heartbeat failure persists");
         second.expect("second heartbeat failure persists");
 
-        assert_eq!(store.snapshot().await.heartbeat_failures, 2);
+        assert_eq!(
+            store
+                .snapshot()
+                .await
+                .expect("state snapshot")
+                .heartbeat_failures,
+            2
+        );
         let reopened = NodeLocalState::load_async(&path)
             .await
             .expect("heartbeat metric reloads");
         assert_eq!(reopened.heartbeat_failures, 2);
         let _ = std::fs::remove_file(path);
+    }
+
+    #[tokio::test]
+    async fn sqlite_state_store_hydrates_metrics_from_normalized_table() {
+        let path =
+            std::env::temp_dir().join(format!("uprava-node-metrics-{}.sqlite", Uuid::new_v4()));
+        let state = NodeLocalState {
+            reconnect_attempts: 7,
+            dropped_event_count: 5,
+            heartbeat_failures: 3,
+            ..NodeLocalState::default()
+        };
+        state.save_async(&path).await.expect("state persists");
+        let stale_snapshot =
+            serde_json::to_string(&NodeLocalState::default()).expect("stale snapshot serializes");
+        let pool = open_state_store(&path).await.expect("store opens");
+        sqlx::query("update node_state set snapshot_json = ?1 where state_id = 1")
+            .bind(stale_snapshot)
+            .execute(&pool)
+            .await
+            .expect("snapshot rewrites");
+        pool.close().await;
+
+        let reloaded = NodeLocalState::load_async(&path)
+            .await
+            .expect("state reloads");
+        let _ = std::fs::remove_file(path);
+
+        assert_eq!(reloaded.reconnect_attempts, 7);
+        assert_eq!(reloaded.dropped_event_count, 5);
+        assert_eq!(reloaded.heartbeat_failures, 3);
+    }
+
+    #[tokio::test]
+    async fn state_store_shutdown_joins_actor_and_rejects_later_requests() {
+        let path =
+            std::env::temp_dir().join(format!("uprava-node-shutdown-{}.sqlite", Uuid::new_v4()));
+        let state = NodeLocalState::default();
+        state.save_async(&path).await.expect("state persists");
+        let store = NodeStateStore::new(state, path.clone());
+        store
+            .persist_heartbeat_failure()
+            .await
+            .expect("mutation before shutdown persists");
+
+        store.shutdown().await.expect("state actor joins");
+        let error = store
+            .persist_heartbeat_failure()
+            .await
+            .expect_err("mutation after shutdown fails");
+        let _ = std::fs::remove_file(path);
+
+        assert!(error.to_string().contains("state store task stopped"));
     }
 
     #[test]
@@ -6242,7 +7335,7 @@ mod tests {
             .expect("stale enrollment clears");
         server.await.expect("test server finishes");
         let saved_state = NodeLocalState::load(&state_path).expect("state reloads");
-        let current_state = store.snapshot().await;
+        let current_state = store.snapshot().await.expect("state snapshot");
         std::fs::remove_file(state_path).expect("node state fixture is removed");
 
         assert!(!enrolled);
@@ -6533,6 +7626,95 @@ mod tests {
             local_state.runtime_states.get("runtime-1").copied(),
             Some(RuntimeSessionState::Error)
         );
+    }
+
+    #[tokio::test]
+    async fn event_outbox_retention_drops_old_runtime_events_by_age() {
+        let command = command_fixture("command-retention-age", CommandKind::SendTurn);
+        let mut local_state = NodeLocalState {
+            node_id: Some(NodeId::from("node-1")),
+            ..NodeLocalState::default()
+        };
+        let runtime_session_id = RuntimeSessionId::from("runtime-age");
+        let mut old_event = event_for_command(
+            "codex",
+            &command,
+            &mut local_state.runtime_seqs,
+            runtime_session_id.clone(),
+            None,
+            EventKind::RuntimeRunning,
+            serde_json::json!({ "provider": "codex" }),
+        );
+        old_event.happened_at = Utc::now() - chrono::Duration::seconds(10);
+        let recent_event = event_for_command(
+            "codex",
+            &command,
+            &mut local_state.runtime_seqs,
+            runtime_session_id,
+            None,
+            EventKind::RuntimeRunning,
+            serde_json::json!({ "provider": "codex" }),
+        );
+        local_state.event_outbox.push(old_event);
+        local_state.event_outbox.push(recent_event);
+
+        let notices = enforce_event_outbox_retention_with_limits(
+            &mut local_state,
+            10,
+            Duration::from_secs(1),
+            usize::MAX,
+        );
+
+        assert_eq!(notices.len(), 1);
+        assert_eq!(notices[0].kind, EventKind::RuntimeError);
+        assert_eq!(local_state.dropped_event_count, 1);
+        assert!(local_state
+            .event_outbox
+            .iter()
+            .all(|event| event.happened_at >= Utc::now() - chrono::Duration::seconds(11)));
+    }
+
+    #[tokio::test]
+    async fn event_outbox_retention_drops_oldest_events_by_serialized_bytes() {
+        let command = command_fixture("command-retention-bytes", CommandKind::SendTurn);
+        let mut local_state = NodeLocalState {
+            node_id: Some(NodeId::from("node-1")),
+            ..NodeLocalState::default()
+        };
+        for index in 0..3 {
+            let mut event = event_for_command(
+                "codex",
+                &command,
+                &mut local_state.runtime_seqs,
+                RuntimeSessionId::from("runtime-bytes"),
+                None,
+                EventKind::ProviderActivity,
+                serde_json::json!({ "data": "x".repeat(1024), "index": index }),
+            );
+            event.runtime_session_id = None;
+            event.scope_ref = ScopeRef::Node {
+                node_id: NodeId::from("node-1"),
+            };
+            local_state.event_outbox.push(event);
+        }
+        let max_bytes = serialized_event_len(&local_state.event_outbox[2]) + 1;
+
+        let notices = enforce_event_outbox_retention_with_limits(
+            &mut local_state,
+            10,
+            Duration::ZERO,
+            max_bytes,
+        );
+        let retained_bytes = local_state
+            .event_outbox
+            .iter()
+            .map(serialized_event_len)
+            .sum::<usize>();
+
+        assert!(notices.is_empty());
+        assert!(retained_bytes <= max_bytes);
+        assert!(local_state.event_outbox.len() <= 1);
+        assert!(local_state.dropped_event_count >= 2);
     }
 
     #[tokio::test]
@@ -8044,6 +9226,66 @@ mod tests {
 
     #[cfg(unix)]
     #[tokio::test]
+    async fn codex_send_turn_cancellation_interrupts_active_process() {
+        let codex_binary = fake_codex_slow_binary();
+        let workspace_path =
+            std::env::temp_dir().join(format!("uprava-codex-workspace-{}", Uuid::new_v4()));
+        std::fs::create_dir_all(&workspace_path).expect("workspace fixture creates");
+        let mut config = config_fixture_with_codex_binary(codex_binary.display().to_string());
+        config.codex_timeout = Duration::from_secs(5);
+        let command =
+            command_fixture_with_content("command-codex-cancel", CommandKind::SendTurn, "status");
+        let mut local_state = NodeLocalState::default();
+        local_state
+            .runtime_providers
+            .insert("runtime-1".to_owned(), "codex".to_owned());
+        local_state
+            .runtime_workspace_paths
+            .insert("runtime-1".to_owned(), workspace_path.display().to_string());
+        let (cancel_tx, cancel_rx) = watch::channel(false);
+        let cancel_task = tokio::spawn(async move {
+            tokio::time::sleep(Duration::from_millis(50)).await;
+            let _ = cancel_tx.send(true);
+        });
+
+        let outcome = prepare_command_dispatch_with_live_socket(
+            &config,
+            &mut local_state,
+            &command,
+            None,
+            None,
+            Some(cancel_rx),
+        )
+        .await;
+
+        cancel_task.await.expect("cancel task joins");
+        std::fs::remove_file(codex_binary).expect("codex fixture removes");
+        std::fs::remove_dir_all(workspace_path).expect("workspace fixture removes");
+        assert_eq!(outcome.status, CommandState::Failed);
+        assert_eq!(
+            event_kinds(&outcome.events_to_send),
+            vec![
+                EventKind::RuntimeRunning,
+                EventKind::TurnStarted,
+                EventKind::TurnInterrupted,
+            ]
+        );
+        assert_eq!(
+            outcome.events_to_send[2]
+                .payload
+                .0
+                .get("code")
+                .and_then(serde_json::Value::as_str),
+            Some("provider.cancelled")
+        );
+        assert_eq!(
+            local_state.runtime_states.get("runtime-1").copied(),
+            Some(RuntimeSessionState::Interrupted)
+        );
+    }
+
+    #[cfg(unix)]
+    #[tokio::test]
     async fn codex_send_turn_maps_slow_process_to_start_timeout_error() {
         let codex_binary = fake_codex_slow_binary();
         let workspace_path =
@@ -8360,8 +9602,8 @@ sleep 2
 
     #[tokio::test]
     async fn terminal_manager_rebinds_routes_without_dropping_pty_handles() {
-        let (old_sender, _old_receiver) = mpsc::unbounded_channel();
-        let (new_sender, _new_receiver) = mpsc::unbounded_channel();
+        let (old_sender, _old_receiver) = mpsc::channel(4);
+        let (new_sender, _new_receiver) = mpsc::channel(4);
         let route = Arc::new(RwLock::new(Some(old_sender)));
         let control_tx = mpsc::unbounded_channel().0;
         let mut manager = WorkspaceTerminalManager::default();
@@ -8371,6 +9613,7 @@ sleep 2
                 replay: Arc::new(RwLock::new(VecDeque::new())),
                 control_tx,
                 sender_route: route.clone(),
+                task: tokio::spawn(async {}),
             },
         );
 
@@ -8381,6 +9624,248 @@ sleep 2
         manager.detach_sender().await;
         assert!(route.read().await.is_none());
         assert_eq!(manager.terminals.len(), 1);
+    }
+
+    #[tokio::test]
+    async fn terminal_replay_is_bounded_by_bytes() {
+        let replay = Arc::new(RwLock::new(VecDeque::new()));
+        let terminal_id = TerminalId::from("terminal-replay");
+        for seq in 1..=4 {
+            record_terminal_replay(
+                &replay,
+                WorkspaceTerminalOutputFrame {
+                    terminal_id: terminal_id.clone(),
+                    seq,
+                    data: "x".repeat(MAX_WORKSPACE_TERMINAL_REPLAY_BYTES / 2),
+                    sent_at: Utc::now(),
+                },
+            )
+            .await;
+        }
+
+        let replay = replay.read().await;
+        assert!(terminal_replay_bytes(&replay) <= MAX_WORKSPACE_TERMINAL_REPLAY_BYTES);
+        assert!(replay.front().is_some_and(|frame| frame.seq > 1));
+    }
+
+    #[tokio::test]
+    async fn terminal_manager_shutdown_sends_close_and_joins_tasks() {
+        let (control_tx, mut control_rx) = mpsc::unbounded_channel();
+        let (closed_tx, closed_rx) = oneshot::channel();
+        let task = tokio::spawn(async move {
+            while let Some(control) = control_rx.recv().await {
+                if matches!(control, WorkspaceTerminalControl::Close) {
+                    let _ = closed_tx.send(());
+                    break;
+                }
+            }
+        });
+        let route = Arc::new(RwLock::new(None));
+        let mut manager = WorkspaceTerminalManager::default();
+        manager.terminals.insert(
+            "terminal-shutdown".to_owned(),
+            WorkspaceTerminalHandle {
+                replay: Arc::new(RwLock::new(VecDeque::new())),
+                control_tx,
+                sender_route: route,
+                task,
+            },
+        );
+
+        manager.shutdown().await;
+
+        closed_rx.await.expect("terminal task observed close");
+        assert!(manager.terminals.is_empty());
+    }
+
+    #[test]
+    fn command_execution_key_prefers_runtime_then_placement() {
+        let mut runtime_command = command_fixture("command-runtime", CommandKind::SendTurn);
+        runtime_command.runtime_session_id = Some(RuntimeSessionId::from("runtime-1"));
+        runtime_command.project_placement_id = Some(ProjectPlacementId::from("placement-1"));
+        assert_eq!(command_execution_key(&runtime_command), "runtime:runtime-1");
+
+        let mut placement_command =
+            command_fixture("command-placement", CommandKind::RunWorkspaceCommand);
+        placement_command.runtime_session_id = None;
+        placement_command.project_placement_id = Some(ProjectPlacementId::from("placement-1"));
+        assert_eq!(
+            command_execution_key(&placement_command),
+            "placement:placement-1"
+        );
+
+        let mut command = command_fixture("command-standalone", CommandKind::ValidateWorkspace);
+        command.runtime_session_id = None;
+        assert_eq!(
+            command_execution_key(&command),
+            "command:command-standalone"
+        );
+    }
+
+    #[tokio::test]
+    async fn dispatch_busy_result_is_retryable_failed_command_result() {
+        let (sender, mut receiver) = mpsc::channel(4);
+        let command = command_fixture("command-busy", CommandKind::SendTurn);
+
+        send_dispatch_busy_result(&sender, &command)
+            .await
+            .expect("busy result sends");
+
+        let ack = receiver.recv().await.expect("ack frame");
+        let ControlFrame::CommandAck {
+            command_id, status, ..
+        } = ack
+        else {
+            panic!("expected command ack");
+        };
+        assert_eq!(command_id, command.command_id);
+        assert_eq!(status, CommandState::Acknowledged);
+
+        let result = receiver.recv().await.expect("result frame");
+        let ControlFrame::CommandResult {
+            command_id,
+            status,
+            payload,
+            ..
+        } = result
+        else {
+            panic!("expected command result");
+        };
+        assert_eq!(command_id, command.command_id);
+        assert_eq!(status, CommandState::Failed);
+        assert_eq!(
+            payload
+                .0
+                .get("error_code")
+                .and_then(serde_json::Value::as_str),
+            Some("node.dispatch_busy")
+        );
+        assert_eq!(
+            payload
+                .0
+                .get("retryable")
+                .and_then(serde_json::Value::as_bool),
+            Some(true)
+        );
+    }
+
+    #[tokio::test]
+    async fn send_frame_reports_saturated_writer_queue() {
+        let (sender, _receiver) = mpsc::channel(1);
+        send_frame(
+            &sender,
+            ControlFrame::Pong {
+                frame_id: "frame-1".to_owned(),
+                protocol_version: API_VERSION.to_owned(),
+                sent_at: Utc::now(),
+            },
+        )
+        .await
+        .expect("first frame fits queue");
+
+        let error = send_frame(
+            &sender,
+            ControlFrame::Pong {
+                frame_id: "frame-2".to_owned(),
+                protocol_version: API_VERSION.to_owned(),
+                sent_at: Utc::now(),
+            },
+        )
+        .await
+        .expect_err("second frame reports saturation");
+        assert!(error.to_string().contains("control frame send failed"));
+    }
+
+    #[test]
+    fn append_capped_process_line_bounds_output_bytes() {
+        let mut output = Vec::new();
+        let mut truncated = false;
+
+        append_capped_process_line(&mut output, "abcdef", 5, &mut truncated);
+
+        assert_eq!(output, b"abcde");
+        assert!(truncated);
+
+        append_capped_process_line(&mut output, "ignored", 5, &mut truncated);
+
+        assert_eq!(output, b"abcde");
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn codex_process_limit_event_records_output_truncation() {
+        use std::os::unix::process::ExitStatusExt;
+
+        let command = command_fixture("command-limits", CommandKind::SendTurn);
+        let output = CodexProcessOutput {
+            status: ExitStatus::from_raw(0),
+            stdout: b"partial".to_vec(),
+            stderr: Vec::new(),
+            stdout_truncated: true,
+            stderr_truncated: false,
+            dropped_activity_count: 7,
+            approval_requests: vec![],
+            provider_resume_ref: None,
+            activity_events: vec![],
+        };
+        let mut runtime_seqs = HashMap::new();
+        let mut events = Vec::new();
+
+        append_codex_process_limit_events(
+            "codex",
+            &command,
+            &mut runtime_seqs,
+            RuntimeSessionId::from("runtime-1"),
+            Some(TurnId::from("turn-1")),
+            &output,
+            &mut events,
+        );
+
+        assert_eq!(events.len(), 1);
+        assert_eq!(events[0].kind, EventKind::ProviderActivity);
+        assert_eq!(
+            events[0]
+                .payload
+                .0
+                .get("provider_event_type")
+                .and_then(serde_json::Value::as_str),
+            Some("output_truncated")
+        );
+        assert_eq!(
+            events[0]
+                .payload
+                .0
+                .get("dropped_activity_count")
+                .and_then(serde_json::Value::as_i64),
+            Some(7)
+        );
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn codex_resume_ref_uses_incremental_parse_result() {
+        use std::os::unix::process::ExitStatusExt;
+
+        let output = CodexProcessOutput {
+            status: ExitStatus::from_raw(0),
+            stdout: Vec::new(),
+            stderr: Vec::new(),
+            stdout_truncated: true,
+            stderr_truncated: false,
+            dropped_activity_count: 0,
+            approval_requests: vec![],
+            provider_resume_ref: Some(serde_json::json!({
+                "provider_session_id": "session-incremental",
+            })),
+            activity_events: vec![],
+        };
+
+        assert_eq!(
+            codex_resume_ref_from_output(&output)
+                .and_then(|value| value.get("provider_session_id").cloned())
+                .and_then(|value| value.as_str().map(str::to_owned)),
+            Some("session-incremental".to_owned())
+        );
     }
 
     #[test]
@@ -8427,7 +9912,7 @@ sleep 2
             .await
             .expect("initial state persists");
         let store = NodeStateStore::new(initial, path.clone());
-        let baseline = store.snapshot().await;
+        let baseline = store.snapshot().await.expect("state snapshot");
         let first = NodeLocalState {
             node_id: Some(NodeId::from("stale-first-copy")),
             command_status: HashMap::from([("command-1".to_owned(), CommandState::Completed)]),
@@ -8448,7 +9933,7 @@ sleep 2
         first_result.expect("first command merge persists");
         second_result.expect("second command merge persists");
 
-        let merged = store.snapshot().await;
+        let merged = store.snapshot().await.expect("state snapshot");
         assert_eq!(merged.node_id, Some(NodeId::from("node-owner")));
         assert_eq!(merged.credential.as_deref(), Some("credential-owner"));
         assert!(merged.command_status.contains_key("command-1"));
@@ -8465,7 +9950,7 @@ sleep 2
         );
         ack_result.expect("event ACK persists");
         merge_result.expect("stale command merge persists");
-        let merged = store.snapshot().await;
+        let merged = store.snapshot().await.expect("state snapshot");
         assert!(merged
             .event_outbox
             .iter()
@@ -8582,6 +10067,7 @@ sleep 2
         assert!(!removal_store
             .snapshot()
             .await
+            .expect("state snapshot")
             .runtime_provider_resume_refs
             .contains_key("runtime-remove"));
         let removal_reopened = NodeLocalState::load_async(&removal_path)
@@ -8620,6 +10106,7 @@ sleep 2
             newer_store
                 .snapshot()
                 .await
+                .expect("state snapshot")
                 .runtime_provider_resume_refs
                 .get("runtime-remove"),
             Some(&newer_ref)

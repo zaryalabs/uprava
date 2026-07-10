@@ -2,6 +2,7 @@ SHELL := /bin/sh
 
 RUST_MANIFEST := Cargo.toml
 CARGO ?= cargo
+PYTHON ?= python3
 RUSTUP ?= rustup
 RUST_TOOLCHAIN ?=
 WEB_DIR := apps/web
@@ -130,7 +131,7 @@ fmt: docs-fmt rust-fmt web-fmt ## Format all supported project files
 
 l: docs-l rust-l web-l ## Run light checks
 
-dl: l rust-dl web-dl ## Run deep checks
+dl: l protocol-check rust-dl web-dl ## Run deep checks
 
 t: rust-t web-t ## Run tests
 
@@ -203,6 +204,9 @@ scripts-check: ## Run shell syntax checks for product scripts
 	sh scripts/check-ci-policy.sh; \
 	sh scripts/check-ops-rollback.sh; \
 	sh scripts/check-backup-restore.sh
+
+protocol-check: ## Check Rust/Web protocol literal drift
+	$(PYTHON) scripts/protocol_check.py
 
 rust-fmt: ## Format Rust code when Cargo workspace exists
 	@if [ -f "$(RUST_MANIFEST)" ]; then \

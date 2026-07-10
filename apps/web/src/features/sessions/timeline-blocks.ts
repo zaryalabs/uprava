@@ -1,10 +1,10 @@
 import type {
-  UpravaRef,
   EventEnvelope,
   Message,
   SessionDetail,
-  UiBlock,
+  UpravaRef,
 } from "../../shared/protocol/types";
+import type { UiBlock } from "../../workbench/blocks/types";
 
 export type TimelineBlockItem = {
   block: UiBlock;

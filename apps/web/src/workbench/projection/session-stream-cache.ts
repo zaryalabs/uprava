@@ -66,7 +66,7 @@ export async function invalidateSessionSnapshots(
       queryKey: queryKeys.agentProjection(sessionThreadId),
     }),
     queryClient.invalidateQueries({
-      queryKey: queryKeys.artifactTree(sessionThreadId),
+      queryKey: queryKeys.sessionEvidenceProjection(sessionThreadId),
     }),
     queryClient.invalidateQueries({ queryKey: queryKeys.inventory }),
   ]);

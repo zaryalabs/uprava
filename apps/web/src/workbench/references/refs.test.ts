@@ -111,7 +111,7 @@ describe("reference helpers", () => {
     ).toBe("/workspaces/placement-1");
     expect(
       routeForRef({ kind: "placement", placement_id: "placement-1" }),
-    ).toBe("/placements/placement-1");
+    ).toBe("/workspaces/placement-1");
     expect(
       routeForRef({ kind: "session", session_thread_id: "session-1" }),
     ).toBe("/sessions/session-1");

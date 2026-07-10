@@ -7,13 +7,13 @@ import { useInventory } from "../../features/inventory/api";
 import { coreApi } from "../../shared/api/http-client";
 import { queryKeys } from "../../shared/api/query-keys";
 import type {
-  ArtifactTree,
-  ArtifactTreeNode,
   UpravaRef,
   EventEnvelope,
   InventorySnapshot,
   Message,
   ResourceBadge,
+  SessionEvidenceProjection,
+  SessionEvidenceProjectionNode,
   SessionDetail,
 } from "../../shared/protocol/types";
 import { Badge } from "../../shared/ui/badge";
@@ -54,7 +54,7 @@ type InspectorDetail = {
 type InspectorContext = {
   inventory?: InventorySnapshot;
   session?: SessionDetail;
-  artifactTree?: ArtifactTree;
+  evidenceProjection?: SessionEvidenceProjection;
 };
 
 const reservedFutureKinds = new Set([
@@ -83,9 +83,9 @@ export function InspectorStack() {
     queryFn: () => coreApi.session(sessionThreadId ?? ""),
     enabled: Boolean(selected && sessionThreadId),
   });
-  const artifactTree = useQuery({
-    queryKey: queryKeys.artifactTree(sessionThreadId ?? ""),
-    queryFn: () => coreApi.artifactTree(sessionThreadId ?? ""),
+  const evidenceProjection = useQuery({
+    queryKey: queryKeys.sessionEvidenceProjection(sessionThreadId ?? ""),
+    queryFn: () => coreApi.sessionEvidenceProjection(sessionThreadId ?? ""),
     enabled: Boolean(
       selected && sessionThreadId && selected.kind === "artifact",
     ),
@@ -107,7 +107,7 @@ export function InspectorStack() {
     ? buildInspectorDetail(selected, {
         inventory: inventory.data,
         session: session.data,
-        artifactTree: artifactTree.data,
+        evidenceProjection: evidenceProjection.data,
       })
     : null;
 
@@ -592,15 +592,24 @@ function artifactDetail(
   ref: Extract<UpravaRef, { kind: "artifact" }>,
   context: InspectorContext,
 ): InspectorDetail {
-  const node = context.artifactTree
-    ? findArtifactNode(context.artifactTree.root, ref.artifact_id)
+  const node = context.evidenceProjection
+    ? findEvidenceNodeByArtifactRef(
+        context.evidenceProjection.root,
+        ref.artifact_id,
+      )
     : null;
-  if (!node) return notAvailable(ref, "Artifact is not in the current tree");
+  if (!node) {
+    return notAvailable(
+      ref,
+      "Artifact is not in the current evidence projection",
+    );
+  }
   return {
     title: node.label,
     status: "resolved",
     rows: [
-      { label: "artifact id", value: node.artifact_id },
+      { label: "artifact id", value: ref.artifact_id },
+      { label: "evidence id", value: node.evidence_id },
       { label: "children", value: node.children.length },
       { label: "primary ref", value: refTitle(node.primary_ref) },
     ],
@@ -841,13 +850,18 @@ function refLinks(label: string, refs: UpravaRef[]): InspectorRefLink[] {
   }));
 }
 
-function findArtifactNode(
-  node: ArtifactTreeNode,
+function findEvidenceNodeByArtifactRef(
+  node: SessionEvidenceProjectionNode,
   artifactId: string,
-): ArtifactTreeNode | null {
-  if (node.artifact_id === artifactId) return node;
+): SessionEvidenceProjectionNode | null {
+  if (
+    node.primary_ref.kind === "artifact" &&
+    node.primary_ref.artifact_id === artifactId
+  ) {
+    return node;
+  }
   for (const child of node.children) {
-    const found = findArtifactNode(child, artifactId);
+    const found = findEvidenceNodeByArtifactRef(child, artifactId);
     if (found) return found;
   }
   return null;

@@ -2,27 +2,31 @@ import { useQuery } from "@tanstack/react-query";
 
 import { coreApi } from "../../shared/api/http-client";
 import { queryKeys } from "../../shared/api/query-keys";
-import type { ArtifactTreeNode } from "../../shared/protocol/types";
+import type { SessionEvidenceProjectionNode } from "../../shared/protocol/types";
 import { runWorkbenchCommand } from "../../workbench/commands/registry";
 import { ReferenceActions } from "../../workbench/references/ReferenceActions";
 import { refTitle } from "../../workbench/references/refs";
 import { useOpenReference } from "../../workbench/references/use-inspector-stack";
 
-export function ArtifactTree({ sessionThreadId }: { sessionThreadId: string }) {
-  const tree = useQuery({
-    queryKey: queryKeys.artifactTree(sessionThreadId),
-    queryFn: () => coreApi.artifactTree(sessionThreadId),
+export function EvidenceProjection({
+  sessionThreadId,
+}: {
+  sessionThreadId: string;
+}) {
+  const projection = useQuery({
+    queryKey: queryKeys.sessionEvidenceProjection(sessionThreadId),
+    queryFn: () => coreApi.sessionEvidenceProjection(sessionThreadId),
   });
 
   return (
     <section className="rounded-md border border-[#d9ded4] bg-white p-3">
-      <h2 className="text-sm font-semibold">Artifact Tree</h2>
-      {tree.data ? <TreeNode node={tree.data.root} /> : null}
+      <h2 className="text-sm font-semibold">Evidence Projection</h2>
+      {projection.data ? <TreeNode node={projection.data.root} /> : null}
     </section>
   );
 }
 
-function TreeNode({ node }: { node: ArtifactTreeNode }) {
+function TreeNode({ node }: { node: SessionEvidenceProjectionNode }) {
   const openReference = useOpenReference();
   const inspectNode = () => {
     void runWorkbenchCommand("reference.openInInspector", {
@@ -48,7 +52,7 @@ function TreeNode({ node }: { node: ArtifactTreeNode }) {
       {node.children.length > 0 ? (
         <div className="ml-3 border-l border-[#d9ded4] pl-2">
           {node.children.slice(0, 8).map((child) => (
-            <TreeNode key={child.artifact_id} node={child} />
+            <TreeNode key={child.evidence_id} node={child} />
           ))}
         </div>
       ) : null}

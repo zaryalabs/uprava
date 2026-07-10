@@ -30,7 +30,10 @@ describe("applySessionStreamEventToCache", () => {
       false,
     );
     expect(
-      isInvalidated(queryClient, queryKeys.artifactTree("session-1")),
+      isInvalidated(
+        queryClient,
+        queryKeys.sessionEvidenceProjection("session-1"),
+      ),
     ).toBe(true);
     expect(
       isInvalidated(queryClient, queryKeys.agentProjection("session-1")),
@@ -61,7 +64,10 @@ describe("applySessionStreamEventToCache", () => {
       true,
     );
     expect(
-      isInvalidated(queryClient, queryKeys.artifactTree("session-1")),
+      isInvalidated(
+        queryClient,
+        queryKeys.sessionEvidenceProjection("session-1"),
+      ),
     ).toBe(true);
     expect(
       isInvalidated(queryClient, queryKeys.agentProjection("session-1")),
@@ -87,7 +93,7 @@ function queryClientWithSnapshots(detail: SessionDetail) {
     defaultOptions: { queries: { retry: false } },
   });
   queryClient.setQueryData(queryKeys.session("session-1"), detail);
-  queryClient.setQueryData(queryKeys.artifactTree("session-1"), {
+  queryClient.setQueryData(queryKeys.sessionEvidenceProjection("session-1"), {
     root: { children: [] },
   });
   queryClient.setQueryData(queryKeys.agentProjection("session-1"), {

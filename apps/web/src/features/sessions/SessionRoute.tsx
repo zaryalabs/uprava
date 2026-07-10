@@ -20,7 +20,7 @@ import {
   routeForRef,
   workspaceRefForPlacement,
 } from "../../workbench/references/refs";
-import { ArtifactTree } from "../artifacts/ArtifactTree";
+import { EvidenceProjection } from "../artifacts/EvidenceProjection";
 import { AgentProjectionPanel } from "../agent-projection/AgentProjectionPanel";
 import { ChatComposer } from "./ChatComposer";
 import { LifecycleControls } from "./LifecycleControls";
@@ -156,7 +156,7 @@ export function SessionRoute() {
         />
       </div>
       <aside className="space-y-4">
-        <ArtifactTree
+        <EvidenceProjection
           sessionThreadId={session.data.session.session_thread_id}
         />
         <AgentProjectionPanel

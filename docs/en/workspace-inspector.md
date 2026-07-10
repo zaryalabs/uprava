@@ -26,11 +26,12 @@ Inspector ships. This first slot is reference-oriented, not a file browser or
 terminal surface.
 
 The Web Control Panel can open and copy `UpravaRef` objects from visible session
-timeline blocks, artifact-tree entries, nodes, placements, sessions, runtimes,
-events, commands, approvals and warnings. The panel resolves details from the
-currently loaded Core snapshots and session event log. Future workspace,
-terminal, diff, check, tool-call and external refs render explicit unavailable
-or not-implemented states instead of broken links or invented targets.
+timeline blocks, session evidence-projection entries, nodes, placements,
+sessions, runtimes, events, commands, approvals and warnings. The panel resolves
+details from the currently loaded Core snapshots and session event log. Future
+workspace, terminal, diff, check, tool-call and external refs render explicit
+unavailable or not-implemented states instead of broken links or invented
+targets.
 
 This keeps the V01 workbench traceable while preserving the later inspector
 boundary: direct workspace inspection still goes through Core and Node Daemon

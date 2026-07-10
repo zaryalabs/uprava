@@ -27,11 +27,12 @@ Workspace Inspector. Первый слот работает с references, а н
 terminal surface.
 
 Web Control Panel может открывать и копировать `UpravaRef` objects из visible
-session timeline blocks, artifact-tree entries, nodes, placements, sessions,
-runtimes, events, commands, approvals and warnings. Панель резолвит детали из
-уже загруженных Core snapshots и session event log. Future workspace, terminal,
-diff, check, tool-call and external refs показывают explicit unavailable or
-not-implemented states вместо broken links or invented targets.
+session timeline blocks, session evidence-projection entries, nodes,
+placements, sessions, runtimes, events, commands, approvals and warnings.
+Панель резолвит детали из уже загруженных Core snapshots и session event log.
+Future workspace, terminal, diff, check, tool-call and external refs показывают
+explicit unavailable or not-implemented states вместо broken links or invented
+targets.
 
 Так V01 workbench остается traceable, но сохраняет будущую inspector boundary:
 direct workspace inspection все еще должен идти через Core and Node Daemon

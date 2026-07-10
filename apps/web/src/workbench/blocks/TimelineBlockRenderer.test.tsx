@@ -1,9 +1,9 @@
 import { fireEvent, render, screen } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
 
-import type { UiBlock } from "../../shared/protocol/types";
 import { Button } from "../../shared/ui/button";
 import { TimelineBlockRenderer } from "./TimelineBlockRenderer";
+import type { UiBlock } from "./types";
 
 describe("TimelineBlockRenderer", () => {
   it("renders unknown block fallback text and keeps supplied actions visible", () => {

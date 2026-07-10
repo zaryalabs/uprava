@@ -14,13 +14,15 @@ and canonical documents are linked rather than copied.
 1. Repository [README](../../README.md) and [AGENTS.md](../../AGENTS.md).
 2. [Portable handoff](0.2.0-handoff.md) for the current branch state, checks,
    constraints and resume procedure.
-3. [Completion plan](../tmp-plans/0.2.0-completion-from-current.md) for the
+3. [M7 checkpoint handoff](0.2.0-checkpoint-2026-07-10-m7.md) for the current
+   pause point and next recommended implementation slice.
+4. [Completion plan](../tmp-plans/0.2.0-completion-from-current.md) for the
    sequential implementation order from the current state to final `0.2.0`.
-4. [Implementation ledger](0.2.0-implementation-ledger.md) when a milestone
+5. [Implementation ledger](0.2.0-implementation-ledger.md) when a milestone
    needs historical rationale, commit evidence or its accepted residuals.
-5. [Quality-foundation plan](../tmp-plans/0.2.0-quality-foundation.md) for the
+6. [Quality-foundation plan](../tmp-plans/0.2.0-quality-foundation.md) for the
    authoritative scope, finding matrix, non-goals and final release criteria.
-6. [RC checklist](../tmp-plans/0.2.0-rc-checklist.md) for release evidence.
+7. [RC checklist](../tmp-plans/0.2.0-rc-checklist.md) for release evidence.
 
 Canonical product and operational context:
 

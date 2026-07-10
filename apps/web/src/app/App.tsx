@@ -25,7 +25,6 @@ export function App() {
             path="/nodes/:nodeId/placements/new"
             element={<PlacementNewRoute />}
           />
-          <Route path="/placements/:placementId" element={<PlacementRoute />} />
           <Route path="/workspaces/:placementId" element={<PlacementRoute />} />
           <Route path="/sessions/:sessionThreadId" element={<SessionRoute />} />
           <Route path="/settings/runtime" element={<RuntimeSettingsRoute />} />

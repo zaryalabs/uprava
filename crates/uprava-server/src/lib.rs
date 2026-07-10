@@ -5,7 +5,7 @@ use std::{
     io::Write,
     path::PathBuf,
     sync::atomic::{AtomicU64, Ordering},
-    sync::Arc,
+    sync::{Arc, Mutex as StdMutex},
     time::Duration,
 };
 
@@ -37,7 +37,7 @@ use rand_core::OsRng;
 use serde::{de::DeserializeOwned, Deserialize, Serialize};
 use serde_json::json;
 use sha2::{Digest, Sha256};
-use sqlx::{Row, SqlitePool};
+use sqlx::{Row, SqliteConnection, SqlitePool};
 use subtle::ConstantTimeEq;
 use tokio::sync::{broadcast, mpsc, oneshot, Mutex, RwLock};
 use tower_http::{
@@ -49,27 +49,27 @@ use tower_http::{
 use uprava_protocol::{
     is_supported_protocol_version, serde_json_value::JsonValue, AcknowledgeWarningRequest,
     ActorRef, AgentProjection, ApiError, ApprovalId, ApprovalState, ApproveNodeEnrollmentResponse,
-    ArtifactId, ArtifactTree, ArtifactTreeNode, CapabilitySummary,
-    ClientCreateNodeEnrollmentRequest, ClientLogLevel, ClientLogRequest, ClientLogResponse,
-    CommandAcceptedResponse, CommandEnvelope, CommandId, CommandKind, CommandState, ControlFrame,
-    CorrelationId, CreatePlacementRequest, CreateSessionRequest, DeploymentProfile, EnrollmentId,
-    EnrollmentState, EventEnvelope, EventId, EventKind, HealthResponse, InventorySnapshot, Message,
-    MessageId, MessageRole, NodeCredentialRotationResponse, NodeDeletionResponse,
-    NodeEnrollmentClaimRequest, NodeEnrollmentClaimResponse, NodeEnrollmentRequest,
-    NodeEnrollmentRequestedResponse, NodeEnrollmentSummary, NodeHeartbeatRequest,
-    NodeHeartbeatResponse, NodeId, NodePresence, NodeRevocationResponse, PlacementDeletionResponse,
-    PlacementState, ProjectId, ProjectPlacementId, ProjectPlacementSummary, ResolveApprovalRequest,
-    ResourceBadge, RuntimeSessionId, RuntimeSessionState, RuntimeSummary, ScopeRef, SecurityMode,
-    SecurityStatus, SendTurnRequest, SessionDetail, SessionSummary, SessionThreadId,
-    SessionThreadState, SleepHint, TerminalId, TurnId, TurnState, UpravaRef, VersionResponse,
-    WarningAcknowledgementResponse, WarningSeverity, WebAuthLoginRequest, WebAuthResponse,
-    WebAuthSetupRequest, WebAuthStatusResponse, WorkspaceCommandHistoryItem,
-    WorkspaceCommandHistoryResponse, WorkspaceCommandRunRequest, WorkspaceCommandRunResponse,
-    WorkspaceDiffResponse, WorkspaceFileContentResponse, WorkspaceFileWriteRequest,
-    WorkspaceFileWriteResponse, WorkspaceSnapshot, WorkspaceTerminalClientFrame,
-    WorkspaceTerminalListResponse, WorkspaceTerminalOpenRequest, WorkspaceTerminalOpenResponse,
-    WorkspaceTerminalState, WorkspaceTerminalStreamFrame, WorkspaceTerminalSummary,
-    WorkspaceTreeResponse, CURRENT_PROTOCOL_VERSION as API_VERSION,
+    CapabilitySummary, ClientCreateNodeEnrollmentRequest, ClientLogLevel, ClientLogRequest,
+    ClientLogResponse, CommandAcceptedResponse, CommandEnvelope, CommandId, CommandKind,
+    CommandState, ControlFrame, CorrelationId, CreatePlacementRequest, CreateSessionRequest,
+    DeploymentProfile, EnrollmentId, EnrollmentState, EventEnvelope, EventId, EventKind,
+    EvidenceId, HealthResponse, InventorySnapshot, Message, MessageId, MessageRole,
+    NodeCredentialRotationResponse, NodeDeletionResponse, NodeEnrollmentClaimRequest,
+    NodeEnrollmentClaimResponse, NodeEnrollmentRequest, NodeEnrollmentRequestedResponse,
+    NodeEnrollmentSummary, NodeHeartbeatRequest, NodeHeartbeatResponse, NodeId, NodePresence,
+    NodeRevocationResponse, PlacementDeletionResponse, PlacementState, ProjectId,
+    ProjectPlacementId, ProjectPlacementSummary, ResolveApprovalRequest, ResourceBadge,
+    RuntimeSessionId, RuntimeSessionState, RuntimeSummary, ScopeRef, SecurityMode, SecurityStatus,
+    SendTurnRequest, SessionDetail, SessionEvidenceProjection, SessionEvidenceProjectionNode,
+    SessionSummary, SessionThreadId, SessionThreadState, SleepHint, TerminalId, TurnId, TurnState,
+    UpravaRef, VersionResponse, WarningAcknowledgementResponse, WarningSeverity,
+    WebAuthLoginRequest, WebAuthResponse, WebAuthSetupRequest, WebAuthStatusResponse,
+    WorkspaceCommandHistoryItem, WorkspaceCommandHistoryResponse, WorkspaceCommandRunRequest,
+    WorkspaceCommandRunResponse, WorkspaceDiffResponse, WorkspaceFileContentResponse,
+    WorkspaceFileWriteRequest, WorkspaceFileWriteResponse, WorkspaceSnapshot,
+    WorkspaceTerminalClientFrame, WorkspaceTerminalListResponse, WorkspaceTerminalOpenRequest,
+    WorkspaceTerminalOpenResponse, WorkspaceTerminalState, WorkspaceTerminalStreamFrame,
+    WorkspaceTerminalSummary, WorkspaceTreeResponse, CURRENT_PROTOCOL_VERSION as API_VERSION,
 };
 use uuid::Uuid;
 
@@ -99,6 +99,12 @@ const MIN_TERMINAL_ROWS: u16 = 5;
 const MAX_TERMINAL_ROWS: u16 = 120;
 const HTTP_REQUEST_TIMEOUT: Duration = Duration::from_secs(130);
 const MAX_HTTP_REQUEST_BODY_BYTES: usize = 1024 * 1024;
+const CONTROL_QUEUE_CAPACITY: usize = 256;
+const MAX_CONTROL_FRAME_BYTES: usize = 1024 * 1024;
+const MAX_EVENT_BATCH_ITEMS: usize = 128;
+const MAX_TERMINAL_OUTPUT_CHARS: usize = 65_536;
+const MAX_CONTROL_JSON_DEPTH: usize = 32;
+const MAX_CONTROL_STRING_CHARS: usize = 65_536;
 
 #[derive(Debug, Clone)]
 pub struct AppConfig {
@@ -255,13 +261,13 @@ fn parse_env_bool(name: &str, fallback: bool) -> bool {
 pub struct AppState {
     config: AppConfig,
     pool: SqlitePool,
-    control_channels: RwLock<HashMap<String, mpsc::UnboundedSender<ControlFrame>>>,
+    control_connections: ConnectionRegistry,
     event_tx: broadcast::Sender<EventEnvelope>,
     event_ingest_lock: Mutex<()>,
     event_publish_lock: Mutex<()>,
     command_result_tx: broadcast::Sender<CommandResultNotice>,
-    command_waiters: RwLock<HashMap<String, oneshot::Sender<CommandResultNotice>>>,
-    terminal_tx: broadcast::Sender<TerminalFrameNotice>,
+    command_waiters: StdMutex<HashMap<String, oneshot::Sender<CommandResultNotice>>>,
+    terminal_hub: TerminalHub,
     workspace_terminals: RwLock<HashMap<String, WorkspaceTerminalSummary>>,
     auth_failures: RwLock<HashMap<String, Vec<DateTime<Utc>>>>,
     core_metrics: Arc<CoreMetrics>,
@@ -272,16 +278,191 @@ struct CoreMetrics {
     accepted_events: AtomicU64,
     command_results: AtomicU64,
     auth_failures: AtomicU64,
+    control_queue_rejections: AtomicU64,
 }
 
 impl CoreMetrics {
     fn render(&self) -> String {
         format!(
-            "# HELP uprava_core_events_accepted_total Accepted event envelopes.\n# TYPE uprava_core_events_accepted_total counter\nuprava_core_events_accepted_total {}\n# HELP uprava_core_command_results_total Command results received from Nodes.\n# TYPE uprava_core_command_results_total counter\nuprava_core_command_results_total {}\n# HELP uprava_core_auth_failures_total Rejected authentication attempts.\n# TYPE uprava_core_auth_failures_total counter\nuprava_core_auth_failures_total {}\n",
+            "# HELP uprava_core_events_accepted_total Accepted event envelopes.\n# TYPE uprava_core_events_accepted_total counter\nuprava_core_events_accepted_total {}\n# HELP uprava_core_command_results_total Command results received from Nodes.\n# TYPE uprava_core_command_results_total counter\nuprava_core_command_results_total {}\n# HELP uprava_core_auth_failures_total Rejected authentication attempts.\n# TYPE uprava_core_auth_failures_total counter\nuprava_core_auth_failures_total {}\n# HELP uprava_core_control_queue_rejections_total Control frames rejected by a saturated or closed Node queue.\n# TYPE uprava_core_control_queue_rejections_total counter\nuprava_core_control_queue_rejections_total {}\n",
             self.accepted_events.load(Ordering::Relaxed),
             self.command_results.load(Ordering::Relaxed),
             self.auth_failures.load(Ordering::Relaxed),
+            self.control_queue_rejections.load(Ordering::Relaxed),
         )
+    }
+}
+
+#[derive(Clone)]
+struct NodeContext {
+    node_id: NodeId,
+    generation: u64,
+    sender: mpsc::Sender<ControlFrame>,
+}
+
+#[derive(Clone)]
+struct ControlConnection {
+    generation: u64,
+    sender: mpsc::Sender<ControlFrame>,
+}
+
+type CommandEventContextRow = (String, Option<String>, Option<String>, Option<String>);
+
+struct ConnectionRegistry {
+    entries: RwLock<HashMap<String, ControlConnection>>,
+    next_generation: AtomicU64,
+}
+
+struct TerminalHub {
+    channels: RwLock<HashMap<String, broadcast::Sender<TerminalFrameNotice>>>,
+}
+
+struct CommandWaiterGuard<'a> {
+    state: &'a AppState,
+    command_id: CommandId,
+}
+
+impl<'a> CommandWaiterGuard<'a> {
+    fn new(state: &'a AppState, command_id: CommandId) -> Self {
+        Self { state, command_id }
+    }
+}
+
+impl Drop for CommandWaiterGuard<'_> {
+    fn drop(&mut self) {
+        match self.state.command_waiters.lock() {
+            Ok(mut waiters) => {
+                waiters.remove(self.command_id.as_str());
+            }
+            Err(error) => {
+                tracing::error!(
+                    command_id = %self.command_id,
+                    error = %error,
+                    "command waiter registry lock poisoned during cleanup"
+                );
+            }
+        }
+    }
+}
+
+fn lock_command_waiters(
+    state: &AppState,
+) -> Result<
+    std::sync::MutexGuard<'_, HashMap<String, oneshot::Sender<CommandResultNotice>>>,
+    AppError,
+> {
+    state.command_waiters.lock().map_err(|error| {
+        AppError::internal(format!("command waiter registry lock poisoned: {error}"))
+    })
+}
+
+impl TerminalHub {
+    fn new() -> Self {
+        Self {
+            channels: RwLock::new(HashMap::new()),
+        }
+    }
+
+    async fn channel(&self, terminal_id: &TerminalId) -> broadcast::Sender<TerminalFrameNotice> {
+        if let Some(sender) = self.channels.read().await.get(terminal_id.as_str()) {
+            return sender.clone();
+        }
+        let mut channels = self.channels.write().await;
+        channels
+            .entry(terminal_id.to_string())
+            .or_insert_with(|| broadcast::channel(1024).0)
+            .clone()
+    }
+
+    async fn subscribe(
+        &self,
+        terminal_id: &TerminalId,
+    ) -> broadcast::Receiver<TerminalFrameNotice> {
+        self.channel(terminal_id).await.subscribe()
+    }
+
+    async fn publish(&self, terminal_id: &TerminalId, notice: TerminalFrameNotice) {
+        let _ = self.channel(terminal_id).await.send(notice);
+    }
+}
+
+#[derive(Debug, thiserror::Error, PartialEq, Eq)]
+enum ControlSendError {
+    #[error("Node control connection is unavailable")]
+    Unavailable,
+    #[error("Node control queue is saturated")]
+    Saturated,
+    #[error("Node control queue is closed")]
+    Closed,
+}
+
+impl ConnectionRegistry {
+    fn new() -> Self {
+        Self {
+            entries: RwLock::new(HashMap::new()),
+            next_generation: AtomicU64::new(1),
+        }
+    }
+
+    fn context(&self, node_id: NodeId, sender: mpsc::Sender<ControlFrame>) -> NodeContext {
+        NodeContext {
+            node_id,
+            generation: self.next_generation.fetch_add(1, Ordering::Relaxed),
+            sender,
+        }
+    }
+
+    async fn activate(&self, context: &NodeContext) -> bool {
+        let mut entries = self.entries.write().await;
+        if entries
+            .get(context.node_id.as_str())
+            .is_some_and(|connection| connection.generation > context.generation)
+        {
+            return false;
+        }
+        entries.insert(
+            context.node_id.to_string(),
+            ControlConnection {
+                generation: context.generation,
+                sender: context.sender.clone(),
+            },
+        );
+        true
+    }
+
+    async fn is_active(&self, context: &NodeContext) -> bool {
+        self.entries
+            .read()
+            .await
+            .get(context.node_id.as_str())
+            .is_some_and(|connection| connection.generation == context.generation)
+    }
+
+    async fn sender(&self, node_id: &NodeId) -> Option<mpsc::Sender<ControlFrame>> {
+        self.entries
+            .read()
+            .await
+            .get(node_id.as_str())
+            .map(|connection| connection.sender.clone())
+    }
+
+    async fn contains(&self, node_id: &NodeId) -> bool {
+        self.entries.read().await.contains_key(node_id.as_str())
+    }
+
+    async fn remove_if_active(&self, context: &NodeContext) -> bool {
+        let mut entries = self.entries.write().await;
+        let is_active = entries
+            .get(context.node_id.as_str())
+            .is_some_and(|connection| connection.generation == context.generation);
+        if is_active {
+            entries.remove(context.node_id.as_str());
+        }
+        is_active
+    }
+
+    async fn remove_node(&self, node_id: &NodeId) {
+        self.entries.write().await.remove(node_id.as_str());
     }
 }
 
@@ -314,13 +495,13 @@ impl AppState {
         let state = Arc::new(Self {
             config,
             pool,
-            control_channels: RwLock::new(HashMap::new()),
+            control_connections: ConnectionRegistry::new(),
             event_tx: broadcast::channel(256).0,
             event_ingest_lock: Mutex::new(()),
             event_publish_lock: Mutex::new(()),
             command_result_tx: broadcast::channel(256).0,
-            command_waiters: RwLock::new(HashMap::new()),
-            terminal_tx: broadcast::channel(1024).0,
+            command_waiters: StdMutex::new(HashMap::new()),
+            terminal_hub: TerminalHub::new(),
             workspace_terminals: RwLock::new(HashMap::new()),
             auth_failures: RwLock::new(HashMap::new()),
             core_metrics: Arc::new(CoreMetrics::default()),
@@ -541,6 +722,14 @@ pub fn build_router(state: Arc<AppState>) -> Router {
             get(workspace_command_history_route).post(workspace_command_run_route),
         )
         .route(
+            "/placements/{placement_id}/workspace/commands/async",
+            post(workspace_command_accept_route),
+        )
+        .route(
+            "/placements/{placement_id}/workspace/commands/async/{command_id}",
+            get(workspace_command_resource_route).delete(workspace_command_cancel_route),
+        )
+        .route(
             "/placements/{placement_id}/workspace/diff",
             get(workspace_diff_route),
         )
@@ -563,8 +752,8 @@ pub fn build_router(state: Arc<AppState>) -> Router {
         .route("/sessions/{session_thread_id}/events", get(session_events))
         .route("/sessions/{session_thread_id}/stream", get(session_stream))
         .route(
-            "/sessions/{session_thread_id}/artifact-tree",
-            get(session_artifact_tree),
+            "/sessions/{session_thread_id}/evidence-projection",
+            get(session_evidence_projection),
         )
         .route(
             "/sessions/{session_thread_id}/agent-projection",
@@ -1545,11 +1734,7 @@ async fn delete_node(
         .await?
         .rows_affected();
     transaction.commit().await?;
-    state
-        .control_channels
-        .write()
-        .await
-        .remove(node_id.as_str());
+    state.control_connections.remove_node(&node_id).await;
 
     if deleted == 0 {
         return Err(AppError::not_found("node.not_found", "Node not found"));
@@ -1671,13 +1856,9 @@ async fn node_control(
 
 async fn handle_control_socket(state: Arc<AppState>, node_id: NodeId, socket: WebSocket) {
     let (mut sender, mut receiver) = socket.split();
-    let (tx, mut rx) = mpsc::unbounded_channel::<ControlFrame>();
-    state
-        .control_channels
-        .write()
-        .await
-        .insert(node_id.to_string(), tx.clone());
-    tracing::info!(node_id = %node_id, "node control channel connected");
+    let (tx, mut rx) = mpsc::channel::<ControlFrame>(CONTROL_QUEUE_CAPACITY);
+    let context = state.control_connections.context(node_id.clone(), tx);
+    tracing::info!(node_id = %node_id, generation = context.generation, "node control socket connected");
 
     let send_task = tokio::spawn(async move {
         while let Some(frame) = rx.recv().await {
@@ -1694,10 +1875,14 @@ async fn handle_control_socket(state: Arc<AppState>, node_id: NodeId, socket: We
         let Ok(WsMessage::Text(text)) = message else {
             continue;
         };
+        if text.len() > MAX_CONTROL_FRAME_BYTES {
+            tracing::warn!(node_id = %node_id, frame_bytes = text.len(), "oversized control frame rejected");
+            continue;
+        }
         match serde_json::from_str::<ControlFrame>(&text) {
             Ok(frame) => {
-                if let Err(error) = handle_node_control_frame(&state, &node_id, frame).await {
-                    tracing::warn!(node_id = %node_id, error = %error, "control frame failed");
+                if let Err(error) = handle_node_control_frame(&state, &context, frame).await {
+                    tracing::warn!(node_id = %node_id, generation = context.generation, error = %error, "control frame failed");
                 }
             }
             Err(error) => {
@@ -1706,26 +1891,24 @@ async fn handle_control_socket(state: Arc<AppState>, node_id: NodeId, socket: We
         }
     }
 
-    state
-        .control_channels
-        .write()
-        .await
-        .remove(node_id.as_str());
-    tracing::info!(node_id = %node_id, "node control channel disconnected");
+    let removed = state.control_connections.remove_if_active(&context).await;
+    tracing::info!(node_id = %node_id, generation = context.generation, removed, "node control socket disconnected");
     send_task.abort();
 }
 
 async fn handle_node_control_frame(
     state: &AppState,
-    node_id: &NodeId,
+    context: &NodeContext,
     frame: ControlFrame,
 ) -> Result<(), AppError> {
+    let node_id = &context.node_id;
+    validate_control_frame_limits(&frame)?;
     if !matches!(frame, ControlFrame::Hello { .. })
         && !is_supported_protocol_version(control_frame_protocol_version(&frame))
     {
         send_control_error(
             state,
-            node_id,
+            context,
             "control.protocol_incompatible",
             "Control protocol version is incompatible",
             false,
@@ -1746,7 +1929,7 @@ async fn handle_node_control_frame(
             if hello_node_id != *node_id {
                 send_control_error(
                     state,
-                    node_id,
+                    context,
                     "control.node_mismatch",
                     "Control hello node id does not match authenticated node",
                     false,
@@ -1760,7 +1943,7 @@ async fn handle_node_control_frame(
             if !is_supported_protocol_version(&protocol_version) {
                 send_control_error(
                     state,
-                    node_id,
+                    context,
                     "control.protocol_incompatible",
                     "Control protocol version is incompatible",
                     false,
@@ -1769,6 +1952,12 @@ async fn handle_node_control_frame(
                 return Err(AppError::bad_request(
                     "control.protocol_incompatible",
                     "Control protocol version is incompatible",
+                ));
+            }
+            if !state.control_connections.activate(context).await {
+                return Err(AppError::auth(
+                    "control.stale_generation",
+                    "A newer control connection is already active",
                 ));
             }
             send_control_frame(
@@ -1786,6 +1975,8 @@ async fn handle_node_control_frame(
         ControlFrame::CommandAck {
             command_id, status, ..
         } => {
+            require_active_generation(state, context).await?;
+            validate_command_ack(state, node_id, &command_id, status).await?;
             tracing::debug!(
                 node_id = %node_id,
                 command_id = %command_id,
@@ -1800,6 +1991,8 @@ async fn handle_node_control_frame(
             payload,
             ..
         } => {
+            require_active_generation(state, context).await?;
+            validate_command_result(state, node_id, &command_id, status, &payload).await?;
             tracing::info!(
                 node_id = %node_id,
                 command_id = %command_id,
@@ -1817,32 +2010,55 @@ async fn handle_node_control_frame(
                 payload,
             };
             let _ = state.command_result_tx.send(notice.clone());
-            if let Some(waiter) = state
-                .command_waiters
-                .write()
-                .await
-                .remove(notice.command_id.as_str())
-            {
+            let waiter = {
+                let mut waiters = lock_command_waiters(state)?;
+                waiters.remove(notice.command_id.as_str())
+            };
+            if let Some(waiter) = waiter {
                 let _ = waiter.send(notice);
             }
             Ok(())
         }
         ControlFrame::EventBatch { events, .. } => {
+            require_active_generation(state, context).await?;
+            if events.len() > MAX_EVENT_BATCH_ITEMS {
+                return Err(AppError::bad_request(
+                    "control.event_batch_too_large",
+                    "Control event batch exceeds the item limit",
+                ));
+            }
+            let batch_bytes = events
+                .iter()
+                .map(serde_json::to_vec)
+                .collect::<Result<Vec<_>, _>>()?
+                .iter()
+                .map(Vec::len)
+                .sum::<usize>();
+            if batch_bytes > MAX_CONTROL_FRAME_BYTES {
+                return Err(AppError::bad_request(
+                    "control.event_batch_bytes_too_large",
+                    "Control event batch exceeds the byte limit",
+                ));
+            }
             let event_count = events.len();
             let mut accepted_event_ids = Vec::with_capacity(events.len());
             for event in events {
+                validate_event_owner(state, node_id, &event).await?;
                 let event_id = event.event_id.clone();
                 accept_node_event(state, event).await?;
                 accepted_event_ids.push(event_id);
             }
-            if let Some(channel) = state.control_channels.read().await.get(node_id.as_str()) {
-                let _ = channel.send(ControlFrame::EventBatchAck {
+            let _ = send_control_frame(
+                state,
+                node_id,
+                ControlFrame::EventBatchAck {
                     frame_id: Uuid::new_v4().to_string(),
                     protocol_version: API_VERSION.to_owned(),
                     sent_at: Utc::now(),
                     accepted_event_ids,
-                });
-            }
+                },
+            )
+            .await;
             tracing::info!(
                 node_id = %node_id,
                 event_count,
@@ -1857,12 +2073,26 @@ async fn handle_node_control_frame(
             sent_at,
             ..
         } => {
-            let _ = state.terminal_tx.send(TerminalFrameNotice::Output {
-                terminal_id,
-                seq,
-                data,
-                sent_at,
-            });
+            require_active_generation(state, context).await?;
+            if data.chars().count() > MAX_TERMINAL_OUTPUT_CHARS {
+                return Err(AppError::bad_request(
+                    "control.terminal_output_too_large",
+                    "Terminal output frame exceeds the character limit",
+                ));
+            }
+            validate_terminal_owner(state, node_id, &terminal_id).await?;
+            state
+                .terminal_hub
+                .publish(
+                    &terminal_id,
+                    TerminalFrameNotice::Output {
+                        terminal_id: terminal_id.clone(),
+                        seq,
+                        data,
+                        sent_at,
+                    },
+                )
+                .await;
             Ok(())
         }
         ControlFrame::WorkspaceTerminalStatus {
@@ -1873,6 +2103,8 @@ async fn handle_node_control_frame(
             sent_at,
             ..
         } => {
+            require_active_generation(state, context).await?;
+            validate_terminal_owner(state, node_id, &terminal_id).await?;
             if let Some(terminal) = state
                 .workspace_terminals
                 .write()
@@ -1883,30 +2115,465 @@ async fn handle_node_control_frame(
                 terminal.exit_code = exit_code;
                 terminal.updated_at = sent_at;
             }
-            let _ = state.terminal_tx.send(TerminalFrameNotice::Status {
-                terminal_id,
-                state: terminal_state,
-                exit_code,
-                message,
-                sent_at,
-            });
+            state
+                .terminal_hub
+                .publish(
+                    &terminal_id,
+                    TerminalFrameNotice::Status {
+                        terminal_id: terminal_id.clone(),
+                        state: terminal_state,
+                        exit_code,
+                        message,
+                        sent_at,
+                    },
+                )
+                .await;
             Ok(())
         }
         _ => Ok(()),
     }
 }
 
-async fn send_control_error(
+fn validate_control_frame_limits(frame: &ControlFrame) -> Result<(), AppError> {
+    let encoded = serde_json::to_vec(frame)?;
+    if encoded.len() > MAX_CONTROL_FRAME_BYTES {
+        return Err(AppError::bad_request(
+            "control.frame_too_large",
+            "Control frame exceeds the byte limit",
+        ));
+    }
+    let value = serde_json::to_value(frame)?;
+    validate_control_json_value(&value, 0)
+}
+
+fn validate_control_json_value(value: &serde_json::Value, depth: usize) -> Result<(), AppError> {
+    if depth > MAX_CONTROL_JSON_DEPTH {
+        return Err(AppError::bad_request(
+            "control.frame_too_deep",
+            "Control frame exceeds the nesting limit",
+        ));
+    }
+    match value {
+        serde_json::Value::String(value) if value.chars().count() > MAX_CONTROL_STRING_CHARS => {
+            Err(AppError::bad_request(
+                "control.string_too_large",
+                "Control frame contains an oversized string",
+            ))
+        }
+        serde_json::Value::Array(values) => {
+            for value in values {
+                validate_control_json_value(value, depth + 1)?;
+            }
+            Ok(())
+        }
+        serde_json::Value::Object(values) => {
+            for value in values.values() {
+                validate_control_json_value(value, depth + 1)?;
+            }
+            Ok(())
+        }
+        _ => Ok(()),
+    }
+}
+
+async fn require_active_generation(
+    state: &AppState,
+    context: &NodeContext,
+) -> Result<(), AppError> {
+    if state.control_connections.is_active(context).await {
+        return Ok(());
+    }
+    Err(AppError::auth(
+        "control.stale_generation",
+        "Control frame belongs to a stale or uninitialized connection",
+    ))
+}
+
+async fn validate_command_ack(
     state: &AppState,
     node_id: &NodeId,
+    command_id: &CommandId,
+    status: CommandState,
+) -> Result<(), AppError> {
+    let (target_node_id, current_state): (String, String) =
+        sqlx::query_as("select target_node_id, state from commands where command_id = ?1")
+            .bind(command_id.as_str())
+            .fetch_optional(&state.pool)
+            .await?
+            .ok_or_else(|| AppError::not_found("control.command_not_found", "Command not found"))?;
+    if target_node_id != node_id.as_str() {
+        return Err(AppError::auth(
+            "control.command_owner_mismatch",
+            "Command belongs to another Node",
+        ));
+    }
+    if status != CommandState::Acknowledged {
+        return Err(AppError::bad_request(
+            "control.command_ack_state_invalid",
+            "Command ACK must use acknowledged state",
+        ));
+    }
+    if !matches!(
+        parse_command_state(&current_state),
+        CommandState::Dispatched | CommandState::Acknowledged
+    ) {
+        return Err(AppError::bad_request(
+            "control.command_transition_invalid",
+            "Command cannot be acknowledged from its current state",
+        ));
+    }
+    Ok(())
+}
+
+async fn validate_command_result(
+    state: &AppState,
+    node_id: &NodeId,
+    command_id: &CommandId,
+    status: CommandState,
+    payload: &JsonValue,
+) -> Result<(), AppError> {
+    let (target_node_id, current_state, stored_payload, command_json): (
+        String,
+        String,
+        Option<String>,
+        String,
+    ) = sqlx::query_as(
+            "select target_node_id, state, result_payload_json, command_json from commands where command_id = ?1",
+        )
+        .bind(command_id.as_str())
+        .fetch_optional(&state.pool)
+        .await?
+        .ok_or_else(|| AppError::not_found("control.command_not_found", "Command not found"))?;
+    if target_node_id != node_id.as_str() {
+        return Err(AppError::auth(
+            "control.command_owner_mismatch",
+            "Command belongs to another Node",
+        ));
+    }
+    if !is_terminal_command_state(status) {
+        return Err(AppError::bad_request(
+            "control.command_result_state_invalid",
+            "Command result must use a terminal state",
+        ));
+    }
+    let command: CommandEnvelope = serde_json::from_str(&command_json)?;
+    validate_command_result_echo(&command, status, payload)?;
+    let current_state = parse_command_state(&current_state);
+    if is_terminal_command_state(current_state) {
+        let same_payload = stored_payload
+            .as_deref()
+            .map(serde_json::from_str::<JsonValue>)
+            .transpose()?
+            .as_ref()
+            == Some(payload);
+        if current_state != status || !same_payload {
+            return Err(AppError::bad_request(
+                "control.command_result_conflict",
+                "Command already has a different terminal result",
+            ));
+        }
+        return Ok(());
+    }
+    if !matches!(
+        current_state,
+        CommandState::PendingDispatch | CommandState::Dispatched | CommandState::Acknowledged
+    ) {
+        return Err(AppError::bad_request(
+            "control.command_transition_invalid",
+            "Command cannot accept a result from its current state",
+        ));
+    }
+    Ok(())
+}
+
+fn validate_command_result_echo(
+    command: &CommandEnvelope,
+    status: CommandState,
+    payload: &JsonValue,
+) -> Result<(), AppError> {
+    if status != CommandState::Completed {
+        return Ok(());
+    }
+    let expected_placement = command.project_placement_id.as_ref();
+    let actual_placement = match command.kind {
+        CommandKind::ListWorkspaceTree => {
+            Some(decode_control_result::<WorkspaceTreeResponse>(payload)?.placement_id)
+        }
+        CommandKind::ReadWorkspaceFile => {
+            Some(decode_control_result::<WorkspaceFileContentResponse>(payload)?.placement_id)
+        }
+        CommandKind::WriteWorkspaceFile => {
+            Some(decode_control_result::<WorkspaceFileWriteResponse>(payload)?.placement_id)
+        }
+        CommandKind::RunWorkspaceCommand => {
+            Some(decode_control_result::<WorkspaceCommandRunResponse>(payload)?.placement_id)
+        }
+        CommandKind::ReadWorkspaceDiff => {
+            Some(decode_control_result::<WorkspaceDiffResponse>(payload)?.placement_id)
+        }
+        CommandKind::OpenWorkspaceTerminal => Some(
+            decode_control_result::<WorkspaceTerminalOpenResponse>(payload)?
+                .terminal
+                .placement_id,
+        ),
+        _ => None,
+    };
+    if let Some(actual_placement) = actual_placement {
+        if expected_placement != Some(&actual_placement) {
+            return Err(AppError::bad_request(
+                "control.command_result_target_mismatch",
+                "Command result Placement does not match the command target",
+            ));
+        }
+    }
+    Ok(())
+}
+
+fn decode_control_result<T: DeserializeOwned>(payload: &JsonValue) -> Result<T, AppError> {
+    serde_json::from_value(payload.0.clone()).map_err(|_| {
+        AppError::bad_request(
+            "control.command_result_payload_invalid",
+            "Command result payload does not match its command kind",
+        )
+    })
+}
+
+fn is_terminal_command_state(state: CommandState) -> bool {
+    matches!(
+        state,
+        CommandState::Completed
+            | CommandState::Failed
+            | CommandState::Blocked
+            | CommandState::Expired
+    )
+}
+
+async fn validate_event_owner(
+    state: &AppState,
+    node_id: &NodeId,
+    event: &EventEnvelope,
+) -> Result<(), AppError> {
+    if event.node_id.as_ref() != Some(node_id) {
+        return Err(AppError::auth(
+            "control.event_node_mismatch",
+            "Event node id does not match the authenticated Node",
+        ));
+    }
+    if let ActorRef::Node {
+        node_id: actor_node,
+    } = &event.actor_ref
+    {
+        if actor_node != node_id {
+            return Err(AppError::auth(
+                "control.event_actor_mismatch",
+                "Event actor belongs to another Node",
+            ));
+        }
+    }
+    if let Some(command_id) = &event.command_id {
+        let command_context: Option<CommandEventContextRow> =
+            sqlx::query_as(
+                "select target_node_id, session_thread_id, runtime_session_id, project_placement_id from commands where command_id = ?1",
+            )
+            .bind(command_id.as_str())
+            .fetch_optional(&state.pool)
+            .await?;
+        let Some((owner, command_session, command_runtime, command_placement)) = command_context
+        else {
+            return Err(AppError::auth(
+                "control.event_command_mismatch",
+                "Event command does not belong to the authenticated Node",
+            ));
+        };
+        let placement_mismatch = command_session.is_none()
+            && command_runtime.is_none()
+            && command_placement.is_some()
+            && event_scope_placement_id(event).map(ProjectPlacementId::as_str)
+                != command_placement.as_deref();
+        if owner != node_id.as_str()
+            || event
+                .session_thread_id
+                .as_ref()
+                .map(SessionThreadId::as_str)
+                != command_session.as_deref()
+            || event
+                .runtime_session_id
+                .as_ref()
+                .map(RuntimeSessionId::as_str)
+                != command_runtime.as_deref()
+            || placement_mismatch
+        {
+            return Err(AppError::auth(
+                "control.event_command_mismatch",
+                "Event command context does not match its durable target",
+            ));
+        }
+    }
+    if let (Some(runtime_id), Some(session_id)) =
+        (&event.runtime_session_id, &event.session_thread_id)
+    {
+        let runtime_session: Option<String> = sqlx::query_scalar(
+            "select session_thread_id from runtime_sessions where runtime_session_id = ?1",
+        )
+        .bind(runtime_id.as_str())
+        .fetch_optional(&state.pool)
+        .await?;
+        if runtime_session.as_deref() != Some(session_id.as_str()) {
+            return Err(AppError::auth(
+                "control.event_context_mismatch",
+                "Event runtime and session do not belong to the same aggregate",
+            ));
+        }
+    }
+    if let Some(runtime_id) = &event.runtime_session_id {
+        validate_runtime_owner(state, node_id, runtime_id).await?;
+    }
+    if let Some(session_id) = &event.session_thread_id {
+        let owner: Option<String> = sqlx::query_scalar(
+            "select pp.node_id from session_threads st join project_placements pp on pp.project_placement_id = st.project_placement_id where st.session_thread_id = ?1",
+        )
+        .bind(session_id.as_str())
+        .fetch_optional(&state.pool)
+        .await?;
+        if owner.as_deref() != Some(node_id.as_str()) {
+            return Err(AppError::auth(
+                "control.event_session_mismatch",
+                "Event session does not belong to the authenticated Node",
+            ));
+        }
+    }
+    match &event.scope_ref {
+        ScopeRef::Node {
+            node_id: scope_node,
+        } if scope_node != node_id => Err(AppError::auth(
+            "control.event_scope_mismatch",
+            "Event scope belongs to another Node",
+        )),
+        ScopeRef::Runtime { runtime_session_id }
+            if event.runtime_session_id.as_ref() != Some(runtime_session_id) =>
+        {
+            Err(AppError::auth(
+                "control.event_scope_mismatch",
+                "Event runtime scope does not match its envelope runtime",
+            ))
+        }
+        ScopeRef::Runtime { runtime_session_id } => {
+            validate_runtime_owner(state, node_id, runtime_session_id).await
+        }
+        ScopeRef::Session { session_thread_id }
+            if event.session_thread_id.as_ref() != Some(session_thread_id) =>
+        {
+            Err(AppError::auth(
+                "control.event_scope_mismatch",
+                "Event session scope does not match its envelope session",
+            ))
+        }
+        ScopeRef::Session { session_thread_id } => {
+            let owner: Option<String> = sqlx::query_scalar(
+                "select pp.node_id from session_threads st join project_placements pp on pp.project_placement_id = st.project_placement_id where st.session_thread_id = ?1",
+            )
+            .bind(session_thread_id.as_str())
+            .fetch_optional(&state.pool)
+            .await?;
+            (owner.as_deref() == Some(node_id.as_str()))
+                .then_some(())
+                .ok_or_else(|| {
+                    AppError::auth(
+                        "control.event_scope_mismatch",
+                        "Event scope belongs to another Node",
+                    )
+                })
+        }
+        ScopeRef::Placement {
+            project_placement_id,
+        } => validate_placement_owner(state, node_id, project_placement_id).await,
+        _ => Ok(()),
+    }
+}
+
+fn event_scope_placement_id(event: &EventEnvelope) -> Option<&ProjectPlacementId> {
+    match &event.scope_ref {
+        ScopeRef::Placement {
+            project_placement_id,
+        } => Some(project_placement_id),
+        _ => None,
+    }
+}
+
+async fn validate_runtime_owner(
+    state: &AppState,
+    node_id: &NodeId,
+    runtime_id: &RuntimeSessionId,
+) -> Result<(), AppError> {
+    let owner: Option<String> = sqlx::query_scalar(
+        "select pp.node_id from runtime_sessions rs join session_threads st on st.session_thread_id = rs.session_thread_id join project_placements pp on pp.project_placement_id = st.project_placement_id where rs.runtime_session_id = ?1",
+    )
+    .bind(runtime_id.as_str())
+    .fetch_optional(&state.pool)
+    .await?;
+    (owner.as_deref() == Some(node_id.as_str()))
+        .then_some(())
+        .ok_or_else(|| {
+            AppError::auth(
+                "control.event_runtime_mismatch",
+                "Event runtime belongs to another Node",
+            )
+        })
+}
+
+async fn validate_placement_owner(
+    state: &AppState,
+    node_id: &NodeId,
+    placement_id: &ProjectPlacementId,
+) -> Result<(), AppError> {
+    let owner: Option<String> = sqlx::query_scalar(
+        "select node_id from project_placements where project_placement_id = ?1",
+    )
+    .bind(placement_id.as_str())
+    .fetch_optional(&state.pool)
+    .await?;
+    (owner.as_deref() == Some(node_id.as_str()))
+        .then_some(())
+        .ok_or_else(|| {
+            AppError::auth(
+                "control.event_placement_mismatch",
+                "Event Placement belongs to another Node",
+            )
+        })
+}
+
+async fn validate_terminal_owner(
+    state: &AppState,
+    node_id: &NodeId,
+    terminal_id: &TerminalId,
+) -> Result<(), AppError> {
+    let placement_id = state
+        .workspace_terminals
+        .read()
+        .await
+        .get(terminal_id.as_str())
+        .map(|terminal| terminal.placement_id.clone())
+        .ok_or_else(|| AppError::not_found("control.terminal_not_found", "Terminal not found"))?;
+    validate_placement_owner(state, node_id, &placement_id)
+        .await
+        .map_err(|_| {
+            AppError::auth(
+                "control.terminal_owner_mismatch",
+                "Terminal belongs to another Node",
+            )
+        })
+}
+
+async fn send_control_error(
+    state: &AppState,
+    context: &NodeContext,
     error_code: &str,
     message: &str,
     retryable: bool,
 ) {
-    send_control_frame(
-        state,
-        node_id,
-        ControlFrame::ControlError {
+    if context
+        .sender
+        .try_send(ControlFrame::ControlError {
             frame_id: Uuid::new_v4().to_string(),
             protocol_version: API_VERSION.to_owned(),
             sent_at: Utc::now(),
@@ -1917,21 +2584,38 @@ async fn send_control_error(
                 retryable,
                 correlation_id: CorrelationId::from(Uuid::new_v4().to_string()),
             },
-        },
-    )
-    .await;
+        })
+        .is_err()
+    {
+        state
+            .core_metrics
+            .control_queue_rejections
+            .fetch_add(1, Ordering::Relaxed);
+    }
 }
 
 async fn send_control_frame(state: &AppState, node_id: &NodeId, frame: ControlFrame) -> bool {
-    let channel = state
-        .control_channels
-        .read()
-        .await
-        .get(node_id.as_str())
-        .cloned();
-    channel
-        .map(|channel| channel.send(frame).is_ok())
-        .unwrap_or(false)
+    try_send_control_frame(state, node_id, frame).await.is_ok()
+}
+
+async fn try_send_control_frame(
+    state: &AppState,
+    node_id: &NodeId,
+    frame: ControlFrame,
+) -> Result<(), ControlSendError> {
+    let Some(channel) = state.control_connections.sender(node_id).await else {
+        return Err(ControlSendError::Unavailable);
+    };
+    channel.try_send(frame).map_err(|error| {
+        state
+            .core_metrics
+            .control_queue_rejections
+            .fetch_add(1, Ordering::Relaxed);
+        match error {
+            mpsc::error::TrySendError::Full(_) => ControlSendError::Saturated,
+            mpsc::error::TrySendError::Closed(_) => ControlSendError::Closed,
+        }
+    })
 }
 
 async fn handle_workspace_terminal_stream(
@@ -1941,7 +2625,7 @@ async fn handle_workspace_terminal_stream(
     socket: WebSocket,
 ) {
     let (mut sender, mut receiver) = socket.split();
-    let mut terminal_rx = state.terminal_tx.subscribe();
+    let mut terminal_rx = state.terminal_hub.subscribe(&terminal_id).await;
     if !send_control_frame(
         &state,
         &node_id,
@@ -1992,7 +2676,19 @@ async fn handle_workspace_terminal_stream(
                             break;
                         }
                     }
-                    Err(broadcast::error::RecvError::Lagged(_)) => {}
+                    Err(broadcast::error::RecvError::Lagged(skipped)) => {
+                        let _ = send_ws_json(
+                            &mut sender,
+                            WorkspaceTerminalStreamFrame::Error {
+                                terminal_id: terminal_id.clone(),
+                                message: format!(
+                                    "Terminal stream skipped {skipped} frames; reconnect to replay retained output"
+                                ),
+                                sent_at: Utc::now(),
+                            },
+                        )
+                        .await;
+                    }
                     Err(broadcast::error::RecvError::Closed) => break,
                 }
             }
@@ -2285,7 +2981,7 @@ async fn validate_placement_with_correlation(
     .bind(now)
     .execute(&mut *placement_transaction)
     .await?;
-    sqlx::query(
+    let placement_insert = sqlx::query(
         r#"
         insert into project_placements (
             project_placement_id, project_id, node_id, display_name, workspace_path,
@@ -2304,7 +3000,21 @@ async fn validate_placement_with_correlation(
     .bind(Option::<DateTime<Utc>>::None)
     .bind(now)
     .execute(&mut *placement_transaction)
-    .await?;
+    .await;
+    if let Err(error) = placement_insert {
+        if is_workspace_identity_conflict(&error) {
+            placement_transaction.rollback().await?;
+            let existing_placement_id: String = sqlx::query_scalar(
+                "select project_placement_id from project_placements where node_id = ?1 and workspace_path = ?2",
+            )
+            .bind(node_id.as_str())
+            .bind(&workspace_path)
+            .fetch_one(&state.pool)
+            .await?;
+            return load_placement(state, &ProjectPlacementId::from(existing_placement_id)).await;
+        }
+        return Err(error.into());
+    }
     let command = CommandEnvelope {
         command_id: CommandId::new(),
         kind: CommandKind::ValidateWorkspace,
@@ -2653,6 +3363,234 @@ async fn workspace_command_run_route(
     .map(Json)
 }
 
+async fn workspace_command_accept_route(
+    State(state): State<Arc<AppState>>,
+    headers: HeaderMap,
+    Path(placement_id): Path<String>,
+    Json(request): Json<WorkspaceCommandRunRequest>,
+) -> Result<(StatusCode, Json<CommandAcceptedResponse>), AppError> {
+    let placement = load_placement(&state, &ProjectPlacementId::from(placement_id)).await?;
+    ensure_placement_intervention_allowed(&placement)?;
+    ensure_node_commandable(&state, &placement.node_id).await?;
+    let mut payload = serde_json::to_value(request)?;
+    if let serde_json::Value::Object(object) = &mut payload {
+        object.insert(
+            "workspace_path".to_owned(),
+            serde_json::Value::String(placement.workspace_path.clone()),
+        );
+    }
+    let command_id = CommandId::new();
+    let project_placement_id = placement.project_placement_id.clone();
+    record_and_dispatch_command(
+        &state,
+        CommandEnvelope {
+            command_id: command_id.clone(),
+            kind: CommandKind::RunWorkspaceCommand,
+            target_node_id: placement.node_id,
+            actor_ref: ActorRef::local_user(),
+            session_thread_id: None,
+            runtime_session_id: None,
+            project_placement_id: Some(project_placement_id.clone()),
+            source_refs: vec![UpravaRef::Workspace {
+                placement_id: project_placement_id,
+            }],
+            cause_refs: vec![],
+            issued_at: Utc::now(),
+            correlation_id: request_correlation_id(&headers),
+            payload: JsonValue(payload),
+        },
+    )
+    .await?;
+    Ok((
+        StatusCode::ACCEPTED,
+        Json(CommandAcceptedResponse {
+            command_id,
+            session: None,
+        }),
+    ))
+}
+
+async fn workspace_command_resource_route(
+    State(state): State<Arc<AppState>>,
+    Path((placement_id, command_id)): Path<(String, String)>,
+) -> Result<axum::response::Response, AppError> {
+    let placement = load_placement(&state, &ProjectPlacementId::from(placement_id)).await?;
+    ensure_placement_inspectable(&placement)?;
+    let (status, item) =
+        load_workspace_command_resource(&state, &placement, &CommandId::from(command_id), true)
+            .await?;
+    Ok((status, Json(item)).into_response())
+}
+
+async fn workspace_command_cancel_route(
+    State(state): State<Arc<AppState>>,
+    Path((placement_id, command_id)): Path<(String, String)>,
+) -> Result<Json<WorkspaceCommandHistoryItem>, AppError> {
+    let placement = load_placement(&state, &ProjectPlacementId::from(placement_id)).await?;
+    ensure_placement_intervention_allowed(&placement)?;
+    let command_id = CommandId::from(command_id);
+    let _ = load_workspace_command_resource(&state, &placement, &command_id, false).await?;
+    mark_command_terminal_if_nonterminal(
+        &state,
+        &command_id,
+        CommandState::Expired,
+        &JsonValue(json!({
+            "error_code": "workspace.command_cancelled",
+            "message": "Workspace command was cancelled by the client"
+        })),
+        Utc::now(),
+    )
+    .await?;
+    let (_status, item) =
+        load_workspace_command_resource(&state, &placement, &command_id, false).await?;
+    Ok(Json(item))
+}
+
+async fn load_workspace_command_resource(
+    state: &AppState,
+    placement: &ProjectPlacementSummary,
+    command_id: &CommandId,
+    expire_if_due: bool,
+) -> Result<(StatusCode, WorkspaceCommandHistoryItem), AppError> {
+    let row = sqlx::query(
+        r#"
+        select command_id, kind, state, payload_json, result_payload_json,
+               created_at, completed_at
+        from commands
+        where command_id = ?1 and project_placement_id = ?2
+        "#,
+    )
+    .bind(command_id.as_str())
+    .bind(placement.project_placement_id.as_str())
+    .fetch_optional(&state.pool)
+    .await?
+    .ok_or_else(|| {
+        AppError::not_found("workspace.command_not_found", "Workspace command not found")
+    })?;
+    let state_value: String = row.try_get("state")?;
+    let mut item = WorkspaceCommandHistoryItem {
+        command_id: CommandId::from(row.try_get::<String, _>("command_id")?),
+        kind: parse_command_kind(&row.try_get::<String, _>("kind")?),
+        state: parse_command_state(&state_value),
+        created_at: row.try_get("created_at")?,
+        completed_at: row.try_get("completed_at")?,
+        payload: serde_json::from_str(&row.try_get::<String, _>("payload_json")?)?,
+        result_payload: row
+            .try_get::<Option<String>, _>("result_payload_json")?
+            .map(|payload| serde_json::from_str(&payload))
+            .transpose()?,
+    };
+    if expire_if_due {
+        if let Some((completed_at, result_payload)) =
+            expire_workspace_command_if_due(state, &item).await?
+        {
+            item.state = CommandState::Expired;
+            item.completed_at = Some(completed_at);
+            item.result_payload = Some(result_payload);
+        }
+    }
+    let status = if is_terminal_command_state(item.state) {
+        StatusCode::OK
+    } else {
+        StatusCode::ACCEPTED
+    };
+    Ok((status, item))
+}
+
+async fn expire_workspace_command_if_due(
+    state: &AppState,
+    item: &WorkspaceCommandHistoryItem,
+) -> Result<Option<(DateTime<Utc>, JsonValue)>, AppError> {
+    if is_terminal_command_state(item.state) {
+        return Ok(None);
+    }
+    let timeout_seconds = item
+        .payload
+        .0
+        .get("timeout_seconds")
+        .and_then(serde_json::Value::as_i64)
+        .unwrap_or(WORKSPACE_INTERVENTION_TIMEOUT.as_secs() as i64)
+        .clamp(1, WORKSPACE_INTERVENTION_TIMEOUT.as_secs() as i64);
+    let Some(deadline) = item
+        .created_at
+        .checked_add_signed(chrono::Duration::seconds(timeout_seconds + 10))
+    else {
+        return Ok(None);
+    };
+    let now = Utc::now();
+    if now < deadline {
+        return Ok(None);
+    }
+    let result_payload = JsonValue(json!({
+        "error_code": "workspace.command_expired",
+        "message": "Workspace command expired before a terminal node result arrived"
+    }));
+    if mark_command_terminal_if_nonterminal(
+        state,
+        &item.command_id,
+        CommandState::Expired,
+        &result_payload,
+        now,
+    )
+    .await?
+    {
+        return Ok(Some((now, result_payload)));
+    }
+    Ok(None)
+}
+
+async fn mark_command_terminal_if_nonterminal(
+    state: &AppState,
+    command_id: &CommandId,
+    command_state: CommandState,
+    result_payload: &JsonValue,
+    completed_at: DateTime<Utc>,
+) -> Result<bool, AppError> {
+    debug_assert!(is_terminal_command_state(command_state));
+    let mut transaction = state.pool.begin().await?;
+    let updated = sqlx::query(
+        r#"
+        update commands
+        set state = ?1,
+            completed_at = coalesce(completed_at, ?2),
+            result_payload_json = coalesce(result_payload_json, ?3)
+        where command_id = ?4
+          and state not in ('completed', 'failed', 'blocked', 'expired')
+        "#,
+    )
+    .bind(format_command_state(command_state))
+    .bind(completed_at)
+    .bind(serde_json::to_string(result_payload)?)
+    .bind(command_id.as_str())
+    .execute(&mut *transaction)
+    .await?
+    .rows_affected()
+        > 0;
+    if updated {
+        sqlx::query("delete from command_dispatch_outbox where command_id = ?1")
+            .bind(command_id.as_str())
+            .execute(&mut *transaction)
+            .await?;
+    }
+    transaction.commit().await?;
+    if updated {
+        let notice = CommandResultNotice {
+            command_id: command_id.clone(),
+            status: command_state,
+            payload: result_payload.clone(),
+        };
+        let _ = state.command_result_tx.send(notice.clone());
+        let waiter = {
+            let mut waiters = lock_command_waiters(state)?;
+            waiters.remove(command_id.as_str())
+        };
+        if let Some(waiter) = waiter {
+            let _ = waiter.send(notice);
+        }
+    }
+    Ok(updated)
+}
+
 async fn workspace_diff_route(
     State(state): State<Arc<AppState>>,
     headers: HeaderMap,
@@ -2978,11 +3916,8 @@ where
     ensure_node_commandable(state, &placement.node_id).await?;
     let command_id = CommandId::new();
     let (result_sender, result_receiver) = oneshot::channel();
-    state
-        .command_waiters
-        .write()
-        .await
-        .insert(command_id.to_string(), result_sender);
+    lock_command_waiters(state)?.insert(command_id.to_string(), result_sender);
+    let _waiter_guard = CommandWaiterGuard::new(state, command_id.clone());
     let mut payload = match payload {
         serde_json::Value::Object(payload) => payload,
         _ => serde_json::Map::new(),
@@ -2991,7 +3926,7 @@ where
         "workspace_path".to_owned(),
         serde_json::Value::String(placement.workspace_path.clone()),
     );
-    if let Err(error) = record_and_dispatch_command(
+    record_and_dispatch_command(
         state,
         CommandEnvelope {
             command_id: command_id.clone(),
@@ -3008,15 +3943,7 @@ where
             payload: JsonValue(serde_json::Value::Object(payload)),
         },
     )
-    .await
-    {
-        state
-            .command_waiters
-            .write()
-            .await
-            .remove(command_id.as_str());
-        return Err(error);
-    }
+    .await?;
     let result = wait_for_command_result(state, result_receiver, &command_id, timeout).await?;
     if result.status == CommandState::Completed {
         return serde_json::from_value::<T>(result.payload.0).map_err(AppError::from);
@@ -3067,11 +3994,6 @@ async fn wait_for_command_result(
             ))
         }
         Err(_) => {
-            state
-                .command_waiters
-                .write()
-                .await
-                .remove(command_id.as_str());
             if let Some(result) = load_durable_command_result(state, command_id).await? {
                 return Ok(result);
             }
@@ -3081,6 +4003,12 @@ async fn wait_for_command_result(
             ))
         }
     }
+}
+
+fn is_workspace_identity_conflict(error: &sqlx::Error) -> bool {
+    let message = error.to_string().to_ascii_lowercase();
+    message.contains("unique constraint")
+        && (message.contains("project_placements") || message.contains("node_id, workspace_path"))
 }
 
 async fn load_durable_command_result(
@@ -3371,11 +4299,11 @@ fn session_event_cursor(event: &EventEnvelope) -> i64 {
     event.session_projection_seq.unwrap_or(event.seq)
 }
 
-async fn session_artifact_tree(
+async fn session_evidence_projection(
     State(state): State<Arc<AppState>>,
     Path(session_thread_id): Path<String>,
-) -> Result<Json<ArtifactTree>, AppError> {
-    build_artifact_tree(&state, &SessionThreadId::from(session_thread_id))
+) -> Result<Json<SessionEvidenceProjection>, AppError> {
+    build_session_evidence_projection(&state, &SessionThreadId::from(session_thread_id))
         .await
         .map(Json)
 }
@@ -3818,13 +4746,7 @@ async fn dispatch_pending_commands(state: &AppState, node_id: &NodeId) -> Result
     .fetch_all(&state.pool)
     .await?;
     let pending_count = rows.len();
-    let Some(channel) = state
-        .control_channels
-        .read()
-        .await
-        .get(node_id.as_str())
-        .cloned()
-    else {
+    let Some(channel) = state.control_connections.sender(node_id).await else {
         if pending_count > 0 {
             tracing::debug!(
                 node_id = %node_id,
@@ -3842,7 +4764,7 @@ async fn dispatch_pending_commands(state: &AppState, node_id: &NodeId) -> Result
         let command_kind = command.kind;
         let correlation_id = command.correlation_id.clone();
         if channel
-            .send(ControlFrame::CommandDispatch {
+            .try_send(ControlFrame::CommandDispatch {
                 frame_id: Uuid::new_v4().to_string(),
                 protocol_version: API_VERSION.to_owned(),
                 sent_at: Utc::now(),
@@ -3879,12 +4801,7 @@ async fn dispatch_pending_commands(state: &AppState, node_id: &NodeId) -> Result
 }
 
 async fn should_open_control_channel(state: &AppState, node_id: &NodeId) -> Result<bool, AppError> {
-    if state
-        .control_channels
-        .read()
-        .await
-        .contains_key(node_id.as_str())
-    {
+    if state.control_connections.contains(node_id).await {
         return Ok(false);
     }
     let pending: i64 = sqlx::query_scalar(
@@ -3983,26 +4900,28 @@ async fn update_command_result(
 }
 
 async fn accept_node_event(state: &AppState, event: EventEnvelope) -> Result<(), AppError> {
-    // Serialize the read/allocate/insert/projection sequence. SQLite write
-    // transactions still protect individual statements, while this lock
-    // prevents concurrent event handlers from allocating duplicate cursors or
-    // interleaving projections before the transaction-backed outbox work lands.
+    // SQLite serializes the durable unit of work; this lock also keeps cursor
+    // allocation deterministic before the connection-level projection API is
+    // moved into a dedicated module.
     let _ingest_guard = state.event_ingest_lock.lock().await;
     let mut event = event;
-    let existing_projection_state: Option<String> =
-        sqlx::query_scalar("select projection_state from events where event_id = ?1")
+    let mut transaction = state.pool.begin().await?;
+    let existing_event: Option<(String, String)> =
+        sqlx::query_as("select projection_state, event_json from events where event_id = ?1")
             .bind(event.event_id.as_str())
-            .fetch_optional(&state.pool)
+            .fetch_optional(&mut *transaction)
             .await?;
-    if let Some(projection_state) = existing_projection_state {
+    if let Some((projection_state, persisted_event_json)) = existing_event {
+        let persisted_event: EventEnvelope = serde_json::from_str(&persisted_event_json)?;
         if projection_state == "projected" {
             tracing::debug!(
-                event_id = %event.event_id,
-                event_kind = ?&event.kind,
-                seq = event.seq,
+                event_id = %persisted_event.event_id,
+                event_kind = ?&persisted_event.kind,
+                seq = persisted_event.seq,
                 "duplicate projected node event ignored"
             );
-            enqueue_event_publication(state, &event).await?;
+            enqueue_event_publication_on_connection(&mut transaction, &persisted_event).await?;
+            transaction.commit().await?;
             drain_event_publication_outbox(state).await?;
             return Ok(());
         }
@@ -4010,10 +4929,11 @@ async fn accept_node_event(state: &AppState, event: EventEnvelope) -> Result<(),
             "update events set projection_attempts = projection_attempts + 1 where event_id = ?1",
         )
         .bind(event.event_id.as_str())
-        .execute(&state.pool)
+        .execute(&mut *transaction)
         .await?;
-        apply_event_projection(state, &event).await?;
-        complete_event_projection(state, &event).await?;
+        apply_event_projection_on_connection(&mut transaction, &persisted_event).await?;
+        complete_event_projection_on_connection(&mut transaction, &persisted_event).await?;
+        transaction.commit().await?;
         state
             .core_metrics
             .accepted_events
@@ -4023,7 +4943,7 @@ async fn accept_node_event(state: &AppState, event: EventEnvelope) -> Result<(),
     }
     if sqlx::query_scalar::<_, i64>("select count(*) from events where event_id = ?1")
         .bind(event.event_id.as_str())
-        .fetch_one(&state.pool)
+        .fetch_one(&mut *transaction)
         .await?
         > 0
     {
@@ -4040,7 +4960,7 @@ async fn accept_node_event(state: &AppState, event: EventEnvelope) -> Result<(),
         sqlx::query_scalar("select event_id from events where scope_key = ?1 and seq = ?2")
             .bind(&scope_key)
             .bind(event.seq)
-            .fetch_optional(&state.pool)
+            .fetch_optional(&mut *transaction)
             .await?;
     if let Some(conflict) = seq_conflict {
         tracing::warn!(
@@ -4058,7 +4978,7 @@ async fn accept_node_event(state: &AppState, event: EventEnvelope) -> Result<(),
     let max_seq: Option<i64> =
         sqlx::query_scalar("select max(seq) from events where scope_key = ?1")
             .bind(&scope_key)
-            .fetch_one(&state.pool)
+            .fetch_one(&mut *transaction)
             .await?;
     let expected_seq = max_seq.unwrap_or(0) + 1;
     let stream_gap = (event.seq > expected_seq).then_some(expected_seq);
@@ -4072,37 +4992,50 @@ async fn accept_node_event(state: &AppState, event: EventEnvelope) -> Result<(),
         );
     }
     if event.correlation_id.is_none() {
-        event.correlation_id = command_correlation_id(state, event.command_id.as_ref()).await?;
+        event.correlation_id =
+            command_correlation_id_on_connection(&mut transaction, event.command_id.as_ref())
+                .await?;
     }
     if let Some(session_id) = event.session_thread_id.clone() {
-        event.session_projection_seq = Some(next_session_projection_seq(state, &session_id).await?);
+        event.session_projection_seq =
+            Some(next_session_projection_seq_on_connection(&mut transaction, &session_id).await?);
     } else {
         event.session_projection_seq = None;
     }
-    upsert_actor(state, &event.actor_ref, event.happened_at).await?;
-
-    insert_event_record(state, &scope_key, &event).await?;
-
-    apply_event_projection(state, &event).await?;
-    complete_event_projection(state, &event).await?;
+    upsert_actor_on_connection(&mut transaction, &event.actor_ref, event.happened_at).await?;
+    insert_event_record_on_connection(&mut transaction, &scope_key, &event).await?;
+    apply_event_projection_on_connection(&mut transaction, &event).await?;
+    if let Some(expected_seq) = stream_gap {
+        mark_event_stream_gap_on_connection(&mut transaction, &event, expected_seq).await?;
+    }
+    complete_event_projection_on_connection(&mut transaction, &event).await?;
+    transaction.commit().await?;
     state
         .core_metrics
         .accepted_events
         .fetch_add(1, Ordering::Relaxed);
-    if let Some(expected_seq) = stream_gap {
-        mark_event_stream_gap(state, &event, expected_seq).await?;
-    }
     drain_event_publication_outbox(state).await?;
     log_event_appended(&event, stream_gap);
     Ok(())
 }
 
+#[cfg(test)]
 async fn insert_event_record(
     state: &AppState,
     scope_key: &str,
     event: &EventEnvelope,
 ) -> Result<(), AppError> {
     let mut transaction = state.pool.begin().await?;
+    insert_event_record_on_connection(&mut transaction, scope_key, event).await?;
+    transaction.commit().await?;
+    Ok(())
+}
+
+async fn insert_event_record_on_connection(
+    connection: &mut SqliteConnection,
+    scope_key: &str,
+    event: &EventEnvelope,
+) -> Result<(), AppError> {
     sqlx::query(
         r#"
         insert into events (
@@ -4143,30 +5076,32 @@ async fn insert_event_record(
     .bind(serde_json::to_string(&event.payload)?)
     .bind(serde_json::to_string(event)?)
     .bind(event.happened_at)
-    .execute(&mut *transaction)
+    .execute(&mut *connection)
     .await?;
-    transaction.commit().await?;
     Ok(())
 }
 
-/// Atomically closes the durable projection boundary for an event.
-///
-/// Individual projection helpers intentionally still use the pool and commit
-/// their own statements.  Keeping the final state transition and publication
-/// enqueue in one transaction means a projection failure leaves the event
-/// pending and never advertises a partially projected event as complete.  A
-/// subsequent ingest/replay can safely retry the pending event.
+#[cfg(test)]
 async fn complete_event_projection(
     state: &AppState,
     event: &EventEnvelope,
 ) -> Result<(), AppError> {
     let mut transaction = state.pool.begin().await?;
+    complete_event_projection_on_connection(&mut transaction, event).await?;
+    transaction.commit().await?;
+    Ok(())
+}
+
+async fn complete_event_projection_on_connection(
+    connection: &mut SqliteConnection,
+    event: &EventEnvelope,
+) -> Result<(), AppError> {
     sqlx::query(
         "update events set projection_state = 'projected', projected_at = ?2 where event_id = ?1 and projection_state <> 'projected'",
     )
     .bind(event.event_id.as_str())
     .bind(event.happened_at)
-    .execute(&mut *transaction)
+    .execute(&mut *connection)
     .await?;
     sqlx::query(
         "insert into event_publication_outbox (event_id, event_json, enqueued_at) values (?1, ?2, ?3) on conflict(event_id) do nothing",
@@ -4174,7 +5109,7 @@ async fn complete_event_projection(
     .bind(event.event_id.as_str())
     .bind(serde_json::to_string(event)?)
     .bind(event.happened_at)
-    .execute(&mut *transaction)
+    .execute(&mut *connection)
     .await?;
     let durable_message = match event.kind {
         EventKind::ProviderMessageCompleted => Some((
@@ -4237,10 +5172,9 @@ async fn complete_event_projection(
         .bind(event.happened_at)
         .bind(event.happened_at)
         .bind(event.event_id.as_str())
-        .execute(&mut *transaction)
+        .execute(&mut *connection)
         .await?;
     }
-    transaction.commit().await?;
     Ok(())
 }
 
@@ -4257,8 +5191,21 @@ async fn next_session_projection_seq(
     Ok(max_seq.unwrap_or(0) + 1)
 }
 
-async fn command_correlation_id(
-    state: &AppState,
+async fn next_session_projection_seq_on_connection(
+    connection: &mut SqliteConnection,
+    session_id: &SessionThreadId,
+) -> Result<i64, AppError> {
+    let max_seq: Option<i64> = sqlx::query_scalar(
+        "select max(session_projection_seq) from events where session_thread_id = ?1",
+    )
+    .bind(session_id.as_str())
+    .fetch_one(&mut *connection)
+    .await?;
+    Ok(max_seq.unwrap_or(0) + 1)
+}
+
+async fn command_correlation_id_on_connection(
+    connection: &mut SqliteConnection,
     command_id: Option<&CommandId>,
 ) -> Result<Option<CorrelationId>, AppError> {
     let Some(command_id) = command_id else {
@@ -4267,7 +5214,7 @@ async fn command_correlation_id(
     let command_json: Option<String> =
         sqlx::query_scalar("select command_json from commands where command_id = ?1")
             .bind(command_id.as_str())
-            .fetch_optional(&state.pool)
+            .fetch_optional(&mut *connection)
             .await?;
     command_json
         .map(|command_json| serde_json::from_str::<CommandEnvelope>(&command_json))
@@ -4276,108 +5223,205 @@ async fn command_correlation_id(
         .map_err(AppError::from)
 }
 
-async fn apply_event_projection(state: &AppState, event: &EventEnvelope) -> Result<(), AppError> {
+async fn apply_event_projection_on_connection(
+    connection: &mut SqliteConnection,
+    event: &EventEnvelope,
+) -> Result<(), AppError> {
     if let Some(runtime_session_id) = &event.runtime_session_id {
-        touch_runtime_step(state, runtime_session_id, event.happened_at).await?;
+        touch_runtime_step_on_connection(connection, runtime_session_id, event.happened_at).await?;
     }
-    update_turn_from_event(state, event).await?;
-    update_approval_from_event(state, event).await?;
+    update_turn_from_event_on_connection(connection, event).await?;
+    update_approval_from_event_on_connection(connection, event).await?;
 
     match event.kind {
         EventKind::RuntimeStarting => {
             if let Some(runtime_session_id) = &event.runtime_session_id {
-                update_runtime_state(state, runtime_session_id, RuntimeSessionState::Starting)
-                    .await?;
+                update_runtime_state_on_connection(
+                    connection,
+                    runtime_session_id,
+                    RuntimeSessionState::Starting,
+                    event.happened_at,
+                )
+                .await?;
             }
-            update_session_state_from_event(state, event, SessionThreadState::Active).await?;
+            update_session_state_from_event_on_connection(
+                connection,
+                event,
+                SessionThreadState::Active,
+            )
+            .await?;
         }
         EventKind::RuntimeReady => {
             if let Some(runtime_session_id) = &event.runtime_session_id {
-                update_runtime_state(state, runtime_session_id, RuntimeSessionState::Ready).await?;
-                update_runtime_provider_resume_ref(state, runtime_session_id, event).await?;
+                update_runtime_state_on_connection(
+                    connection,
+                    runtime_session_id,
+                    RuntimeSessionState::Ready,
+                    event.happened_at,
+                )
+                .await?;
+                update_runtime_provider_resume_ref_on_connection(
+                    connection,
+                    runtime_session_id,
+                    event,
+                )
+                .await?;
             }
-            update_session_state_from_event(state, event, SessionThreadState::Active).await?;
+            update_session_state_from_event_on_connection(
+                connection,
+                event,
+                SessionThreadState::Active,
+            )
+            .await?;
         }
         EventKind::RuntimeResuming => {
             if let Some(runtime_session_id) = &event.runtime_session_id {
-                update_runtime_state(state, runtime_session_id, RuntimeSessionState::Resuming)
-                    .await?;
+                update_runtime_state_on_connection(
+                    connection,
+                    runtime_session_id,
+                    RuntimeSessionState::Resuming,
+                    event.happened_at,
+                )
+                .await?;
             }
-            update_session_state_from_event(state, event, SessionThreadState::Active).await?;
+            update_session_state_from_event_on_connection(
+                connection,
+                event,
+                SessionThreadState::Active,
+            )
+            .await?;
         }
         EventKind::RuntimeRunning => {
             if let Some(runtime_session_id) = &event.runtime_session_id {
-                update_runtime_state(state, runtime_session_id, RuntimeSessionState::Running)
-                    .await?;
+                update_runtime_state_on_connection(
+                    connection,
+                    runtime_session_id,
+                    RuntimeSessionState::Running,
+                    event.happened_at,
+                )
+                .await?;
             }
-            update_session_state_from_event(state, event, SessionThreadState::Active).await?;
+            update_session_state_from_event_on_connection(
+                connection,
+                event,
+                SessionThreadState::Active,
+            )
+            .await?;
         }
         EventKind::RuntimeBlocked => {
             if let Some(runtime_session_id) = &event.runtime_session_id {
-                update_runtime_state(state, runtime_session_id, RuntimeSessionState::Blocked)
-                    .await?;
+                update_runtime_state_on_connection(
+                    connection,
+                    runtime_session_id,
+                    RuntimeSessionState::Blocked,
+                    event.happened_at,
+                )
+                .await?;
             }
-            update_session_state_from_event(state, event, SessionThreadState::Active).await?;
+            update_session_state_from_event_on_connection(
+                connection,
+                event,
+                SessionThreadState::Active,
+            )
+            .await?;
         }
         EventKind::RuntimeExpired => {
             if let Some(runtime_session_id) = &event.runtime_session_id {
-                update_runtime_state(state, runtime_session_id, RuntimeSessionState::Expired)
-                    .await?;
+                update_runtime_state_on_connection(
+                    connection,
+                    runtime_session_id,
+                    RuntimeSessionState::Expired,
+                    event.happened_at,
+                )
+                .await?;
             }
-            update_session_state_from_event(state, event, SessionThreadState::Degraded).await?;
+            update_session_state_from_event_on_connection(
+                connection,
+                event,
+                SessionThreadState::Degraded,
+            )
+            .await?;
         }
         EventKind::RuntimeStopped => {
             if let Some(runtime_session_id) = &event.runtime_session_id {
-                update_runtime_state(state, runtime_session_id, RuntimeSessionState::Stopped)
-                    .await?;
+                update_runtime_state_on_connection(
+                    connection,
+                    runtime_session_id,
+                    RuntimeSessionState::Stopped,
+                    event.happened_at,
+                )
+                .await?;
             }
-            update_session_state_from_event(state, event, SessionThreadState::Stopped).await?;
+            update_session_state_from_event_on_connection(
+                connection,
+                event,
+                SessionThreadState::Stopped,
+            )
+            .await?;
         }
         EventKind::RuntimeError => {
             if let Some(runtime_session_id) = &event.runtime_session_id {
-                update_runtime_state(state, runtime_session_id, RuntimeSessionState::Error).await?;
+                update_runtime_state_on_connection(
+                    connection,
+                    runtime_session_id,
+                    RuntimeSessionState::Error,
+                    event.happened_at,
+                )
+                .await?;
             }
-            update_session_state_from_event(state, event, SessionThreadState::Degraded).await?;
-            // The durable message is inserted with the event completion
-            // boundary below, keeping projection and publication coupled.
+            update_session_state_from_event_on_connection(
+                connection,
+                event,
+                SessionThreadState::Degraded,
+            )
+            .await?;
         }
         EventKind::TurnInterrupted => {
             if let Some(runtime_session_id) = &event.runtime_session_id {
-                update_runtime_state(state, runtime_session_id, RuntimeSessionState::Interrupted)
-                    .await?;
+                update_runtime_state_on_connection(
+                    connection,
+                    runtime_session_id,
+                    RuntimeSessionState::Interrupted,
+                    event.happened_at,
+                )
+                .await?;
             }
-            update_session_state_from_event(state, event, SessionThreadState::Active).await?;
+            update_session_state_from_event_on_connection(
+                connection,
+                event,
+                SessionThreadState::Active,
+            )
+            .await?;
         }
-        EventKind::ProviderMessageCompleted => {
-            // The durable message is inserted with the event completion
-            // boundary below. Keeping this branch side-effect free avoids a
-            // projected event whose publication/message write can diverge.
-        }
+        EventKind::ProviderMessageCompleted => {}
         EventKind::ApprovalRequested => {
             if let Some(runtime_session_id) = &event.runtime_session_id {
-                update_runtime_state(state, runtime_session_id, RuntimeSessionState::Blocked)
-                    .await?;
+                update_runtime_state_on_connection(
+                    connection,
+                    runtime_session_id,
+                    RuntimeSessionState::Blocked,
+                    event.happened_at,
+                )
+                .await?;
             }
-            update_session_state_from_event(state, event, SessionThreadState::Active).await?;
-            // The durable message is inserted with the event completion
-            // boundary below, keeping approval projection and publication
-            // coupled.
+            update_session_state_from_event_on_connection(
+                connection,
+                event,
+                SessionThreadState::Active,
+            )
+            .await?;
         }
-        EventKind::ApprovalResolved => {
-            // The durable message is inserted with the event completion
-            // boundary below, keeping approval resolution and publication
-            // coupled.
-        }
+        EventKind::ApprovalResolved => {}
         EventKind::WorkspaceValidated | EventKind::ResourceSnapshotUpdated => {
-            update_placement_from_workspace_event(state, event).await?;
+            update_placement_from_workspace_event_on_connection(connection, event).await?;
         }
         _ => {}
     }
     Ok(())
 }
 
-async fn update_placement_from_workspace_event(
-    state: &AppState,
+async fn update_placement_from_workspace_event_on_connection(
+    connection: &mut SqliteConnection,
     event: &EventEnvelope,
 ) -> Result<(), AppError> {
     let placement_id = match &event.scope_ref {
@@ -4443,7 +5487,7 @@ async fn update_placement_from_workspace_event(
     .bind(serde_json::to_string(&resource_badges)?)
     .bind(event.happened_at)
     .bind(placement_id.as_str())
-    .execute(&state.pool)
+    .execute(&mut *connection)
     .await?;
 
     Ok(())
@@ -4504,8 +5548,9 @@ async fn record_warning_acknowledgement(
         })),
     };
 
-    upsert_actor(state, &event.actor_ref, event.happened_at).await?;
-    insert_event_record(state, &scope_key, &event).await?;
+    let mut transaction = state.pool.begin().await?;
+    upsert_actor_on_connection(&mut transaction, &event.actor_ref, event.happened_at).await?;
+    insert_event_record_on_connection(&mut transaction, &scope_key, &event).await?;
 
     sqlx::query(
         r#"
@@ -4529,12 +5574,10 @@ async fn record_warning_acknowledgement(
     .bind(event.command_id.as_ref().map(CommandId::as_str))
     .bind(serde_json::to_string(&event.result_refs)?)
     .bind(event.happened_at)
-    .execute(&state.pool)
+    .execute(&mut *transaction)
     .await?;
-
-    // Locally-authored warning events have no separate projection phase, so
-    // publish only after the acknowledgement projection is durable.
-    enqueue_event_publication(state, &event).await?;
+    complete_event_projection_on_connection(&mut transaction, &event).await?;
+    transaction.commit().await?;
     drain_event_publication_outbox(state).await?;
     log_event_appended(&event, None);
     Ok(event)
@@ -5726,15 +6769,15 @@ async fn load_events(
         .collect()
 }
 
-async fn build_artifact_tree(
+async fn build_session_evidence_projection(
     state: &AppState,
     session_id: &SessionThreadId,
-) -> Result<ArtifactTree, AppError> {
+) -> Result<SessionEvidenceProjection, AppError> {
     let detail = load_session_detail(state, session_id).await?;
     let mut children = Vec::with_capacity(detail.messages.len() + detail.events.len());
     for message in &detail.messages {
-        children.push(ArtifactTreeNode {
-            artifact_id: ArtifactId::new(),
+        children.push(SessionEvidenceProjectionNode {
+            evidence_id: EvidenceId::from(format!("message:{}", message.message_id)),
             label: format!("{:?} message", message.role),
             primary_ref: UpravaRef::Message {
                 message_id: message.message_id.clone(),
@@ -5746,8 +6789,8 @@ async fn build_artifact_tree(
         });
     }
     for event in &detail.events {
-        children.push(ArtifactTreeNode {
-            artifact_id: ArtifactId::new(),
+        children.push(SessionEvidenceProjectionNode {
+            evidence_id: EvidenceId::from(format!("event:{}", event.event_id)),
             label: artifact_label_for_event(event),
             primary_ref: primary_ref_for_event(event),
             source_refs: event.source_refs.clone(),
@@ -5757,10 +6800,10 @@ async fn build_artifact_tree(
         });
     }
 
-    Ok(ArtifactTree {
+    Ok(SessionEvidenceProjection {
         session_thread_id: session_id.clone(),
-        root: ArtifactTreeNode {
-            artifact_id: ArtifactId::new(),
+        root: SessionEvidenceProjectionNode {
+            evidence_id: EvidenceId::from(format!("session:{session_id}")),
             label: detail.session.title,
             primary_ref: UpravaRef::Session {
                 session_thread_id: session_id.clone(),
@@ -5829,8 +6872,8 @@ async fn build_agent_projection(
         &pending_approvals,
         &recent_turn_summaries,
     );
-    let artifact_tree_summary = format!(
-        "Session-local index: {} messages, {} events, {} pending approvals",
+    let evidence_projection_summary = format!(
+        "Session evidence projection: {} messages, {} events, {} pending approvals",
         detail.messages.len(),
         detail.events.len(),
         pending_approvals.len()
@@ -5853,7 +6896,7 @@ async fn build_agent_projection(
         active_warnings,
         recent_turn_summaries,
         recent_message_refs,
-        artifact_tree_summary,
+        evidence_projection_summary,
         available_block_types: vec![
             "core.user-message".to_owned(),
             "core.assistant-message".to_owned(),
@@ -6262,8 +7305,8 @@ fn snippet(value: &str, max_chars: usize) -> String {
     result
 }
 
-async fn upsert_actor(
-    state: &AppState,
+async fn upsert_actor_on_connection(
+    connection: &mut SqliteConnection,
     actor_ref: &ActorRef,
     seen_at: DateTime<Utc>,
 ) -> Result<(), AppError> {
@@ -6285,7 +7328,7 @@ async fn upsert_actor(
     .bind(display_name)
     .bind(serde_json::to_string(actor_ref)?)
     .bind(seen_at)
-    .execute(&state.pool)
+    .execute(&mut *connection)
     .await?;
     Ok(())
 }
@@ -6535,7 +7578,10 @@ async fn record_turn_submission(
     Ok(())
 }
 
-async fn update_turn_from_event(state: &AppState, event: &EventEnvelope) -> Result<(), AppError> {
+async fn update_turn_from_event_on_connection(
+    connection: &mut SqliteConnection,
+    event: &EventEnvelope,
+) -> Result<(), AppError> {
     let Some(turn_id) = &event.turn_id else {
         return Ok(());
     };
@@ -6568,7 +7614,7 @@ async fn update_turn_from_event(state: &AppState, event: &EventEnvelope) -> Resu
     .bind(completed_at)
     .bind(event.happened_at)
     .bind(turn_id.as_str())
-    .execute(&state.pool)
+    .execute(&mut *connection)
     .await?;
     Ok(())
 }
@@ -6584,18 +7630,25 @@ fn turn_state_for_event(event: &EventEnvelope) -> Option<TurnState> {
     }
 }
 
-async fn update_approval_from_event(
-    state: &AppState,
+async fn update_approval_from_event_on_connection(
+    connection: &mut SqliteConnection,
     event: &EventEnvelope,
 ) -> Result<(), AppError> {
     match event.kind {
-        EventKind::ApprovalRequested => record_approval_request(state, event).await,
-        EventKind::ApprovalResolved => record_approval_resolution(state, event).await,
+        EventKind::ApprovalRequested => {
+            record_approval_request_on_connection(connection, event).await
+        }
+        EventKind::ApprovalResolved => {
+            record_approval_resolution_on_connection(connection, event).await
+        }
         _ => Ok(()),
     }
 }
 
-async fn record_approval_request(state: &AppState, event: &EventEnvelope) -> Result<(), AppError> {
+async fn record_approval_request_on_connection(
+    connection: &mut SqliteConnection,
+    event: &EventEnvelope,
+) -> Result<(), AppError> {
     let Some(approval_id) = event_approval_id(event) else {
         return Ok(());
     };
@@ -6637,13 +7690,13 @@ async fn record_approval_request(state: &AppState, event: &EventEnvelope) -> Res
     .bind(event.command_id.as_ref().map(CommandId::as_str))
     .bind(event.event_id.as_str())
     .bind(event.happened_at)
-    .execute(&state.pool)
+    .execute(&mut *connection)
     .await?;
     Ok(())
 }
 
-async fn record_approval_resolution(
-    state: &AppState,
+async fn record_approval_resolution_on_connection(
+    connection: &mut SqliteConnection,
     event: &EventEnvelope,
 ) -> Result<(), AppError> {
     let Some(approval_id) = event_approval_id(event) else {
@@ -6688,7 +7741,7 @@ async fn record_approval_resolution(
     .bind(event.command_id.as_ref().map(CommandId::as_str))
     .bind(event.event_id.as_str())
     .bind(event.happened_at)
-    .execute(&state.pool)
+    .execute(&mut *connection)
     .await?;
     Ok(())
 }
@@ -6741,8 +7794,19 @@ async fn append_event(state: &AppState, new_event: NewEvent) -> Result<EventEnve
     Ok(event)
 }
 
+#[cfg(test)]
 async fn enqueue_event_publication(
     state: &AppState,
+    event: &EventEnvelope,
+) -> Result<(), AppError> {
+    let mut transaction = state.pool.begin().await?;
+    enqueue_event_publication_on_connection(&mut transaction, event).await?;
+    transaction.commit().await?;
+    Ok(())
+}
+
+async fn enqueue_event_publication_on_connection(
+    connection: &mut SqliteConnection,
     event: &EventEnvelope,
 ) -> Result<(), AppError> {
     sqlx::query(
@@ -6751,7 +7815,7 @@ async fn enqueue_event_publication(
     .bind(event.event_id.as_str())
     .bind(serde_json::to_string(event)?)
     .bind(event.happened_at)
-    .execute(&state.pool)
+    .execute(&mut *connection)
     .await?;
     Ok(())
 }
@@ -6841,10 +7905,11 @@ async fn find_session_for_runtime(
         .ok_or_else(|| AppError::not_found("runtime.not_found", "Runtime not found"))
 }
 
-async fn update_runtime_state(
-    state: &AppState,
+async fn update_runtime_state_on_connection(
+    connection: &mut SqliteConnection,
     runtime_session_id: &RuntimeSessionId,
     runtime_state: RuntimeSessionState,
+    updated_at: DateTime<Utc>,
 ) -> Result<(), AppError> {
     let clears_degraded_reason = matches!(
         runtime_state,
@@ -6862,9 +7927,9 @@ async fn update_runtime_state(
             "#,
         )
         .bind(format_runtime_state(runtime_state))
-        .bind(Utc::now())
+        .bind(updated_at)
         .bind(runtime_session_id.as_str())
-        .execute(&state.pool)
+        .execute(&mut *connection)
         .await?;
     } else {
         sqlx::query(
@@ -6875,9 +7940,9 @@ async fn update_runtime_state(
             "#,
         )
         .bind(format_runtime_state(runtime_state))
-        .bind(Utc::now())
+        .bind(updated_at)
         .bind(runtime_session_id.as_str())
-        .execute(&state.pool)
+        .execute(&mut *connection)
         .await?;
     }
     tracing::info!(
@@ -6888,8 +7953,8 @@ async fn update_runtime_state(
     Ok(())
 }
 
-async fn update_runtime_provider_resume_ref(
-    state: &AppState,
+async fn update_runtime_provider_resume_ref_on_connection(
+    connection: &mut SqliteConnection,
     runtime_session_id: &RuntimeSessionId,
     event: &EventEnvelope,
 ) -> Result<(), AppError> {
@@ -6904,9 +7969,9 @@ async fn update_runtime_provider_resume_ref(
         "#,
     )
     .bind(provider_resume_ref_json)
-    .bind(Utc::now())
+    .bind(event.happened_at)
     .bind(runtime_session_id.as_str())
-    .execute(&state.pool)
+    .execute(&mut *connection)
     .await?;
     Ok(())
 }
@@ -6959,8 +8024,8 @@ fn provider_resume_ref_json(event: &EventEnvelope) -> Result<Option<String>, App
     }
 }
 
-async fn touch_runtime_step(
-    state: &AppState,
+async fn touch_runtime_step_on_connection(
+    connection: &mut SqliteConnection,
     runtime_session_id: &RuntimeSessionId,
     happened_at: DateTime<Utc>,
 ) -> Result<(), AppError> {
@@ -6972,21 +8037,21 @@ async fn touch_runtime_step(
         "#,
     )
     .bind(happened_at)
-    .bind(Utc::now())
+    .bind(happened_at)
     .bind(runtime_session_id.as_str())
-    .execute(&state.pool)
+    .execute(&mut *connection)
     .await?;
     Ok(())
 }
 
-async fn update_session_state_from_event(
-    state: &AppState,
+async fn update_session_state_from_event_on_connection(
+    connection: &mut SqliteConnection,
     event: &EventEnvelope,
     session_state: SessionThreadState,
 ) -> Result<(), AppError> {
     if let Some(session_thread_id) = &event.session_thread_id {
         if session_state == SessionThreadState::Active
-            && load_session_state(state, session_thread_id).await?
+            && load_session_state_on_connection(connection, session_thread_id).await?
                 == Some(SessionThreadState::Detached)
         {
             return Ok(());
@@ -6995,22 +8060,22 @@ async fn update_session_state_from_event(
             "update session_threads set state = ?1, updated_at = ?2 where session_thread_id = ?3",
         )
         .bind(format_session_state(session_state))
-        .bind(Utc::now())
+        .bind(event.happened_at)
         .bind(session_thread_id.as_str())
-        .execute(&state.pool)
+        .execute(&mut *connection)
         .await?;
     }
     Ok(())
 }
 
-async fn load_session_state(
-    state: &AppState,
+async fn load_session_state_on_connection(
+    connection: &mut SqliteConnection,
     session_id: &SessionThreadId,
 ) -> Result<Option<SessionThreadState>, AppError> {
     let state_value: Option<String> =
         sqlx::query_scalar("select state from session_threads where session_thread_id = ?1")
             .bind(session_id.as_str())
-            .fetch_optional(&state.pool)
+            .fetch_optional(&mut *connection)
             .await?;
     Ok(state_value.map(|value| parse_session_state(&value)))
 }
@@ -7048,8 +8113,8 @@ async fn update_session_attachment_state(
     Ok(())
 }
 
-async fn mark_event_stream_gap(
-    state: &AppState,
+async fn mark_event_stream_gap_on_connection(
+    connection: &mut SqliteConnection,
     event: &EventEnvelope,
     expected_seq: i64,
 ) -> Result<(), AppError> {
@@ -7067,9 +8132,9 @@ async fn mark_event_stream_gap(
         )
         .bind(format_runtime_state(RuntimeSessionState::Stale))
         .bind(&reason)
-        .bind(Utc::now())
+        .bind(event.happened_at)
         .bind(runtime_session_id.as_str())
-        .execute(&state.pool)
+        .execute(&mut *connection)
         .await?;
     }
     if let Some(session_thread_id) = &event.session_thread_id {
@@ -7077,9 +8142,9 @@ async fn mark_event_stream_gap(
             "update session_threads set state = ?1, updated_at = ?2 where session_thread_id = ?3",
         )
         .bind(format_session_state(SessionThreadState::Degraded))
-        .bind(Utc::now())
+        .bind(event.happened_at)
         .bind(session_thread_id.as_str())
-        .execute(&state.pool)
+        .execute(&mut *connection)
         .await?;
     }
     tracing::warn!(
@@ -8186,6 +9251,16 @@ mod tests {
         test_state_with_runtime_expiry(86_400).await
     }
 
+    async fn activate_test_connection(
+        state: &AppState,
+        node_id: NodeId,
+    ) -> (NodeContext, mpsc::Receiver<ControlFrame>) {
+        let (sender, receiver) = mpsc::channel(CONTROL_QUEUE_CAPACITY);
+        let context = state.control_connections.context(node_id, sender);
+        state.control_connections.activate(&context).await;
+        (context, receiver)
+    }
+
     async fn test_state_with_runtime_expiry(runtime_expiry_seconds: i64) -> Arc<AppState> {
         let pool = memory_pool().await;
         AppState::new(test_config(runtime_expiry_seconds), pool)
@@ -8215,8 +9290,15 @@ mod tests {
     }
 
     async fn sqlite_file_pool(path: &std::path::Path) -> SqlitePool {
+        sqlite_file_pool_with_connections(path, 1).await
+    }
+
+    async fn sqlite_file_pool_with_connections(
+        path: &std::path::Path,
+        max_connections: u32,
+    ) -> SqlitePool {
         let pool = SqlitePoolOptions::new()
-            .max_connections(1)
+            .max_connections(max_connections)
             .connect_with(
                 SqliteConnectOptions::new()
                     .filename(path)
@@ -8869,9 +9951,9 @@ mod tests {
         let detail = load_session_detail(&reopened, &session_id)
             .await
             .expect("session detail reloads after reopen");
-        let artifact_tree = build_artifact_tree(&reopened, &session_id)
+        let evidence_projection = build_session_evidence_projection(&reopened, &session_id)
             .await
-            .expect("artifact tree rebuilds after reopen");
+            .expect("evidence projection rebuilds after reopen");
         let projection = build_agent_projection(&reopened, &session_id)
             .await
             .expect("agent projection rebuilds after reopen");
@@ -8889,26 +9971,34 @@ mod tests {
             })
             .expect("assistant message persisted");
         assert!(detail.events.iter().any(|event| event.event_id == event_id));
-        assert!(artifact_tree.root.children.iter().any(|node| matches!(
-            &node.primary_ref,
-            UpravaRef::Message { message_id } if message_id == &assistant_message.message_id
-        )));
-        assert!(artifact_tree.root.children.iter().any(|node| matches!(
-            &node.primary_ref,
-            UpravaRef::Event {
-                event_id: artifact_event_id,
-                ..
-            } if artifact_event_id == &event_id
-        )));
+        assert!(evidence_projection
+            .root
+            .children
+            .iter()
+            .any(|node| matches!(
+                &node.primary_ref,
+                UpravaRef::Message { message_id } if message_id == &assistant_message.message_id
+            )));
+        assert!(evidence_projection
+            .root
+            .children
+            .iter()
+            .any(|node| matches!(
+                &node.primary_ref,
+                UpravaRef::Event {
+                    event_id: artifact_event_id,
+                    ..
+                } if artifact_event_id == &event_id
+            )));
         assert!(projection
             .recent_message_refs
             .iter()
             .any(|reference| matches!(
-                reference,
-                UpravaRef::Message { message_id } if message_id == &assistant_message.message_id
+                    reference,
+                    UpravaRef::Message { message_id } if message_id == &assistant_message.message_id
             )));
         assert!(projection
-            .artifact_tree_summary
+            .evidence_projection_summary
             .contains("1 messages, 1 events"));
     }
 
@@ -10065,6 +11155,55 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn concurrent_validate_placement_reuses_canonical_workspace_identity() {
+        let db_path = std::env::temp_dir().join(format!("uprava-test-{}.sqlite", Uuid::new_v4()));
+        let pool = sqlite_file_pool_with_connections(&db_path, 4).await;
+        let state = AppState::new(test_config(86_400), pool)
+            .await
+            .expect("state migrates");
+        let claim = enroll_test_node(&state).await;
+        let node_id = claim.node_id.clone().expect("node id returned");
+        heartbeat_test_node(&state, node_id.clone(), claim.credential.clone()).await;
+        let workspace_path = std::env::temp_dir().join(format!("uprava-test-{}", Uuid::new_v4()));
+        let request = CreatePlacementRequest {
+            node_id: node_id.clone(),
+            display_name: "workspace".to_owned(),
+            workspace_path: workspace_path.display().to_string(),
+        };
+
+        let (first, second) = tokio::join!(
+            validate_placement(State(state.clone()), Json(request.clone())),
+            validate_placement(
+                State(state.clone()),
+                Json(CreatePlacementRequest {
+                    display_name: "renamed workspace".to_owned(),
+                    ..request
+                })
+            ),
+        );
+        let first = first.expect("first placement validates").0;
+        let second = second.expect("second placement validates").0;
+        let placement_count: i64 = sqlx::query_scalar(
+            "select count(*) from project_placements where node_id = ?1 and workspace_path = ?2",
+        )
+        .bind(node_id.as_str())
+        .bind(&first.workspace_path)
+        .fetch_one(&state.pool)
+        .await
+        .expect("placement count loads");
+        let project_count: i64 = sqlx::query_scalar("select count(*) from projects")
+            .fetch_one(&state.pool)
+            .await
+            .expect("project count loads");
+        state.pool.close().await;
+        remove_sqlite_file_set(&db_path);
+
+        assert_eq!(first.project_placement_id, second.project_placement_id);
+        assert_eq!(placement_count, 1);
+        assert_eq!(project_count, 1);
+    }
+
+    #[tokio::test]
     async fn command_api_uses_request_correlation_id_header() {
         let state = test_state().await;
         let claim = enroll_test_node(&state).await;
@@ -10455,12 +11594,7 @@ mod tests {
             .await
             .expect("channel request evaluates"));
 
-        let (tx, mut rx) = mpsc::unbounded_channel();
-        state
-            .control_channels
-            .write()
-            .await
-            .insert(node_id.to_string(), tx);
+        let (_context, mut rx) = activate_test_connection(&state, node_id.clone()).await;
         dispatch_pending_commands(&state, &node_id)
             .await
             .expect("pending command dispatches");
@@ -10546,12 +11680,7 @@ mod tests {
             .await
             .expect("channel request evaluates"));
 
-        let (tx, mut rx) = mpsc::unbounded_channel();
-        state
-            .control_channels
-            .write()
-            .await
-            .insert(node_id.to_string(), tx);
+        let (_context, mut rx) = activate_test_connection(&state, node_id.clone()).await;
         dispatch_pending_commands(&state, &node_id)
             .await
             .expect("acknowledged command redispatches");
@@ -10595,12 +11724,7 @@ mod tests {
             .execute(&state.pool)
             .await
             .expect("setup commands clear");
-        let (tx, mut rx) = mpsc::unbounded_channel();
-        state
-            .control_channels
-            .write()
-            .await
-            .insert(node_id.to_string(), tx);
+        let (context, mut rx) = activate_test_connection(&state, node_id.clone()).await;
         let state_for_route = state.clone();
         let placement_id = placement.project_placement_id.clone();
         let route_task = tokio::spawn(async move {
@@ -10638,7 +11762,7 @@ mod tests {
         }));
         handle_node_control_frame(
             &state,
-            &node_id,
+            &context,
             ControlFrame::CommandResult {
                 frame_id: "workspace-result-frame".to_owned(),
                 protocol_version: API_VERSION.to_owned(),
@@ -10699,12 +11823,7 @@ mod tests {
             .execute(&state.pool)
             .await
             .expect("setup commands clear");
-        let (tx, mut rx) = mpsc::unbounded_channel();
-        state
-            .control_channels
-            .write()
-            .await
-            .insert(node_id.to_string(), tx);
+        let (context, mut rx) = activate_test_connection(&state, node_id.clone()).await;
         let state_for_route = state.clone();
         let placement_id = placement.project_placement_id.clone();
         let route_task = tokio::spawn(async move {
@@ -10749,7 +11868,7 @@ mod tests {
         }));
         handle_node_control_frame(
             &state,
-            &node_id,
+            &context,
             ControlFrame::CommandResult {
                 frame_id: "workspace-command-result-frame".to_owned(),
                 protocol_version: API_VERSION.to_owned(),
@@ -10779,6 +11898,393 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn workspace_command_async_resource_reports_progress_and_terminal_result() {
+        let state = test_state().await;
+        let claim = enroll_test_node(&state).await;
+        let node_id = claim.node_id.clone().expect("node id returned");
+        heartbeat_test_node(&state, node_id.clone(), claim.credential.clone()).await;
+        let workspace_path = std::env::temp_dir().join(format!("uprava-test-{}", Uuid::new_v4()));
+        std::fs::create_dir_all(&workspace_path).expect("workspace dir creates");
+        let placement = validate_placement(
+            State(state.clone()),
+            Json(CreatePlacementRequest {
+                node_id: node_id.clone(),
+                display_name: "workspace".to_owned(),
+                workspace_path: workspace_path.display().to_string(),
+            }),
+        )
+        .await
+        .expect("placement validates")
+        .0;
+        accept_workspace_validation_event(
+            &state,
+            &placement,
+            node_id.clone(),
+            PlacementState::Validated,
+            vec![],
+        )
+        .await;
+        sqlx::query("delete from commands")
+            .execute(&state.pool)
+            .await
+            .expect("setup commands clear");
+        let (context, mut rx) = activate_test_connection(&state, node_id.clone()).await;
+        let app = build_router(state.clone());
+
+        let accepted_response = app
+            .clone()
+            .oneshot(
+                Request::builder()
+                    .method(Method::POST)
+                    .uri(format!(
+                        "/api/v1/placements/{}/workspace/commands/async",
+                        placement.project_placement_id
+                    ))
+                    .header(CONTENT_TYPE, "application/json")
+                    .body(Body::from(
+                        serde_json::to_vec(&WorkspaceCommandRunRequest {
+                            command: "rustc".to_owned(),
+                            args: vec!["--version".to_owned()],
+                            intent: uprava_protocol::WorkspaceCommandIntent::Command,
+                            label: None,
+                            timeout_seconds: Some(30),
+                        })
+                        .expect("request serializes"),
+                    ))
+                    .expect("request builds"),
+            )
+            .await
+            .expect("router responds");
+        assert_eq!(accepted_response.status(), StatusCode::ACCEPTED);
+        let accepted_body = to_bytes(accepted_response.into_body(), 64 * 1024)
+            .await
+            .expect("accepted body loads");
+        let accepted = serde_json::from_slice::<CommandAcceptedResponse>(&accepted_body)
+            .expect("accepted decodes");
+
+        let dispatched = tokio::time::timeout(std::time::Duration::from_secs(1), rx.recv())
+            .await
+            .expect("workspace command dispatch is sent")
+            .expect("channel stays open");
+        let ControlFrame::CommandDispatch { command, .. } = dispatched else {
+            panic!("expected command dispatch");
+        };
+        let progress_response = app
+            .clone()
+            .oneshot(
+                Request::builder()
+                    .uri(format!(
+                        "/api/v1/placements/{}/workspace/commands/async/{}",
+                        placement.project_placement_id, accepted.command_id
+                    ))
+                    .body(Body::empty())
+                    .expect("request builds"),
+            )
+            .await
+            .expect("router responds");
+        assert_eq!(progress_response.status(), StatusCode::ACCEPTED);
+
+        let response_payload = JsonValue(json!({
+            "placement_id": placement.project_placement_id.as_str(),
+            "terminal_command_id": "terminal-command-async-test",
+            "command": "rustc",
+            "args": ["--version"],
+            "intent": "command",
+            "label": null,
+            "exit_code": 0,
+            "success": true,
+            "stdout": "rustc 1.0.0\n",
+            "stderr": "",
+            "stdout_truncated": false,
+            "stderr_truncated": false,
+            "duration_ms": 10,
+            "started_at": "2026-06-17T00:00:00Z",
+            "completed_at": "2026-06-17T00:00:01Z"
+        }));
+        handle_node_control_frame(
+            &state,
+            &context,
+            ControlFrame::CommandResult {
+                frame_id: "workspace-command-async-result-frame".to_owned(),
+                protocol_version: API_VERSION.to_owned(),
+                sent_at: Utc::now(),
+                command_id: command.command_id.clone(),
+                status: CommandState::Completed,
+                payload: response_payload,
+            },
+        )
+        .await
+        .expect("node command result accepts");
+
+        let terminal_response = app
+            .oneshot(
+                Request::builder()
+                    .uri(format!(
+                        "/api/v1/placements/{}/workspace/commands/async/{}",
+                        placement.project_placement_id, accepted.command_id
+                    ))
+                    .body(Body::empty())
+                    .expect("request builds"),
+            )
+            .await
+            .expect("router responds");
+        assert_eq!(terminal_response.status(), StatusCode::OK);
+        let terminal_body = to_bytes(terminal_response.into_body(), 64 * 1024)
+            .await
+            .expect("terminal body loads");
+        let item = serde_json::from_slice::<WorkspaceCommandHistoryItem>(&terminal_body)
+            .expect("resource decodes");
+        let result_payload = item.result_payload.expect("result payload persists");
+        std::fs::remove_dir_all(&workspace_path).expect("workspace dir removes");
+
+        assert_eq!(accepted.command_id, command.command_id);
+        assert_eq!(item.state, CommandState::Completed);
+        assert_eq!(result_payload.0["stdout"], "rustc 1.0.0\n");
+    }
+
+    #[tokio::test]
+    async fn workspace_command_async_resource_cancels_and_expires_nonterminal_commands() {
+        let state = test_state().await;
+        let claim = enroll_test_node(&state).await;
+        let node_id = claim.node_id.clone().expect("node id returned");
+        heartbeat_test_node(&state, node_id.clone(), claim.credential.clone()).await;
+        let workspace_path = std::env::temp_dir().join(format!("uprava-test-{}", Uuid::new_v4()));
+        std::fs::create_dir_all(&workspace_path).expect("workspace dir creates");
+        let placement = validate_placement(
+            State(state.clone()),
+            Json(CreatePlacementRequest {
+                node_id: node_id.clone(),
+                display_name: "workspace".to_owned(),
+                workspace_path: workspace_path.display().to_string(),
+            }),
+        )
+        .await
+        .expect("placement validates")
+        .0;
+        accept_workspace_validation_event(
+            &state,
+            &placement,
+            node_id.clone(),
+            PlacementState::Validated,
+            vec![],
+        )
+        .await;
+        sqlx::query("delete from commands")
+            .execute(&state.pool)
+            .await
+            .expect("setup commands clear");
+        let (_context, mut rx) = activate_test_connection(&state, node_id).await;
+        let app = build_router(state.clone());
+
+        let cancel_accepted = app
+            .clone()
+            .oneshot(
+                Request::builder()
+                    .method(Method::POST)
+                    .uri(format!(
+                        "/api/v1/placements/{}/workspace/commands/async",
+                        placement.project_placement_id
+                    ))
+                    .header(CONTENT_TYPE, "application/json")
+                    .body(Body::from(
+                        serde_json::to_vec(&WorkspaceCommandRunRequest {
+                            command: "sleep".to_owned(),
+                            args: vec!["10".to_owned()],
+                            intent: uprava_protocol::WorkspaceCommandIntent::Command,
+                            label: None,
+                            timeout_seconds: Some(30),
+                        })
+                        .expect("request serializes"),
+                    ))
+                    .expect("request builds"),
+            )
+            .await
+            .expect("router responds");
+        let cancel_body = to_bytes(cancel_accepted.into_body(), 64 * 1024)
+            .await
+            .expect("cancel accepted body loads");
+        let cancel_command = serde_json::from_slice::<CommandAcceptedResponse>(&cancel_body)
+            .expect("accepted decodes");
+        let _ = tokio::time::timeout(std::time::Duration::from_secs(1), rx.recv())
+            .await
+            .expect("cancel command dispatch is sent")
+            .expect("channel stays open");
+
+        let cancel_response = app
+            .clone()
+            .oneshot(
+                Request::builder()
+                    .method(Method::DELETE)
+                    .uri(format!(
+                        "/api/v1/placements/{}/workspace/commands/async/{}",
+                        placement.project_placement_id, cancel_command.command_id
+                    ))
+                    .body(Body::empty())
+                    .expect("request builds"),
+            )
+            .await
+            .expect("router responds");
+        let cancel_body = to_bytes(cancel_response.into_body(), 64 * 1024)
+            .await
+            .expect("cancel body loads");
+        let cancelled = serde_json::from_slice::<WorkspaceCommandHistoryItem>(&cancel_body)
+            .expect("cancel decodes");
+
+        let expire_accepted = app
+            .clone()
+            .oneshot(
+                Request::builder()
+                    .method(Method::POST)
+                    .uri(format!(
+                        "/api/v1/placements/{}/workspace/commands/async",
+                        placement.project_placement_id
+                    ))
+                    .header(CONTENT_TYPE, "application/json")
+                    .body(Body::from(
+                        serde_json::to_vec(&WorkspaceCommandRunRequest {
+                            command: "sleep".to_owned(),
+                            args: vec!["10".to_owned()],
+                            intent: uprava_protocol::WorkspaceCommandIntent::Command,
+                            label: None,
+                            timeout_seconds: Some(1),
+                        })
+                        .expect("request serializes"),
+                    ))
+                    .expect("request builds"),
+            )
+            .await
+            .expect("router responds");
+        let expire_body = to_bytes(expire_accepted.into_body(), 64 * 1024)
+            .await
+            .expect("expire accepted body loads");
+        let expire_command = serde_json::from_slice::<CommandAcceptedResponse>(&expire_body)
+            .expect("accepted decodes");
+        let _ = tokio::time::timeout(std::time::Duration::from_secs(1), rx.recv())
+            .await
+            .expect("expire command dispatch is sent")
+            .expect("channel stays open");
+        sqlx::query("update commands set created_at = ?1 where command_id = ?2")
+            .bind(Utc::now() - chrono::Duration::seconds(20))
+            .bind(expire_command.command_id.as_str())
+            .execute(&state.pool)
+            .await
+            .expect("command age rewinds");
+
+        let expired_response = app
+            .oneshot(
+                Request::builder()
+                    .uri(format!(
+                        "/api/v1/placements/{}/workspace/commands/async/{}",
+                        placement.project_placement_id, expire_command.command_id
+                    ))
+                    .body(Body::empty())
+                    .expect("request builds"),
+            )
+            .await
+            .expect("router responds");
+        assert_eq!(expired_response.status(), StatusCode::OK);
+        let expired_body = to_bytes(expired_response.into_body(), 64 * 1024)
+            .await
+            .expect("expired body loads");
+        let expired = serde_json::from_slice::<WorkspaceCommandHistoryItem>(&expired_body)
+            .expect("expire decodes");
+        std::fs::remove_dir_all(&workspace_path).expect("workspace dir removes");
+
+        assert_eq!(cancelled.state, CommandState::Expired);
+        assert_eq!(
+            cancelled
+                .result_payload
+                .expect("cancel payload")
+                .0
+                .get("error_code")
+                .and_then(serde_json::Value::as_str),
+            Some("workspace.command_cancelled")
+        );
+        assert_eq!(expired.state, CommandState::Expired);
+        assert_eq!(
+            expired
+                .result_payload
+                .expect("expiry payload")
+                .0
+                .get("error_code")
+                .and_then(serde_json::Value::as_str),
+            Some("workspace.command_expired")
+        );
+    }
+
+    #[tokio::test]
+    async fn workspace_command_timeout_cleans_waiter_registry() {
+        let state = test_state().await;
+        let claim = enroll_test_node(&state).await;
+        let node_id = claim.node_id.clone().expect("node id returned");
+        heartbeat_test_node(&state, node_id.clone(), claim.credential.clone()).await;
+        let workspace_path = std::env::temp_dir().join(format!("uprava-test-{}", Uuid::new_v4()));
+        std::fs::create_dir_all(&workspace_path).expect("workspace dir creates");
+        let placement = validate_placement(
+            State(state.clone()),
+            Json(CreatePlacementRequest {
+                node_id: node_id.clone(),
+                display_name: "workspace".to_owned(),
+                workspace_path: workspace_path.display().to_string(),
+            }),
+        )
+        .await
+        .expect("placement validates")
+        .0;
+        accept_workspace_validation_event(
+            &state,
+            &placement,
+            node_id.clone(),
+            PlacementState::Validated,
+            vec![],
+        )
+        .await;
+        let placement = load_placement(&state, &placement.project_placement_id)
+            .await
+            .expect("placement reloads");
+        let (_context, _rx) = activate_test_connection(&state, node_id).await;
+
+        let result = dispatch_workspace_command::<WorkspaceCommandRunResponse>(
+            &state,
+            &placement,
+            CommandKind::RunWorkspaceCommand,
+            serde_json::to_value(WorkspaceCommandRunRequest {
+                command: "sleep".to_owned(),
+                args: vec!["10".to_owned()],
+                intent: uprava_protocol::WorkspaceCommandIntent::Command,
+                label: None,
+                timeout_seconds: Some(1),
+            })
+            .expect("request serializes"),
+            vec![UpravaRef::Workspace {
+                placement_id: placement.project_placement_id.clone(),
+            }],
+            CorrelationId::from("correlation-timeout-cleanup"),
+            std::time::Duration::from_millis(1),
+        )
+        .await;
+        let waiters_empty = lock_command_waiters(&state)
+            .expect("waiters lock")
+            .is_empty();
+        std::fs::remove_dir_all(&workspace_path).expect("workspace dir removes");
+
+        assert!(
+            matches!(
+                result,
+                Err(AppError::BadRequest {
+                    code: "workspace.command_timeout",
+                    ..
+                }) | Err(AppError::BadRequest {
+                    code: "workspace.command_result_unavailable",
+                    ..
+                })
+            ),
+            "unexpected workspace command result: {result:?}"
+        );
+        assert!(waiters_empty);
+    }
+
+    #[tokio::test]
     async fn compatible_control_hello_acknowledges_and_dispatches_pending_command() {
         let state = test_state().await;
         let claim = enroll_test_node(&state).await;
@@ -10787,16 +12293,13 @@ mod tests {
         record_and_dispatch_command(&state, command_fixture(command_id.clone(), node_id.clone()))
             .await
             .expect("command records");
-        let (tx, mut rx) = mpsc::unbounded_channel();
-        state
-            .control_channels
-            .write()
-            .await
-            .insert(node_id.to_string(), tx);
+        let (tx, mut rx) = mpsc::channel(CONTROL_QUEUE_CAPACITY);
+        let context = state.control_connections.context(node_id.clone(), tx);
+        assert!(!state.control_connections.contains(&node_id).await);
 
         handle_node_control_frame(
             &state,
-            &node_id,
+            &context,
             ControlFrame::Hello {
                 frame_id: "hello-frame-1".to_owned(),
                 protocol_version: API_VERSION.to_owned(),
@@ -10808,6 +12311,7 @@ mod tests {
         )
         .await
         .expect("compatible hello accepts");
+        assert!(state.control_connections.contains(&node_id).await);
         let hello_ack = tokio::time::timeout(std::time::Duration::from_secs(1), rx.recv())
             .await
             .expect("hello ack is sent")
@@ -10826,6 +12330,443 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn overlapping_control_connections_keep_newest_generation_active() {
+        let state = test_state().await;
+        let node_id = NodeId::from("overlapping-control-node");
+        let (old_sender, _old_receiver) = mpsc::channel(CONTROL_QUEUE_CAPACITY);
+        let old_context = state
+            .control_connections
+            .context(node_id.clone(), old_sender);
+        state.control_connections.activate(&old_context).await;
+        let (new_sender, _new_receiver) = mpsc::channel(CONTROL_QUEUE_CAPACITY);
+        let new_context = state
+            .control_connections
+            .context(node_id.clone(), new_sender);
+        state.control_connections.activate(&new_context).await;
+
+        let old_removed = state
+            .control_connections
+            .remove_if_active(&old_context)
+            .await;
+        let stale_result = handle_node_control_frame(
+            &state,
+            &old_context,
+            ControlFrame::CommandAck {
+                frame_id: "stale-ack".to_owned(),
+                protocol_version: API_VERSION.to_owned(),
+                sent_at: Utc::now(),
+                command_id: CommandId::from("stale-command"),
+                status: CommandState::Acknowledged,
+            },
+        )
+        .await;
+        let stale_hello = handle_node_control_frame(
+            &state,
+            &old_context,
+            ControlFrame::Hello {
+                frame_id: "stale-hello".to_owned(),
+                protocol_version: API_VERSION.to_owned(),
+                sent_at: Utc::now(),
+                node_id: old_context.node_id.clone(),
+                daemon_version: "test".to_owned(),
+                active_runtime_ids: vec![],
+            },
+        )
+        .await;
+
+        assert!(!old_removed);
+        assert!(state.control_connections.is_active(&new_context).await);
+        assert!(matches!(
+            stale_result,
+            Err(AppError::Auth {
+                code: "control.stale_generation",
+                ..
+            })
+        ));
+        assert!(matches!(
+            stale_hello,
+            Err(AppError::Auth {
+                code: "control.stale_generation",
+                ..
+            })
+        ));
+    }
+
+    #[tokio::test]
+    async fn saturated_control_queue_rejects_frame_and_increments_metric() {
+        let state = test_state().await;
+        let node_id = NodeId::from("saturated-control-node");
+        let (_context, _receiver) = activate_test_connection(&state, node_id.clone()).await;
+        for index in 0..CONTROL_QUEUE_CAPACITY {
+            assert!(
+                send_control_frame(
+                    &state,
+                    &node_id,
+                    ControlFrame::Ping {
+                        frame_id: format!("fill-{index}"),
+                        protocol_version: API_VERSION.to_owned(),
+                        sent_at: Utc::now(),
+                    },
+                )
+                .await
+            );
+        }
+
+        let overflow = try_send_control_frame(
+            &state,
+            &node_id,
+            ControlFrame::Ping {
+                frame_id: "overflow".to_owned(),
+                protocol_version: API_VERSION.to_owned(),
+                sent_at: Utc::now(),
+            },
+        )
+        .await;
+
+        assert_eq!(overflow, Err(ControlSendError::Saturated));
+        assert_eq!(
+            state
+                .core_metrics
+                .control_queue_rejections
+                .load(Ordering::Relaxed),
+            1
+        );
+    }
+
+    #[tokio::test]
+    async fn cross_node_command_ack_is_rejected_without_state_change() {
+        let state = test_state().await;
+        let owner = enroll_test_node(&state)
+            .await
+            .node_id
+            .expect("owner node id returned");
+        let attacker = enroll_test_node(&state)
+            .await
+            .node_id
+            .expect("attacker node id returned");
+        let command_id = CommandId::from("cross-node-command");
+        record_command(&state, command_fixture(command_id.clone(), owner))
+            .await
+            .expect("owned command records");
+        update_command_state(&state, &command_id, CommandState::Dispatched)
+            .await
+            .expect("owned command dispatches");
+        let (context, _receiver) = activate_test_connection(&state, attacker).await;
+
+        let result = handle_node_control_frame(
+            &state,
+            &context,
+            ControlFrame::CommandAck {
+                frame_id: "cross-node-ack".to_owned(),
+                protocol_version: API_VERSION.to_owned(),
+                sent_at: Utc::now(),
+                command_id: command_id.clone(),
+                status: CommandState::Acknowledged,
+            },
+        )
+        .await;
+        let stored_state: String =
+            sqlx::query_scalar("select state from commands where command_id = ?1")
+                .bind(command_id.as_str())
+                .fetch_one(&state.pool)
+                .await
+                .expect("command state loads");
+
+        assert!(matches!(
+            result,
+            Err(AppError::Auth {
+                code: "control.command_owner_mismatch",
+                ..
+            })
+        ));
+        assert_eq!(stored_state, "dispatched");
+    }
+
+    #[tokio::test]
+    async fn conflicting_duplicate_command_result_is_rejected() {
+        let state = test_state().await;
+        let node_id = enroll_test_node(&state)
+            .await
+            .node_id
+            .expect("node id returned");
+        let command_id = CommandId::from("conflicting-result-command");
+        record_command(&state, command_fixture(command_id.clone(), node_id.clone()))
+            .await
+            .expect("command records");
+        update_command_state(&state, &command_id, CommandState::Dispatched)
+            .await
+            .expect("command dispatches");
+        let (context, _receiver) = activate_test_connection(&state, node_id).await;
+        let result_frame = |payload| ControlFrame::CommandResult {
+            frame_id: Uuid::new_v4().to_string(),
+            protocol_version: API_VERSION.to_owned(),
+            sent_at: Utc::now(),
+            command_id: command_id.clone(),
+            status: CommandState::Completed,
+            payload: JsonValue(payload),
+        };
+        handle_node_control_frame(&state, &context, result_frame(json!({"value": 1})))
+            .await
+            .expect("first terminal result accepts");
+
+        let duplicate =
+            handle_node_control_frame(&state, &context, result_frame(json!({"value": 2}))).await;
+
+        assert!(matches!(
+            duplicate,
+            Err(AppError::BadRequest {
+                code: "control.command_result_conflict",
+                ..
+            })
+        ));
+    }
+
+    #[tokio::test]
+    async fn workspace_result_with_wrong_placement_echo_is_rejected() {
+        let state = test_state().await;
+        let (node_id, detail, workspace_path) = create_test_session(&state).await;
+        let command_id = CommandId::from("wrong-placement-result");
+        let mut command = command_fixture(command_id.clone(), node_id.clone());
+        command.kind = CommandKind::ReadWorkspaceFile;
+        command.project_placement_id = Some(detail.placement.project_placement_id.clone());
+        record_command(&state, command)
+            .await
+            .expect("workspace command records");
+        update_command_state(&state, &command_id, CommandState::Dispatched)
+            .await
+            .expect("workspace command dispatches");
+        let (context, _receiver) = activate_test_connection(&state, node_id).await;
+
+        let result = handle_node_control_frame(
+            &state,
+            &context,
+            ControlFrame::CommandResult {
+                frame_id: "wrong-placement-result-frame".to_owned(),
+                protocol_version: API_VERSION.to_owned(),
+                sent_at: Utc::now(),
+                command_id,
+                status: CommandState::Completed,
+                payload: JsonValue(json!({
+                    "placement_id": "another-placement",
+                    "path": "README.md",
+                    "metadata": {
+                        "name": "README.md",
+                        "path": "README.md",
+                        "kind": "file",
+                        "status": "readable",
+                        "byte_len": 1,
+                        "modified_at": null,
+                        "children": []
+                    },
+                    "content": "x",
+                    "truncated": false,
+                    "generated_at": "2026-07-10T00:00:00Z"
+                })),
+            },
+        )
+        .await;
+        std::fs::remove_dir_all(&workspace_path).expect("workspace dir removes");
+
+        assert!(matches!(
+            result,
+            Err(AppError::BadRequest {
+                code: "control.command_result_target_mismatch",
+                ..
+            })
+        ));
+    }
+
+    #[tokio::test]
+    async fn oversized_event_batch_is_rejected_before_event_validation() {
+        let state = test_state().await;
+        let node_id = NodeId::from("oversized-batch-node");
+        let (context, _receiver) = activate_test_connection(&state, node_id.clone()).await;
+        let event = EventEnvelope {
+            event_id: EventId::from("oversized-event"),
+            command_id: None,
+            correlation_id: None,
+            actor_ref: ActorRef::Node {
+                node_id: node_id.clone(),
+            },
+            scope_ref: ScopeRef::Node { node_id },
+            node_id: Some(context.node_id.clone()),
+            runtime_session_id: None,
+            session_thread_id: None,
+            turn_id: None,
+            seq: 1,
+            session_projection_seq: None,
+            kind: EventKind::ProviderActivity,
+            happened_at: Utc::now(),
+            source_refs: vec![],
+            evidence_refs: vec![],
+            cause_refs: vec![],
+            result_refs: vec![],
+            payload: JsonValue(json!({})),
+        };
+
+        let result = handle_node_control_frame(
+            &state,
+            &context,
+            ControlFrame::EventBatch {
+                frame_id: "oversized-event-batch".to_owned(),
+                protocol_version: API_VERSION.to_owned(),
+                sent_at: Utc::now(),
+                events: vec![event; MAX_EVENT_BATCH_ITEMS + 1],
+            },
+        )
+        .await;
+
+        assert!(matches!(
+            result,
+            Err(AppError::BadRequest {
+                code: "control.event_batch_too_large",
+                ..
+            })
+        ));
+    }
+
+    #[tokio::test]
+    async fn deeply_nested_control_payload_is_rejected_before_command_lookup() {
+        let state = test_state().await;
+        let node_id = NodeId::from("deep-control-node");
+        let (context, _receiver) = activate_test_connection(&state, node_id).await;
+        let mut nested = json!(null);
+        for _ in 0..=MAX_CONTROL_JSON_DEPTH {
+            nested = json!({ "nested": nested });
+        }
+
+        let result = handle_node_control_frame(
+            &state,
+            &context,
+            ControlFrame::CommandResult {
+                frame_id: "deep-control-frame".to_owned(),
+                protocol_version: API_VERSION.to_owned(),
+                sent_at: Utc::now(),
+                command_id: CommandId::from("not-looked-up"),
+                status: CommandState::Completed,
+                payload: JsonValue(nested),
+            },
+        )
+        .await;
+
+        assert!(matches!(
+            result,
+            Err(AppError::BadRequest {
+                code: "control.frame_too_deep",
+                ..
+            })
+        ));
+    }
+
+    #[tokio::test]
+    async fn cross_node_runtime_event_is_rejected_before_persistence() {
+        let state = test_state().await;
+        let (owner, detail, workspace_path) = create_test_session(&state).await;
+        let attacker = enroll_test_node(&state)
+            .await
+            .node_id
+            .expect("attacker node id returned");
+        let (context, _receiver) = activate_test_connection(&state, attacker.clone()).await;
+        let mut forged = node_event_fixture(
+            &detail,
+            attacker,
+            "cross-node-runtime-event",
+            1,
+            EventKind::ProviderActivity,
+            json!({}),
+        );
+        forged.actor_ref = ActorRef::Provider {
+            provider: "codex".to_owned(),
+        };
+
+        let result = handle_node_control_frame(
+            &state,
+            &context,
+            ControlFrame::EventBatch {
+                frame_id: "cross-node-event-batch".to_owned(),
+                protocol_version: API_VERSION.to_owned(),
+                sent_at: Utc::now(),
+                events: vec![forged.clone()],
+            },
+        )
+        .await;
+        let event_count: i64 =
+            sqlx::query_scalar("select count(*) from events where event_id = ?1")
+                .bind(forged.event_id.as_str())
+                .fetch_one(&state.pool)
+                .await
+                .expect("forged event count loads");
+        std::fs::remove_dir_all(&workspace_path).expect("workspace dir removes");
+
+        assert_ne!(owner, context.node_id);
+        assert!(matches!(
+            result,
+            Err(AppError::Auth {
+                code: "control.event_runtime_mismatch",
+                ..
+            })
+        ));
+        assert_eq!(event_count, 0);
+    }
+
+    #[tokio::test]
+    async fn cross_node_terminal_output_is_rejected_before_broadcast() {
+        let state = test_state().await;
+        let (_owner, detail, workspace_path) = create_test_session(&state).await;
+        let attacker = enroll_test_node(&state)
+            .await
+            .node_id
+            .expect("attacker node id returned");
+        let terminal_id = TerminalId::from("cross-node-terminal");
+        state.workspace_terminals.write().await.insert(
+            terminal_id.to_string(),
+            WorkspaceTerminalSummary {
+                placement_id: detail.placement.project_placement_id.clone(),
+                terminal_id: terminal_id.clone(),
+                title: "test".to_owned(),
+                cwd: "/tmp".to_owned(),
+                shell: "sh".to_owned(),
+                cols: 80,
+                rows: 24,
+                state: WorkspaceTerminalState::Running,
+                exit_code: None,
+                created_at: Utc::now(),
+                updated_at: Utc::now(),
+            },
+        );
+        let (context, _receiver) = activate_test_connection(&state, attacker).await;
+        let mut terminal_rx = state.terminal_hub.subscribe(&terminal_id).await;
+
+        let result = handle_node_control_frame(
+            &state,
+            &context,
+            ControlFrame::WorkspaceTerminalOutput {
+                frame_id: "cross-node-terminal-output".to_owned(),
+                protocol_version: API_VERSION.to_owned(),
+                sent_at: Utc::now(),
+                terminal_id,
+                seq: 1,
+                data: "forged".to_owned(),
+            },
+        )
+        .await;
+        let broadcast = terminal_rx.try_recv();
+        std::fs::remove_dir_all(&workspace_path).expect("workspace dir removes");
+
+        assert!(matches!(
+            result,
+            Err(AppError::Auth {
+                code: "control.terminal_owner_mismatch",
+                ..
+            })
+        ));
+        assert!(matches!(
+            broadcast,
+            Err(broadcast::error::TryRecvError::Empty)
+        ));
+    }
+
+    #[tokio::test]
     async fn incompatible_control_hello_sends_error_and_leaves_command_pending() {
         let state = test_state().await;
         let claim = enroll_test_node(&state).await;
@@ -10834,16 +12775,12 @@ mod tests {
         record_and_dispatch_command(&state, command_fixture(command_id.clone(), node_id.clone()))
             .await
             .expect("command records");
-        let (tx, mut rx) = mpsc::unbounded_channel();
-        state
-            .control_channels
-            .write()
-            .await
-            .insert(node_id.to_string(), tx);
+        let (tx, mut rx) = mpsc::channel(CONTROL_QUEUE_CAPACITY);
+        let context = state.control_connections.context(node_id.clone(), tx);
 
         let error = handle_node_control_frame(
             &state,
-            &node_id,
+            &context,
             ControlFrame::Hello {
                 frame_id: "bad-hello-frame-1".to_owned(),
                 protocol_version: "v0".to_owned(),
@@ -10905,9 +12842,11 @@ mod tests {
         .execute(&state.pool)
         .await
         .expect("projection is reset for replay");
-        accept_node_event(&state, event)
+        let mut conflicting_replay = event;
+        conflicting_replay.payload = JsonValue(json!({ "content": "must not replace original" }));
+        accept_node_event(&state, conflicting_replay)
             .await
-            .expect("pending duplicate replays");
+            .expect("pending duplicate replays persisted event");
         let projection_state: (String, i64) = sqlx::query_as(
             "select projection_state, projection_attempts from events where event_id = ?1",
         )
@@ -11258,6 +13197,244 @@ mod tests {
         assert_eq!(
             detail.session.runtime.degraded_reason.as_deref(),
             Some("event sequence gap: expected 1, received 2")
+        );
+    }
+
+    #[tokio::test]
+    async fn node_event_projection_failure_rolls_back_every_durable_effect() {
+        let state = test_state().await;
+        let (node_id, detail, workspace_path) = create_test_session(&state).await;
+        let mut event = node_event_fixture(
+            &detail,
+            node_id,
+            "workspace-projection-failure",
+            1,
+            EventKind::WorkspaceValidated,
+            json!({ "state": "validated" }),
+        );
+        event.scope_ref = ScopeRef::Unknown {
+            scope: "missing-placement".to_owned(),
+        };
+        let runtime_id = detail.session.runtime.runtime_session_id.clone();
+        let before_step: Option<DateTime<Utc>> = sqlx::query_scalar(
+            "select last_runtime_step_at from runtime_sessions where runtime_session_id = ?1",
+        )
+        .bind(runtime_id.as_str())
+        .fetch_one(&state.pool)
+        .await
+        .expect("runtime step loads before failure");
+
+        let error = accept_node_event(&state, event.clone())
+            .await
+            .expect_err("invalid workspace projection fails");
+        let durable_state: (i64, i64, Option<DateTime<Utc>>) = sqlx::query_as(
+            r#"
+            select
+                (select count(*) from events where event_id = ?1),
+                (select count(*) from event_publication_outbox where event_id = ?1),
+                (select last_runtime_step_at from runtime_sessions where runtime_session_id = ?2)
+            "#,
+        )
+        .bind(event.event_id.as_str())
+        .bind(runtime_id.as_str())
+        .fetch_one(&state.pool)
+        .await
+        .expect("durable state loads after rollback");
+        std::fs::remove_dir_all(&workspace_path).expect("workspace dir removes");
+
+        assert!(matches!(
+            error,
+            AppError::BadRequest {
+                code: "placement.missing_ref",
+                ..
+            }
+        ));
+        assert_eq!(durable_state, (0, 0, before_step));
+    }
+
+    #[tokio::test]
+    async fn injected_failure_at_each_event_stage_leaves_no_partial_event() {
+        let stages = [
+            ("actor", "insert", "actors", EventKind::ProviderActivity),
+            ("event", "insert", "events", EventKind::ProviderActivity),
+            (
+                "runtime",
+                "update",
+                "runtime_sessions",
+                EventKind::RuntimeStarting,
+            ),
+            (
+                "approval",
+                "insert",
+                "approvals",
+                EventKind::ApprovalRequested,
+            ),
+            (
+                "placement",
+                "update",
+                "project_placements",
+                EventKind::WorkspaceValidated,
+            ),
+            (
+                "publication",
+                "insert",
+                "event_publication_outbox",
+                EventKind::ProviderActivity,
+            ),
+            (
+                "message",
+                "insert",
+                "messages",
+                EventKind::ProviderMessageCompleted,
+            ),
+        ];
+
+        for (stage, operation, table, kind) in stages {
+            let state = test_state().await;
+            let (node_id, detail, workspace_path) = create_test_session(&state).await;
+            let payload = match kind {
+                EventKind::ApprovalRequested => json!({
+                    "approval_id": format!("failure-{stage}"),
+                    "prompt": "expected failure"
+                }),
+                EventKind::WorkspaceValidated => json!({
+                    "placement_id": detail.placement.project_placement_id.as_str(),
+                    "state": "validated",
+                    "resource_badges": []
+                }),
+                EventKind::ProviderMessageCompleted => json!({ "content": "expected failure" }),
+                _ => json!({}),
+            };
+            let mut event = node_event_fixture(
+                &detail,
+                node_id,
+                &format!("failure-{stage}"),
+                0,
+                kind,
+                payload,
+            );
+            if matches!(event.kind, EventKind::WorkspaceValidated) {
+                event.scope_ref = ScopeRef::Placement {
+                    project_placement_id: detail.placement.project_placement_id.clone(),
+                };
+            }
+            event.seq = next_seq(&state, &scope_key(&event.scope_ref))
+                .await
+                .expect("failure event sequence allocates");
+            let trigger = format!(
+                "create temp trigger fail_projection_stage before {operation} on {table} begin select raise(abort, 'injected {stage} failure'); end"
+            );
+            sqlx::query(&trigger)
+                .execute(&state.pool)
+                .await
+                .unwrap_or_else(|error| panic!("{stage} trigger installs: {error}"));
+
+            assert!(
+                accept_node_event(&state, event.clone()).await.is_err(),
+                "{stage} failure was not injected"
+            );
+            let durable_counts: (i64, i64) = sqlx::query_as(
+                r#"
+                select
+                    (select count(*) from events where event_id = ?1),
+                    (select count(*) from event_publication_outbox where event_id = ?1)
+                "#,
+            )
+            .bind(event.event_id.as_str())
+            .fetch_one(&state.pool)
+            .await
+            .unwrap_or_else(|error| panic!("{stage} durable counts load: {error}"));
+            std::fs::remove_dir_all(&workspace_path).expect("workspace dir removes");
+
+            assert_eq!(durable_counts, (0, 0), "stage {stage} left partial state");
+        }
+    }
+
+    #[tokio::test]
+    async fn every_node_event_kind_commits_projection_and_publication_together() {
+        let state = test_state().await;
+        let (node_id, detail, workspace_path) = create_test_session(&state).await;
+        let event_kinds = [
+            EventKind::RuntimeStarting,
+            EventKind::RuntimeReady,
+            EventKind::RuntimeRunning,
+            EventKind::RuntimeBlocked,
+            EventKind::RuntimeExpired,
+            EventKind::RuntimeResuming,
+            EventKind::RuntimeStopped,
+            EventKind::RuntimeError,
+            EventKind::TurnStarted,
+            EventKind::TurnCompleted,
+            EventKind::TurnInterrupted,
+            EventKind::ProviderActivity,
+            EventKind::ProviderOutputDelta,
+            EventKind::ProviderMessageCompleted,
+            EventKind::ApprovalRequested,
+            EventKind::ApprovalResolved,
+            EventKind::CoordinationWarningAcknowledged,
+            EventKind::WorkspaceValidated,
+            EventKind::ResourceSnapshotUpdated,
+        ];
+        for (index, kind) in event_kinds.iter().cloned().enumerate() {
+            let is_workspace_event = matches!(
+                kind,
+                EventKind::WorkspaceValidated | EventKind::ResourceSnapshotUpdated
+            );
+            let payload = match kind {
+                EventKind::ApprovalRequested => json!({
+                    "approval_id": "all-kinds-approval",
+                    "prompt": "approve all-kinds test"
+                }),
+                EventKind::ApprovalResolved => json!({
+                    "approval_id": "all-kinds-approval",
+                    "approved": true
+                }),
+                EventKind::ProviderMessageCompleted => json!({ "content": "complete" }),
+                EventKind::RuntimeError => json!({ "message": "expected test error" }),
+                EventKind::WorkspaceValidated | EventKind::ResourceSnapshotUpdated => json!({
+                    "placement_id": detail.placement.project_placement_id.as_str(),
+                    "state": "validated",
+                    "resource_badges": []
+                }),
+                _ => json!({}),
+            };
+            let mut event = node_event_fixture(
+                &detail,
+                node_id.clone(),
+                &format!("all-kinds-{index}"),
+                0,
+                kind.clone(),
+                payload,
+            );
+            if is_workspace_event {
+                event.scope_ref = ScopeRef::Placement {
+                    project_placement_id: detail.placement.project_placement_id.clone(),
+                };
+            }
+            event.seq = next_seq(&state, &scope_key(&event.scope_ref))
+                .await
+                .expect("next event sequence allocates");
+
+            accept_node_event(&state, event)
+                .await
+                .unwrap_or_else(|error| panic!("{kind:?} projection failed: {error}"));
+        }
+
+        let durable_counts: (i64, i64) = sqlx::query_as(
+            r#"
+            select
+                (select count(*) from events where event_id like 'all-kinds-%' and projection_state = 'projected'),
+                (select count(*) from event_publication_outbox where event_id like 'all-kinds-%')
+            "#,
+        )
+        .fetch_one(&state.pool)
+        .await
+        .expect("all event projection counts load");
+        std::fs::remove_dir_all(&workspace_path).expect("workspace dir removes");
+
+        assert_eq!(
+            durable_counts,
+            (event_kinds.len() as i64, event_kinds.len() as i64)
         );
     }
 
@@ -12428,7 +14605,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn artifact_tree_uses_approval_ref_for_approval_event() {
+    async fn evidence_projection_uses_approval_ref_for_approval_event() {
         let state = test_state().await;
         let (node_id, detail, workspace_path) = create_test_session(&state).await;
         accept_node_event(
@@ -12448,15 +14625,42 @@ mod tests {
         .await
         .expect("approval event accepts");
 
-        let artifact_tree = build_artifact_tree(&state, &detail.session.session_thread_id)
-            .await
-            .expect("artifact tree builds");
+        let evidence_projection =
+            build_session_evidence_projection(&state, &detail.session.session_thread_id)
+                .await
+                .expect("evidence projection builds");
+        let rebuilt_projection =
+            build_session_evidence_projection(&state, &detail.session.session_thread_id)
+                .await
+                .expect("evidence projection rebuilds");
         std::fs::remove_dir_all(&workspace_path).expect("workspace dir removes");
 
-        assert!(artifact_tree.root.children.iter().any(|node| matches!(
-            &node.primary_ref,
-            UpravaRef::Approval { approval_id } if approval_id.as_str() == "approval-artifact-1"
-        )));
+        assert_eq!(
+            evidence_projection.root.evidence_id,
+            rebuilt_projection.root.evidence_id
+        );
+        assert_eq!(
+            evidence_projection
+                .root
+                .children
+                .iter()
+                .map(|node| node.evidence_id.clone())
+                .collect::<Vec<_>>(),
+            rebuilt_projection
+                .root
+                .children
+                .iter()
+                .map(|node| node.evidence_id.clone())
+                .collect::<Vec<_>>()
+        );
+        assert!(evidence_projection
+            .root
+            .children
+            .iter()
+            .any(|node| matches!(
+                &node.primary_ref,
+                UpravaRef::Approval { approval_id } if approval_id.as_str() == "approval-artifact-1"
+            )));
     }
 
     #[tokio::test]

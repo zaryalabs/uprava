@@ -404,7 +404,7 @@ Core deduplicates replayed events by `event_id`. A conflicting `seq` is
 rejected, and a detected sequence gap marks the session degraded and the
 runtime stale with a degraded reason for UI/read-model consumers.
 
-The session artifact tree and agent projection are rebuilt from Core
+The session evidence projection and agent projection are rebuilt from Core
 persistence. The projection includes current turn, pending approvals, active
 warnings, recent message refs, available commands and a safe resume context.
 Runtime-scoped events update `last_runtime_step_at`; healthy runtime events
@@ -428,7 +428,7 @@ SSE event so the client can refetch the snapshot.
 6. Send a turn and verify that user, assistant and runtime event blocks appear.
 7. Stop or resume the runtime from the session header controls.
 8. Reload the browser and verify that inventory, placement, session messages,
-   artifact tree and agent projection reload from Core.
+   evidence projection and agent projection reload from Core.
 
 ## Checks
 
