@@ -255,6 +255,10 @@ struct NodeLocalState {
     runtime_provider_resume_refs: HashMap<String, ProviderResumeRef>,
     #[serde(default)]
     placement_seqs: HashMap<String, i64>,
+    #[serde(default)]
+    reconnect_attempts: u64,
+    #[serde(default)]
+    dropped_event_count: u64,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
@@ -289,6 +293,8 @@ impl Default for NodeLocalState {
             runtime_transcripts: HashMap::new(),
             runtime_provider_resume_refs: HashMap::new(),
             placement_seqs: HashMap::new(),
+            reconnect_attempts: 0,
+            dropped_event_count: 0,
         }
     }
 }
@@ -330,6 +336,8 @@ impl std::fmt::Debug for NodeLocalState {
                 &runtime_provider_resume_ref_count,
             )
             .field("placement_seqs", &self.placement_seqs)
+            .field("reconnect_attempts", &self.reconnect_attempts)
+            .field("dropped_event_count", &self.dropped_event_count)
             .finish()
     }
 }
@@ -629,15 +637,21 @@ async fn send_heartbeat(
 
 fn node_diagnostics(local_state: &NodeLocalState) -> String {
     format!(
-        "daemon_installation_id={}; outbox_events={}; cached_commands={}",
+        "daemon_installation_id={}; outbox_events={}; cached_commands={}; reconnect_attempts={}; dropped_events={}",
         local_state.daemon_installation_id,
         local_state.event_outbox.len(),
-        local_state.command_status.len()
+        local_state.command_status.len(),
+        local_state.reconnect_attempts,
+        local_state.dropped_event_count,
     )
 }
 
 async fn control_channel_loop(config: NodeConfig, mut local_state: NodeLocalState) {
     loop {
+        local_state.reconnect_attempts = local_state.reconnect_attempts.saturating_add(1);
+        if let Err(error) = local_state.save(&config.state_path) {
+            tracing::warn!(error = %error, "failed to persist reconnect metric");
+        }
         match run_control_channel(&config, &mut local_state).await {
             Ok(()) => tracing::warn!("control channel closed"),
             Err(error) => tracing::warn!(error = %error, "control channel failed"),
@@ -1549,6 +1563,9 @@ fn enforce_event_outbox_retention(
     }
 
     let overflow = local_state.event_outbox.len() - max_events;
+    local_state.dropped_event_count = local_state
+        .dropped_event_count
+        .saturating_add(overflow as u64);
     let dropped = local_state
         .event_outbox
         .drain(0..overflow)
@@ -5062,7 +5079,7 @@ mod tests {
 
         assert_eq!(
             diagnostics,
-            "daemon_installation_id=daemon-test; outbox_events=0; cached_commands=1"
+            "daemon_installation_id=daemon-test; outbox_events=0; cached_commands=1; reconnect_attempts=0; dropped_events=0"
         );
     }
 
@@ -5473,6 +5490,7 @@ mod tests {
             Some("node.event_outbox_retention_exceeded")
         );
         assert_eq!(local_state.event_outbox.len(), 5);
+        assert_eq!(local_state.dropped_event_count, 1);
         assert_eq!(local_state.runtime_seqs.get("runtime-1").copied(), Some(7));
         assert_eq!(
             local_state.runtime_states.get("runtime-1").copied(),
