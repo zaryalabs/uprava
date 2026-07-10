@@ -872,18 +872,6 @@ async fn handle_command_dispatch(
     local_state: &mut NodeLocalState,
     terminal_manager: &mut WorkspaceTerminalManager,
 ) -> anyhow::Result<()> {
-    send_frame(
-        sender,
-        ControlFrame::CommandAck {
-            frame_id: Uuid::new_v4().to_string(),
-            protocol_version: API_VERSION.to_owned(),
-            sent_at: Utc::now(),
-            command_id: command.command_id.clone(),
-            status: CommandState::Acknowledged,
-        },
-    )
-    .await?;
-
     let outcome = prepare_command_dispatch_with_live_socket(
         config,
         local_state,
@@ -895,6 +883,18 @@ async fn handle_command_dispatch(
     if outcome.state_changed {
         local_state.save(&config.state_path)?;
     }
+
+    send_frame(
+        sender,
+        ControlFrame::CommandAck {
+            frame_id: Uuid::new_v4().to_string(),
+            protocol_version: API_VERSION.to_owned(),
+            sent_at: Utc::now(),
+            command_id: command.command_id.clone(),
+            status: CommandState::Acknowledged,
+        },
+    )
+    .await?;
 
     send_event_batch(sender, outcome.events_to_send).await?;
     send_command_result(
