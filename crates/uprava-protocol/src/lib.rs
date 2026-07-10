@@ -5,7 +5,7 @@ use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
 /// Wire protocol version advertised by Core and Node control frames.
-pub const CURRENT_PROTOCOL_VERSION: &str = "v1";
+pub const CURRENT_PROTOCOL_VERSION: &str = "v2";
 /// Versions accepted during a rolling upgrade. Keep this list explicit so a
 /// peer cannot silently downgrade to an unknown shape.
 pub const SUPPORTED_PROTOCOL_VERSIONS: &[&str] = &[CURRENT_PROTOCOL_VERSION];
@@ -1268,6 +1268,13 @@ mod tests {
 
     use super::*;
 
+    #[test]
+    fn protocol_v2_is_the_only_supported_breaking_release_version() {
+        assert_eq!(CURRENT_PROTOCOL_VERSION, "v2");
+        assert!(is_supported_protocol_version("v2"));
+        assert!(!is_supported_protocol_version("v1"));
+    }
+
     fn json_payload() -> serde_json_value::JsonValue {
         serde_json_value::JsonValue(serde_json::json!({ "sample": true }))
     }
@@ -1413,7 +1420,7 @@ mod tests {
     fn control_frame_round_trips_through_json() {
         let frame = ControlFrame::Ping {
             frame_id: "frame-1".to_owned(),
-            protocol_version: "v1".to_owned(),
+            protocol_version: CURRENT_PROTOCOL_VERSION.to_owned(),
             sent_at: Utc::now(),
         };
 
