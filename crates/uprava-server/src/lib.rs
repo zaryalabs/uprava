@@ -4708,25 +4708,29 @@ async fn claim_enrollment(
             message: "Enrollment already claimed; existing credential is not returned".to_owned(),
         });
     }
+    sqlx::query(
+        r#"
+        insert into security_audit_events (
+            audit_event_id, kind, node_id, origin, outcome, metadata_json, happened_at
+        ) values (?1, ?2, ?3, null, ?4, ?5, ?6)
+        "#,
+    )
+    .bind(Uuid::new_v4().to_string())
+    .bind("node.enrollment.claimed")
+    .bind(node_id.as_str())
+    .bind("accepted")
+    .bind(serde_json::to_string(&json!({
+        "enrollment_id": request.enrollment_id,
+    }))?)
+    .bind(now)
+    .execute(&mut *claim_transaction)
+    .await?;
     claim_transaction.commit().await?;
     tracing::info!(
         enrollment_id = %request.enrollment_id,
         node_id = %node_id,
         "node enrollment claimed"
     );
-    if let Err(error) = audit_security_event(
-        state,
-        "node.enrollment.claimed",
-        Some(&node_id),
-        None,
-        "accepted",
-        JsonValue(json!({ "enrollment_id": request.enrollment_id })),
-    )
-    .await
-    {
-        tracing::error!(%error, enrollment_id = %request.enrollment_id, "enrollment claim audit failed after commit");
-    }
-
     Ok(NodeEnrollmentClaimResponse {
         accepted: true,
         pending: false,
@@ -9447,6 +9451,13 @@ mod tests {
         assert!(claim.node_id.is_some());
         assert!(claim.credential.is_some());
         assert_eq!(enrollment.status, EnrollmentState::Registered);
+        let audit_count: i64 = sqlx::query_scalar(
+            "select count(*) from security_audit_events where kind = 'node.enrollment.claimed'",
+        )
+        .fetch_one(&state.pool)
+        .await
+        .expect("claim audit loads");
+        assert_eq!(audit_count, 1);
     }
 
     #[tokio::test]
