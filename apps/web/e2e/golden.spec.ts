@@ -1,6 +1,7 @@
 import { expect, test } from "@playwright/test";
 
 test("renders the control panel shell", async ({ page }) => {
+  await mockPublicShellApi(page);
   await page.goto("/");
 
   await expect(page.getByRole("link", { name: "Uprava" })).toBeVisible();
@@ -66,29 +67,7 @@ test("renders warning badges and structured session blocks from snapshots", asyn
 
 async function mockCoreApi(page: import("@playwright/test").Page) {
   const state = { validationAttempts: 0, warningAcknowledged: false };
-  await page.route("**/api/v1/auth/status", async (route) => {
-    await route.fulfill({
-      contentType: "application/json",
-      body: JSON.stringify({
-        auth_required: false,
-        setup_required: false,
-        authenticated: true,
-        profile: "controlled_dev",
-        security: {
-          mode: "controlled_dev",
-          web_auth_required: false,
-          web_auth_configured: false,
-          cookie_secure: false,
-        },
-      }),
-    });
-  });
-  await page.route("**/api/v1/health", async (route) => {
-    await route.fulfill({
-      contentType: "application/json",
-      body: JSON.stringify({ status: "ok", profile: "controlled_dev" }),
-    });
-  });
+  await mockPublicShellApi(page);
   await page.route("**/api/v1/inventory", async (route) => {
     await route.fulfill({
       contentType: "application/json",
@@ -168,6 +147,32 @@ async function mockCoreApi(page: import("@playwright/test").Page) {
     });
   });
   return state;
+}
+
+async function mockPublicShellApi(page: import("@playwright/test").Page) {
+  await page.route("**/api/v1/auth/status", async (route) => {
+    await route.fulfill({
+      contentType: "application/json",
+      body: JSON.stringify({
+        auth_required: false,
+        setup_required: false,
+        authenticated: true,
+        profile: "controlled_dev",
+        security: {
+          mode: "controlled_dev",
+          web_auth_required: false,
+          web_auth_configured: false,
+          cookie_secure: false,
+        },
+      }),
+    });
+  });
+  await page.route("**/api/v1/health", async (route) => {
+    await route.fulfill({
+      contentType: "application/json",
+      body: JSON.stringify({ status: "ok", profile: "controlled_dev" }),
+    });
+  });
 }
 
 function json(value: unknown) {
