@@ -1409,31 +1409,16 @@ fn shell_path(name: &str) -> String {
 }
 
 struct NodeLiveEventSink<'a> {
-    sender: &'a ControlFrameSender,
-    event_outbox: &'a mut Vec<EventEnvelope>,
     runtime_states: &'a mut HashMap<String, RuntimeSessionState>,
-    emitted_event_ids: HashSet<String>,
 }
 
 impl<'a> NodeLiveEventSink<'a> {
-    fn new(
-        sender: &'a ControlFrameSender,
-        event_outbox: &'a mut Vec<EventEnvelope>,
-        runtime_states: &'a mut HashMap<String, RuntimeSessionState>,
-    ) -> Self {
-        Self {
-            sender,
-            event_outbox,
-            runtime_states,
-            emitted_event_ids: HashSet::new(),
-        }
+    fn new(runtime_states: &'a mut HashMap<String, RuntimeSessionState>) -> Self {
+        Self { runtime_states }
     }
 
-    async fn emit(&mut self, event: &EventEnvelope) -> anyhow::Result<()> {
+    fn emit(&mut self, event: &EventEnvelope) {
         apply_runtime_state_projection_for_event(self.runtime_states, event);
-        self.event_outbox.push(event.clone());
-        self.emitted_event_ids.insert(event.event_id.to_string());
-        send_event_batch(self.sender, vec![event.clone()]).await
     }
 }
 
@@ -1473,7 +1458,6 @@ async fn prepare_command_dispatch_with_live_socket(
         };
     }
 
-    let mut live_event_ids = HashSet::new();
     let result_payload = JsonValue(serde_json::json!({}));
     let events = match command.kind {
         CommandKind::ValidateWorkspace => {
@@ -1561,13 +1545,8 @@ async fn prepare_command_dispatch_with_live_socket(
             } else {
                 let provider_key = provider_for_command(local_state, command);
                 let workspace_path = workspace_path_for_command(local_state, command);
-                let mut live_event_sink = live_sender.map(|sender| {
-                    NodeLiveEventSink::new(
-                        sender,
-                        &mut local_state.event_outbox,
-                        &mut local_state.runtime_states,
-                    )
-                });
+                let mut live_event_sink =
+                    live_sender.map(|_| NodeLiveEventSink::new(&mut local_state.runtime_states));
                 let events = if let Some(provider_key) = provider_key {
                     RuntimeManager::for_provider(&provider_key, config)
                         .execute_command(
@@ -1582,18 +1561,11 @@ async fn prepare_command_dispatch_with_live_socket(
                 } else {
                     missing_provider_events_for_command(command, &mut local_state.runtime_seqs)
                 };
-                if let Some(sink) = live_event_sink {
-                    live_event_ids = sink.emitted_event_ids;
-                }
                 events
             }
         }
     };
-    let unsent_events = events
-        .iter()
-        .filter(|event| !live_event_ids.contains(event.event_id.as_str()))
-        .cloned()
-        .collect::<Vec<_>>();
+    let unsent_events = events.clone();
     apply_runtime_state_projection(local_state, &unsent_events);
     local_state
         .event_outbox
@@ -1603,7 +1575,7 @@ async fn prepare_command_dispatch_with_live_socket(
     local_state
         .command_status
         .insert(command.command_id.to_string(), status);
-    let mut events_to_send = unsent_events;
+    let mut events_to_send = events;
     events_to_send.extend(retention_notices);
 
     CommandDispatchOutcome {
@@ -4268,12 +4240,7 @@ async fn emit_codex_activity_event(
     live_event_sink: &mut Option<&mut NodeLiveEventSink<'_>>,
 ) -> Result<(), ProviderStartFailure> {
     if let Some(sink) = live_event_sink.as_mut() {
-        sink.emit(&event).await.map_err(|error| {
-            ProviderStartFailure::new(
-                "provider.activity_stream_failed",
-                format!("Codex activity event could not be streamed: {error}"),
-            )
-        })?;
+        sink.emit(&event);
     }
     activity_events.push(event);
     Ok(())
@@ -7512,5 +7479,25 @@ sleep 2
         manager.detach_sender().await;
         assert!(route.read().await.is_none());
         assert_eq!(manager.terminals.len(), 1);
+    }
+
+    #[test]
+    fn live_event_sink_only_records_until_durable_dispatch_phase() {
+        let mut local_state = NodeLocalState::default();
+        let event = runtime_outbox_retention_event(
+            &mut local_state,
+            RuntimeSessionId::from("runtime-durable-live-event"),
+            None,
+            None,
+        );
+        let mut runtime_states = HashMap::new();
+        let mut sink = NodeLiveEventSink::new(&mut runtime_states);
+
+        sink.emit(&event);
+
+        assert_eq!(
+            runtime_states.get("runtime-durable-live-event"),
+            Some(&RuntimeSessionState::Error)
+        );
     }
 }
