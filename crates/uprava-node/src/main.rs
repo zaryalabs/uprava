@@ -836,6 +836,16 @@ impl NodeStateStore {
         state.merge_command_state_from(baseline, command_state);
         state.save_async(&self.path).await
     }
+
+    /// Persist a completed command's status, result payload, and generated
+    /// event outbox entries as one owner-boundary mutation.
+    async fn persist_command_outcome(
+        &self,
+        baseline: &NodeLocalState,
+        command_state: &NodeLocalState,
+    ) -> anyhow::Result<()> {
+        self.merge_command_state(baseline, command_state).await
+    }
 }
 
 async fn open_state_store(path: &Path) -> anyhow::Result<SqlitePool> {
@@ -1427,7 +1437,7 @@ async fn run_control_channel(
                     &mut local_state,
                     &baseline,
                     terminal_manager,
-                    Some(store),
+                    store,
                 )
                 .await?;
             }
@@ -1490,7 +1500,7 @@ async fn handle_command_dispatch(
     local_state: &mut NodeLocalState,
     baseline: &NodeLocalState,
     terminal_manager: &mut WorkspaceTerminalManager,
-    shared_state: Option<&NodeStateStore>,
+    shared_state: &NodeStateStore,
 ) -> anyhow::Result<()> {
     let outcome = prepare_command_dispatch_with_live_socket(
         config,
@@ -1501,13 +1511,9 @@ async fn handle_command_dispatch(
     )
     .await;
     if outcome.state_changed {
-        if let Some(shared_state) = shared_state {
-            shared_state
-                .merge_command_state(baseline, local_state)
-                .await?;
-        } else {
-            local_state.save_async(&config.state_path).await?;
-        }
+        shared_state
+            .persist_command_outcome(baseline, local_state)
+            .await?;
     }
 
     send_frame(
@@ -8404,6 +8410,64 @@ sleep 2
             .expect("outbox rows query");
         pool.close().await;
         assert_eq!(outbox_rows, 0);
+        let _ = std::fs::remove_file(path);
+    }
+
+    #[tokio::test]
+    async fn state_store_persists_command_outcome_before_result_delivery() {
+        let path = std::env::temp_dir().join(format!(
+            "uprava-node-command-outcome-{}.sqlite",
+            Uuid::new_v4()
+        ));
+        let baseline = NodeLocalState {
+            node_id: Some(NodeId::from("node-owner")),
+            credential: Some("credential-owner".to_owned()),
+            ..NodeLocalState::default()
+        };
+        baseline
+            .clone()
+            .save_async(&path)
+            .await
+            .expect("baseline state persists");
+        let store = NodeStateStore::new(baseline.clone(), path.clone());
+        let mut command_state = baseline.clone();
+        let command_id = "command-outcome";
+        command_state
+            .command_status
+            .insert(command_id.to_owned(), CommandState::Completed);
+        command_state.command_result_payloads.insert(
+            command_id.to_owned(),
+            JsonValue(serde_json::json!({"ok": true})),
+        );
+        let event = runtime_outbox_retention_event(
+            &mut command_state,
+            RuntimeSessionId::from("runtime-command-outcome"),
+            None,
+            None,
+        );
+        let event_id = event.event_id.clone();
+        command_state.event_outbox.push(event);
+
+        store
+            .persist_command_outcome(&baseline, &command_state)
+            .await
+            .expect("command outcome persists");
+
+        let reloaded = NodeLocalState::load_async(&path)
+            .await
+            .expect("persisted outcome reloads");
+        assert_eq!(
+            reloaded.command_status.get(command_id),
+            Some(&CommandState::Completed)
+        );
+        assert_eq!(
+            reloaded.command_result_payloads.get(command_id),
+            Some(&JsonValue(serde_json::json!({"ok": true})))
+        );
+        assert!(reloaded
+            .event_outbox
+            .iter()
+            .any(|event| event.event_id == event_id));
         let _ = std::fs::remove_file(path);
     }
 
