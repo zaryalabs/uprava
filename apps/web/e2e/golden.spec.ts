@@ -29,12 +29,16 @@ test("renders warning badges and structured session blocks from snapshots", asyn
   await expect(page.getByRole("button", { name: /Start/i })).toBeEnabled();
 
   await page.goto("/nodes/node-1/placements/new");
-  await expect(page.getByRole("button", { name: "Validate" })).toBeDisabled();
-  await page.getByLabel("Workspace path").fill("/missing/workspace");
+  await expect(page.getByRole("button", { name: "Validate" })).toBeEnabled();
+  await page
+    .getByRole("combobox", { name: "Workspace path" })
+    .fill("/missing/workspace");
   await page.getByRole("button", { name: "Validate" }).click();
   await expect(page.getByText("Workspace validation failed")).toBeVisible();
   await expect(page.getByText("placement.invalid")).toBeVisible();
-  await page.getByLabel("Workspace path").fill("/workspace/uprava");
+  await page
+    .getByRole("combobox", { name: "Workspace path" })
+    .fill("/workspace/uprava");
   await page.getByRole("button", { name: "Validate" }).click();
   await expect(page).toHaveURL(/\/workspaces\/placement-1$/);
   await expect.poll(() => core.validationAttempts).toBe(2);
