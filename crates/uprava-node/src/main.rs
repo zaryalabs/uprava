@@ -72,6 +72,7 @@ const MAX_PROVIDER_ACTIVITY_RAW_CHARS: usize = 16_000;
 const MAX_PROVIDER_ACTIVITY_SUMMARY_CHARS: usize = 1_200;
 const MAX_PROVIDER_ACTIVITY_LINE_CHARS: usize = 4_000;
 const NODE_STATE_SLOT: &str = "0.2.0";
+const NODE_STATE_SCHEMA_VERSION: u32 = 1;
 
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
@@ -229,6 +230,10 @@ fn parse_workspace_paths() -> anyhow::Result<Vec<PathBuf>> {
 
 #[derive(Clone, Serialize, Deserialize)]
 struct NodeLocalState {
+    #[serde(default = "default_node_state_slot")]
+    state_slot: String,
+    #[serde(default = "default_node_state_schema_version")]
+    schema_version: u32,
     #[serde(default = "new_daemon_installation_id")]
     daemon_installation_id: String,
     node_id: Option<NodeId>,
@@ -278,6 +283,8 @@ struct ProviderResumeRef {
 impl Default for NodeLocalState {
     fn default() -> Self {
         Self {
+            state_slot: default_node_state_slot(),
+            schema_version: default_node_state_schema_version(),
             daemon_installation_id: new_daemon_installation_id(),
             node_id: None,
             credential: None,
@@ -309,6 +316,8 @@ impl std::fmt::Debug for NodeLocalState {
         let runtime_provider_resume_ref_count = self.runtime_provider_resume_refs.len();
         formatter
             .debug_struct("NodeLocalState")
+            .field("state_slot", &self.state_slot)
+            .field("schema_version", &self.schema_version)
             .field("daemon_installation_id", &self.daemon_installation_id)
             .field("node_id", &self.node_id)
             .field(
@@ -346,6 +355,14 @@ fn new_daemon_installation_id() -> String {
     format!("daemon-{}", Uuid::new_v4())
 }
 
+fn default_node_state_slot() -> String {
+    NODE_STATE_SLOT.to_owned()
+}
+
+fn default_node_state_schema_version() -> u32 {
+    NODE_STATE_SCHEMA_VERSION
+}
+
 impl NodeLocalState {
     fn load(path: &Path) -> anyhow::Result<Self> {
         if !path.exists() {
@@ -362,8 +379,26 @@ impl NodeLocalState {
         }
         let content = std::fs::read_to_string(path)
             .with_context(|| format!("failed to read node state {}", path.display()))?;
-        serde_json::from_str(&content)
-            .with_context(|| format!("failed to parse node state {}", path.display()))
+        let value: serde_json::Value = serde_json::from_str(&content)
+            .with_context(|| format!("failed to parse node state {}", path.display()))?;
+        if is_versioned_state_path(path) {
+            let slot = value.get("state_slot").and_then(serde_json::Value::as_str);
+            let schema_version = value
+                .get("schema_version")
+                .and_then(serde_json::Value::as_u64);
+            if slot != Some(NODE_STATE_SLOT)
+                || schema_version != Some(NODE_STATE_SCHEMA_VERSION as u64)
+            {
+                anyhow::bail!(
+                    "Node state at {} is not compatible with slot {} schema {}; move it aside and re-enroll",
+                    path.display(),
+                    NODE_STATE_SLOT,
+                    NODE_STATE_SCHEMA_VERSION
+                );
+            }
+        }
+        serde_json::from_value(value)
+            .with_context(|| format!("failed to decode node state {}", path.display()))
     }
 
     fn save(&self, path: &Path) -> anyhow::Result<()> {
@@ -4986,6 +5021,12 @@ fn legacy_state_path(path: &Path) -> Option<PathBuf> {
     Some(slot_dir.parent()?.join("node.json"))
 }
 
+fn is_versioned_state_path(path: &Path) -> bool {
+    path.parent()
+        .and_then(Path::file_name)
+        .is_some_and(|name| name.to_string_lossy() == NODE_STATE_SLOT)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -5025,6 +5066,20 @@ mod tests {
         assert!(local_state.runtime_states.is_empty());
         assert!(local_state.runtime_transcripts.is_empty());
         assert!(local_state.placement_seqs.is_empty());
+    }
+
+    #[test]
+    fn versioned_state_slot_rejects_unmarked_legacy_json() {
+        let dir = std::env::temp_dir().join(format!("uprava-node-slot-{}", Uuid::new_v4()));
+        let path = dir.join(NODE_STATE_SLOT).join("node.json");
+        std::fs::create_dir_all(path.parent().expect("slot parent exists"))
+            .expect("slot directory creates");
+        std::fs::write(&path, r#"{"node_id":"old","credential":"legacy"}"#)
+            .expect("legacy state fixture writes");
+
+        let error = NodeLocalState::load(&path).expect_err("legacy slot state must be rejected");
+        assert!(error.to_string().contains("not compatible with slot 0.2.0"));
+        let _ = std::fs::remove_dir_all(dir);
     }
 
     #[test]
