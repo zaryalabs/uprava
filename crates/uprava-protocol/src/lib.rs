@@ -4,6 +4,17 @@ use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
+/// Wire protocol version advertised by Core and Node control frames.
+pub const CURRENT_PROTOCOL_VERSION: &str = "v1";
+/// Versions accepted during a rolling upgrade. Keep this list explicit so a
+/// peer cannot silently downgrade to an unknown shape.
+pub const SUPPORTED_PROTOCOL_VERSIONS: &[&str] = &[CURRENT_PROTOCOL_VERSION];
+
+#[must_use]
+pub fn is_supported_protocol_version(version: &str) -> bool {
+    SUPPORTED_PROTOCOL_VERSIONS.contains(&version)
+}
+
 macro_rules! id_type {
     ($name:ident) => {
         #[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]

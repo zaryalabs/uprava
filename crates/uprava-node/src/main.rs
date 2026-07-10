@@ -29,9 +29,9 @@ use tokio_tungstenite::{
 };
 use uprava_logging::init_tracing;
 use uprava_protocol::{
-    serde_json_value::JsonValue, ActorRef, ApiError, ApprovalId, CapabilitySummary,
-    CommandEnvelope, CommandId, CommandKind, CommandState, ControlFrame, CorrelationId,
-    EnrollmentId, EventEnvelope, EventId, EventKind, NodeEnrollmentClaimRequest,
+    is_supported_protocol_version, serde_json_value::JsonValue, ActorRef, ApiError, ApprovalId,
+    CapabilitySummary, CommandEnvelope, CommandId, CommandKind, CommandState, ControlFrame,
+    CorrelationId, EnrollmentId, EventEnvelope, EventId, EventKind, NodeEnrollmentClaimRequest,
     NodeEnrollmentClaimResponse, NodeEnrollmentRequest, NodeEnrollmentRequestedResponse,
     NodeHeartbeatRequest, NodeHeartbeatResponse, NodeId, PlacementState, ProjectPlacementId,
     ResourceBadge, RuntimeSessionId, RuntimeSessionState, ScopeRef, SessionThreadId, SleepHint,
@@ -40,13 +40,12 @@ use uprava_protocol::{
     WorkspaceFileContentResponse, WorkspaceFileWriteRequest, WorkspaceFileWriteResponse,
     WorkspaceSnapshot, WorkspaceTerminalOpenRequest, WorkspaceTerminalOpenResponse,
     WorkspaceTerminalOutputFrame, WorkspaceTerminalState, WorkspaceTerminalSummary,
-    WorkspaceTreeResponse,
+    WorkspaceTreeResponse, CURRENT_PROTOCOL_VERSION as API_VERSION,
 };
 use uuid::Uuid;
 
 type ControlFrameSender = mpsc::UnboundedSender<ControlFrame>;
 
-const API_VERSION: &str = "v1";
 const MAX_EVENT_OUTBOX_EVENTS: usize = 1024;
 const MAX_CODEX_TRANSCRIPT_MESSAGES: usize = 20;
 const MAX_WORKSPACE_TREE_DEPTH: usize = 3;
@@ -881,7 +880,7 @@ async fn send_frame(sender: &ControlFrameSender, frame: ControlFrame) -> anyhow:
 
 fn control_frame_protocol_error(frame: &ControlFrame) -> Option<ControlFrame> {
     let received_protocol_version = control_frame_protocol_version(frame);
-    if received_protocol_version == API_VERSION {
+    if is_supported_protocol_version(received_protocol_version) {
         return None;
     }
 

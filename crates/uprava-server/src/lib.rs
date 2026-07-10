@@ -41,28 +41,29 @@ use tower_http::{
     trace::TraceLayer,
 };
 use uprava_protocol::{
-    serde_json_value::JsonValue, AcknowledgeWarningRequest, ActorRef, AgentProjection, ApiError,
-    ApprovalId, ApprovalState, ApproveNodeEnrollmentResponse, ArtifactId, ArtifactTree,
-    ArtifactTreeNode, CapabilitySummary, ClientCreateNodeEnrollmentRequest, ClientLogLevel,
-    ClientLogRequest, ClientLogResponse, CommandAcceptedResponse, CommandEnvelope, CommandId,
-    CommandKind, CommandState, ControlFrame, CorrelationId, CreatePlacementRequest,
-    CreateSessionRequest, DeploymentProfile, EnrollmentId, EnrollmentState, EventEnvelope, EventId,
-    EventKind, HealthResponse, InventorySnapshot, Message, MessageId, MessageRole,
-    NodeCredentialRotationResponse, NodeDeletionResponse, NodeEnrollmentClaimRequest,
-    NodeEnrollmentClaimResponse, NodeEnrollmentRequest, NodeEnrollmentRequestedResponse,
-    NodeEnrollmentSummary, NodeHeartbeatRequest, NodeHeartbeatResponse, NodeId, NodePresence,
-    NodeRevocationResponse, PlacementDeletionResponse, PlacementState, ProjectId,
-    ProjectPlacementId, ProjectPlacementSummary, ResolveApprovalRequest, ResourceBadge,
-    RuntimeSessionId, RuntimeSessionState, RuntimeSummary, ScopeRef, SecurityMode, SecurityStatus,
-    SendTurnRequest, SessionDetail, SessionSummary, SessionThreadId, SessionThreadState, SleepHint,
-    TerminalId, TurnId, TurnState, UpravaRef, VersionResponse, WarningAcknowledgementResponse,
-    WarningSeverity, WebAuthLoginRequest, WebAuthResponse, WebAuthSetupRequest,
-    WebAuthStatusResponse, WorkspaceCommandHistoryItem, WorkspaceCommandHistoryResponse,
-    WorkspaceCommandRunRequest, WorkspaceCommandRunResponse, WorkspaceDiffResponse,
-    WorkspaceFileContentResponse, WorkspaceFileWriteRequest, WorkspaceFileWriteResponse,
-    WorkspaceSnapshot, WorkspaceTerminalClientFrame, WorkspaceTerminalListResponse,
-    WorkspaceTerminalOpenRequest, WorkspaceTerminalOpenResponse, WorkspaceTerminalState,
-    WorkspaceTerminalStreamFrame, WorkspaceTerminalSummary, WorkspaceTreeResponse,
+    is_supported_protocol_version, serde_json_value::JsonValue, AcknowledgeWarningRequest,
+    ActorRef, AgentProjection, ApiError, ApprovalId, ApprovalState, ApproveNodeEnrollmentResponse,
+    ArtifactId, ArtifactTree, ArtifactTreeNode, CapabilitySummary,
+    ClientCreateNodeEnrollmentRequest, ClientLogLevel, ClientLogRequest, ClientLogResponse,
+    CommandAcceptedResponse, CommandEnvelope, CommandId, CommandKind, CommandState, ControlFrame,
+    CorrelationId, CreatePlacementRequest, CreateSessionRequest, DeploymentProfile, EnrollmentId,
+    EnrollmentState, EventEnvelope, EventId, EventKind, HealthResponse, InventorySnapshot, Message,
+    MessageId, MessageRole, NodeCredentialRotationResponse, NodeDeletionResponse,
+    NodeEnrollmentClaimRequest, NodeEnrollmentClaimResponse, NodeEnrollmentRequest,
+    NodeEnrollmentRequestedResponse, NodeEnrollmentSummary, NodeHeartbeatRequest,
+    NodeHeartbeatResponse, NodeId, NodePresence, NodeRevocationResponse, PlacementDeletionResponse,
+    PlacementState, ProjectId, ProjectPlacementId, ProjectPlacementSummary, ResolveApprovalRequest,
+    ResourceBadge, RuntimeSessionId, RuntimeSessionState, RuntimeSummary, ScopeRef, SecurityMode,
+    SecurityStatus, SendTurnRequest, SessionDetail, SessionSummary, SessionThreadId,
+    SessionThreadState, SleepHint, TerminalId, TurnId, TurnState, UpravaRef, VersionResponse,
+    WarningAcknowledgementResponse, WarningSeverity, WebAuthLoginRequest, WebAuthResponse,
+    WebAuthSetupRequest, WebAuthStatusResponse, WorkspaceCommandHistoryItem,
+    WorkspaceCommandHistoryResponse, WorkspaceCommandRunRequest, WorkspaceCommandRunResponse,
+    WorkspaceDiffResponse, WorkspaceFileContentResponse, WorkspaceFileWriteRequest,
+    WorkspaceFileWriteResponse, WorkspaceSnapshot, WorkspaceTerminalClientFrame,
+    WorkspaceTerminalListResponse, WorkspaceTerminalOpenRequest, WorkspaceTerminalOpenResponse,
+    WorkspaceTerminalState, WorkspaceTerminalStreamFrame, WorkspaceTerminalSummary,
+    WorkspaceTreeResponse, CURRENT_PROTOCOL_VERSION as API_VERSION,
 };
 use uuid::Uuid;
 
@@ -72,7 +73,6 @@ mod persistence;
 use domain::PlacementIdentity;
 use persistence::{CORE_STATE_SLOT, DEFAULT_CORE_DATABASE_URL, SCHEMA_VERSION};
 
-const API_VERSION: &str = "v1";
 const APP_VERSION: &str = env!("CARGO_PKG_VERSION");
 const CORRELATION_ID_HEADER: &str = "x-correlation-id";
 const REQUEST_ID_HEADER: &str = "x-request-id";
@@ -1678,7 +1678,7 @@ async fn handle_node_control_frame(
     frame: ControlFrame,
 ) -> Result<(), AppError> {
     if !matches!(frame, ControlFrame::Hello { .. })
-        && control_frame_protocol_version(&frame) != API_VERSION
+        && !is_supported_protocol_version(control_frame_protocol_version(&frame))
     {
         send_control_error(
             state,
@@ -1714,7 +1714,7 @@ async fn handle_node_control_frame(
                     "Control hello node id does not match authenticated node",
                 ));
             }
-            if protocol_version != API_VERSION {
+            if !is_supported_protocol_version(&protocol_version) {
                 send_control_error(
                     state,
                     node_id,
