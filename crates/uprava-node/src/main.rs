@@ -47,6 +47,7 @@ use uuid::Uuid;
 type ControlFrameSender = mpsc::UnboundedSender<ControlFrame>;
 
 const MAX_EVENT_OUTBOX_EVENTS: usize = 1024;
+const MAX_RETAINED_COMMANDS: usize = 1024;
 const MAX_CODEX_TRANSCRIPT_MESSAGES: usize = 20;
 const MAX_WORKSPACE_TREE_DEPTH: usize = 3;
 const MAX_WORKSPACE_TREE_ENTRIES: usize = 512;
@@ -407,10 +408,38 @@ impl NodeLocalState {
                 .with_context(|| format!("failed to create {}", parent.display()))?;
             set_private_dir_permissions(parent);
         }
+        let mut snapshot = self.clone();
+        snapshot.compact_for_persistence();
         let content =
-            serde_json::to_string_pretty(self).context("failed to serialize node state")?;
+            serde_json::to_string_pretty(&snapshot).context("failed to serialize node state")?;
         write_private_file(path, content.as_bytes())
             .with_context(|| format!("failed to write node state {}", path.display()))
+    }
+
+    fn compact_for_persistence(&mut self) {
+        if self.command_status.len() > MAX_RETAINED_COMMANDS {
+            let removable = self
+                .command_status
+                .iter()
+                .filter(|(_, status)| {
+                    matches!(
+                        status,
+                        CommandState::Completed
+                            | CommandState::Failed
+                            | CommandState::Blocked
+                            | CommandState::Expired
+                    )
+                })
+                .map(|(command_id, _)| command_id.clone())
+                .collect::<Vec<_>>();
+            let remove_count = self.command_status.len() - MAX_RETAINED_COMMANDS;
+            for command_id in removable.into_iter().take(remove_count) {
+                self.command_status.remove(&command_id);
+                self.command_result_payloads.remove(&command_id);
+            }
+        }
+        self.command_result_payloads
+            .retain(|command_id, _| self.command_status.contains_key(command_id));
     }
 
     fn is_enrolled(&self) -> bool {
@@ -5093,6 +5122,38 @@ mod tests {
         std::fs::remove_file(path).expect("node state fixture is removed");
 
         assert_eq!(reloaded.daemon_installation_id, installation_id);
+    }
+
+    #[test]
+    fn node_local_state_compacts_completed_command_cache_on_save() {
+        let path = std::env::temp_dir().join(format!("uprava-node-{}.json", Uuid::new_v4()));
+        let mut local_state = NodeLocalState::default();
+        local_state
+            .command_status
+            .insert("active".to_owned(), CommandState::Dispatched);
+        for index in 0..(MAX_RETAINED_COMMANDS + 20) {
+            let command_id = format!("completed-{index}");
+            local_state
+                .command_status
+                .insert(command_id.clone(), CommandState::Completed);
+            local_state
+                .command_result_payloads
+                .insert(command_id, JsonValue(serde_json::json!({ "ok": true })));
+        }
+
+        local_state.save(&path).expect("state saves");
+        let reloaded = NodeLocalState::load(&path).expect("state reloads");
+        let _ = std::fs::remove_file(path);
+
+        assert!(reloaded.command_status.len() <= MAX_RETAINED_COMMANDS);
+        assert_eq!(
+            reloaded.command_status.get("active"),
+            Some(&CommandState::Dispatched)
+        );
+        assert!(reloaded
+            .command_result_payloads
+            .keys()
+            .all(|command_id| reloaded.command_status.contains_key(command_id)));
     }
 
     #[cfg(unix)]
