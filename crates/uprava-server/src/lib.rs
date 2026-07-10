@@ -9464,6 +9464,18 @@ mod tests {
         .await
         .expect("placement validation command records")
         .0;
+        let reused = validate_placement(
+            State(state.clone()),
+            Json(CreatePlacementRequest {
+                node_id: node_id.clone(),
+                display_name: "renamed workspace".to_owned(),
+                workspace_path: workspace_path.display().to_string(),
+            }),
+        )
+        .await
+        .expect("existing placement is reused")
+        .0;
+        assert_eq!(reused.project_placement_id, placement.project_placement_id);
         let (command_kind, command_json): (String, String) = sqlx::query_as(
             "select kind, command_json from commands where target_node_id = ?1 order by created_at desc limit 1",
         )
