@@ -493,6 +493,39 @@ impl NodeLocalState {
         .bind(snapshot_json)
         .execute(&mut *transaction)
         .await?;
+        sqlx::query("delete from node_command_cache")
+            .execute(&mut *transaction)
+            .await?;
+        for (command_id, status) in &snapshot.command_status {
+            sqlx::query(
+                "insert into node_command_cache (command_id, state, result_payload_json, updated_at) values (?1, ?2, ?3, strftime('%Y-%m-%dT%H:%M:%fZ', 'now'))",
+            )
+            .bind(command_id)
+            .bind(format!("{status:?}"))
+            .bind(
+                snapshot
+                    .command_result_payloads
+                    .get(command_id)
+                    .map(serde_json::to_string)
+                    .transpose()?,
+            )
+            .execute(&mut *transaction)
+            .await?;
+        }
+        sqlx::query("delete from node_event_outbox")
+            .execute(&mut *transaction)
+            .await?;
+        for event in &snapshot.event_outbox {
+            sqlx::query(
+                "insert into node_event_outbox (event_id, event_json, seq, created_at) values (?1, ?2, ?3, ?4)",
+            )
+            .bind(event.event_id.as_str())
+            .bind(serde_json::to_string(event)?)
+            .bind(event.seq)
+            .bind(event.happened_at)
+            .execute(&mut *transaction)
+            .await?;
+        }
         transaction.commit().await?;
         pool.close().await;
         #[cfg(unix)]
@@ -562,6 +595,30 @@ async fn initialize_state_store(pool: &SqlitePool) -> anyhow::Result<()> {
             schema_version integer not null,
             snapshot_json text not null,
             updated_at text not null
+        )
+        "#,
+    )
+    .execute(pool)
+    .await?;
+    sqlx::query(
+        r#"
+        create table if not exists node_command_cache (
+            command_id text primary key,
+            state text not null,
+            result_payload_json text,
+            updated_at text not null
+        )
+        "#,
+    )
+    .execute(pool)
+    .await?;
+    sqlx::query(
+        r#"
+        create table if not exists node_event_outbox (
+            event_id text primary key,
+            event_json text not null,
+            seq integer not null,
+            created_at text not null
         )
         "#,
     )
@@ -5318,11 +5375,21 @@ mod tests {
                 .fetch_one(&pool)
                 .await
                 .expect("version metadata persists");
-        pool.close().await;
         assert_eq!(
             row,
             (NODE_STATE_SLOT.to_owned(), NODE_STATE_SCHEMA_VERSION as i64)
         );
+        let command_count: i64 = sqlx::query_scalar("select count(*) from node_command_cache")
+            .fetch_one(&pool)
+            .await
+            .expect("command cache persists");
+        let outbox_count: i64 = sqlx::query_scalar("select count(*) from node_event_outbox")
+            .fetch_one(&pool)
+            .await
+            .expect("event outbox persists");
+        pool.close().await;
+        assert_eq!(command_count, 1);
+        assert_eq!(outbox_count, 0);
         std::fs::remove_dir_all(dir).expect("sqlite state fixture removes");
     }
 
