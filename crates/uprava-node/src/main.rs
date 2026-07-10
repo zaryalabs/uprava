@@ -17,6 +17,7 @@ use futures_util::{SinkExt, StreamExt};
 use pty_process::{Command as PtyCommand, Size as PtySize};
 use reqwest::Url;
 use serde::{Deserialize, Serialize};
+use sqlx::{sqlite::SqliteConnectOptions, Row, SqlitePool};
 use tokio::{
     io::{AsyncBufReadExt, AsyncRead, AsyncReadExt, AsyncWriteExt, BufReader},
     process::Command as TokioCommand,
@@ -82,7 +83,7 @@ async fn main() -> anyhow::Result<()> {
 
     let config = NodeConfig::from_env()?;
     let client = reqwest::Client::new();
-    let mut local_state = NodeLocalState::load(&config.state_path)?;
+    let mut local_state = NodeLocalState::load_async(&config.state_path).await?;
     let mut control_task: Option<tokio::task::JoinHandle<()>> = None;
     tracing::info!(
         core_url = %config.core_url,
@@ -116,7 +117,7 @@ async fn main() -> anyhow::Result<()> {
         }
 
         if control_task.is_some() {
-            match NodeLocalState::load(&config.state_path) {
+            match NodeLocalState::load_async(&config.state_path).await {
                 Ok(updated_state) if updated_state.is_enrolled() => local_state = updated_state,
                 Ok(_) => tracing::warn!("node state refresh returned unenrolled state"),
                 Err(error) => tracing::warn!(error = %error, "failed to refresh node state"),
@@ -149,7 +150,7 @@ async fn main() -> anyhow::Result<()> {
                         task.abort();
                     }
                     local_state.clear_core_registration();
-                    if let Err(save_error) = local_state.save(&config.state_path) {
+                    if let Err(save_error) = local_state.save_async(&config.state_path).await {
                         tracing::warn!(
                             error = %save_error,
                             state_path = %config.state_path.display(),
@@ -417,6 +418,88 @@ impl NodeLocalState {
             .with_context(|| format!("failed to write node state {}", path.display()))
     }
 
+    async fn load_async(path: &Path) -> anyhow::Result<Self> {
+        if !is_sqlite_state_path(path) {
+            return Self::load(path);
+        }
+        if !path.exists() {
+            if let Some(legacy_path) = legacy_state_path(path) {
+                if legacy_path.exists() {
+                    anyhow::bail!(
+                        "legacy Uprava Node state found at {}; state slot {} is isolated; move or remove the legacy state and re-enroll",
+                        legacy_path.display(),
+                        NODE_STATE_SLOT
+                    );
+                }
+            }
+        }
+        let pool = open_state_store(path).await?;
+        initialize_state_store(&pool).await?;
+        let row = sqlx::query(
+            "select state_slot, schema_version, snapshot_json from node_state where state_id = 1",
+        )
+        .fetch_optional(&pool)
+        .await?;
+        let Some(row) = row else {
+            pool.close().await;
+            return Ok(Self::default());
+        };
+        let slot: String = row.try_get("state_slot")?;
+        let schema_version: i64 = row.try_get("schema_version")?;
+        if slot != NODE_STATE_SLOT || schema_version != NODE_STATE_SCHEMA_VERSION as i64 {
+            pool.close().await;
+            anyhow::bail!(
+                "Node state at {} is not compatible with slot {} schema {}; move it aside and re-enroll",
+                path.display(),
+                NODE_STATE_SLOT,
+                NODE_STATE_SCHEMA_VERSION
+            );
+        }
+        let snapshot: String = row.try_get("snapshot_json")?;
+        pool.close().await;
+        serde_json::from_str(&snapshot)
+            .with_context(|| format!("failed to decode node state {}", path.display()))
+    }
+
+    async fn save_async(&self, path: &Path) -> anyhow::Result<()> {
+        if !is_sqlite_state_path(path) {
+            return self.save(path);
+        }
+        if let Some(parent) = path.parent() {
+            std::fs::create_dir_all(parent)
+                .with_context(|| format!("failed to create {}", parent.display()))?;
+            set_private_dir_permissions(parent);
+        }
+        let mut snapshot = self.clone();
+        snapshot.compact_for_persistence();
+        let snapshot_json =
+            serde_json::to_string(&snapshot).context("failed to serialize node state snapshot")?;
+        let pool = open_state_store(path).await?;
+        initialize_state_store(&pool).await?;
+        let mut transaction = pool.begin().await?;
+        sqlx::query(
+            r#"
+            insert into node_state (state_id, state_slot, schema_version, snapshot_json, updated_at)
+            values (1, ?1, ?2, ?3, strftime('%Y-%m-%dT%H:%M:%fZ', 'now'))
+            on conflict(state_id) do update set
+                state_slot = excluded.state_slot,
+                schema_version = excluded.schema_version,
+                snapshot_json = excluded.snapshot_json,
+                updated_at = excluded.updated_at
+            "#,
+        )
+        .bind(NODE_STATE_SLOT)
+        .bind(NODE_STATE_SCHEMA_VERSION as i64)
+        .bind(snapshot_json)
+        .execute(&mut *transaction)
+        .await?;
+        transaction.commit().await?;
+        pool.close().await;
+        #[cfg(unix)]
+        std::fs::set_permissions(path, PermissionsExt::from_mode(0o600))?;
+        Ok(())
+    }
+
     fn compact_for_persistence(&mut self) {
         if self.command_status.len() > MAX_RETAINED_COMMANDS {
             let removable = self
@@ -458,6 +541,33 @@ impl NodeLocalState {
         self.enrollment_id = None;
         self.pairing_code = None;
     }
+}
+
+async fn open_state_store(path: &Path) -> anyhow::Result<SqlitePool> {
+    SqlitePool::connect_with(
+        SqliteConnectOptions::new()
+            .filename(path)
+            .create_if_missing(true),
+    )
+    .await
+    .with_context(|| format!("failed to open node state store {}", path.display()))
+}
+
+async fn initialize_state_store(pool: &SqlitePool) -> anyhow::Result<()> {
+    sqlx::query(
+        r#"
+        create table if not exists node_state (
+            state_id integer primary key check (state_id = 1),
+            state_slot text not null,
+            schema_version integer not null,
+            snapshot_json text not null,
+            updated_at text not null
+        )
+        "#,
+    )
+    .execute(pool)
+    .await?;
+    Ok(())
 }
 
 fn write_private_file(path: &Path, content: &[u8]) -> anyhow::Result<()> {
@@ -555,7 +665,7 @@ async fn ensure_enrollment(
         );
         local_state.enrollment_id = Some(response.enrollment_id);
         local_state.pairing_code = Some(response.pairing_code);
-        local_state.save(&config.state_path)?;
+        local_state.save_async(&config.state_path).await?;
     }
 
     let claim = match claim_enrollment(client, config, local_state).await {
@@ -571,7 +681,7 @@ async fn ensure_enrollment(
                 "enrollment claim was rejected; clearing stale local enrollment"
             );
             local_state.clear_enrollment_attempt();
-            local_state.save(&config.state_path)?;
+            local_state.save_async(&config.state_path).await?;
             return Ok(false);
         }
         Err(error) => return Err(error),
@@ -583,7 +693,7 @@ async fn ensure_enrollment(
     if !claim.accepted {
         tracing::warn!(message = %claim.message, "enrollment was not accepted");
         local_state.clear_enrollment_attempt();
-        local_state.save(&config.state_path)?;
+        local_state.save_async(&config.state_path).await?;
         return Ok(false);
     }
     if let (Some(node_id), Some(credential)) = (claim.node_id, claim.credential) {
@@ -591,7 +701,7 @@ async fn ensure_enrollment(
         local_state.credential = Some(credential);
         local_state.enrollment_id = None;
         local_state.pairing_code = None;
-        local_state.save(&config.state_path)?;
+        local_state.save_async(&config.state_path).await?;
         tracing::info!("enrollment claimed and credential stored");
         return Ok(true);
     }
@@ -715,7 +825,7 @@ async fn control_channel_loop(config: NodeConfig, mut local_state: NodeLocalStat
     let mut terminal_manager = WorkspaceTerminalManager::default();
     loop {
         local_state.reconnect_attempts = local_state.reconnect_attempts.saturating_add(1);
-        if let Err(error) = local_state.save(&config.state_path) {
+        if let Err(error) = local_state.save_async(&config.state_path).await {
             tracing::warn!(error = %error, "failed to persist reconnect metric");
         }
         match run_control_channel(&config, &mut local_state, &mut terminal_manager).await {
@@ -829,7 +939,7 @@ async fn run_control_channel(
                 let removed =
                     remove_acked_events(&mut local_state.event_outbox, &accepted_event_ids);
                 if removed > 0 {
-                    local_state.save(&config.state_path)?;
+                    local_state.save_async(&config.state_path).await?;
                     tracing::info!(
                         removed,
                         remaining = local_state.event_outbox.len(),
@@ -881,7 +991,7 @@ async fn handle_command_dispatch(
     )
     .await;
     if outcome.state_changed {
-        local_state.save(&config.state_path)?;
+        local_state.save_async(&config.state_path).await?;
     }
 
     send_frame(
@@ -5058,7 +5168,12 @@ fn default_state_path() -> PathBuf {
         .join("share")
         .join("uprava-node")
         .join(NODE_STATE_SLOT)
-        .join("node.json")
+        .join("node.sqlite")
+}
+
+fn is_sqlite_state_path(path: &Path) -> bool {
+    path.extension()
+        .is_some_and(|extension| extension == "sqlite")
 }
 
 fn legacy_state_path(path: &Path) -> Option<PathBuf> {
@@ -5173,6 +5288,42 @@ mod tests {
             .command_result_payloads
             .keys()
             .all(|command_id| reloaded.command_status.contains_key(command_id)));
+    }
+
+    #[tokio::test]
+    async fn sqlite_state_store_round_trips_versioned_snapshot_transactionally() {
+        let dir = std::env::temp_dir().join(format!("uprava-node-sqlite-{}", Uuid::new_v4()));
+        let path = dir.join(NODE_STATE_SLOT).join("node.sqlite");
+        let mut state = NodeLocalState {
+            node_id: Some(NodeId::from("node-sqlite")),
+            ..NodeLocalState::default()
+        };
+        state
+            .command_status
+            .insert("command-sqlite".to_owned(), CommandState::Completed);
+
+        state.save_async(&path).await.expect("sqlite state saves");
+        let reloaded = NodeLocalState::load_async(&path)
+            .await
+            .expect("sqlite state reloads");
+        assert_eq!(reloaded.node_id, Some(NodeId::from("node-sqlite")));
+        assert_eq!(
+            reloaded.command_status.get("command-sqlite"),
+            Some(&CommandState::Completed)
+        );
+
+        let pool = open_state_store(&path).await.expect("store reopens");
+        let row: (String, i64) =
+            sqlx::query_as("select state_slot, schema_version from node_state where state_id = 1")
+                .fetch_one(&pool)
+                .await
+                .expect("version metadata persists");
+        pool.close().await;
+        assert_eq!(
+            row,
+            (NODE_STATE_SLOT.to_owned(), NODE_STATE_SCHEMA_VERSION as i64)
+        );
+        std::fs::remove_dir_all(dir).expect("sqlite state fixture removes");
     }
 
     #[cfg(unix)]
