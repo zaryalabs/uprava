@@ -132,12 +132,25 @@ pub enum WorkspaceEntryStatus {
     Error,
 }
 
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum WorkspaceEntryClassification {
+    #[default]
+    Normal,
+    Generated,
+    Ignored,
+}
+
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct WorkspaceEntry {
     pub name: String,
     pub path: String,
     pub kind: WorkspaceEntryKind,
     pub status: WorkspaceEntryStatus,
+    #[serde(default)]
+    pub classification: WorkspaceEntryClassification,
+    #[serde(default)]
+    pub expandable: bool,
     pub byte_len: Option<u64>,
     pub modified_at: Option<DateTime<Utc>>,
     #[serde(default)]
@@ -148,6 +161,10 @@ pub struct WorkspaceEntry {
 pub struct WorkspaceTreeResponse {
     pub placement_id: ProjectPlacementId,
     pub root: WorkspaceEntry,
+    #[serde(default)]
+    pub truncated: bool,
+    #[serde(default)]
+    pub total_entries: Option<u64>,
     pub generated_at: DateTime<Utc>,
 }
 

@@ -47,11 +47,11 @@ use uprava_protocol::{
     PlacementState, ProjectPlacementId, ResourceBadge, RuntimeSessionId, RuntimeSessionState,
     ScopeRef, SessionThreadId, SleepHint, TerminalId, TurnId, WarningSeverity,
     WorkspaceCommandRunRequest, WorkspaceCommandRunResponse, WorkspaceDiffResponse, WorkspaceEntry,
-    WorkspaceEntryKind, WorkspaceEntryStatus, WorkspaceFileContentResponse,
-    WorkspaceFileWriteRequest, WorkspaceFileWriteResponse, WorkspaceSnapshot,
-    WorkspaceTerminalOpenRequest, WorkspaceTerminalOpenResponse, WorkspaceTerminalOutputFrame,
-    WorkspaceTerminalState, WorkspaceTerminalSummary, WorkspaceTreeResponse,
-    CURRENT_PROTOCOL_VERSION as API_VERSION,
+    WorkspaceEntryClassification, WorkspaceEntryKind, WorkspaceEntryStatus,
+    WorkspaceFileContentResponse, WorkspaceFileWriteRequest, WorkspaceFileWriteResponse,
+    WorkspaceSnapshot, WorkspaceTerminalOpenRequest, WorkspaceTerminalOpenResponse,
+    WorkspaceTerminalOutputFrame, WorkspaceTerminalState, WorkspaceTerminalSummary,
+    WorkspaceTreeResponse, CURRENT_PROTOCOL_VERSION as API_VERSION,
 };
 #[cfg(test)]
 use uprava_protocol::{CommandTarget, WorkspaceCommandIntent};
@@ -73,8 +73,7 @@ const MAX_EVENT_OUTBOX_BYTES: usize = 4 * 1024 * 1024;
 const MAX_EVENT_OUTBOX_AGE: Duration = Duration::from_secs(7 * 24 * 60 * 60);
 const MAX_RETAINED_COMMANDS: usize = 1024;
 const MAX_CODEX_TRANSCRIPT_MESSAGES: usize = 20;
-const MAX_WORKSPACE_TREE_DEPTH: usize = 3;
-const MAX_WORKSPACE_TREE_ENTRIES: usize = 512;
+const MAX_WORKSPACE_DIRECTORY_ENTRIES: usize = 100;
 const MAX_WORKSPACE_TEXT_BYTES: u64 = 256 * 1024;
 const MAX_WORKSPACE_COMMAND_OUTPUT_BYTES: usize = 64 * 1024;
 const MAX_WORKSPACE_COMMAND_ARGS: usize = 32;
@@ -1821,19 +1820,15 @@ fn spawn_command_dispatch_task(
 ) {
     let shared = shared.clone();
     tasks.spawn(async move {
-        let Ok(_permit) = shared.concurrency.acquire_owned().await else {
-            tracing::warn!("command dispatcher semaphore closed");
+        let Some(_permit) = prepare_command_dispatch_task(
+            &job.command,
+            &shared.cancellations,
+            shared.concurrency.clone(),
+        )
+        .await
+        else {
             return;
         };
-        if is_runtime_cancellation_command(&job.command) {
-            if let Some(runtime_session_id) = job.command.target.runtime_session_id() {
-                let cancelled = shared.cancellations.cancel(runtime_session_id).await;
-                tracing::debug!(
-                    cancelled,
-                    "runtime cancellation command signalled active provider"
-                );
-            }
-        }
         let execution_lock = shared
             .locks
             .lock_for(command_execution_key(&job.command))
@@ -1882,6 +1877,29 @@ fn spawn_command_dispatch_task(
             shared.cancellations.finish(guard).await;
         }
     });
+}
+
+async fn prepare_command_dispatch_task(
+    command: &CommandEnvelope,
+    cancellations: &RuntimeCancellationRegistry,
+    concurrency: Arc<Semaphore>,
+) -> Option<tokio::sync::OwnedSemaphorePermit> {
+    if is_runtime_cancellation_command(command) {
+        if let Some(runtime_session_id) = command.target.runtime_session_id() {
+            let cancelled = cancellations.cancel(runtime_session_id).await;
+            tracing::debug!(
+                cancelled,
+                "runtime cancellation command signalled active provider"
+            );
+        }
+    }
+    match concurrency.acquire_owned().await {
+        Ok(permit) => Some(permit),
+        Err(_) => {
+            tracing::warn!("command dispatcher semaphore closed");
+            None
+        }
+    }
 }
 
 fn is_runtime_cancellation_command(command: &CommandEnvelope) -> bool {
@@ -3574,6 +3592,8 @@ fn write_workspace_file(
             path: relative_path_string(&relative_path),
             kind: workspace_entry_kind(&metadata),
             status: workspace_status_for_entry(&relative_path, &metadata),
+            classification: workspace_entry_classification(&relative_path),
+            expandable: false,
             byte_len: metadata.is_file().then_some(metadata.len()),
             modified_at: metadata_modified_at(&metadata),
             children: vec![],
@@ -4099,17 +4119,47 @@ fn build_workspace_tree_response(
         Err(error) if error.code == "workspace.path_missing" => workspace_root.join(&relative_path),
         Err(error) => return Err(error),
     };
-    let mut remaining_entries = MAX_WORKSPACE_TREE_ENTRIES;
-    let root = workspace_tree_entry(
-        &workspace_root,
-        &root_path,
-        &relative_path,
-        0,
-        &mut remaining_entries,
-    );
+    let mut root = workspace_tree_entry(&root_path, &relative_path);
+    let mut truncated = false;
+    let mut total_entries = None;
+    if root.kind == WorkspaceEntryKind::Directory && root.status == WorkspaceEntryStatus::Directory
+    {
+        match std::fs::read_dir(&root_path) {
+            Ok(read_dir) => {
+                let mut entries = read_dir.filter_map(Result::ok).collect::<Vec<_>>();
+                entries.sort_by(|left, right| {
+                    let left_is_dir = left.file_type().is_ok_and(|kind| kind.is_dir());
+                    let right_is_dir = right.file_type().is_ok_and(|kind| kind.is_dir());
+                    right_is_dir
+                        .cmp(&left_is_dir)
+                        .then_with(|| left.file_name().cmp(&right.file_name()))
+                });
+                total_entries = Some(entries.len() as u64);
+                truncated = entries.len() > MAX_WORKSPACE_DIRECTORY_ENTRIES;
+                root.children = entries
+                    .into_iter()
+                    .take(MAX_WORKSPACE_DIRECTORY_ENTRIES)
+                    .map(|entry| {
+                        let child_relative_path = relative_path.join(entry.file_name());
+                        workspace_tree_entry(&entry.path(), &child_relative_path)
+                    })
+                    .collect();
+            }
+            Err(error) if error.kind() == ErrorKind::PermissionDenied => {
+                root.status = WorkspaceEntryStatus::PermissionDenied;
+                root.expandable = false;
+            }
+            Err(_) => {
+                root.status = WorkspaceEntryStatus::Error;
+                root.expandable = false;
+            }
+        }
+    }
     Ok(WorkspaceTreeResponse {
         placement_id,
         root,
+        truncated,
+        total_entries,
         generated_at: Utc::now(),
     })
 }
@@ -4304,6 +4354,8 @@ fn workspace_file_status_response(
             path,
             kind,
             status,
+            classification: workspace_entry_classification(&relative_path),
+            expandable: false,
             byte_len,
             modified_at,
             children: vec![],
@@ -4474,23 +4526,7 @@ fn resolve_existing_workspace_path(
     Ok(current)
 }
 
-fn workspace_tree_entry(
-    workspace_root: &Path,
-    path: &Path,
-    relative_path: &Path,
-    depth: usize,
-    remaining_entries: &mut usize,
-) -> WorkspaceEntry {
-    if *remaining_entries == 0 {
-        return workspace_entry_for_status(
-            relative_path,
-            WorkspaceEntryKind::Other,
-            WorkspaceEntryStatus::Error,
-            None,
-            None,
-        );
-    }
-    *remaining_entries -= 1;
+fn workspace_tree_entry(path: &Path, relative_path: &Path) -> WorkspaceEntry {
     let metadata = match std::fs::symlink_metadata(path) {
         Ok(metadata) => metadata,
         Err(error) if error.kind() == ErrorKind::PermissionDenied => {
@@ -4522,54 +4558,18 @@ fn workspace_tree_entry(
         }
     };
     let kind = workspace_entry_kind(&metadata);
-    let mut status = workspace_status_for_entry(relative_path, &metadata);
-    let mut children = Vec::new();
-    if metadata.is_dir()
-        && status == WorkspaceEntryStatus::Directory
-        && depth < MAX_WORKSPACE_TREE_DEPTH
-    {
-        match std::fs::read_dir(path) {
-            Ok(read_dir) => {
-                let mut entries = read_dir
-                    .filter_map(Result::ok)
-                    .collect::<Vec<std::fs::DirEntry>>();
-                entries.sort_by_key(|entry| entry.file_name());
-                for entry in entries {
-                    if *remaining_entries == 0 {
-                        break;
-                    }
-                    let child_name = entry.file_name();
-                    let mut child_relative_path = relative_path.to_path_buf();
-                    child_relative_path.push(child_name);
-                    let child_path = entry.path();
-                    if child_path.starts_with(workspace_root) {
-                        children.push(workspace_tree_entry(
-                            workspace_root,
-                            &child_path,
-                            &child_relative_path,
-                            depth + 1,
-                            remaining_entries,
-                        ));
-                    }
-                }
-            }
-            Err(error) if error.kind() == ErrorKind::PermissionDenied => {
-                status = WorkspaceEntryStatus::PermissionDenied;
-            }
-            Err(_) => {
-                status = WorkspaceEntryStatus::Error;
-            }
-        }
-    }
+    let status = workspace_status_for_entry(relative_path, &metadata);
 
     WorkspaceEntry {
         name: workspace_entry_name(relative_path),
         path: relative_path_string(relative_path),
         kind,
         status,
+        classification: workspace_entry_classification(relative_path),
+        expandable: metadata.is_dir(),
         byte_len: metadata.is_file().then_some(metadata.len()),
         modified_at: metadata_modified_at(&metadata),
-        children,
+        children: vec![],
     }
 }
 
@@ -4585,6 +4585,8 @@ fn workspace_entry_for_status(
         path: relative_path_string(relative_path),
         kind,
         status,
+        classification: WorkspaceEntryClassification::Normal,
+        expandable: false,
         byte_len,
         modified_at,
         children: vec![],
@@ -4611,9 +4613,6 @@ fn workspace_status_for_entry(
     if metadata.file_type().is_symlink() {
         return WorkspaceEntryStatus::Symlink;
     }
-    if let Some(status) = generated_or_ignored_status(relative_path) {
-        return status;
-    }
     if metadata.is_dir() {
         return WorkspaceEntryStatus::Directory;
     }
@@ -4627,6 +4626,14 @@ fn workspace_status_for_entry(
         return WorkspaceEntryStatus::Readable;
     }
     WorkspaceEntryStatus::Error
+}
+
+fn workspace_entry_classification(relative_path: &Path) -> WorkspaceEntryClassification {
+    match generated_or_ignored_status(relative_path) {
+        Some(WorkspaceEntryStatus::Generated) => WorkspaceEntryClassification::Generated,
+        Some(WorkspaceEntryStatus::Ignored) => WorkspaceEntryClassification::Ignored,
+        _ => WorkspaceEntryClassification::Normal,
+    }
 }
 
 fn generated_or_ignored_status(relative_path: &Path) -> Option<WorkspaceEntryStatus> {
@@ -8057,7 +8064,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn list_workspace_tree_marks_generated_directories_without_descending() {
+    async fn list_workspace_tree_marks_and_allows_generated_directories() {
         let config = config_fixture();
         let workspace_path =
             std::env::temp_dir().join(format!("uprava-node-inspector-{}", Uuid::new_v4()));
@@ -8090,8 +8097,53 @@ mod tests {
         std::fs::remove_dir_all(&workspace_path).expect("workspace fixture removes");
 
         assert_eq!(outcome.status, CommandState::Completed);
-        assert_eq!(target.status, WorkspaceEntryStatus::Generated);
+        assert_eq!(target.status, WorkspaceEntryStatus::Directory);
+        assert_eq!(
+            target.classification,
+            WorkspaceEntryClassification::Generated
+        );
+        assert!(target.expandable);
         assert!(target.children.is_empty());
+    }
+
+    #[tokio::test]
+    async fn list_workspace_tree_shows_dotfiles_and_limits_sorted_children() {
+        let config = config_fixture();
+        let workspace_path =
+            std::env::temp_dir().join(format!("uprava-node-tree-limit-{}", Uuid::new_v4()));
+        std::fs::create_dir_all(workspace_path.join(".github")).expect("dot directory creates");
+        std::fs::write(workspace_path.join(".env"), "visible").expect("dot file creates");
+        for index in 0..100 {
+            std::fs::write(
+                workspace_path.join(format!("file-{index:03}.txt")),
+                "fixture",
+            )
+            .expect("limit fixture creates");
+        }
+        let mut command = placement_command_fixture(
+            "command-list-limited-tree",
+            "placement-list-limited-tree",
+            "workspace",
+            &workspace_path.display().to_string(),
+        );
+        command.kind = CommandKind::ListWorkspaceTree;
+        command.payload = CommandPayload::ListWorkspaceTree {
+            workspace_path: workspace_path.display().to_string(),
+            path: ".".to_owned(),
+        };
+        let mut local_state = NodeLocalState::default();
+
+        let outcome = prepare_command_dispatch(&config, &mut local_state, &command).await;
+        let response = serde_json::from_value::<WorkspaceTreeResponse>(outcome.result_payload.0)
+            .expect("workspace tree response decodes");
+        std::fs::remove_dir_all(&workspace_path).expect("workspace fixture removes");
+
+        assert_eq!(outcome.status, CommandState::Completed);
+        assert_eq!(response.total_entries, Some(102));
+        assert!(response.truncated);
+        assert_eq!(response.root.children.len(), 100);
+        assert_eq!(response.root.children[0].name, ".github");
+        assert_eq!(response.root.children[1].name, ".env");
     }
 
     #[tokio::test]
@@ -9229,6 +9281,32 @@ mod tests {
             local_state.runtime_states.get("runtime-1").copied(),
             Some(RuntimeSessionState::Interrupted)
         );
+    }
+
+    #[tokio::test]
+    async fn runtime_cancellation_signals_before_dispatch_capacity_is_available() {
+        let cancellations = RuntimeCancellationRegistry::default();
+        let guard = cancellations
+            .begin(&RuntimeSessionId::from("runtime-1"))
+            .await;
+        let mut cancellation = guard.receiver();
+        let command = command_fixture("command-cancel-saturated", CommandKind::InterruptRuntime);
+        let concurrency = Arc::new(Semaphore::new(0));
+        let task = tokio::spawn({
+            let cancellations = cancellations.clone();
+            let concurrency = concurrency.clone();
+            async move { prepare_command_dispatch_task(&command, &cancellations, concurrency).await }
+        });
+
+        timeout(Duration::from_secs(1), cancellation.changed())
+            .await
+            .expect("cancellation is not blocked by dispatch capacity")
+            .expect("cancellation sender remains available");
+
+        task.abort();
+        let _ = task.await;
+        cancellations.finish(guard).await;
+        assert!(*cancellation.borrow());
     }
 
     #[cfg(unix)]

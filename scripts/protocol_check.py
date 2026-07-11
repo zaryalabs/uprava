@@ -80,6 +80,13 @@ ENUM_SPECS: list[tuple[str, str, str, str | None, str]] = [
         "WORKSPACE_ENTRY_STATUS_VALUES",
     ),
     (
+        "WorkspaceEntryClassification",
+        "WorkspaceEntryClassification",
+        "snake_case",
+        None,
+        "WORKSPACE_ENTRY_CLASSIFICATION_VALUES",
+    ),
+    (
         "WorkspaceCommandIntent",
         "WorkspaceCommandIntent",
         "snake_case",

@@ -78,7 +78,16 @@ dispatches it to the Node Daemon, waits briefly for a typed command result, and
 returns the tree or file payload to the Web Control Panel. The Node Daemon owns
 path normalization and local filesystem access, including workspace boundary
 checks, allowed-root checks, symlink stop-points, text-size caps, binary/large
-classification, generated/ignored stop-points, and permission-denied states.
+classification, generated/ignored classification, and permission-denied states.
+
+The file tree uses Headless Tree for accessible expansion, focus, and keyboard
+navigation. Directory contents load lazily through Core one level at a time, so
+browsing is not limited by a fixed workspace-tree depth. Node returns
+directories before files and caps each directory response at the first 100
+sorted entries, with explicit truncation metadata. Dotfiles and dot-directories
+remain visible. Generated and ignored paths are visually classified but may
+still be expanded explicitly; workspace-boundary and symlink stop-point
+enforcement remains unchanged.
 
 The implemented intervention layer adds:
 

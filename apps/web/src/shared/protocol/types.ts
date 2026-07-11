@@ -120,11 +120,15 @@ export type WorkspaceEntryKind = (typeof WORKSPACE_ENTRY_KIND_VALUES)[number];
 export type WorkspaceEntryStatus =
   (typeof WORKSPACE_ENTRY_STATUS_VALUES)[number];
 
+export type WorkspaceEntryClassification = "normal" | "generated" | "ignored";
+
 export type WorkspaceEntry = {
   name: string;
   path: string;
   kind: WorkspaceEntryKind;
   status: WorkspaceEntryStatus;
+  classification: WorkspaceEntryClassification;
+  expandable: boolean;
   byte_len: number | null;
   modified_at: string | null;
   children: WorkspaceEntry[];
@@ -133,6 +137,8 @@ export type WorkspaceEntry = {
 export type WorkspaceTreeResponse = {
   placement_id: string;
   root: WorkspaceEntry;
+  truncated: boolean;
+  total_entries: number | null;
   generated_at: string;
 };
 

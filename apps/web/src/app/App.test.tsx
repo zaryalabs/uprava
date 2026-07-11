@@ -1,5 +1,11 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { cleanup, render, screen, waitFor } from "@testing-library/react";
+import {
+  cleanup,
+  fireEvent,
+  render,
+  screen,
+  waitFor,
+} from "@testing-library/react";
 import { MemoryRouter } from "react-router-dom";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
@@ -47,6 +53,7 @@ describe("App routes", () => {
     ).toBeVisible();
     expect(await screen.findByText("Workspace Inspector")).toBeVisible();
     expect((await screen.findAllByText("README.md")).length).toBeGreaterThan(0);
+    fireEvent.click(screen.getByRole("treeitem", { name: "README.md" }));
     expect(
       await screen.findByRole(
         "region",
@@ -275,12 +282,16 @@ const inventory = {
 
 const workspaceTree = {
   placement_id: "placement-1",
+  truncated: false,
+  total_entries: 1,
   generated_at: "2026-06-17T00:00:00Z",
   root: {
     name: ".",
     path: ".",
     kind: "directory",
     status: "directory",
+    classification: "normal",
+    expandable: true,
     byte_len: null,
     modified_at: null,
     children: [
@@ -289,6 +300,8 @@ const workspaceTree = {
         path: "README.md",
         kind: "file",
         status: "readable",
+        classification: "normal",
+        expandable: false,
         byte_len: 12,
         modified_at: "2026-06-17T00:00:00Z",
         children: [],
@@ -305,6 +318,8 @@ const workspaceFile = {
     path: "README.md",
     kind: "file",
     status: "readable",
+    classification: "normal",
+    expandable: false,
     byte_len: 12,
     modified_at: "2026-06-17T00:00:00Z",
     children: [],

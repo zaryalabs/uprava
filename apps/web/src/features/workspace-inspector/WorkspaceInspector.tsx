@@ -1,6 +1,6 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { File, Folder, History, RefreshCw } from "lucide-react";
-import { useEffect, useMemo, useState } from "react";
+import { History, RefreshCw } from "lucide-react";
+import { useEffect, useState } from "react";
 
 import { coreApi } from "../../shared/api/http-client";
 import { queryKeys } from "../../shared/api/query-keys";
@@ -8,7 +8,6 @@ import type {
   CommandState,
   WorkspaceCommandHistoryItem,
   WorkspaceCommandRunResponse,
-  WorkspaceEntry,
   WorkspaceEntryStatus,
 } from "../../shared/protocol/types";
 import { Badge } from "../../shared/ui/badge";
@@ -21,6 +20,7 @@ import {
 } from "./WorkspaceCommandPanel";
 import { WorkspaceDiffPanel } from "./WorkspaceDiffPanel";
 import { WorkspaceFileViewer } from "./WorkspaceFileViewer";
+import { WorkspaceFileTree } from "./WorkspaceFileTree";
 import { WorkspaceTerminalPanel } from "./WorkspaceTerminalPanel";
 
 type WorkspaceInspectorProps = {
@@ -34,15 +34,11 @@ export function WorkspaceInspector({
 }: WorkspaceInspectorProps) {
   const queryClient = useQueryClient();
   const [selectedPath, setSelectedPath] = useState<string | null>(null);
+  const [treeRefreshVersion, setTreeRefreshVersion] = useState(0);
   const [commandText, setCommandText] = useState("make l");
   const [lastCommandResult, setLastCommandResult] =
     useState<WorkspaceCommandRunResponse | null>(null);
 
-  const tree = useQuery({
-    queryKey: queryKeys.workspaceTree(placementId, "."),
-    queryFn: () => coreApi.workspaceTree(placementId),
-    enabled: Boolean(placementId),
-  });
   const selectedFile = useQuery({
     queryKey: queryKeys.workspaceFile(placementId, selectedPath ?? ""),
     queryFn: () => coreApi.workspaceFile(placementId, selectedPath ?? "."),
@@ -66,11 +62,6 @@ export function WorkspaceInspector({
     selectedRemoteContent,
   );
 
-  const firstFilePath = useMemo(
-    () => (tree.data ? firstInspectablePath(tree.data.root) : null),
-    [tree.data],
-  );
-
   const saveMutation = useMutation({
     mutationFn: (request: {
       path: string;
@@ -88,7 +79,7 @@ export function WorkspaceInspector({
         queryKey: queryKeys.workspaceFile(placementId, request.path),
       });
       void queryClient.invalidateQueries({
-        queryKey: queryKeys.workspaceTree(placementId, "."),
+        queryKey: ["placement", placementId, "workspace-tree"],
       });
       void queryClient.invalidateQueries({
         queryKey: queryKeys.workspaceCommandHistory(placementId),
@@ -131,18 +122,15 @@ export function WorkspaceInspector({
     setLastCommandResult(null);
   }, [placementId]);
 
-  useEffect(() => {
-    if (!selectedPath && firstFilePath) {
-      setSelectedPath(firstFilePath);
-    }
-  }, [firstFilePath, selectedPath]);
-
   const editorContent = fileDraft.draft?.localContent ?? "";
   const savedContent = fileDraft.draft?.baseContent ?? null;
   const isDirty = fileDraft.draft?.dirty ?? false;
 
   const refetchWorkspace = () => {
-    void tree.refetch();
+    void queryClient.invalidateQueries({
+      queryKey: ["placement", placementId, "workspace-tree"],
+    });
+    setTreeRefreshVersion((version) => version + 1);
     if (selectedPath) {
       void selectedFile.refetch();
     }
@@ -180,7 +168,7 @@ export function WorkspaceInspector({
         </div>
         <Button
           variant="secondary"
-          disabled={tree.isFetching || history.isFetching}
+          disabled={history.isFetching}
           onClick={refetchWorkspace}
         >
           <RefreshCw size={15} />
@@ -194,22 +182,13 @@ export function WorkspaceInspector({
             Files
           </div>
           <div className="max-h-[720px] overflow-auto py-2">
-            {tree.isError ? (
-              <div className="px-3">
-                <ErrorNotice error={tree.error} title="File tree unavailable" />
-              </div>
-            ) : null}
-            {tree.isLoading ? (
-              <div className="px-3 py-2 text-sm text-[#536257]">Loading</div>
-            ) : null}
-            {tree.data ? (
-              <WorkspaceTreeNode
-                entry={tree.data.root}
-                depth={0}
-                selectedPath={selectedPath}
-                onSelect={setSelectedPath}
-              />
-            ) : null}
+            <WorkspaceFileTree
+              key={placementId}
+              placementId={placementId}
+              selectedPath={selectedPath}
+              refreshVersion={treeRefreshVersion}
+              onSelect={setSelectedPath}
+            />
           </div>
         </section>
 
@@ -261,57 +240,6 @@ export function WorkspaceInspector({
         </div>
       </div>
     </section>
-  );
-}
-
-function WorkspaceTreeNode({
-  entry,
-  depth,
-  selectedPath,
-  onSelect,
-}: {
-  entry: WorkspaceEntry;
-  depth: number;
-  selectedPath: string | null;
-  onSelect: (path: string) => void;
-}) {
-  const isSelected = selectedPath === entry.path;
-  const isInspectable = entry.kind !== "directory";
-  const Icon = entry.kind === "directory" ? Folder : File;
-
-  return (
-    <div>
-      <button
-        type="button"
-        className={`flex min-h-8 w-full items-center gap-2 px-3 py-1 text-left text-sm hover:bg-[#f2f5ef] ${
-          isSelected ? "bg-[#e4ece1] text-[#1d4f3a]" : "text-[#253129]"
-        }`}
-        style={{ paddingLeft: 12 + depth * 14 }}
-        aria-current={isSelected ? "true" : undefined}
-        onClick={() => {
-          if (isInspectable) {
-            onSelect(entry.path);
-          }
-        }}
-      >
-        <Icon size={14} className="shrink-0" />
-        <span className="min-w-0 flex-1 truncate">{entry.name}</span>
-        {entry.status !== "directory" && entry.status !== "readable" ? (
-          <Badge tone={statusTone(entry.status)}>
-            {workspaceStatusLabel(entry.status)}
-          </Badge>
-        ) : null}
-      </button>
-      {entry.children.map((child) => (
-        <WorkspaceTreeNode
-          key={child.path}
-          entry={child}
-          depth={depth + 1}
-          selectedPath={selectedPath}
-          onSelect={onSelect}
-        />
-      ))}
-    </div>
   );
 }
 
@@ -382,19 +310,6 @@ function HistoryItem({ item }: { item: WorkspaceCommandHistoryItem }) {
       ) : null}
     </div>
   );
-}
-
-function firstInspectablePath(entry: WorkspaceEntry): string | null {
-  if (entry.kind !== "directory") {
-    return entry.path;
-  }
-  for (const child of entry.children) {
-    const path = firstInspectablePath(child);
-    if (path) {
-      return path;
-    }
-  }
-  return null;
 }
 
 export function workspaceStatusLabel(status: WorkspaceEntryStatus) {

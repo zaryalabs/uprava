@@ -2641,7 +2641,7 @@ checksum = "8ecb6da28b8a351d773b68d5825ac39017e680750f980f3a1a85cd8dd28a47c1"
 
 [[package]]
 name = "uprava-logging"
-version = "0.2.0-rc.1"
+version = "0.2.0-rc.2"
 dependencies = [
  "opentelemetry",
  "opentelemetry-otlp",
@@ -2654,7 +2654,7 @@ dependencies = [
 
 [[package]]
 name = "uprava-node"
-version = "0.2.0-rc.1"
+version = "0.2.0-rc.2"
 dependencies = [
  "anyhow",
  "chrono",
@@ -2675,7 +2675,7 @@ dependencies = [
 
 [[package]]
 name = "uprava-protocol"
-version = "0.2.0-rc.1"
+version = "0.2.0-rc.2"
 dependencies = [
  "chrono",
  "serde",
@@ -2685,7 +2685,7 @@ dependencies = [
 
 [[package]]
 name = "uprava-server"
-version = "0.2.0-rc.1"
+version = "0.2.0-rc.2"
 dependencies = [
  "anyhow",
  "argon2",

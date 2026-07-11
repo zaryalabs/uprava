@@ -153,6 +153,12 @@ export const WORKSPACE_ENTRY_STATUS_VALUES = [
   "error",
 ] as const;
 
+export const WORKSPACE_ENTRY_CLASSIFICATION_VALUES = [
+  "normal",
+  "generated",
+  "ignored",
+] as const;
+
 export const WORKSPACE_COMMAND_INTENT_VALUES = ["command", "check"] as const;
 
 export const WORKSPACE_TERMINAL_STATE_VALUES = [
