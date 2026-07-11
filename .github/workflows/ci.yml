@@ -383,7 +383,8 @@ jobs:
           test "${run_workspace}" = "${workspace_root_physical}/${run_workspace_name}"
           make build
           make image-runtime
-          make clean-state-restore
+          cargo_image="docker run --rm --user $(id -u):$(id -g) -e CARGO_TARGET_DIR=/work/target -v ${PWD}:/work -w /work rust:bookworm"
+          make clean-state-restore CARGO="${cargo_image} cargo"
           make push
 
   deploy:
