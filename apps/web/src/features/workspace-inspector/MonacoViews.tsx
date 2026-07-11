@@ -128,7 +128,7 @@ export function MonacoDiffTextViewer({ value }: { value: string }) {
   return (
     <div
       ref={containerRef}
-      className="h-80 overflow-hidden rounded-md border border-[#1f2a22]"
+      className="h-80 overflow-hidden border border-[#1f2a22]"
     />
   );
 }

@@ -4,14 +4,13 @@ import {
   AlertTriangle,
   Bot,
   CheckCircle2,
-  ChevronDown,
-  ChevronRight,
   CircleDot,
   HelpCircle,
   User,
 } from "lucide-react";
 
 import { Badge } from "../../shared/ui/badge";
+import { DisclosureControl } from "../../shared/ui/system";
 import type { UiBlock } from "./types";
 
 type BadgeTone = "neutral" | "good" | "warn" | "bad" | "info";
@@ -90,22 +89,18 @@ function register(
 function MessageBlock({ block, actions }: BlockRendererProps) {
   const data = blockData(block);
   const isAssistant = block.type === "core.assistant-message";
-  const label = isAssistant ? "Assistant" : "User";
+  const label = isAssistant ? "Agent Output" : "Operator Input";
   const Icon = isAssistant ? Bot : User;
 
   return (
     <article
-      className={
-        isAssistant
-          ? "rounded-md border border-[#d9ded4] bg-white p-3"
-          : "rounded-md border border-[#c4d7cf] bg-[#edf7f3] p-3"
-      }
+      className={`border-l-2 py-3 pl-3 ${isAssistant ? "border-[var(--color-ink)]" : "border-[var(--color-muted)]"}`}
     >
       <div
         className={
           isAssistant
-            ? "mb-1 flex items-center gap-1.5 text-xs font-semibold uppercase tracking-normal text-[#667268]"
-            : "mb-1 flex items-center gap-1.5 text-xs font-semibold uppercase tracking-normal text-[#2f7d6d]"
+            ? "mb-1 flex items-center gap-1.5 text-xs font-bold text-[var(--color-muted)]"
+            : "mb-1 flex items-center gap-1.5 text-xs font-bold text-[var(--color-muted)]"
         }
       >
         <Icon size={14} />
@@ -114,6 +109,12 @@ function MessageBlock({ block, actions }: BlockRendererProps) {
       <p className="whitespace-pre-wrap break-words text-sm">
         {stringField(data, "content", block.fallback_text ?? "")}
       </p>
+      {isAssistant ? (
+        <div className="mt-2 text-xs text-[var(--color-muted)]">
+          Evidence & source are available through the <strong>+</strong>{" "}
+          reference layer.
+        </div>
+      ) : null}
       <BlockActions actions={actions} />
     </article>
   );
@@ -123,13 +124,13 @@ function ApprovalBlock({ block, actions }: BlockRendererProps) {
   const data = blockData(block);
 
   return (
-    <article className="rounded-md border border-[#d7cba3] bg-[#fffaf0] p-3">
+    <article className="border-l-2 border-[var(--color-muted)] py-3 pl-3">
       <div className="mb-2 flex items-center gap-2">
         <Badge tone="warn">
           <CircleDot size={13} />
           Approval
         </Badge>
-        <span className="font-mono text-xs text-[#667268]">
+        <span className="font-mono text-xs text-[var(--color-muted)]">
           {stringField(data, "approvalId", "pending")}
         </span>
       </div>
@@ -140,6 +141,20 @@ function ApprovalBlock({ block, actions }: BlockRendererProps) {
           block.fallback_text ?? "Approval requested",
         )}
       </p>
+      <dl className="mt-3 grid gap-2 text-xs text-[var(--color-muted)] sm:grid-cols-3">
+        <div>
+          <dt>Affected Scope</dt>
+          <dd className="text-[var(--color-ink)]">Current runtime</dd>
+        </div>
+        <div>
+          <dt>Risk</dt>
+          <dd className="text-[var(--color-ink)]">Command-dependent</dd>
+        </div>
+        <div>
+          <dt>Reversibility</dt>
+          <dd className="text-[var(--color-ink)]">Review before approval</dd>
+        </div>
+      </dl>
       <BlockActions actions={actions} />
     </article>
   );
@@ -154,23 +169,20 @@ function TurnActivityBlock({ block, actions }: BlockRendererProps) {
   const durationMs = numberField(data, "durationMs", 0);
 
   return (
-    <article className="rounded-md border border-[#ccd5d8] bg-[#f5f7f8] p-3">
+    <article className="border-l-2 border-[var(--color-muted)] py-3 pl-3">
       <div className="flex flex-wrap items-center justify-between gap-2">
         <div className="flex min-w-0 items-center gap-2">
-          <button
-            type="button"
-            aria-label={expanded ? "Collapse activity" : "Expand activity"}
-            className="grid h-7 w-7 shrink-0 place-items-center rounded border border-[#b9c5c9] bg-white text-[#536257]"
+          <DisclosureControl
+            expanded={expanded}
+            label="activity"
             onClick={() => setManualExpanded(!expanded)}
-          >
-            {expanded ? <ChevronDown size={16} /> : <ChevronRight size={16} />}
-          </button>
+          />
           <div className="min-w-0">
-            <div className="flex items-center gap-1.5 text-xs font-semibold uppercase tracking-normal text-[#536257]">
+            <div className="flex items-center gap-1.5 text-xs font-bold text-[var(--color-muted)]">
               <Activity size={14} />
               Turn Activity
             </div>
-            <div className="truncate font-mono text-xs text-[#667268]">
+            <div className="truncate font-mono text-xs text-[var(--color-muted)]">
               {stringField(data, "turnId", "turn")}
             </div>
           </div>
@@ -199,7 +211,7 @@ function TurnActivityBlock({ block, actions }: BlockRendererProps) {
         </div>
       </div>
       {expanded ? (
-        <div className="mt-3 max-h-80 overflow-y-auto border-t border-[#d8e0e2] pt-2">
+        <div className="mt-3 max-h-80 overflow-y-auto border-t border-[var(--color-muted)] pt-2">
           <div className="space-y-2">
             {rows.map((row, index) => (
               <ActivityRow
@@ -223,7 +235,7 @@ function ActivityCounter({
   value: number | string;
 }) {
   return (
-    <span className="rounded border border-[#cbd5d8] bg-white px-1.5 py-0.5 text-xs text-[#536257]">
+    <span className="border border-[var(--color-muted)] bg-[var(--color-bg)] px-1.5 py-0.5 text-xs text-[var(--color-muted)]">
       <span className="font-mono">{value}</span> {label}
     </span>
   );
@@ -235,28 +247,28 @@ function ActivityRow({ row }: { row: Record<string, unknown> }) {
   const rawText = rawActivityText(row);
 
   return (
-    <div className="grid gap-1 border-b border-[#dfe5e7] pb-2 last:border-b-0">
+    <div className="grid gap-1 border-b border-[var(--color-muted)] pb-2 last:border-b-0">
       <div className="flex flex-wrap items-center gap-2 text-xs">
-        <span className="font-mono text-[#667268]">
+        <span className="font-mono text-[var(--color-muted)]">
           seq {numberField(row, "seq", 0)}
         </span>
         <Badge tone={activityTone(status)}>
           {stringField(row, "providerEventType", "provider.activity")}
         </Badge>
-        <span className="text-[#667268]">{status}</span>
+        <span className="text-[var(--color-muted)]">{status}</span>
         {stringField(row, "providerItemType", "") ? (
-          <span className="font-mono text-[#667268]">
+          <span className="font-mono text-[var(--color-muted)]">
             {stringField(row, "providerItemType", "")}
           </span>
         ) : null}
       </div>
-      <div className="break-words text-sm text-[#37453d]">
+      <div className="break-words text-sm text-[var(--color-ink)]">
         {stringField(row, "summary", "Provider activity")}
       </div>
       {rawText ? (
-        <details className="text-xs text-[#536257]">
+        <details className="text-xs text-[var(--color-muted)]">
           <summary className="cursor-pointer select-none">Raw</summary>
-          <pre className="mt-1 max-h-56 overflow-auto rounded border border-[#d8e0e2] bg-white p-2 font-mono text-[11px] leading-4 text-[#17211c]">
+          <pre className="mt-1 max-h-56 overflow-auto border-l border-[var(--color-muted)] bg-[var(--color-bg-muted)] p-2 font-mono text-[11px] leading-4 text-[var(--color-ink)]">
             {rawText}
           </pre>
         </details>
@@ -270,17 +282,17 @@ function EventBlock({ block, actions }: BlockRendererProps) {
   const eventKind = stringField(data, "eventKind", block.type);
 
   return (
-    <article className="rounded-md border border-[#d7cba3] bg-[#fffaf0] p-3">
+    <article className="border-l-2 border-[var(--color-muted)] py-3 pl-3">
       <div className="mb-1 flex flex-wrap items-center gap-2">
         <Badge tone={eventTone(block.type)}>
           <CheckCircle2 size={13} />
           {eventKind}
         </Badge>
-        <span className="font-mono text-xs text-[#667268]">
+        <span className="font-mono text-xs text-[var(--color-muted)]">
           seq {numberField(data, "seq", 0)}
         </span>
       </div>
-      <div className="break-words text-sm text-[#536257]">
+      <div className="break-words text-sm text-[var(--color-muted)]">
         {stringField(data, "summary", block.fallback_text ?? eventKind)}
       </div>
       <BlockActions actions={actions} />
@@ -292,12 +304,12 @@ function WarningBlock({ block, actions }: BlockRendererProps) {
   const data = blockData(block);
 
   return (
-    <article className="rounded-md border border-[#d9c47d] bg-[#fff5ce] p-3">
-      <div className="mb-1 flex items-center gap-2 text-xs font-semibold uppercase tracking-normal text-[#715b13]">
+    <article className="border-l-2 border-[var(--color-muted)] py-3 pl-3">
+      <div className="mb-1 flex items-center gap-2 text-xs font-semibold uppercase tracking-normal text-[var(--color-muted)]">
         <AlertTriangle size={14} />
         {stringField(data, "eventKind", "Warning")}
       </div>
-      <div className="break-words text-sm text-[#536257]">
+      <div className="break-words text-sm text-[var(--color-muted)]">
         {stringField(data, "summary", block.fallback_text ?? "Warning")}
       </div>
       <BlockActions actions={actions} />
@@ -309,13 +321,17 @@ function ErrorBlock({ block, actions }: BlockRendererProps) {
   const data = blockData(block);
 
   return (
-    <article className="rounded-md border border-[#dcaaa5] bg-[#fde5e2] p-3">
-      <div className="mb-1 flex items-center gap-2 text-xs font-semibold uppercase tracking-normal text-[#88332f]">
+    <article className="border-l-2 border-[var(--color-risk)] bg-[var(--color-risk-soft)] py-3 pl-3">
+      <div className="mb-1 flex items-center gap-2 text-xs font-semibold uppercase tracking-normal text-[var(--color-risk)]">
         <AlertTriangle size={14} />
         {stringField(data, "eventKind", "Error")}
       </div>
-      <div className="break-words text-sm text-[#536257]">
+      <div className="break-words text-sm text-[var(--color-muted)]">
         {stringField(data, "summary", block.fallback_text ?? "Runtime error")}
+      </div>
+      <div className="mt-2 text-xs text-[var(--color-risk)]">
+        Affected scope: current runtime. Next safe step: inspect the source
+        event, then retry or stop.
       </div>
       <BlockActions actions={actions} />
     </article>
@@ -324,8 +340,8 @@ function ErrorBlock({ block, actions }: BlockRendererProps) {
 
 function UnknownBlock({ block, actions }: BlockFallbackProps) {
   return (
-    <article className="rounded-md border border-[#d9ded4] bg-white p-3">
-      <div className="mb-1 flex items-center gap-2 text-xs font-semibold uppercase tracking-normal text-[#667268]">
+    <article className="border-l-2 border-dashed border-[var(--color-muted)] py-3 pl-3">
+      <div className="mb-1 flex items-center gap-2 text-xs font-semibold uppercase tracking-normal text-[var(--color-muted)]">
         <HelpCircle size={14} />
         Unknown
       </div>

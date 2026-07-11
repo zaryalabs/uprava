@@ -142,8 +142,10 @@ export function WorkspaceFileTree({
             {...item.getProps()}
             key={item.getKey()}
             type="button"
-            className={`flex min-h-8 w-full items-center gap-1.5 py-1 pr-2 text-left text-sm outline-none hover:bg-[#f2f5ef] focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-[#6c8f78] ${
-              isSelected ? "bg-[#e4ece1] text-[#1d4f3a]" : "text-[#253129]"
+            className={`flex min-h-8 w-full items-center gap-1.5 py-1 pr-2 text-left text-sm outline-none hover:bg-[var(--color-bg-muted)] focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-[var(--color-ink)] ${
+              isSelected
+                ? "bg-[var(--color-bg-muted)] text-[var(--color-ink)]"
+                : "text-[var(--color-ink)]"
             } ${classificationClass(data)}`}
             style={{ paddingLeft: 8 + level * 14 }}
           >
@@ -188,7 +190,9 @@ function TreeItemIcon({
     return <LoaderCircle size={14} className="shrink-0 animate-spin" />;
   }
   if (data.type === "error") {
-    return <RotateCcw size={14} className="shrink-0 text-[#9b332c]" />;
+    return (
+      <RotateCcw size={14} className="shrink-0 text-[var(--color-risk)]" />
+    );
   }
   if (data.type === "truncated") {
     return <span className="w-3.5 shrink-0 text-center">…</span>;
@@ -219,7 +223,7 @@ function itemName(data: TreeItemData) {
 
 function classificationClass(data: TreeItemData) {
   return data.type === "entry" && data.entry.classification !== "normal"
-    ? "text-[#667268]"
+    ? "text-[var(--color-muted)]"
     : "";
 }
 

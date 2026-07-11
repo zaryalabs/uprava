@@ -51,10 +51,10 @@ export function AuthGate({ children }: { children: ReactNode }) {
       title={setup ? "Set Local Password" : "Unlock Uprava"}
     >
       <form onSubmit={submit} className="mt-5 space-y-4">
-        <label className="block text-sm font-medium text-[#27362f]">
+        <label className="block text-sm font-medium text-[var(--color-ink)]">
           Password
           <input
-            className="mt-2 h-10 w-full rounded-md border border-[#bfc8bc] bg-white px-3 text-base outline-none focus:border-[#2f7d6d]"
+            className="mt-2 h-10 w-full border border-[var(--color-muted)] bg-[var(--color-bg)] px-3 text-base outline-none focus:border-[var(--color-ink)]"
             minLength={12}
             onChange={(event) => setPassword(event.target.value)}
             type="password"
@@ -62,7 +62,7 @@ export function AuthGate({ children }: { children: ReactNode }) {
           />
         </label>
         {mutation.isError ? (
-          <p className="text-sm text-[#a83f3a]">
+          <p className="text-sm text-[var(--color-risk)]">
             {mutation.error instanceof Error
               ? mutation.error.message
               : "Authentication failed"}
@@ -91,7 +91,7 @@ function AuthFrame({
   title: string;
 }) {
   return (
-    <main className="flex min-h-screen items-center justify-center bg-[#f7f8f4] p-5 text-[#17211c]">
+    <main className="flex min-h-screen items-center justify-center bg-[var(--color-bg-muted)] p-5 text-[var(--color-ink)]">
       <section className="w-full max-w-sm">
         <div className="mb-4 flex items-center gap-2 text-lg font-semibold">
           {icon}

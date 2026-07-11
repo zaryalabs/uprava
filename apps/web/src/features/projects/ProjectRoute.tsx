@@ -17,7 +17,9 @@ export function ProjectRoute() {
   const inventory = useInventory();
 
   if (inventory.isLoading) {
-    return <div className="text-sm text-[#536257]">Loading project</div>;
+    return (
+      <div className="text-sm text-[var(--color-muted)]">Loading project</div>
+    );
   }
 
   if (inventory.isError || !inventory.data) {
@@ -33,7 +35,9 @@ export function ProjectRoute() {
     (placement) => placement.project_id === projectId,
   );
   if (!projectId || placements.length === 0) {
-    return <div className="text-sm text-[#536257]">Project not found</div>;
+    return (
+      <div className="text-sm text-[var(--color-muted)]">Project not found</div>
+    );
   }
 
   const placementIds = new Set(
@@ -49,7 +53,7 @@ export function ProjectRoute() {
       <div className="flex flex-wrap items-start justify-between gap-3">
         <div className="min-w-0">
           <h1 className="truncate text-2xl font-semibold">{title}</h1>
-          <div className="mt-1 break-all font-mono text-sm text-[#536257]">
+          <div className="mt-1 break-all font-mono text-sm text-[var(--color-muted)]">
             {projectId}
           </div>
         </div>
@@ -59,7 +63,7 @@ export function ProjectRoute() {
       </div>
 
       <section className="space-y-2">
-        <h2 className="text-sm font-semibold uppercase tracking-normal text-[#667268]">
+        <h2 className="text-sm font-semibold uppercase tracking-normal text-[var(--color-muted)]">
           Workspaces
         </h2>
         <div className="grid gap-2">
@@ -71,7 +75,7 @@ export function ProjectRoute() {
               <Link
                 key={placement.project_placement_id}
                 to={routeForRef(workspaceRefForPlacement(placement)) ?? "#"}
-                className="rounded-md border border-[#d9ded4] bg-white p-3 hover:bg-[#fbfcf8]"
+                className="border border-[var(--color-muted)] bg-[var(--color-bg)] p-3 hover:bg-[var(--color-bg-muted)]"
               >
                 <div className="flex flex-wrap items-center justify-between gap-2">
                   <span className="flex min-w-0 items-center gap-2">
@@ -82,11 +86,11 @@ export function ProjectRoute() {
                   </span>
                   <Badge tone="info">{placement.state}</Badge>
                 </div>
-                <div className="mt-1 truncate text-sm text-[#536257]">
+                <div className="mt-1 truncate text-sm text-[var(--color-muted)]">
                   {placement.workspace_path}
                 </div>
                 {node ? (
-                  <div className="mt-2 flex items-center gap-2 text-xs text-[#536257]">
+                  <div className="mt-2 flex items-center gap-2 text-xs text-[var(--color-muted)]">
                     <Server size={13} />
                     <span className="truncate">{node.display_name}</span>
                     <NodeStatusBadge presence={node.presence} />
@@ -99,11 +103,11 @@ export function ProjectRoute() {
       </section>
 
       <section className="space-y-2">
-        <h2 className="text-sm font-semibold uppercase tracking-normal text-[#667268]">
+        <h2 className="text-sm font-semibold uppercase tracking-normal text-[var(--color-muted)]">
           Sessions
         </h2>
         {sessions.length === 0 ? (
-          <div className="rounded-md border border-[#d9ded4] bg-white p-3 text-sm text-[#536257]">
+          <div className="border border-[var(--color-muted)] bg-[var(--color-bg)] p-3 text-sm text-[var(--color-muted)]">
             No sessions in this project
           </div>
         ) : (
@@ -117,7 +121,7 @@ export function ProjectRoute() {
                     session_thread_id: session.session_thread_id,
                   }) ?? "#"
                 }
-                className="rounded-md border border-[#d9ded4] bg-white p-3 hover:bg-[#fbfcf8]"
+                className="border border-[var(--color-muted)] bg-[var(--color-bg)] p-3 hover:bg-[var(--color-bg-muted)]"
               >
                 <div className="flex flex-wrap items-center justify-between gap-2">
                   <span className="flex min-w-0 items-center gap-2">

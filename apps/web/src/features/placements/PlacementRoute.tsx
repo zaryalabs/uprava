@@ -80,7 +80,9 @@ export function PlacementRoute() {
   }
 
   if (!placement.data) {
-    return <div className="text-sm text-[#536257]">Loading workspace</div>;
+    return (
+      <div className="text-sm text-[var(--color-muted)]">Loading workspace</div>
+    );
   }
 
   const canStart = canRunCommand("session.start", {
@@ -109,14 +111,14 @@ export function PlacementRoute() {
           <h1 className="text-2xl font-semibold">
             {placement.data.display_name}
           </h1>
-          <div className="truncate text-sm text-[#536257]">
+          <div className="truncate text-sm text-[var(--color-muted)]">
             {placement.data.workspace_path}
           </div>
         </div>
         <div className="flex flex-wrap gap-2">
           {showProviderSelector ? (
             <div
-              className="inline-flex h-10 overflow-hidden rounded-md border border-[#bfc8bc] bg-white"
+              className="inline-flex h-10 overflow-hidden border border-[var(--color-muted)] bg-[var(--color-bg)]"
               role="group"
               aria-label="Provider"
             >
@@ -128,8 +130,8 @@ export function PlacementRoute() {
                   disabled={!option.available || mutation.isPending}
                   className={
                     provider === option.id
-                      ? "bg-[#1d4f3a] px-3 text-sm font-medium text-white disabled:bg-[#9aa8a0]"
-                      : "px-3 text-sm font-medium text-[#253129] hover:bg-[#edf2ee] disabled:text-[#9aa8a0]"
+                      ? "bg-[var(--color-ink)] px-3 text-sm font-medium text-white disabled:bg-[var(--color-muted)]"
+                      : "px-3 text-sm font-medium text-[var(--color-ink)] hover:bg-[var(--color-bg-muted)] disabled:text-[var(--color-muted)]"
                   }
                   onClick={() => setProvider(option.id)}
                 >

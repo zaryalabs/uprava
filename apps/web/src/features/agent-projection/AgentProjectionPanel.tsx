@@ -53,9 +53,10 @@ export function AgentProjectionPanel({
   const sessionSummary = sessionSummaryFromProjection(projection.data);
 
   return (
-    <section className="rounded-md border border-[#d9ded4] bg-white p-3">
-      <h2 className="text-sm font-semibold">Agent Projection</h2>
-      <div className="mt-2 space-y-2 text-sm text-[#536257]">
+    <section>
+      <div className="zarya-label">Agent Context</div>
+      <h2 className="mt-1 text-base font-bold">Agent Projection</h2>
+      <div className="mt-3 space-y-3 text-sm text-[var(--color-muted)]">
         <div>{projection.data.evidence_projection_summary}</div>
         <div>{projection.data.source_cause_summary}</div>
         {projection.data.active_warnings.length > 0 ? (
@@ -63,7 +64,7 @@ export function AgentProjectionPanel({
             {projection.data.active_warnings.map((warning) => (
               <div
                 key={warning.kind}
-                className="rounded-md border border-[#d9c47d] bg-[#fff5ce] p-2"
+                className={`border-l-2 p-2 ${warning.severity === "hard_block" ? "border-[var(--color-risk)] bg-[var(--color-risk-soft)]" : "border-[var(--color-muted)]"}`}
               >
                 <div className="flex flex-wrap items-center justify-between gap-2">
                   <Badge

@@ -103,11 +103,15 @@ export function NodeDetailRoute() {
   }
 
   if (inventory.isLoading || !inventory.data) {
-    return <div className="text-sm text-[#536257]">Loading node</div>;
+    return (
+      <div className="text-sm text-[var(--color-muted)]">Loading node</div>
+    );
   }
 
   if (!node) {
-    return <div className="text-sm text-[#536257]">Node not found</div>;
+    return (
+      <div className="text-sm text-[var(--color-muted)]">Node not found</div>
+    );
   }
 
   const canRevoke = canRunCommand("node.revoke", { nodeId: node.node_id });
@@ -121,7 +125,7 @@ export function NodeDetailRoute() {
       <div className="flex flex-wrap items-center justify-between gap-3">
         <div>
           <h1 className="text-2xl font-semibold">{node.display_name}</h1>
-          <div className="mt-1 flex flex-wrap items-center gap-2 text-sm text-[#536257]">
+          <div className="mt-1 flex flex-wrap items-center gap-2 text-sm text-[var(--color-muted)]">
             <NodeStatusBadge presence={node.presence} />
             <span>
               heartbeat <HeartbeatAge seconds={node.heartbeat_age_seconds} />
@@ -178,9 +182,9 @@ export function NodeDetailRoute() {
         />
       ) : null}
       {rotatedCredential ? (
-        <section className="rounded-md border border-[#bfd8ce] bg-[#e3f4ed] p-3 text-sm text-[#173f35]">
+        <section className="border border-[var(--color-muted)] bg-[var(--color-bg-muted)] p-3 text-sm text-[var(--color-ink)]">
           <div className="font-medium">New node credential</div>
-          <div className="mt-2 overflow-x-auto rounded-md bg-white px-2 py-1 font-mono text-xs">
+          <div className="mt-2 overflow-x-auto bg-[var(--color-bg)] px-2 py-1 font-mono text-xs">
             {rotatedCredential.credential}
           </div>
         </section>
@@ -189,7 +193,7 @@ export function NodeDetailRoute() {
         <ErrorNotice error={deleteNode.error} title="Node delete failed" />
       ) : null}
       <section className="space-y-2">
-        <h2 className="text-sm font-semibold uppercase tracking-normal text-[#667268]">
+        <h2 className="text-sm font-semibold uppercase tracking-normal text-[var(--color-muted)]">
           Capabilities
         </h2>
         <div className="flex flex-wrap gap-2">
@@ -199,7 +203,7 @@ export function NodeDetailRoute() {
         </div>
       </section>
       <section className="space-y-2">
-        <h2 className="text-sm font-semibold uppercase tracking-normal text-[#667268]">
+        <h2 className="text-sm font-semibold uppercase tracking-normal text-[var(--color-muted)]">
           Workspaces
         </h2>
         <div className="grid gap-2">
@@ -207,10 +211,10 @@ export function NodeDetailRoute() {
             <Link
               key={placement.project_placement_id}
               to={routeForRef(workspaceRefForPlacement(placement)) ?? "#"}
-              className="rounded-md border border-[#d9ded4] bg-white p-3 hover:bg-[#fbfcf8]"
+              className="border border-[var(--color-muted)] bg-[var(--color-bg)] p-3 hover:bg-[var(--color-bg-muted)]"
             >
               <div className="font-medium">{placement.display_name}</div>
-              <div className="truncate text-sm text-[#536257]">
+              <div className="truncate text-sm text-[var(--color-muted)]">
                 {placement.workspace_path}
               </div>
             </Link>

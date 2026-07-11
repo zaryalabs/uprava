@@ -1,6 +1,4 @@
 import { useState } from "react";
-import { Clipboard, PanelRightOpen } from "lucide-react";
-
 import type { UpravaRef } from "../../shared/protocol/types";
 import { Button } from "../../shared/ui/button";
 import { runWorkbenchCommand } from "../commands/registry";
@@ -45,7 +43,9 @@ export function ReferenceActions({
           title={`Open ${title} in inspector`}
           onClick={inspect}
         >
-          <PanelRightOpen size={14} />
+          <span aria-hidden="true" className="text-base leading-none">
+            +
+          </span>
         </Button>
       ) : null}
       {showCopy ? (
@@ -63,7 +63,9 @@ export function ReferenceActions({
           }
           onClick={copy}
         >
-          <Clipboard size={14} />
+          <span aria-hidden="true" className="text-sm leading-none">
+            ⧉
+          </span>
         </Button>
       ) : null}
     </span>

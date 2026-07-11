@@ -29,9 +29,9 @@ export function WorkspaceDiffPanel({
   onRefresh: () => void;
 }) {
   return (
-    <section className="rounded-md border border-[#d9ded4] bg-white">
-      <div className="flex flex-wrap items-center justify-between gap-2 border-b border-[#e0e5db] px-3 py-2">
-        <div className="flex items-center gap-2 text-xs font-medium uppercase tracking-normal text-[#667268]">
+    <section className="border border-[var(--color-muted)] bg-[var(--color-bg)]">
+      <div className="flex flex-wrap items-center justify-between gap-2 border-b border-[var(--color-muted)] px-3 py-2">
+        <div className="flex items-center gap-2 text-xs font-medium uppercase tracking-normal text-[var(--color-muted)]">
           <GitCompare size={15} />
           Diff
         </div>
@@ -44,13 +44,13 @@ export function WorkspaceDiffPanel({
         {error ? <ErrorNotice error={error} title="Diff unavailable" /> : null}
         {diff ? (
           <>
-            <div className="flex flex-wrap items-center gap-2 text-xs text-[#536257]">
+            <div className="flex flex-wrap items-center gap-2 text-xs text-[var(--color-muted)]">
               <span>{new Date(diff.generated_at).toLocaleString()}</span>
               {diff.summary_truncated || diff.diff_truncated ? (
                 <Badge tone="warn">Truncated</Badge>
               ) : null}
             </div>
-            <pre className="max-h-28 overflow-auto whitespace-pre-wrap rounded-md bg-[#f6f8f3] p-3 font-mono text-xs leading-5 text-[#17211c]">
+            <pre className="max-h-28 overflow-auto whitespace-pre-wrap bg-[var(--color-bg-muted)] p-3 font-mono text-xs leading-5 text-[var(--color-ink)]">
               {diff.summary}
             </pre>
             <Suspense fallback={<Fallback />}>
@@ -58,7 +58,9 @@ export function WorkspaceDiffPanel({
             </Suspense>
           </>
         ) : (
-          <div className="text-sm text-[#536257]">No diff loaded</div>
+          <div className="text-sm text-[var(--color-muted)]">
+            No diff loaded
+          </div>
         )}
       </div>
     </section>
@@ -67,7 +69,7 @@ export function WorkspaceDiffPanel({
 
 function Fallback() {
   return (
-    <div className="flex min-h-24 items-center justify-center text-sm text-[#536257]">
+    <div className="flex min-h-24 items-center justify-center text-sm text-[var(--color-muted)]">
       Loading diff
     </div>
   );

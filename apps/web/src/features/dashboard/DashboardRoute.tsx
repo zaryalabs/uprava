@@ -1,14 +1,4 @@
-import type { ReactNode } from "react";
-import {
-  Activity,
-  AlertTriangle,
-  CheckCircle2,
-  Clock3,
-  Cpu,
-  Folder,
-  Server,
-  Workflow,
-} from "lucide-react";
+import { AlertTriangle, ArrowRight, Circle, Server } from "lucide-react";
 import { Link } from "react-router-dom";
 
 import { useHealth, useInventory } from "../inventory/api";
@@ -20,22 +10,14 @@ import type {
 } from "../../shared/protocol/types";
 import { Badge } from "../../shared/ui/badge";
 import { ErrorNotice } from "../../shared/ui/error-notice";
+import {
+  EmptyState,
+  FigureCaption,
+  LoadingState,
+  PageHeader,
+} from "../../shared/ui/system";
 
 type Tone = "neutral" | "good" | "warn" | "bad" | "info";
-
-type StatCardProps = {
-  icon: ReactNode;
-  label: string;
-  value: string | number;
-  detail: string;
-  tone?: Tone;
-};
-
-type StatusRowProps = {
-  label: string;
-  value: string | number;
-  tone?: Tone;
-};
 
 type AttentionItem = {
   key: string;
@@ -51,19 +33,23 @@ export function DashboardRoute() {
 
   if (inventory.isLoading) {
     return (
-      <section className="space-y-4">
-        <h1 className="text-2xl font-semibold">Dashboard</h1>
-        <div className="rounded-md border border-[#cad2c7] bg-white p-5 text-sm text-[#536257]">
-          Loading system state
-        </div>
+      <section>
+        <PageHeader
+          title="Dashboard"
+          description="Distributed runtime status & current workload."
+        />
+        <LoadingState stage="Loading system state" />
       </section>
     );
   }
 
   if (inventory.isError || !inventory.data) {
     return (
-      <section className="space-y-4">
-        <h1 className="text-2xl font-semibold">Dashboard</h1>
+      <section>
+        <PageHeader
+          title="Dashboard"
+          description="Distributed runtime status & current workload."
+        />
         <ErrorNotice error={inventory.error} title="Core API unavailable" />
       </section>
     );
@@ -82,148 +68,171 @@ export function DashboardRoute() {
     health.data?.status ?? (health.isError ? "error" : "pending");
   const coreTone =
     health.data?.status === "ok" ? "good" : health.isError ? "bad" : "warn";
+  const hasRisk = stats.attentionCount > 0 || health.isError;
+  const overviewState = hasRisk
+    ? "Review required"
+    : "System operating normally";
+  const overviewCause = health.isError
+    ? "Core health request failed"
+    : (attentionItems[0]?.detail ?? "No active deviations");
+  const overviewAction = attentionItems[0]
+    ? { label: `Review ${attentionItems[0].title}`, to: attentionItems[0].to }
+    : { label: "Inspect nodes", to: "/nodes" };
 
   return (
-    <section className="space-y-5">
-      <div className="flex flex-wrap items-end justify-between gap-3">
+    <section>
+      <PageHeader
+        title="Dashboard"
+        description="Distributed runtime status & current workload."
+        meta={`SYS / ${formatDateTime(inventory.data.generated_at)}`}
+      />
+
+      <section className="grid gap-5 border-l-2 border-[var(--color-ink)] py-4 pl-4 lg:grid-cols-[minmax(0,1.2fr)_minmax(240px,0.8fr)]">
         <div>
-          <h1 className="text-2xl font-semibold">Dashboard</h1>
-          <p className="text-sm text-[#536257]">
-            Distributed runtime status and current workload.
+          <div className="zarya-label">System Overview</div>
+          <div
+            className={`mt-2 flex items-center gap-3 ${hasRisk ? "text-[var(--color-risk)]" : "text-[var(--color-ink)]"}`}
+          >
+            {hasRisk ? (
+              <AlertTriangle size={19} aria-hidden="true" />
+            ) : (
+              <Circle size={16} fill="currentColor" aria-hidden="true" />
+            )}
+            <h2 className="text-2xl font-bold leading-[30px]">
+              {overviewState}
+            </h2>
+          </div>
+          <p className="mt-3 max-w-2xl text-sm text-[var(--color-muted)]">
+            {stats.attentionCount > 0
+              ? `${stats.attentionCount} objects need review across nodes, workspaces, or runtimes.`
+              : "Core, nodes, workspaces, and runtimes report no active deviation."}
           </p>
         </div>
-        <div className="text-sm text-[#536257]">
-          Updated {formatDateTime(inventory.data.generated_at)}
-        </div>
-      </div>
+        <dl className="grid gap-3 text-sm">
+          <div>
+            <dt className="zarya-label">Primary Cause</dt>
+            <dd className="mt-1">{overviewCause}</dd>
+          </div>
+          <div>
+            <dt className="zarya-label">Affected Scope</dt>
+            <dd className="mt-1">{stats.attentionCount || "None"}</dd>
+          </div>
+          <div>
+            <dt className="zarya-label">Next Action</dt>
+            <dd className="mt-1">
+              <Link
+                to={overviewAction.to}
+                className="inline-flex items-center gap-2 underline underline-offset-4 hover:no-underline"
+              >
+                {overviewAction.label}
+                <ArrowRight size={14} aria-hidden="true" />
+              </Link>
+            </dd>
+          </div>
+        </dl>
+      </section>
 
-      <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-4">
-        <StatCard
-          icon={<Activity size={18} />}
+      <section className="grid grid-cols-2 gap-x-6 py-8 md:grid-cols-4">
+        <Metric
           label="Core API"
           value={coreStatus}
-          detail={
-            health.data?.profile.replace("_", " ") ?? "waiting for health"
-          }
+          detail={health.data?.profile.replace("_", " ") ?? "health pending"}
           tone={coreTone}
         />
-        <StatCard
-          icon={<Server size={18} />}
-          label="Nodes"
+        <Metric
+          label="Reachable Nodes"
           value={`${stats.reachableNodes}/${stats.totalNodes}`}
-          detail="reachable nodes"
-          tone={stats.unhealthyNodes > 0 ? "warn" : "good"}
+          detail={`${stats.unhealthyNodes} unavailable`}
+          tone={stats.unhealthyNodes > 0 ? "bad" : "good"}
         />
-        <StatCard
-          icon={<Workflow size={18} />}
-          label="Active sessions"
+        <Metric
+          label="Active Runtimes"
           value={stats.activeRuntimeCount}
-          detail={`${stats.openSessions} open session threads`}
-          tone={stats.activeRuntimeCount > 0 ? "info" : "neutral"}
+          detail={`${stats.openSessions} open sessions`}
+          tone="neutral"
         />
-        <StatCard
-          icon={<AlertTriangle size={18} />}
+        <Metric
           label="Attention"
           value={stats.attentionCount}
-          detail="nodes, workspaces, or runtimes"
-          tone={stats.attentionCount > 0 ? "warn" : "good"}
+          detail="current deviations"
+          tone={stats.attentionCount > 0 ? "bad" : "good"}
         />
-      </div>
+      </section>
 
-      <div className="grid gap-4 xl:grid-cols-3">
-        <StatusPanel title="Node state" icon={<Server size={18} />}>
-          <StatusRow
-            label="Reachable"
-            value={stats.nodePresence.reachable}
-            tone="good"
-          />
-          <StatusRow
-            label="Stale"
-            value={stats.nodePresence.stale}
-            tone="warn"
-          />
-          <StatusRow
-            label="Offline"
-            value={stats.nodePresence.offline}
-            tone="bad"
-          />
-          <StatusRow
-            label="Revoked"
-            value={stats.nodePresence.revoked}
-            tone="neutral"
-          />
-        </StatusPanel>
-
-        <StatusPanel title="Runtime state" icon={<Cpu size={18} />}>
-          <StatusRow
-            label="Ready or running"
-            value={stats.readyRuntimeCount}
-            tone="good"
-          />
-          <StatusRow
-            label="Blocked"
-            value={stats.blockedRuntimeCount}
-            tone="warn"
-          />
-          <StatusRow
-            label="Error or stale"
-            value={stats.errorRuntimeCount}
-            tone="bad"
-          />
-          <StatusRow
-            label="Stopped"
-            value={stats.stoppedRuntimeCount}
-            tone="neutral"
-          />
-        </StatusPanel>
-
-        <StatusPanel title="Workspace state" icon={<Folder size={18} />}>
-          <StatusRow
-            label="Validated"
-            value={stats.validatedPlacements}
-            tone="good"
-          />
-          <StatusRow
-            label="Pending"
-            value={stats.pendingPlacements}
-            tone="neutral"
-          />
-          <StatusRow
-            label="Needs action"
-            value={stats.problemPlacements}
-            tone={stats.problemPlacements > 0 ? "warn" : "good"}
-          />
-          <StatusRow
-            label="Resource warnings"
-            value={stats.resourceWarningCount}
-            tone={stats.resourceWarningCount > 0 ? "warn" : "good"}
-          />
-        </StatusPanel>
-      </div>
-
-      <div className="grid gap-4 xl:grid-cols-[minmax(0,1.2fr)_minmax(0,0.8fr)]">
-        <section className="rounded-md border border-[#d9ded4] bg-white p-4 shadow-sm">
-          <div className="mb-3 flex items-center gap-2">
-            <Clock3 size={18} />
-            <h2 className="text-base font-semibold">Recent sessions</h2>
+      <section className="zarya-rule py-8">
+        <div className="mb-6 flex items-end justify-between gap-4">
+          <div>
+            <div className="zarya-label">Runtime Topology</div>
+            <h2 className="mt-1 text-lg font-bold">Control-to-Work Pipeline</h2>
           </div>
-          <div className="space-y-2">
+          <Badge tone={stats.attentionCount > 0 ? "bad" : "good"}>
+            {stats.attentionCount > 0 ? "review" : "normal"}
+          </Badge>
+        </div>
+        <div className="grid items-center gap-2 text-center text-xs md:grid-cols-[1fr_auto_1fr_auto_1fr_auto_1fr]">
+          <PipelineNode label="Core" value={coreStatus} risk={health.isError} />
+          <ArrowRight
+            className="mx-auto rotate-90 text-[var(--color-muted)] md:rotate-0"
+            size={16}
+            aria-hidden="true"
+          />
+          <PipelineNode
+            label="Nodes"
+            value={`${stats.reachableNodes}/${stats.totalNodes}`}
+            risk={stats.unhealthyNodes > 0}
+          />
+          <ArrowRight
+            className="mx-auto rotate-90 text-[var(--color-muted)] md:rotate-0"
+            size={16}
+            aria-hidden="true"
+          />
+          <PipelineNode
+            label="Workspaces"
+            value={`${stats.validatedPlacements} valid`}
+            risk={stats.problemPlacements > 0}
+          />
+          <ArrowRight
+            className="mx-auto rotate-90 text-[var(--color-muted)] md:rotate-0"
+            size={16}
+            aria-hidden="true"
+          />
+          <PipelineNode
+            label="Sessions"
+            value={`${stats.activeRuntimeCount} active`}
+            risk={stats.errorRuntimeCount > 0}
+          />
+        </div>
+        <FigureCaption>
+          Current placement & runtime path. Deviations use a crossed risk mark.
+        </FigureCaption>
+      </section>
+
+      <div className="grid gap-8 border-t border-black/10 py-8 xl:grid-cols-[minmax(0,1.2fr)_minmax(0,0.8fr)]">
+        <section>
+          <div className="mb-3 flex items-baseline justify-between">
+            <h2 className="text-base font-bold">Recent Sessions</h2>
+            <span className="zarya-caption">
+              Updated {formatDateTime(inventory.data.generated_at)}
+            </span>
+          </div>
+          <div className="divide-y divide-black/10">
             {recentSessions.length === 0 ? (
-              <div className="rounded-md border border-[#cad2c7] bg-[#f8faf5] p-3 text-sm text-[#536257]">
-                No session activity yet
-              </div>
+              <EmptyState
+                title="No Session Activity"
+                detail="New sessions will appear here after their first event."
+              />
             ) : (
               recentSessions.map((session) => (
                 <Link
                   key={session.session_thread_id}
                   to={`/sessions/${session.session_thread_id}`}
-                  className="flex min-h-14 min-w-0 items-center justify-between gap-3 rounded-md px-3 py-2 hover:bg-[#f4f7f0]"
+                  className="grid min-h-14 min-w-0 gap-2 py-3 hover:bg-[var(--color-bg-muted)] md:grid-cols-[minmax(0,1fr)_auto] md:items-center md:px-2"
                 >
                   <span className="min-w-0">
                     <span className="block truncate text-sm font-medium">
                       {session.title}
                     </span>
-                    <span className="block truncate text-xs text-[#536257]">
+                    <span className="block truncate text-xs text-[var(--color-muted)]">
                       {session.runtime.provider} / {session.message_count}{" "}
                       messages / {formatDateTime(session.updated_at)}
                     </span>
@@ -242,29 +251,30 @@ export function DashboardRoute() {
           </div>
         </section>
 
-        <section className="rounded-md border border-[#d9ded4] bg-white p-4 shadow-sm">
-          <div className="mb-3 flex items-center gap-2">
-            <CheckCircle2 size={18} />
-            <h2 className="text-base font-semibold">System attention</h2>
+        <section>
+          <div className="mb-3">
+            <h2 className="text-base font-bold">System Attention</h2>
+            <p className="zarya-caption mt-1">Cause & next review target</p>
           </div>
-          <div className="space-y-2">
+          <div className="divide-y divide-black/10">
             {attentionItems.length === 0 ? (
-              <div className="rounded-md border border-[#cad2c7] bg-[#f8faf5] p-3 text-sm text-[#536257]">
-                No current attention items
-              </div>
+              <EmptyState
+                title="No Current Attention Items"
+                detail="The system is quiet. Continue monitoring runtime state."
+              />
             ) : (
               attentionItems.map((item) => (
                 <Link
                   key={item.key}
                   to={item.to}
-                  className="block rounded-md px-3 py-2 hover:bg-[#f4f7f0]"
+                  className="block py-3 hover:bg-[var(--color-bg-muted)] md:px-2"
                 >
                   <span className="flex items-center justify-between gap-3">
                     <span className="min-w-0">
                       <span className="block truncate text-sm font-medium">
                         {item.title}
                       </span>
-                      <span className="block truncate text-xs text-[#536257]">
+                      <span className="block truncate text-xs text-[var(--color-muted)]">
                         {item.detail}
                       </span>
                     </span>
@@ -280,50 +290,46 @@ export function DashboardRoute() {
   );
 }
 
-function StatCard({
-  icon,
+function Metric({
   label,
   value,
   detail,
   tone = "neutral",
-}: StatCardProps) {
+}: {
+  label: string;
+  value: string | number;
+  detail: string;
+  tone?: Tone;
+}) {
   return (
-    <article className="rounded-md border border-[#d9ded4] bg-white p-4 shadow-sm">
-      <div className="mb-3 flex items-center justify-between gap-3">
-        <span className="text-[#536257]">{icon}</span>
-        <Badge tone={tone}>{label}</Badge>
+    <article className="min-w-0 py-4">
+      <div className="zarya-label">{label}</div>
+      <div
+        className={`mt-2 break-words text-2xl font-bold tabular-nums ${tone === "bad" ? "text-[var(--color-risk)]" : ""}`}
+      >
+        {value}
       </div>
-      <div className="text-2xl font-semibold">{value}</div>
-      <div className="mt-1 text-sm text-[#536257]">{detail}</div>
+      <div className="mt-1 text-xs text-[var(--color-muted)]">{detail}</div>
     </article>
   );
 }
 
-function StatusPanel({
-  title,
-  icon,
-  children,
+function PipelineNode({
+  label,
+  value,
+  risk,
 }: {
-  title: string;
-  icon: ReactNode;
-  children: ReactNode;
+  label: string;
+  value: string;
+  risk: boolean;
 }) {
   return (
-    <section className="rounded-md border border-[#d9ded4] bg-white p-4 shadow-sm">
-      <div className="mb-3 flex items-center gap-2">
-        <span className="text-[#536257]">{icon}</span>
-        <h2 className="text-base font-semibold">{title}</h2>
-      </div>
-      <div className="space-y-2">{children}</div>
-    </section>
-  );
-}
-
-function StatusRow({ label, value, tone = "neutral" }: StatusRowProps) {
-  return (
-    <div className="flex min-h-9 items-center justify-between gap-3 rounded-md bg-[#f8faf5] px-3">
-      <span className="text-sm text-[#536257]">{label}</span>
-      <Badge tone={tone}>{value}</Badge>
+    <div
+      className={`min-w-0 border px-3 py-4 ${risk ? "border-[var(--color-risk)] text-[var(--color-risk)]" : "border-[var(--color-ink)]"}`}
+    >
+      <Server size={15} className="mx-auto mb-2" aria-hidden="true" />
+      <div className="font-bold">{label}</div>
+      <div className="mt-1 truncate text-[var(--color-muted)]">{value}</div>
     </div>
   );
 }

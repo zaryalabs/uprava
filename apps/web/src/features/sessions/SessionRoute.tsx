@@ -8,6 +8,7 @@ import { queryKeys } from "../../shared/api/query-keys";
 import { openSessionStream } from "../../shared/api/sse-client";
 import { Badge } from "../../shared/ui/badge";
 import { ErrorNotice } from "../../shared/ui/error-notice";
+import { LoadingState, PageHeader } from "../../shared/ui/system";
 import {
   canRunCommand,
   runWorkbenchCommand,
@@ -16,7 +17,6 @@ import { sessionEventCursor } from "../../workbench/projection/apply-session-eve
 import { applySessionStreamEventToCache } from "../../workbench/projection/session-stream-cache";
 import { ReferenceActions } from "../../workbench/references/ReferenceActions";
 import {
-  projectRefForPlacement,
   routeForRef,
   workspaceRefForPlacement,
 } from "../../workbench/references/refs";
@@ -85,7 +85,7 @@ export function SessionRoute() {
   }
 
   if (!session.data) {
-    return <div className="text-sm text-[#536257]">Loading session</div>;
+    return <LoadingState stage="Loading session" />;
   }
 
   const isDetached = session.data.session.state === "detached";
@@ -95,85 +95,98 @@ export function SessionRoute() {
     turnContent: "ready",
     availableCommands: agentProjection.data?.available_commands,
   });
-  const projectRef = projectRefForPlacement(session.data.placement);
   const workspaceRef = workspaceRefForPlacement(session.data.placement);
   const workspaceRoute =
     routeForRef(workspaceRef) ??
     `/workspaces/${session.data.placement.project_placement_id}`;
 
   return (
-    <section className="grid gap-4 xl:grid-cols-[minmax(0,1fr)_280px]">
-      <div className="min-w-0 space-y-4">
-        <header className="rounded-md border border-[#d9ded4] bg-white p-4">
-          <div className="flex flex-wrap items-start justify-between gap-3">
-            <div className="min-w-0">
-              <h1 className="truncate text-2xl font-semibold">
-                {session.data.session.title}
-              </h1>
-              <div className="mt-1 truncate text-sm text-[#536257]">
-                {session.data.placement.display_name} ·{" "}
-                {session.data.placement.workspace_path}
-              </div>
-            </div>
-            <div className="flex flex-wrap gap-2">
-              <Link
-                to={workspaceRoute}
-                className="inline-flex h-9 items-center justify-center gap-2 rounded-md border border-[#bfc8bc] bg-[#fbfcf8] px-3 text-sm font-medium text-[#17211c] transition hover:bg-[#edf1e9]"
-              >
-                <FolderOpen size={16} />
-                Workspace
-              </Link>
-              <ReferenceActions reference={workspaceRef} />
-              {projectRef ? <ReferenceActions reference={projectRef} /> : null}
-              <ReferenceActions
-                reference={{
-                  kind: "session",
-                  session_thread_id: session.data.session.session_thread_id,
-                }}
-              />
-              <ReferenceActions
-                reference={{
-                  kind: "runtime",
-                  runtime_session_id:
-                    session.data.session.runtime.runtime_session_id,
-                }}
-              />
-              <Badge tone="info">{session.data.session.runtime.provider}</Badge>
-              <Badge tone={isDetached ? "warn" : "good"}>
-                {session.data.session.state}
-              </Badge>
-              <Badge tone="good">{session.data.session.runtime.state}</Badge>
-            </div>
-          </div>
-          <div className="mt-4">
-            <LifecycleControls
-              session={session.data.session}
-              runtime={session.data.session.runtime}
-              availableCommands={agentProjection.data?.available_commands ?? []}
+    <section>
+      <PageHeader
+        title={session.data.session.title}
+        description={`${session.data.placement.display_name} / ${session.data.placement.workspace_path}`}
+        meta={`SESSION / ${session.data.session.runtime.provider} / ${session.data.session.runtime.state}`}
+        actions={
+          <>
+            <Link
+              to={workspaceRoute}
+              className="inline-flex h-9 items-center justify-center gap-2 border border-[var(--color-muted)] bg-[var(--color-bg)] px-3 text-sm font-medium hover:border-[var(--color-ink)] hover:bg-[var(--color-bg-muted)]"
+            >
+              <FolderOpen size={16} aria-hidden="true" />
+              Workspace
+            </Link>
+            <ReferenceActions
+              reference={{
+                kind: "session",
+                session_thread_id: session.data.session.session_thread_id,
+              }}
+              showCopy={false}
             />
+            <ReferenceActions
+              reference={{
+                kind: "runtime",
+                runtime_session_id:
+                  session.data.session.runtime.runtime_session_id,
+              }}
+              showCopy={false}
+            />
+            <Badge tone={isDetached ? "warn" : "good"}>
+              {session.data.session.state}
+            </Badge>
+            <Badge tone="good">{session.data.session.runtime.state}</Badge>
+          </>
+        }
+      />
+
+      <section className="grid gap-4 border-l-2 border-[var(--color-ink)] py-4 pl-4 md:grid-cols-[minmax(0,1fr)_auto] md:items-center">
+        <div>
+          <div className="zarya-label">Runtime Context</div>
+          <div className="mt-1 text-sm">
+            Phase <strong>{session.data.session.runtime.state}</strong> ·
+            Session <strong>{session.data.session.state}</strong> · Resume{" "}
+            {session.data.session.runtime.resume_supported
+              ? "supported"
+              : "unavailable"}
           </div>
-        </header>
-        <SessionTimeline
-          detail={session.data}
+          <div className="mt-1 text-xs text-[var(--color-muted)]">
+            Stop and interrupt can end active work. Detach preserves the managed
+            runtime.
+          </div>
+        </div>
+        <LifecycleControls
+          session={session.data.session}
+          runtime={session.data.session.runtime}
           availableCommands={agentProjection.data?.available_commands ?? []}
         />
-        {sendTurn.isError ? (
-          <ErrorNotice error={sendTurn.error} title="Send failed" />
-        ) : null}
-        <ChatComposer
-          pending={sendTurn.isPending}
-          disabled={!canSendTurn}
-          onSend={(content) => sendTurn.mutateAsync(content).then(() => {})}
-        />
+      </section>
+
+      <div className="mt-8 grid gap-8 xl:grid-cols-[minmax(0,1fr)_280px]">
+        <div className="min-w-0 space-y-4">
+          <SessionTimeline
+            detail={session.data}
+            availableCommands={agentProjection.data?.available_commands ?? []}
+          />
+          {sendTurn.isError ? (
+            <ErrorNotice error={sendTurn.error} title="Send failed" />
+          ) : null}
+          <ChatComposer
+            pending={sendTurn.isPending}
+            disabled={!canSendTurn}
+            onSend={(content) => sendTurn.mutateAsync(content).then(() => {})}
+          />
+        </div>
+        <aside
+          className="space-y-8 border-l border-black/10 pl-4 max-xl:border-l-0 max-xl:border-t max-xl:pt-6"
+          aria-label="Session Evidence & Agent Context"
+        >
+          <EvidenceProjection
+            sessionThreadId={session.data.session.session_thread_id}
+          />
+          <AgentProjectionPanel
+            sessionThreadId={session.data.session.session_thread_id}
+          />
+        </aside>
       </div>
-      <aside className="space-y-4">
-        <EvidenceProjection
-          sessionThreadId={session.data.session.session_thread_id}
-        />
-        <AgentProjectionPanel
-          sessionThreadId={session.data.session.session_thread_id}
-        />
-      </aside>
     </section>
   );
 }

@@ -159,10 +159,10 @@ export function WorkspaceInspector({
     <section className="space-y-3">
       <div className="flex flex-wrap items-center justify-between gap-2">
         <div className="min-w-0">
-          <h2 className="text-sm font-semibold uppercase tracking-normal text-[#667268]">
+          <h2 className="text-sm font-semibold uppercase tracking-normal text-[var(--color-muted)]">
             Workspace Inspector
           </h2>
-          <div className="truncate font-mono text-xs text-[#536257]">
+          <div className="truncate font-mono text-xs text-[var(--color-muted)]">
             {workspacePath}
           </div>
         </div>
@@ -177,8 +177,8 @@ export function WorkspaceInspector({
       </div>
 
       <div className="grid min-h-[620px] grid-cols-[minmax(220px,320px)_minmax(0,1fr)] gap-3 max-xl:grid-cols-1">
-        <section className="min-h-0 rounded-md border border-[#d9ded4] bg-white">
-          <div className="border-b border-[#e0e5db] px-3 py-2 text-xs font-medium uppercase tracking-normal text-[#667268]">
+        <section className="min-h-0 border border-[var(--color-muted)] bg-[var(--color-bg)]">
+          <div className="border-b border-[var(--color-muted)] px-3 py-2 text-xs font-medium uppercase tracking-normal text-[var(--color-muted)]">
             Files
           </div>
           <div className="max-h-[720px] overflow-auto py-2">
@@ -193,7 +193,7 @@ export function WorkspaceInspector({
         </section>
 
         <div className="min-w-0 space-y-3">
-          <section className="min-h-0 rounded-md border border-[#d9ded4] bg-white">
+          <section className="min-h-0 border border-[var(--color-muted)] bg-[var(--color-bg)]">
             <WorkspaceFileViewer
               placementId={placementId}
               selectedPath={selectedPath}
@@ -253,8 +253,8 @@ function WorkspaceHistoryPanel({
   commands: WorkspaceCommandHistoryItem[];
 }) {
   return (
-    <section className="rounded-md border border-[#d9ded4] bg-white">
-      <div className="flex items-center gap-2 border-b border-[#e0e5db] px-3 py-2 text-xs font-medium uppercase tracking-normal text-[#667268]">
+    <section className="border border-[var(--color-muted)] bg-[var(--color-bg)]">
+      <div className="flex items-center gap-2 border-b border-[var(--color-muted)] px-3 py-2 text-xs font-medium uppercase tracking-normal text-[var(--color-muted)]">
         <History size={15} />
         History
       </div>
@@ -263,10 +263,14 @@ function WorkspaceHistoryPanel({
           <ErrorNotice error={error} title="History unavailable" />
         ) : null}
         {isLoading ? (
-          <div className="text-sm text-[#536257]">Loading history</div>
+          <div className="text-sm text-[var(--color-muted)]">
+            Loading history
+          </div>
         ) : null}
         {!isLoading && commands.length === 0 ? (
-          <div className="text-sm text-[#536257]">No commands recorded</div>
+          <div className="text-sm text-[var(--color-muted)]">
+            No commands recorded
+          </div>
         ) : null}
         {commands.slice(0, 8).map((item) => (
           <HistoryItem key={item.command_id} item={item} />
@@ -281,13 +285,13 @@ function HistoryItem({ item }: { item: WorkspaceCommandHistoryItem }) {
     ? item.result_payload
     : null;
   return (
-    <div className="rounded-md border border-[#e0e5db] bg-[#fbfcf8] p-3">
+    <div className="border border-[var(--color-muted)] bg-[var(--color-bg-muted)] p-3">
       <div className="flex flex-wrap items-start justify-between gap-2">
         <div className="min-w-0">
-          <div className="truncate font-mono text-sm text-[#17211c]">
+          <div className="truncate font-mono text-sm text-[var(--color-ink)]">
             {historyItemTitle(item)}
           </div>
-          <div className="mt-1 text-xs text-[#536257]">
+          <div className="mt-1 text-xs text-[var(--color-muted)]">
             {formatDateTime(item.created_at)}
           </div>
         </div>
@@ -303,7 +307,7 @@ function HistoryItem({ item }: { item: WorkspaceCommandHistoryItem }) {
         </div>
       </div>
       {result ? (
-        <div className="mt-2 truncate text-xs text-[#536257]">
+        <div className="mt-2 truncate text-xs text-[var(--color-muted)]">
           exit {result.exit_code ?? "n/a"} ·{" "}
           {formatDuration(result.duration_ms)}
         </div>

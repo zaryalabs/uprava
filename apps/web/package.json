@@ -1,13 +1,14 @@
 {
   "name": "@uprava/web",
-  "version": "0.2.0",
+  "version": "0.2.1",
   "private": true,
   "type": "module",
   "scripts": {
     "dev": "vite --host 127.0.0.1 --port 5173",
     "preview": "vite preview --host 0.0.0.0 --port 5173",
     "format": "prettier --write .",
-    "lint": "tsc --noEmit",
+    "lint": "node scripts/check-design-system.mjs && tsc --noEmit",
+    "check:design": "node scripts/check-design-system.mjs",
     "typecheck": "tsc --noEmit",
     "build": "node scripts/check-unused-dependencies.mjs && vite build && node scripts/check-bundle-budget.mjs",
     "audit:prod": "npm audit --omit=dev --audit-level=moderate",

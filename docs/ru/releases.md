@@ -2,7 +2,7 @@
 
 Статус: `active`
 
-Current release baseline: `0.2.0`.
+Current release baseline: `0.2.1`.
 
 Этот ledger фиксирует implementation baselines. Он не заменяет
 [`feature-queue.md`](feature-queue.md), где остается ранжированная очередь
@@ -21,11 +21,14 @@ future work.
 | `0.1.6` | 2026-07-06 | shipped | Unified audit hardening |
 | `0.1.7` | 2026-07-06 | shipped | Workspace renderer and PTY terminal layer |
 | `0.1.8` | 2026-07-08 | shipped | CI/CD deployment automation and self-hosted Codex execution posture |
-| `0.2.0` | 2026-07-11 | current | Protocol v2 quality foundation, durable Core/Node state, workspace workbench and stable deployment paths |
+| `0.2.0` | 2026-07-11 | shipped | Protocol v2 quality foundation, durable Core/Node state, workspace workbench and stable deployment paths |
+| `0.2.1` | 2026-07-11 | current | Zarya 0.1 Web Control Panel alignment, flat work-sheet shell, system overview, agent work phases and visual regression gates |
 
 ## Current Baseline
 
-`0.1.8` включает первый working distributed control panel, пять закрытых
+`0.2.1` включает protocol-v2 baseline `0.2.0` и завершённое Zarya 0.1 Web
+UI/UX alignment. Текущая реализация включает первый working distributed
+control panel, пять закрытых
 feature queue slices после `0.1.0`, unified audit hardening slice и workspace
 renderer/PTY terminal layer, а также первый deployable self-hosted release path:
 
@@ -60,6 +63,13 @@ renderer/PTY terminal layer, а также первый deployable self-hosted r
 - self-hosted Codex adapter launch flags для noninteractive execution на
   production server, где effective boundary остается Unix user `uprava`,
   workspace allow-list and deployment ACLs.
+- six-token monochrome foundation Web Control Panel с square geometry,
+  semantic risk/notice roles и static enforcement против legacy raw styles;
+- flat App Shell, Dashboard system overview and runtime pipeline, phased
+  Session/Agent Chat, 2.5D source/evidence disclosure и согласованный chrome
+  Workspace Inspector;
+- component, keyboard and responsive visual regression coverage для Zarya UI
+  vocabulary.
 
 Новые аудиты и temporary plans должны считать это фактами текущей реализации.
 Они могут ссылаться на `V01`, когда обсуждают исторический первый продуктовый

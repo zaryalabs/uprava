@@ -32,13 +32,13 @@ export function NodeEnrollmentPanel() {
   });
 
   return (
-    <section className="space-y-3 rounded-md border border-[#d9ded4] bg-white p-4">
+    <section className="space-y-3 border border-[var(--color-muted)] bg-[var(--color-bg)] p-4">
       <div className="flex flex-wrap items-start justify-between gap-3">
         <div>
-          <h2 className="text-sm font-semibold uppercase tracking-normal text-[#667268]">
+          <h2 className="text-sm font-semibold uppercase tracking-normal text-[var(--color-muted)]">
             Pair Node
           </h2>
-          <p className="mt-1 text-sm text-[#536257]">
+          <p className="mt-1 text-sm text-[var(--color-muted)]">
             Trusted local or controlled development pairing only.
           </p>
         </div>
@@ -69,12 +69,12 @@ export function NodeEnrollmentPanel() {
         ))}
       </div>
       {enrollments.isLoading ? (
-        <div className="rounded-md border border-[#e0e5dc] bg-[#f8faf5] p-3 text-sm text-[#667268]">
+        <div className="border border-[var(--color-muted)] bg-[var(--color-bg-muted)] p-3 text-sm text-[var(--color-muted)]">
           Loading enrollment requests
         </div>
       ) : null}
       {!enrollments.isLoading && enrollments.data?.length === 0 ? (
-        <div className="rounded-md border border-[#e0e5dc] bg-[#f8faf5] p-3 text-sm text-[#667268]">
+        <div className="border border-[var(--color-muted)] bg-[var(--color-bg-muted)] p-3 text-sm text-[var(--color-muted)]">
           Waiting for local Node enrollment requests.
         </div>
       ) : null}
@@ -94,19 +94,19 @@ function EnrollmentRow({
   const approvable = isEnrollmentApprovable(enrollment);
 
   return (
-    <article className="rounded-md border border-[#e0e5dc] bg-[#f8faf5] p-3">
+    <article className="border border-[var(--color-muted)] bg-[var(--color-bg-muted)] p-3">
       <div className="flex flex-wrap items-start justify-between gap-2">
         <div className="min-w-0">
           <div className="truncate text-sm font-medium">
             {enrollment.display_name}
           </div>
-          <div className="mt-1 font-mono text-xs text-[#667268]">
+          <div className="mt-1 font-mono text-xs text-[var(--color-muted)]">
             {enrollment.enrollment_id}
           </div>
         </div>
         <Badge tone={enrollmentTone(enrollment)}>{enrollment.status}</Badge>
       </div>
-      <div className="mt-2 flex flex-wrap items-center justify-between gap-2 text-xs text-[#536257]">
+      <div className="mt-2 flex flex-wrap items-center justify-between gap-2 text-xs text-[var(--color-muted)]">
         <span>{enrollmentStatusText(enrollment)}</span>
         <Button
           variant="secondary"

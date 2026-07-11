@@ -62,9 +62,9 @@ export function WorkspaceTerminalPanel({
   };
 
   return (
-    <section className="rounded-md border border-[#d9ded4] bg-white">
-      <div className="flex flex-wrap items-center justify-between gap-2 border-b border-[#e0e5db] px-3 py-2">
-        <div className="flex items-center gap-2 text-xs font-medium uppercase tracking-normal text-[#667268]">
+    <section className="border border-[var(--color-muted)] bg-[var(--color-bg)]">
+      <div className="flex flex-wrap items-center justify-between gap-2 border-b border-[var(--color-muted)] px-3 py-2">
+        <div className="flex items-center gap-2 text-xs font-medium uppercase tracking-normal text-[var(--color-muted)]">
           <SquareTerminal size={15} />
           Terminal
         </div>
@@ -90,10 +90,10 @@ export function WorkspaceTerminalPanel({
               <button
                 key={terminal.terminal_id}
                 type="button"
-                className={`min-h-8 rounded-md border px-3 text-left font-mono text-xs ${
+                className={`min-h-8 border px-3 text-left font-mono text-xs ${
                   terminal.terminal_id === activeTerminal?.terminal_id
-                    ? "border-[#1f6559] bg-[#e4ece1] text-[#173a2c]"
-                    : "border-[#d9ded4] bg-[#fbfcf8] text-[#536257]"
+                    ? "border-[var(--color-ink)] bg-[var(--color-bg-muted)] text-[var(--color-muted)]"
+                    : "border-[var(--color-muted)] bg-[var(--color-bg-muted)] text-[var(--color-muted)]"
                 }`}
                 onClick={() => setActiveTerminalId(terminal.terminal_id)}
               >
@@ -112,7 +112,7 @@ export function WorkspaceTerminalPanel({
             />
           </Suspense>
         ) : (
-          <div className="flex min-h-36 items-center justify-center text-sm text-[#536257]">
+          <div className="flex min-h-36 items-center justify-center text-sm text-[var(--color-muted)]">
             No terminal open
           </div>
         )}

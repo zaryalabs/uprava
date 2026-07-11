@@ -35,7 +35,7 @@ export function NodesRoute() {
       <div className="flex flex-wrap items-center justify-between gap-3">
         <div>
           <h1 className="text-2xl font-semibold">Nodes</h1>
-          <p className="text-sm text-[#536257]">
+          <p className="text-sm text-[var(--color-muted)]">
             Registered runtime environments and current heartbeat state.
           </p>
         </div>
@@ -48,7 +48,7 @@ export function NodesRoute() {
         {inventory.data?.nodes.map((node) => (
           <article
             key={node.node_id}
-            className="rounded-md border border-[#d9ded4] bg-white p-4 shadow-sm"
+            className="border border-[var(--color-muted)] bg-[var(--color-bg)] p-4"
           >
             <div className="flex flex-wrap items-start justify-between gap-3">
               <div className="min-w-0">
@@ -58,7 +58,7 @@ export function NodesRoute() {
                 >
                   {node.display_name}
                 </Link>
-                <div className="mt-1 text-sm text-[#536257]">
+                <div className="mt-1 text-sm text-[var(--color-muted)]">
                   heartbeat{" "}
                   <HeartbeatAge seconds={node.heartbeat_age_seconds} />
                 </div>
@@ -100,7 +100,7 @@ export function NodesRoute() {
         ))}
       </div>
       {inventory.data?.nodes.length === 0 ? (
-        <div className="rounded-md border border-[#cad2c7] bg-white p-5 text-sm text-[#536257]">
+        <div className="border border-[var(--color-muted)] bg-[var(--color-bg)] p-5 text-sm text-[var(--color-muted)]">
           Start a Node daemon and heartbeat will populate this list.
         </div>
       ) : null}

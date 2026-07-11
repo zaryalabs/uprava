@@ -46,7 +46,9 @@ test("renders warning badges and structured session blocks from snapshots", asyn
 
   await page.goto("/sessions/session-1");
   const main = page.getByRole("main");
-  await expect(main.getByText("blocked", { exact: true })).toBeVisible();
+  await expect(
+    main.getByText("blocked", { exact: true }).first(),
+  ).toBeVisible();
   await expect(main.getByText("Assistant reply").first()).toBeVisible();
   await expect(main.getByText("Allow command?")).toBeVisible();
   await expect(main.getByRole("button", { name: "Approve" })).toBeVisible();
@@ -83,6 +85,53 @@ test("loads Monaco only after a workspace file is opened", async ({ page }) => {
   ).toBeVisible({ timeout: 15_000 });
   await expect.poll(() => resources.some(isMonacoResource)).toBe(true);
   expect(resources.some(isXtermResource)).toBe(false);
+});
+
+test("matches the Zarya system sheet at desktop and mobile", async ({
+  page,
+}) => {
+  await mockCoreApi(page);
+  await page.setViewportSize({ width: 1440, height: 1000 });
+  await page.goto("/dashboard");
+  await expect(page.getByRole("heading", { name: "Dashboard" })).toBeVisible();
+  await expect(page).toHaveScreenshot("dashboard-zarya-desktop.png", {
+    animations: "disabled",
+    fullPage: true,
+  });
+
+  await page.setViewportSize({ width: 1024, height: 900 });
+  await page.goto("/workspaces/placement-1");
+  await expect(page.getByText("Workspace Inspector")).toBeVisible();
+  await expect(page).toHaveScreenshot("workspace-zarya-narrow.png", {
+    animations: "disabled",
+    fullPage: true,
+  });
+
+  await page.setViewportSize({ width: 390, height: 844 });
+  await page.goto("/sessions/session-1");
+  await expect(page.getByRole("heading", { name: "Fix issue" })).toBeVisible();
+  await expect(page).toHaveScreenshot("session-zarya-mobile.png", {
+    animations: "disabled",
+    fullPage: true,
+  });
+});
+
+test("supports the shell and composer keyboard path", async ({ page }) => {
+  await mockCoreApi(page);
+  await page.goto("/dashboard");
+  await expect(page.getByRole("heading", { name: "Dashboard" })).toBeVisible();
+  await page.keyboard.press("Tab");
+  await expect(
+    page.getByRole("link", { name: "Skip to Main Content" }),
+  ).toBeFocused();
+  await page.keyboard.press("Enter");
+  await expect(page.getByRole("main")).toBeFocused();
+
+  await page.goto("/sessions/session-1");
+  const composer = page.getByRole("textbox", { name: "Next Agent Turn" });
+  await expect(composer).toBeVisible();
+  await composer.fill("Inspect the failed runtime event");
+  await expect(page.getByText("Draft not sent")).toBeVisible();
 });
 
 async function mockCoreApi(page: import("@playwright/test").Page) {
@@ -139,7 +188,11 @@ async function mockCoreApi(page: import("@playwright/test").Page) {
     async (route) => {
       await route.fulfill({
         contentType: "application/json",
-        body: json({ placement_id: "placement-1", terminals: [] }),
+        body: json({
+          placement_id: "placement-1",
+          terminals: [],
+          generated_at: "2026-06-17T00:00:00Z",
+        }),
       });
     },
   );

@@ -52,10 +52,10 @@ export function PlacementNewRoute() {
     <section className="max-w-2xl space-y-4">
       <div>
         <h1 className="text-2xl font-semibold">New Workspace</h1>
-        <p className="text-sm text-[#536257]">Node {nodeId}</p>
+        <p className="text-sm text-[var(--color-muted)]">Node {nodeId}</p>
       </div>
       <form
-        className="space-y-4 rounded-md border border-[#d9ded4] bg-white p-4"
+        className="space-y-4 border border-[var(--color-muted)] bg-[var(--color-bg)] p-4"
         onSubmit={(event) => {
           event.preventDefault();
           if (!nodeId) return;
@@ -68,7 +68,7 @@ export function PlacementNewRoute() {
           </label>
           <input
             id="display-name"
-            className="h-10 w-full rounded-md border border-[#bfc8bc] px-3"
+            className="h-10 w-full border border-[var(--color-muted)] px-3"
             value={displayName}
             onChange={(event) => setDisplayName(event.target.value)}
           />
@@ -79,7 +79,7 @@ export function PlacementNewRoute() {
           </label>
           <input
             aria-describedby="workspace-path-help"
-            className="h-10 w-full rounded-md border border-[#bfc8bc] px-3"
+            className="h-10 w-full border border-[var(--color-muted)] px-3"
             id="workspace-path"
             list="workspace-path-suggestions"
             placeholder={DEFAULT_WORKSPACE_PATH}
@@ -91,7 +91,10 @@ export function PlacementNewRoute() {
               <option key={path} value={path} />
             ))}
           </datalist>
-          <p id="workspace-path-help" className="text-xs text-[#667268]">
+          <p
+            id="workspace-path-help"
+            className="text-xs text-[var(--color-muted)]"
+          >
             Node-local path; the compose node exposes {DEFAULT_WORKSPACE_PATH}.
           </p>
           <div
@@ -102,7 +105,7 @@ export function PlacementNewRoute() {
               <button
                 key={path}
                 aria-label={`Use ${path}`}
-                className="min-w-0 max-w-full truncate rounded-md border border-[#d9ded4] bg-[#fbfcf8] px-2.5 py-1 font-mono text-xs text-[#27362f] hover:bg-[#edf1e9]"
+                className="min-w-0 max-w-full truncate border border-[var(--color-muted)] bg-[var(--color-bg-muted)] px-2.5 py-1 font-mono text-xs text-[var(--color-ink)] hover:bg-[var(--color-bg-muted)]"
                 title={path}
                 type="button"
                 onClick={() => setWorkspacePath(path)}

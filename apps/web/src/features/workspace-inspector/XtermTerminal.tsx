@@ -115,7 +115,7 @@ export function XtermTerminalPanel({
   };
 
   return (
-    <div className="overflow-hidden rounded-md border border-[#111812] bg-[#111812]">
+    <div className="overflow-hidden border border-[#111812] bg-[var(--color-ink)]">
       <div className="flex flex-wrap items-center justify-between gap-2 border-b border-[#263128] bg-[#18221b] px-3 py-2">
         <div className="flex min-w-0 items-center gap-2">
           <span className="truncate font-mono text-xs text-[#dce8dd]">

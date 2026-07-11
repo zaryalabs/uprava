@@ -50,7 +50,7 @@ export function WorkspaceFileViewer({
 }) {
   if (!selectedPath) {
     return (
-      <div className="flex min-h-[520px] items-center justify-center text-sm text-[#536257]">
+      <div className="flex min-h-[520px] items-center justify-center text-sm text-[var(--color-muted)]">
         No text file selected
       </div>
     );
@@ -63,19 +63,21 @@ export function WorkspaceFileViewer({
     );
   }
   if (isLoading || !entry) {
-    return <div className="p-3 text-sm text-[#536257]">Loading file</div>;
+    return (
+      <div className="p-3 text-sm text-[var(--color-muted)]">Loading file</div>
+    );
   }
 
   const canEdit = content !== null && entry.status === "readable";
   return (
     <div className="flex max-h-[720px] min-h-[520px] flex-col">
-      <div className="flex flex-wrap items-start justify-between gap-2 border-b border-[#e0e5db] px-3 py-2">
+      <div className="flex flex-wrap items-start justify-between gap-2 border-b border-[var(--color-muted)] px-3 py-2">
         <div className="min-w-0">
           <div className="flex min-w-0 items-center gap-2">
             <FileText size={15} className="shrink-0" />
             <span className="truncate font-mono text-sm">{entry.path}</span>
           </div>
-          <div className="mt-1 flex flex-wrap gap-2 text-xs text-[#536257]">
+          <div className="mt-1 flex flex-wrap gap-2 text-xs text-[var(--color-muted)]">
             <span>{formatBytes(entry.byte_len)}</span>
             {entry.modified_at ? (
               <span>{new Date(entry.modified_at).toLocaleString()}</span>
@@ -109,12 +111,12 @@ export function WorkspaceFileViewer({
         </div>
       </div>
       {saveError ? (
-        <div className="border-b border-[#f0d1cd] p-3">
+        <div className="border-b border-[var(--color-risk)] p-3">
           <ErrorNotice error={saveError} title="Save failed" />
         </div>
       ) : null}
       {hasConflict ? (
-        <div className="border-b border-[#ead8a8] bg-[#fff8df] px-3 py-2 text-sm text-[#6d5415]">
+        <div className="border-b border-[var(--color-muted)] bg-[var(--color-bg-muted)] px-3 py-2 text-sm text-[var(--color-muted)]">
           The file changed on the node. Your draft is preserved; save to test
           against its original base, or reload the remote version.
         </div>
@@ -130,7 +132,7 @@ export function WorkspaceFileViewer({
           />
         </Suspense>
       ) : (
-        <div className="flex min-h-0 flex-1 items-center justify-center gap-2 p-6 text-sm text-[#536257]">
+        <div className="flex min-h-0 flex-1 items-center justify-center gap-2 p-6 text-sm text-[var(--color-muted)]">
           <ShieldAlert size={17} />
           <span>{statusLabel(entry.status)}</span>
         </div>

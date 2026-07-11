@@ -11,14 +11,14 @@ export function ErrorNotice({ error, title }: ErrorNoticeProps) {
   return (
     <div
       role="alert"
-      className="rounded-md border border-[#dcaaa5] bg-[#fde5e2] p-3 text-sm text-[#88332f]"
+      className="border-l-2 border-[var(--color-risk)] bg-[var(--color-risk-soft)] p-3 text-sm text-[var(--color-risk)]"
     >
-      <div className="font-medium">{title}</div>
+      <div className="font-bold">{title}</div>
       <div className="mt-1 break-words">
-        {envelope?.message ?? "Request failed"}
+        {envelope?.message ?? "Request failed. Check the connection and retry."}
       </div>
       {envelope ? (
-        <div className="mt-2 space-y-1 font-mono text-xs text-[#6f3a37]">
+        <div className="mt-2 space-y-1 font-mono text-xs">
           <div>{envelope.error_code}</div>
           <div>{envelope.correlation_id}</div>
         </div>

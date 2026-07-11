@@ -27,9 +27,9 @@ export function WorkspaceCommandPanel({
   onRun: (input: RunCommandInput) => void;
 }) {
   return (
-    <section className="rounded-md border border-[#d9ded4] bg-white">
-      <div className="flex flex-wrap items-center justify-between gap-2 border-b border-[#e0e5db] px-3 py-2">
-        <div className="flex items-center gap-2 text-xs font-medium uppercase tracking-normal text-[#667268]">
+    <section className="border border-[var(--color-muted)] bg-[var(--color-bg)]">
+      <div className="flex flex-wrap items-center justify-between gap-2 border-b border-[var(--color-muted)] px-3 py-2">
+        <div className="flex items-center gap-2 text-xs font-medium uppercase tracking-normal text-[var(--color-muted)]">
           <SquareTerminal size={15} />
           Command
         </div>
@@ -53,7 +53,7 @@ export function WorkspaceCommandPanel({
       <div className="space-y-3 p-3">
         <div className="flex gap-2 max-sm:flex-col">
           <input
-            className="h-9 min-w-0 flex-1 rounded-md border border-[#bfc8bc] bg-white px-3 font-mono text-sm text-[#17211c] shadow-sm"
+            className="h-9 min-w-0 flex-1 border border-[var(--color-muted)] bg-[var(--color-bg)] px-3 font-mono text-sm text-[var(--color-ink)]"
             value={commandText}
             onChange={(event) => onCommandTextChange(event.target.value)}
           />
@@ -81,12 +81,12 @@ export function WorkspaceCommandPanel({
 
 function CommandResult({ result }: { result: WorkspaceCommandRunResponse }) {
   return (
-    <div className="space-y-2 rounded-md border border-[#d9ded4] bg-[#fbfcf8] p-3">
+    <div className="space-y-2 border border-[var(--color-muted)] bg-[var(--color-bg-muted)] p-3">
       <div className="flex flex-wrap items-center gap-2">
         {result.success ? (
-          <CheckCircle2 size={16} className="text-[#1f6559]" />
+          <CheckCircle2 size={16} className="text-[var(--color-muted)]" />
         ) : (
-          <XCircle size={16} className="text-[#88332f]" />
+          <XCircle size={16} className="text-[var(--color-risk)]" />
         )}
         <span className="font-mono text-sm">
           {formatCommandLine(result.command, result.args)}
@@ -111,7 +111,7 @@ function CommandResult({ result }: { result: WorkspaceCommandRunResponse }) {
         />
       ) : null}
       {!result.stdout && !result.stderr ? (
-        <div className="text-sm text-[#536257]">No output</div>
+        <div className="text-sm text-[var(--color-muted)]">No output</div>
       ) : null}
     </div>
   );
@@ -128,11 +128,11 @@ function OutputBlock({
 }) {
   return (
     <div>
-      <div className="mb-1 flex items-center gap-2 text-xs font-medium uppercase tracking-normal text-[#667268]">
+      <div className="mb-1 flex items-center gap-2 text-xs font-medium uppercase tracking-normal text-[var(--color-muted)]">
         <span>{title}</span>
         {truncated ? <Badge tone="warn">Truncated</Badge> : null}
       </div>
-      <pre className="max-h-64 overflow-auto whitespace-pre-wrap rounded-md bg-[#111812] p-3 font-mono text-xs leading-5 text-[#dce8dd]">
+      <pre className="max-h-64 overflow-auto whitespace-pre-wrap bg-[var(--color-ink)] p-3 font-mono text-xs leading-5 text-[var(--color-bg)]">
         {content}
       </pre>
     </div>

@@ -34,7 +34,9 @@ export function InventoryTree() {
   if (inventory.isLoading) {
     return (
       <nav aria-label="Inventory tree">
-        <div className="text-sm text-[#667268]">Loading inventory</div>
+        <div className="text-sm text-[var(--color-muted)]">
+          Loading inventory
+        </div>
       </nav>
     );
   }
@@ -62,11 +64,11 @@ export function InventoryTreeContent({
       {refreshError ? (
         <ErrorNotice error={refreshError} title="Inventory refresh failed" />
       ) : null}
-      <div className="px-1 text-xs font-semibold uppercase tracking-normal text-[#667268]">
+      <div className="px-1 text-xs font-semibold uppercase tracking-normal text-[var(--color-muted)]">
         Nodes
       </div>
       {nodes.length === 0 ? (
-        <div className="rounded-md border border-[#cad2c7] bg-[#f8faf5] p-3 text-sm text-[#536257]">
+        <div className="border border-[var(--color-muted)] bg-[var(--color-bg-muted)] p-3 text-sm text-[var(--color-muted)]">
           No nodes registered
         </div>
       ) : null}
@@ -81,8 +83,8 @@ export function InventoryTreeContent({
           <div key={node.node_id} className="space-y-1">
             <Link
               to={nodeRoute}
-              className={`flex min-h-9 items-center justify-between rounded-md px-2 text-sm hover:bg-[#e2e8dd] ${
-                pathname === nodeRoute ? "bg-[#dfe8dc]" : ""
+              className={`flex min-h-9 items-center justify-between px-2 text-sm hover:bg-[var(--color-bg-muted)] ${
+                pathname === nodeRoute ? "bg-[var(--color-bg-muted)]" : ""
               }`}
             >
               <span className="flex min-w-0 items-center gap-2">
@@ -92,16 +94,16 @@ export function InventoryTreeContent({
               <span className="flex shrink-0 items-center gap-1">
                 <NodeStatusBadge presence={node.presence} />
                 <Badge
-                  tone={node.active_runtime_count > 0 ? "info" : "neutral"}
+                  tone={node.active_runtime_count > 0 ? "good" : "neutral"}
                 >
                   {node.active_runtime_count > 0 ? "active" : "idle"}
                 </Badge>
                 {node.sleep_hint && node.sleep_hint !== "unknown" ? (
-                  <Badge tone="info">sleep {node.sleep_hint}</Badge>
+                  <Badge tone="neutral">sleep {node.sleep_hint}</Badge>
                 ) : null}
               </span>
             </Link>
-            <div className="ml-4 space-y-1 border-l border-[#cfd8cb] pl-2">
+            <div className="ml-4 space-y-1 border-l border-[var(--color-muted)] pl-2">
               {nodePlacements.map((placement) => {
                 const placementSessions = sessions.filter(
                   (session) =>
@@ -118,7 +120,7 @@ export function InventoryTreeContent({
                   >
                     <Link
                       to={workspaceRoute}
-                      className="flex min-h-8 min-w-0 items-center justify-between gap-2 rounded-md px-2 text-sm hover:bg-[#e2e8dd]"
+                      className="flex min-h-8 min-w-0 items-center justify-between gap-2 px-2 text-sm hover:bg-[var(--color-bg-muted)]"
                     >
                       <span className="flex min-w-0 items-center gap-2">
                         <Folder size={14} />
@@ -151,7 +153,7 @@ export function InventoryTreeContent({
                           <Link
                             key={session.session_thread_id}
                             to={sessionRoute}
-                            className="flex min-h-8 min-w-0 items-center justify-between gap-2 rounded-md px-2 text-sm text-[#405047] hover:bg-[#e2e8dd]"
+                            className="flex min-h-8 min-w-0 items-center justify-between gap-2 px-2 text-sm text-[var(--color-ink)] hover:bg-[var(--color-bg-muted)]"
                           >
                             <span className="flex min-w-0 items-center gap-2">
                               <MessageSquare size={14} />
@@ -206,12 +208,12 @@ function runtimeTone(state: RuntimeSessionState) {
   ) {
     return "warn";
   }
-  if (state === "starting" || state === "resuming") return "info";
+  if (state === "starting" || state === "resuming") return "neutral";
   return "neutral";
 }
 
 function resourceTone(severity: WarningSeverity) {
   if (severity === "hard_block") return "bad";
   if (severity === "warning") return "warn";
-  return "info";
+  return "neutral";
 }
