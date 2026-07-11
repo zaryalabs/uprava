@@ -527,7 +527,7 @@ validate_release_payload() {
       expected[2] = "          make image-runtime"
       expected[3] = "          printf \"%s\\n\" \"FROM rust:bookworm\" \"RUN apt-get update && apt-get install -y --no-install-recommends sqlite3 curl python3 ca-certificates\" | docker build -t uprava-ci-clean-state-restore -f - ."
       expected[4] = "          clean_state_runner=\"docker run --rm --user $(id -u):$(id -g) -e CARGO_TARGET_DIR=/work/target -v ${PWD}:/work -w /work uprava-ci-clean-state-restore\""
-      expected[5] = "          make clean-state-restore CARGO=\"${clean_state_runner} cargo\" CLEAN_STATE_RESTORE_CHECK=\"${clean_state_runner} scripts/check-clean-state-restore.sh\""
+      expected[5] = "          ${clean_state_runner} sh -eu -c \"cargo build --locked -p uprava-server --bin uprava-server -p uprava-node --bin uprava-node && scripts/check-clean-state-restore.sh\""
       expected[6] = "          make push"
     }
     $0 ~ /^[[:space:]]*$/ || $0 ~ /^[[:space:]]*#/ { next }
