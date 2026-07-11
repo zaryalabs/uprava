@@ -728,19 +728,22 @@ async fn public_ingress_guard(
         .map(|ConnectInfo(address)| address.ip().to_string())
         .unwrap_or_else(|| "unknown".to_owned());
     enforce_public_rate(&state, "global", PUBLIC_GLOBAL_RATE_LIMIT).await?;
-    enforce_public_rate(&state, &format!("peer:{peer}"), public_peer_limit(path)).await?;
+    let (peer_bucket, peer_limit) = public_peer_rate_policy(path);
+    enforce_public_rate(&state, &format!("peer:{peer}:{peer_bucket}"), peer_limit).await?;
     let response = next.run(request).await;
     drop(permit);
     Ok(response)
 }
 
-fn public_peer_limit(path: &str) -> usize {
-    if path.contains("/auth/") || path.contains("enrollment") {
-        30
+fn public_peer_rate_policy(path: &str) -> (&'static str, usize) {
+    if path.contains("/auth/") {
+        ("auth", 30)
+    } else if path.contains("enrollment") {
+        ("enrollment", 30)
     } else if path.ends_with("/client/logs") {
-        120
+        ("client_logs", 120)
     } else {
-        PUBLIC_PEER_RATE_LIMIT
+        ("general", PUBLIC_PEER_RATE_LIMIT)
     }
 }
 

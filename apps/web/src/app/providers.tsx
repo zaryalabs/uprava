@@ -2,6 +2,8 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { PropsWithChildren, useState } from "react";
 import { BrowserRouter } from "react-router-dom";
 
+import { shouldRetryQuery } from "../shared/api/http-client";
+
 export function AppProviders({ children }: PropsWithChildren) {
   const [queryClient] = useState(
     () =>
@@ -9,6 +11,7 @@ export function AppProviders({ children }: PropsWithChildren) {
         defaultOptions: {
           queries: {
             refetchOnWindowFocus: false,
+            retry: shouldRetryQuery,
             staleTime: 2_000,
           },
         },

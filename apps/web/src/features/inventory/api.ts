@@ -7,7 +7,8 @@ export function useInventory() {
   return useQuery({
     queryKey: queryKeys.inventory,
     queryFn: coreApi.inventory,
-    refetchInterval: 5_000,
+    refetchInterval: (query) =>
+      query.state.status === "error" ? 15_000 : 5_000,
   });
 }
 

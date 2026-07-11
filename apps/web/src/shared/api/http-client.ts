@@ -49,11 +49,27 @@ import {
 } from "../protocol/validators";
 import { apiBase, apiWsBase } from "./config";
 import { logClientEvent } from "../logging/client-logger";
+import { readCookie } from "../auth/cookies";
 
 export class UpravaApiError extends Error {
-  constructor(readonly envelope: ApiError) {
+  constructor(
+    readonly envelope: ApiError,
+    readonly status?: number,
+  ) {
     super(envelope.message);
   }
+}
+
+export function shouldRetryQuery(failureCount: number, error: unknown) {
+  if (failureCount >= 2) return false;
+  if (error instanceof UpravaApiError) {
+    return (
+      error.status !== undefined &&
+      error.status >= 500 &&
+      error.envelope.retryable
+    );
+  }
+  return true;
 }
 
 export async function apiGet<T>(
@@ -123,7 +139,7 @@ async function apiRequest<T>(
       error_code: envelope.error_code,
       correlation_id: envelope.correlation_id,
     });
-    throw new UpravaApiError(envelope);
+    throw new UpravaApiError(envelope, response.status);
   }
   const payload = (await response.json()) as unknown;
   if (!schema) {
@@ -145,16 +161,6 @@ async function apiRequest<T>(
     retryable: false,
     correlation_id: "client",
   });
-}
-
-function readCookie(name: string): string | null {
-  return (
-    document.cookie
-      .split(";")
-      .map((part) => part.trim())
-      .find((part) => part.startsWith(`${name}=`))
-      ?.slice(name.length + 1) ?? null
-  );
 }
 
 async function sleep(delayMs: number) {

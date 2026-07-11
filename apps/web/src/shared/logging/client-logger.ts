@@ -1,4 +1,5 @@
 import { apiBase } from "../api/config";
+import { readCookie } from "../auth/cookies";
 import type { ClientLogLevel, ClientLogRequest } from "../protocol/types";
 
 const MAX_MESSAGE_CHARS = 2_000;
@@ -39,6 +40,10 @@ export function logClientEvent(
   if (typeof window === "undefined") {
     return;
   }
+  const csrf = readCookie("uprava_csrf");
+  if (!csrf) {
+    return;
+  }
   const request: ClientLogRequest = {
     level,
     source: truncate(source, MAX_MESSAGE_CHARS),
@@ -55,7 +60,10 @@ export function logClientEvent(
   const url = `${apiBase}/client/logs`;
   void fetch(url, {
     method: "POST",
-    headers: { "content-type": "application/json" },
+    headers: {
+      "content-type": "application/json",
+      "x-uprava-csrf": csrf,
+    },
     body,
     credentials: "include",
     keepalive: true,

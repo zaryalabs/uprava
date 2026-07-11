@@ -27,6 +27,23 @@ const CORE_CONFIG_ENV_VARS: &[&str] = &[
     "UPRAVA_CORE_SHUTDOWN_TIMEOUT_SECONDS",
 ];
 
+#[test]
+fn public_peer_rate_policy_keeps_sensitive_budgets_independent() {
+    assert_eq!(public_peer_rate_policy("/api/v1/auth/status"), ("auth", 30));
+    assert_eq!(
+        public_peer_rate_policy("/api/v1/node-enrollments"),
+        ("enrollment", 30)
+    );
+    assert_eq!(
+        public_peer_rate_policy("/api/v1/client/logs"),
+        ("client_logs", 120)
+    );
+    assert_eq!(
+        public_peer_rate_policy("/api/v1/inventory"),
+        ("general", PUBLIC_PEER_RATE_LIMIT)
+    );
+}
+
 async fn test_state() -> Arc<AppState> {
     test_state_with_runtime_expiry(86_400).await
 }
@@ -839,6 +856,36 @@ async fn public_rate_limit_does_not_starve_health() {
         .await
         .expect("router responds");
     assert_eq!(health.status(), StatusCode::OK);
+}
+
+#[tokio::test]
+async fn general_local_traffic_does_not_consume_enrollment_budget() {
+    let app = build_router(test_state().await);
+    for _ in 0..31 {
+        let response = app
+            .clone()
+            .oneshot(
+                Request::builder()
+                    .uri("/api/v1/inventory")
+                    .body(Body::empty())
+                    .expect("request builds"),
+            )
+            .await
+            .expect("router responds");
+        assert_eq!(response.status(), StatusCode::OK);
+    }
+
+    let enrollment = app
+        .oneshot(
+            Request::builder()
+                .uri("/api/v1/node-enrollments")
+                .body(Body::empty())
+                .expect("request builds"),
+        )
+        .await
+        .expect("router responds");
+
+    assert_eq!(enrollment.status(), StatusCode::OK);
 }
 
 #[tokio::test]

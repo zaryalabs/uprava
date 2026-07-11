@@ -14,7 +14,8 @@ export function NodeEnrollmentPanel() {
   const enrollments = useQuery({
     queryKey: queryKeys.nodeEnrollments,
     queryFn: coreApi.nodeEnrollments,
-    refetchInterval: 2_000,
+    refetchInterval: (query) =>
+      query.state.status === "error" ? 15_000 : 5_000,
   });
   const invalidateEnrollments = async () => {
     await queryClient.invalidateQueries({

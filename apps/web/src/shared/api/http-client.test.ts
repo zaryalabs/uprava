@@ -1,6 +1,39 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 
-import { coreApi } from "./http-client";
+import { coreApi, shouldRetryQuery, UpravaApiError } from "./http-client";
+
+describe("query retry policy", () => {
+  it("does not retry rate limits or other client errors", () => {
+    const rateLimit = new UpravaApiError(
+      {
+        error_code: "request.rate_limited",
+        message: "Request rate limit exceeded",
+        retryable: true,
+        correlation_id: "corr-1",
+      },
+      429,
+    );
+
+    expect(shouldRetryQuery(0, rateLimit)).toBe(false);
+  });
+
+  it("retries transient server and network errors at most twice", () => {
+    const serverError = new UpravaApiError(
+      {
+        error_code: "server.unavailable",
+        message: "Unavailable",
+        retryable: true,
+        correlation_id: "corr-2",
+      },
+      503,
+    );
+
+    expect(shouldRetryQuery(0, serverError)).toBe(true);
+    expect(shouldRetryQuery(1, serverError)).toBe(true);
+    expect(shouldRetryQuery(2, serverError)).toBe(false);
+    expect(shouldRetryQuery(0, new TypeError("Network error"))).toBe(true);
+  });
+});
 
 describe("coreApi workspace commands", () => {
   afterEach(() => {
