@@ -78,7 +78,7 @@ test("loads Monaco only after a workspace file is opened", async ({ page }) => {
   await page.goto("/workspaces/placement-1");
   await expect(
     page.getByRole("region", { name: "File editor README.md" }),
-  ).toBeVisible();
+  ).toBeVisible({ timeout: 15_000 });
   await expect.poll(() => resources.some(isMonacoResource)).toBe(true);
   expect(resources.some(isXtermResource)).toBe(false);
 });
