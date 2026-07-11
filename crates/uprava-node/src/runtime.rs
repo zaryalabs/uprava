@@ -17,6 +17,8 @@ use std::{
 
 #[cfg(unix)]
 use std::os::unix::fs::{OpenOptionsExt, PermissionsExt};
+#[cfg(unix)]
+use std::os::unix::process::CommandExt;
 
 use anyhow::Context;
 use chrono::{DateTime, Utc};
@@ -99,6 +101,7 @@ const MAX_PROVIDER_ACTIVITY_LINE_CHARS: usize = 4_000;
 const MAX_PROVIDER_ACTIVITY_EVENTS: usize = 512;
 const MAX_PROVIDER_PROCESS_OUTPUT_BYTES: usize = 256 * 1024;
 const MAX_PROVIDER_APPROVAL_REQUESTS: usize = 16;
+const PROVIDER_PROCESS_SHUTDOWN_TIMEOUT: Duration = Duration::from_secs(3);
 const NODE_STATE_SLOT: &str = "0.2.0";
 const NODE_STATE_SCHEMA_VERSION: u32 = 1;
 const NODE_STATE_STORE_QUEUE_CAPACITY: usize = 256;
@@ -984,6 +987,11 @@ async fn apply_node_state_mutation(
 }
 
 async fn open_state_store(path: &Path) -> anyhow::Result<SqlitePool> {
+    if let Some(parent) = path.parent() {
+        std::fs::create_dir_all(parent)
+            .with_context(|| format!("failed to create {}", parent.display()))?;
+        set_private_dir_permissions(parent);
+    }
     SqlitePool::connect_with(
         SqliteConnectOptions::new()
             .filename(path)
@@ -5380,6 +5388,7 @@ impl CodexProviderAdapter {
             .stdout(Stdio::piped())
             .stderr(Stdio::piped())
             .kill_on_drop(true);
+        configure_provider_process(&mut command);
 
         self.run_codex_command(
             command,
@@ -5429,6 +5438,7 @@ impl CodexProviderAdapter {
             .stdout(Stdio::piped())
             .stderr(Stdio::piped())
             .kill_on_drop(true);
+        configure_provider_process(&mut command);
 
         self.run_codex_command(
             command,
@@ -5625,16 +5635,67 @@ impl CodexProviderAdapter {
         };
 
         match timeout(self.timeout, run).await {
-            Ok(result) => result,
-            Err(_) => Err(ProviderStartFailure::new(
-                "provider.start_timeout",
-                format!(
-                    "{command_label} timed out after {} seconds",
-                    self.timeout.as_secs()
-                ),
-            )),
+            Ok(Ok(output)) => Ok(output),
+            Ok(Err(error)) => {
+                if error.code == "provider.cancelled" {
+                    terminate_provider_process(&mut child).await;
+                }
+                Err(error)
+            }
+            Err(_) => {
+                terminate_provider_process(&mut child).await;
+                Err(ProviderStartFailure::new(
+                    "provider.execution_timeout",
+                    format!(
+                        "{command_label} timed out after {} seconds",
+                        self.timeout.as_secs()
+                    ),
+                ))
+            }
         }
     }
+}
+
+#[cfg(unix)]
+fn configure_provider_process(command: &mut TokioCommand) {
+    command.as_std_mut().process_group(0);
+}
+
+#[cfg(not(unix))]
+fn configure_provider_process(_command: &mut TokioCommand) {}
+
+async fn terminate_provider_process(child: &mut tokio::process::Child) {
+    #[cfg(unix)]
+    if let Some(pid) = child.id() {
+        signal_provider_process_group(pid, "-TERM").await;
+    }
+    #[cfg(not(unix))]
+    let _ = child.start_kill();
+
+    if timeout(PROVIDER_PROCESS_SHUTDOWN_TIMEOUT, child.wait())
+        .await
+        .is_ok()
+    {
+        return;
+    }
+
+    #[cfg(unix)]
+    if let Some(pid) = child.id() {
+        signal_provider_process_group(pid, "-KILL").await;
+    }
+    #[cfg(not(unix))]
+    let _ = child.start_kill();
+    let _ = timeout(PROVIDER_PROCESS_SHUTDOWN_TIMEOUT, child.wait()).await;
+}
+
+#[cfg(unix)]
+async fn signal_provider_process_group(pid: u32, signal: &str) {
+    let _ = TokioCommand::new("/bin/kill")
+        .arg(signal)
+        .arg("--")
+        .arg(format!("-{pid}"))
+        .status()
+        .await;
 }
 
 async fn wait_for_runtime_cancellation(cancellation: &mut Option<watch::Receiver<bool>>) {
@@ -6752,6 +6813,20 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn open_state_store_creates_missing_parent_directory() {
+        let dir = std::env::temp_dir().join(format!("uprava-node-store-parent-{}", Uuid::new_v4()));
+        let path = dir.join(NODE_STATE_SLOT).join("node.sqlite");
+
+        let pool = open_state_store(&path)
+            .await
+            .expect("store opens below a missing parent directory");
+        pool.close().await;
+
+        assert!(path.exists());
+        std::fs::remove_dir_all(dir).expect("state store fixture removes");
+    }
+
+    #[tokio::test]
     async fn sqlite_state_store_snapshot_is_only_a_compatibility_seed() {
         let dir = std::env::temp_dir().join(format!("uprava-node-seed-{}", Uuid::new_v4()));
         let path = dir.join(NODE_STATE_SLOT).join("node.sqlite");
@@ -7196,6 +7271,17 @@ mod tests {
         assert!(error
             .to_string()
             .contains("UPRAVA_NODE_WORKSPACES must list one or more allowed workspace roots"));
+    }
+
+    #[test]
+    fn node_config_from_env_defaults_codex_timeout_to_one_day() {
+        let _lock = env_lock();
+        let _env = EnvGuard::cleared(NODE_CONFIG_ENV_VARS);
+        std::env::set_var("UPRAVA_NODE_WORKSPACES", std::env::temp_dir());
+
+        let config = NodeConfig::from_env().expect("default node config parses");
+
+        assert_eq!(config.codex_timeout, Duration::from_secs(24 * 60 * 60));
     }
 
     #[test]
@@ -9147,7 +9233,7 @@ mod tests {
 
     #[cfg(unix)]
     #[tokio::test]
-    async fn codex_send_turn_maps_slow_process_to_start_timeout_error() {
+    async fn codex_send_turn_maps_slow_process_to_execution_timeout_error() {
         let codex_binary = fake_codex_slow_binary();
         let workspace_path =
             std::env::temp_dir().join(format!("uprava-codex-workspace-{}", Uuid::new_v4()));
@@ -9183,7 +9269,7 @@ mod tests {
                 .0
                 .get("code")
                 .and_then(serde_json::Value::as_str),
-            Some("provider.start_timeout")
+            Some("provider.execution_timeout")
         );
         assert_eq!(
             local_state.runtime_states.get("runtime-1").copied(),

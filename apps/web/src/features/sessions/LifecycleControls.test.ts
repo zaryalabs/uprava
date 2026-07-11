@@ -14,7 +14,7 @@ describe("lifecycleControlStates", () => {
         "runtime.interrupt",
         "runtime.stop",
       ]),
-    ).toEqual(["Detach", "Interrupt", "Stop"]);
+    ).toEqual(["Detach", "Cancel", "Stop"]);
     expect(
       enabledLabels(session("detached", runtime("ready")), [
         "session.attach",

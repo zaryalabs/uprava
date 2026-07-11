@@ -100,9 +100,10 @@ export function lifecycleControlStates(
     },
     {
       id: "runtime.interrupt",
-      label: "Interrupt",
+      label: "Cancel",
       enabled: !pending && canRunCommand("runtime.interrupt", context),
       icon: Pause,
+      variant: "danger",
     },
     {
       id: "runtime.stop",

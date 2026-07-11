@@ -332,7 +332,7 @@ The Node can also run a minimal Codex adapter when a session is created with
 
 ```sh
 export UPRAVA_CODEX_BINARY=codex
-export UPRAVA_CODEX_TIMEOUT_SECONDS=120
+export UPRAVA_CODEX_TIMEOUT_SECONDS=86400
 ```
 
 Node advertises `provider.codex` as available only when `UPRAVA_CODEX_BINARY`
@@ -370,7 +370,7 @@ bounded node-local transcript path. Missing binary, startup failure, timeout,
 non-zero exit and empty final output map to `runtime.error` with user-safe
 provider codes:
 `provider.workspace_missing`, `provider.missing_binary`,
-`provider.start_failed`, `provider.start_timeout`, `provider.exec_failed` and
+`provider.start_failed`, `provider.execution_timeout`, `provider.exec_failed` and
 `provider.empty_output`.
 
 This is the accepted V01 Codex protocol after the local CLI spike: an exec-mode

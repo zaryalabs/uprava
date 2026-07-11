@@ -35,7 +35,8 @@ impl NodeConfig {
         let codex_binary =
             std::env::var("UPRAVA_CODEX_BINARY").unwrap_or_else(|_| "codex".to_owned());
         let codex_ignore_user_config = parse_env_bool("UPRAVA_CODEX_IGNORE_USER_CONFIG", false)?;
-        let codex_timeout = parse_env_duration_seconds("UPRAVA_CODEX_TIMEOUT_SECONDS", 120)?;
+        let codex_timeout =
+            parse_env_duration_seconds("UPRAVA_CODEX_TIMEOUT_SECONDS", 24 * 60 * 60)?;
 
         Ok(Self {
             core_url,
