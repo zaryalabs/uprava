@@ -3815,7 +3815,7 @@ async fn workspace_terminal_list(
         .filter(|terminal| terminal.placement_id == placement.project_placement_id)
         .cloned()
         .collect::<Vec<_>>();
-    terminals.sort_by(|left, right| right.created_at.cmp(&left.created_at));
+    terminals.sort_by_key(|terminal| std::cmp::Reverse(terminal.created_at));
     Ok(WorkspaceTerminalListResponse {
         placement_id: placement.project_placement_id,
         terminals,
