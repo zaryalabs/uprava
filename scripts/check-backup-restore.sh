@@ -12,16 +12,7 @@ backup_dir="$tmp_dir/backup"
 archive="$tmp_dir/uprava-core-data.tgz"
 corrupt_archive="$tmp_dir/uprava-core-data-corrupt.tgz"
 
-if ! command -v sqlite3 >/dev/null 2>&1; then
-    echo "sqlite3 is required for backup/restore rehearsal" >&2
-    exit 1
-fi
-
-sqlite3 "$source_db" <<'SQL'
-PRAGMA foreign_keys = ON;
-CREATE TABLE rehearsal_inventory (id INTEGER PRIMARY KEY, value TEXT NOT NULL);
-INSERT INTO rehearsal_inventory(id, value) VALUES (1, 'deterministic-backup-fixture');
-SQL
+python3 -c 'import sqlite3,sys; connection=sqlite3.connect(sys.argv[1]); connection.executescript("PRAGMA foreign_keys = ON; CREATE TABLE rehearsal_inventory (id INTEGER PRIMARY KEY, value TEXT NOT NULL); INSERT INTO rehearsal_inventory(id, value) VALUES (1, '\''deterministic-backup-fixture'\'');"); connection.commit(); connection.close()' "$source_db"
 
 mkdir -p "$backup_dir"
 "$repo_dir/scripts/backup-sqlite.sh" "$source_db" "$backup_dir/core.sqlite"
@@ -32,8 +23,7 @@ tar -czf "$archive" -C "$backup_dir" core.sqlite
 
 mkdir -p "$tmp_dir/restored"
 tar -xzf "$archive" -C "$tmp_dir/restored"
-value=$(sqlite3 "$tmp_dir/restored/core.sqlite" \
-    "SELECT value FROM rehearsal_inventory WHERE id = 1;")
+value=$(python3 -c 'import sqlite3,sys; connection=sqlite3.connect(sys.argv[1]); print(connection.execute("SELECT value FROM rehearsal_inventory WHERE id = 1").fetchone()[0]); connection.close()' "$tmp_dir/restored/core.sqlite")
 test "$value" = deterministic-backup-fixture || {
     echo "backup/restore rehearsal lost fixture data" >&2
     exit 1
