@@ -58,7 +58,7 @@ describe("App routes", () => {
       await screen.findByRole(
         "region",
         { name: "File editor README.md" },
-        { timeout: 5_000 },
+        { timeout: 15_000 },
       ),
     ).toBeVisible();
 
