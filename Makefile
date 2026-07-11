@@ -2,6 +2,7 @@ SHELL := /bin/sh
 
 RUST_MANIFEST := Cargo.toml
 CARGO ?= cargo
+CLEAN_STATE_RESTORE_CHECK ?= scripts/check-clean-state-restore.sh
 PYTHON ?= python3
 RUSTUP ?= rustup
 RUST_TOOLCHAIN ?=
@@ -85,7 +86,7 @@ image-runtime: ## Run production images non-root with read-only filesystems
 
 clean-state-restore: ## Rehearse isolated 0.2.0 Core/Node state and online restore
 	$(CARGO) build --locked -p uprava-server --bin uprava-server -p uprava-node --bin uprava-node
-	scripts/check-clean-state-restore.sh
+	$(CLEAN_STATE_RESTORE_CHECK)
 
 push: ## Push releasable artifacts and write release manifest
 	docker push "$(UPRAVA_CORE_IMAGE)"

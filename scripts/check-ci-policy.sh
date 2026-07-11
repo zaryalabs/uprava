@@ -525,12 +525,14 @@ validate_release_payload() {
     BEGIN {
       expected[1] = "          make build"
       expected[2] = "          make image-runtime"
-      expected[3] = "          make clean-state-restore"
-      expected[4] = "          make push"
+      expected[3] = "          printf \"%s\\n\" \"FROM rust:bookworm\" \"RUN apt-get update && apt-get install -y --no-install-recommends sqlite3 curl python3 ca-certificates\" | docker build -t uprava-ci-clean-state-restore -f - ."
+      expected[4] = "          clean_state_runner=\"docker run --rm --user $(id -u):$(id -g) -e CARGO_TARGET_DIR=/work/target -v ${PWD}:/work -w /work uprava-ci-clean-state-restore\""
+      expected[5] = "          make clean-state-restore CARGO=\"${clean_state_runner} cargo\" CLEAN_STATE_RESTORE_CHECK=\"${clean_state_runner} scripts/check-clean-state-restore.sh\""
+      expected[6] = "          make push"
     }
     $0 ~ /^[[:space:]]*$/ || $0 ~ /^[[:space:]]*#/ { next }
     { active++; if (active > 19 && $0 != expected[active - 19]) exit 1 }
-    END { if (active != 23) exit 1 }
+    END { if (active != 25) exit 1 }
   ' || fail "release/Build and publish release: payload must build, runtime-check, restore-check, then push"
 }
 
