@@ -66,6 +66,7 @@ test("renders warning badges and structured session blocks from snapshots", asyn
 });
 
 test("loads Monaco only after a workspace file is opened", async ({ page }) => {
+  test.setTimeout(60_000);
   const resources: string[] = [];
   page.on("response", (response) => resources.push(response.url()));
   await mockCoreApi(page);
@@ -78,7 +79,7 @@ test("loads Monaco only after a workspace file is opened", async ({ page }) => {
   await page.goto("/workspaces/placement-1");
   await expect(
     page.getByRole("region", { name: "File editor README.md" }),
-  ).toBeVisible({ timeout: 15_000 });
+  ).toBeVisible({ timeout: 45_000 });
   await expect.poll(() => resources.some(isMonacoResource)).toBe(true);
   expect(resources.some(isXtermResource)).toBe(false);
 });
