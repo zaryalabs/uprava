@@ -53,6 +53,42 @@ includes a clean empty database and previous dev `nodes` table shape without
 you need evidence, then delete broken local state or use `make dev-reset`
 for the Compose volume.
 
+## Breaking Reset Contract 0.2.0
+
+Existing unversioned paths выше являются sources 0.1.8. До первого запуска
+0.2.0 их и effective environment нужно сохранить в зарезервированные local
+slots:
+
+| Release | Core state | Core config | Node state | Node config |
+| --- | --- | --- | --- | --- |
+| `0.1.8` | `.local/state/0.1.8/core.sqlite` | `.local/config/0.1.8/core.env` | `~/.local/share/uprava-node/0.1.8/node.json` | `~/.config/uprava-node/0.1.8/node.env` |
+| `0.2.0` | `.local/state/0.2.0/core.sqlite` | `.local/config/0.2.0/core.env` | `~/.local/share/uprava-node/0.2.0/node.sqlite` | `~/.config/uprava-node/0.2.0/node.env` |
+
+Это release-family slots, а не in-place migration. Implementation 0.2.0
+обязана выбирать только state and config 0.2.0. Сохранённые slots 0.1.8
+read-only во время работы 0.2.0 и остаются доступны для rollback. Если у
+выбранного state неправильная schema или format, startup завершается actionable
+incompatible-state error; state не импортируется, не reinterpret и не
+удаляется.
+
+Процедура clean reset 0.2.0:
+
+1. остановить Core, Web and Node и скопировать нужную diagnostic evidence
+   0.2.0;
+2. удалить или переинициализировать только Core and Node state slots 0.2.0;
+3. запустить Core с empty Core slot 0.2.0 и matching config;
+4. запустить Node с empty SQLite slot 0.2.0 и matching config;
+5. создать и явно approve новое enrollment, затем заново bind Projects and
+   Placements;
+6. выполнить clean-state smoke flow.
+
+Old Node JSON state не импортируется, поэтому re-enrollment обязателен. Reset
+никогда не удаляет и не переписывает state/config slot 0.1.8. `make dev-reset`
+можно расширить для initialize или clear выбранного development slot 0.2.0,
+но он обязан сохранять все slots 0.1.8. Rollback означает совместный выбор
+binaries 0.1.8, Core config/state и Node config/state; работа, созданная только
+в 0.2.0, после rollback отсутствует.
+
 ## Security Profile
 
 `controlled_dev` is the only supported V01 development profile. Browser auth is
@@ -130,7 +166,7 @@ make node-r
 ```
 
 Node writes local development state to
-`~/.local/share/uprava-node/node.json` by default and logs the short-lived
+`~/.local/share/uprava-node/0.2.0/node.sqlite` by default and logs the short-lived
 `enrollment_id`. That state includes a stable `daemon_installation_id` used for
 local diagnostics; the pairing code stays in local Node state for the claim
 request and is not logged. Approve enrollment through Core:
@@ -160,6 +196,10 @@ credential in the authorization header, sends a `control.hello` frame, receives
 `command.result` frames. If either side receives a control frame with an
 unsupported protocol version, it replies with `control.error` using
 `control.protocol_incompatible` and does not execute that command batch.
+
+Для 0.2.0 это protocol v2 как единый coordinated breaking release для Core,
+Node and Web. Compatibility с protocol-v1 API/schema/state не требуется, и
+in-place migration 0.1.x отсутствует.
 
 Core records node-routed commands before dispatch. The command envelope remains
 stored as JSON for replay, and the command table also keeps queryable actor,
@@ -295,7 +335,7 @@ Node can also run a minimal Codex adapter when a session is created with
 
 ```sh
 export UPRAVA_CODEX_BINARY=codex
-export UPRAVA_CODEX_TIMEOUT_SECONDS=120
+export UPRAVA_CODEX_TIMEOUT_SECONDS=86400
 ```
 
 Node advertises `provider.codex` as available only when `UPRAVA_CODEX_BINARY`
@@ -333,7 +373,7 @@ node-local transcript context. Missing binary, startup failure, timeout,
 non-zero exit and empty final output map to `runtime.error` with user-safe
 provider codes:
 `provider.workspace_missing`, `provider.missing_binary`,
-`provider.start_failed`, `provider.start_timeout`, `provider.exec_failed` and
+`provider.start_failed`, `provider.execution_timeout`, `provider.exec_failed` and
 `provider.empty_output`.
 
 This is the accepted V01 Codex protocol after the local CLI spike: exec-mode
@@ -367,7 +407,7 @@ Core deduplicates replayed events by `event_id`. A conflicting `seq` is
 rejected, and a detected sequence gap marks the session degraded and the
 runtime stale with a degraded reason for UI/read-model consumers.
 
-The session artifact tree and agent projection are rebuilt from Core
+The session evidence projection and agent projection are rebuilt from Core
 persistence. The projection includes current turn, pending approvals, active
 warnings, recent message refs, available commands and a safe resume context.
 Runtime-scoped events update `last_runtime_step_at`; healthy runtime events
@@ -391,7 +431,7 @@ SSE event so the client can refetch the snapshot.
 6. Send a turn and verify that user, assistant and runtime event blocks appear.
 7. Stop or resume the runtime from the session header controls.
 8. Reload the browser and verify that inventory, placement, session messages,
-   artifact tree and agent projection reload from Core.
+   evidence projection and agent projection reload from Core.
 
 ## Checks
 

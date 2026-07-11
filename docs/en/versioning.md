@@ -33,7 +33,25 @@ Release versions describe repository and implementation state. Current planning
 documents should refer to the current release baseline, not to `V01`, when they
 discuss features delivered after `0.1.0`.
 
-Current baseline: `0.1.8`.
+Current baseline: `0.2.0`.
+
+## 0.2.0 Release Candidates
+
+- Every candidate build containing source changes uses a unique SemVer
+  pre-release version `0.2.0-rc.N`; `N` increases monotonically and a candidate
+  version is never rebuilt with different contents.
+- Every candidate also has an immutable Git-SHA-based release id. Core, Web and
+  Node artifacts for that candidate share the same version, Git SHA and release
+  id.
+- Release candidates are recorded in the temporary RC checklist and build
+  manifest, not as the current shipped baseline in [`releases.md`](releases.md).
+- The final `0.2.0` version is assigned only after the final RC passes the full
+  clean-state release gate. The final build must pass that gate again. If it
+  fails, discard it, return to the next `0.2.0-rc.N`, fix and repeat; never
+  publish two different `0.2.0` artifacts.
+- `0.2.0` is a coordinated breaking protocol-v2 release. Compatibility with
+  0.1.x APIs, schemas or state and an in-place state migration are not release
+  requirements.
 
 ## Update Rules
 

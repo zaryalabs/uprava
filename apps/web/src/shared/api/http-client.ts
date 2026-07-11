@@ -4,6 +4,7 @@ import type {
   ApproveNodeEnrollmentResponse,
   ClientCreateNodeEnrollmentRequest,
   CommandAcceptedResponse,
+  CommandState,
   CreatePlacementRequest,
   CreateSessionRequest,
   HealthResponse,
@@ -23,6 +24,7 @@ import type {
   WebAuthStatusResponse,
   WarningAcknowledgementResponse,
   WorkspaceCommandHistoryResponse,
+  WorkspaceCommandHistoryItem,
   WorkspaceCommandRunRequest,
   WorkspaceCommandRunResponse,
   WorkspaceDiffResponse,
@@ -34,6 +36,17 @@ import type {
   WorkspaceTerminalOpenResponse,
   WorkspaceTreeResponse,
 } from "../protocol/types";
+import {
+  commandAcceptedResponseSchema,
+  formatProtocolIssues,
+  parseProtocolPayload,
+  type ProtocolSchema,
+  workspaceCommandHistoryItemSchema,
+  workspaceCommandHistoryResponseSchema,
+  workspaceCommandRunResponseSchema,
+  workspaceTerminalListResponseSchema,
+  workspaceTerminalOpenResponseSchema,
+} from "../protocol/validators";
 import { apiBase, apiWsBase } from "./config";
 import { logClientEvent } from "../logging/client-logger";
 
@@ -43,23 +56,48 @@ export class UpravaApiError extends Error {
   }
 }
 
-export async function apiGet<T>(path: string): Promise<T> {
-  return apiRequest<T>(path, { method: "GET" });
+export async function apiGet<T>(
+  path: string,
+  schema?: ProtocolSchema<T>,
+): Promise<T> {
+  return apiRequest<T>(path, { method: "GET" }, schema);
 }
 
-export async function apiPost<T>(path: string, body?: unknown): Promise<T> {
-  return apiRequest<T>(path, {
-    method: "POST",
-    headers: { "content-type": "application/json" },
-    body: body === undefined ? undefined : JSON.stringify(body),
-  });
+export async function apiPost<T>(
+  path: string,
+  body?: unknown,
+  schema?: ProtocolSchema<T>,
+): Promise<T> {
+  return apiRequest<T>(
+    path,
+    {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: body === undefined ? undefined : JSON.stringify(body),
+    },
+    schema,
+  );
 }
 
-export async function apiDelete<T>(path: string): Promise<T> {
-  return apiRequest<T>(path, { method: "DELETE" });
+export async function apiDelete<T>(
+  path: string,
+  schema?: ProtocolSchema<T>,
+): Promise<T> {
+  return apiRequest<T>(path, { method: "DELETE" }, schema);
 }
 
-async function apiRequest<T>(path: string, init: RequestInit): Promise<T> {
+const workspaceCommandTerminalStates = new Set<CommandState>([
+  "completed",
+  "failed",
+  "blocked",
+  "expired",
+]);
+
+async function apiRequest<T>(
+  path: string,
+  init: RequestInit,
+  schema?: ProtocolSchema<T>,
+): Promise<T> {
   const headers = new Headers(init.headers);
   const method = init.method?.toUpperCase() ?? "GET";
   const csrf = readCookie("uprava_csrf");
@@ -87,7 +125,26 @@ async function apiRequest<T>(path: string, init: RequestInit): Promise<T> {
     });
     throw new UpravaApiError(envelope);
   }
-  return response.json() as Promise<T>;
+  const payload = (await response.json()) as unknown;
+  if (!schema) {
+    return payload as T;
+  }
+  const parsed = schema.safeParse(payload);
+  if (parsed.success) {
+    return parsed.data;
+  }
+  const detail = formatProtocolIssues(parsed.error.issues);
+  logClientEvent("error", "web.protocol", "Core response validation failed", {
+    path,
+    status: response.status,
+    detail,
+  });
+  throw new UpravaApiError({
+    error_code: "web.protocol_validation_failed",
+    message: `Core response did not match protocol v2 contract: ${detail}`,
+    retryable: false,
+    correlation_id: "client",
+  });
 }
 
 function readCookie(name: string): string | null {
@@ -97,6 +154,66 @@ function readCookie(name: string): string | null {
       .map((part) => part.trim())
       .find((part) => part.startsWith(`${name}=`))
       ?.slice(name.length + 1) ?? null
+  );
+}
+
+async function sleep(delayMs: number) {
+  await new Promise((resolve) => window.setTimeout(resolve, delayMs));
+}
+
+function commandResourceError(
+  code: string,
+  message: string,
+  retryable = false,
+) {
+  return new UpravaApiError({
+    error_code: code,
+    message,
+    retryable,
+    correlation_id: "client",
+  });
+}
+
+async function pollWorkspaceCommandRunResponse(
+  placementId: string,
+  commandId: string,
+  timeoutSeconds: number | null,
+) {
+  const timeoutMs = Math.max((timeoutSeconds ?? 120) * 1000 + 10_000, 15_000);
+  const deadline = Date.now() + timeoutMs;
+
+  while (Date.now() < deadline) {
+    const resource = await apiGet<WorkspaceCommandHistoryItem>(
+      `/placements/${encodeURIComponent(placementId)}/workspace/commands/async/${encodeURIComponent(commandId)}`,
+      workspaceCommandHistoryItemSchema,
+    );
+    if (!workspaceCommandTerminalStates.has(resource.state)) {
+      await sleep(250);
+      continue;
+    }
+    if (resource.state !== "completed") {
+      throw commandResourceError(
+        "workspace.command_failed",
+        `Workspace command finished with state ${resource.state}`,
+      );
+    }
+    const result = parseProtocolPayload(
+      workspaceCommandRunResponseSchema,
+      resource.result_payload,
+    );
+    if (result) {
+      return result;
+    }
+    throw commandResourceError(
+      "workspace.command_result_invalid",
+      "Workspace command completed without a valid result payload",
+    );
+  }
+
+  throw commandResourceError(
+    "workspace.command_poll_timeout",
+    "Timed out waiting for the workspace command result",
+    true,
   );
 }
 
@@ -145,6 +262,8 @@ export const coreApi = {
       `/placements/${encodeURIComponent(
         placementId,
       )}/resource-snapshot/refresh`,
+      undefined,
+      commandAcceptedResponseSchema,
     ),
   workspaceTree: (placementId: string, path = ".") =>
     apiGet<WorkspaceTreeResponse>(
@@ -170,15 +289,42 @@ export const coreApi = {
     placementId: string,
     request: WorkspaceCommandRunRequest,
   ) =>
-    apiPost<WorkspaceCommandRunResponse>(
-      `/placements/${encodeURIComponent(placementId)}/workspace/commands`,
+    apiPost<CommandAcceptedResponse>(
+      `/placements/${encodeURIComponent(placementId)}/workspace/commands/async`,
       request,
+      commandAcceptedResponseSchema,
+    ).then((accepted) =>
+      pollWorkspaceCommandRunResponse(
+        placementId,
+        accepted.command_id,
+        request.timeout_seconds,
+      ),
+    ),
+  runWorkspaceCommandAsync: (
+    placementId: string,
+    request: WorkspaceCommandRunRequest,
+  ) =>
+    apiPost<CommandAcceptedResponse>(
+      `/placements/${encodeURIComponent(placementId)}/workspace/commands/async`,
+      request,
+      commandAcceptedResponseSchema,
+    ),
+  workspaceCommandResource: (placementId: string, commandId: string) =>
+    apiGet<WorkspaceCommandHistoryItem>(
+      `/placements/${encodeURIComponent(placementId)}/workspace/commands/async/${encodeURIComponent(commandId)}`,
+      workspaceCommandHistoryItemSchema,
+    ),
+  cancelWorkspaceCommand: (placementId: string, commandId: string) =>
+    apiDelete<WorkspaceCommandHistoryItem>(
+      `/placements/${encodeURIComponent(placementId)}/workspace/commands/async/${encodeURIComponent(commandId)}`,
+      workspaceCommandHistoryItemSchema,
     ),
   workspaceCommandHistory: (placementId: string, limit = 20) =>
     apiGet<WorkspaceCommandHistoryResponse>(
       `/placements/${encodeURIComponent(
         placementId,
       )}/workspace/commands?limit=${encodeURIComponent(String(limit))}`,
+      workspaceCommandHistoryResponseSchema,
     ),
   workspaceDiff: (placementId: string) =>
     apiGet<WorkspaceDiffResponse>(
@@ -187,6 +333,7 @@ export const coreApi = {
   workspaceTerminals: (placementId: string) =>
     apiGet<WorkspaceTerminalListResponse>(
       `/placements/${encodeURIComponent(placementId)}/workspace/terminals`,
+      workspaceTerminalListResponseSchema,
     ),
   openWorkspaceTerminal: (
     placementId: string,
@@ -195,6 +342,7 @@ export const coreApi = {
     apiPost<WorkspaceTerminalOpenResponse>(
       `/placements/${encodeURIComponent(placementId)}/workspace/terminals`,
       request,
+      workspaceTerminalOpenResponseSchema,
     ),
   workspaceTerminalStreamUrl: (placementId: string, terminalId: string) =>
     `${apiWsBase}/placements/${encodeURIComponent(
@@ -219,9 +367,9 @@ export const coreApi = {
     apiPost<SessionDetail>(
       `/sessions/${encodeURIComponent(sessionThreadId)}/detach`,
     ),
-  artifactTree: (sessionThreadId: string) =>
-    apiGet<import("../protocol/types").ArtifactTree>(
-      `/sessions/${encodeURIComponent(sessionThreadId)}/artifact-tree`,
+  sessionEvidenceProjection: (sessionThreadId: string) =>
+    apiGet<import("../protocol/types").SessionEvidenceProjection>(
+      `/sessions/${encodeURIComponent(sessionThreadId)}/evidence-projection`,
     ),
   agentProjection: (sessionThreadId: string) =>
     apiGet<import("../protocol/types").AgentProjection>(
@@ -231,6 +379,7 @@ export const coreApi = {
     apiPost<CommandAcceptedResponse>(
       `/sessions/${encodeURIComponent(sessionThreadId)}/turns`,
       request,
+      commandAcceptedResponseSchema,
     ),
   resolveApproval: (
     sessionThreadId: string,
@@ -242,6 +391,7 @@ export const coreApi = {
         sessionThreadId,
       )}/approvals/${encodeURIComponent(approvalId)}/resolve`,
       request,
+      commandAcceptedResponseSchema,
     ),
   acknowledgeWarning: (
     sessionThreadId: string,
@@ -257,13 +407,19 @@ export const coreApi = {
   interruptRuntime: (runtimeSessionId: string) =>
     apiPost<CommandAcceptedResponse>(
       `/runtime-sessions/${encodeURIComponent(runtimeSessionId)}/interrupt`,
+      undefined,
+      commandAcceptedResponseSchema,
     ),
   stopRuntime: (runtimeSessionId: string) =>
     apiPost<CommandAcceptedResponse>(
       `/runtime-sessions/${encodeURIComponent(runtimeSessionId)}/stop`,
+      undefined,
+      commandAcceptedResponseSchema,
     ),
   resumeRuntime: (runtimeSessionId: string) =>
     apiPost<CommandAcceptedResponse>(
       `/runtime-sessions/${encodeURIComponent(runtimeSessionId)}/resume`,
+      undefined,
+      commandAcceptedResponseSchema,
     ),
 };

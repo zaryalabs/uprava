@@ -27,11 +27,12 @@ Workspace Inspector. Первый слот работает с references, а н
 terminal surface.
 
 Web Control Panel может открывать и копировать `UpravaRef` objects из visible
-session timeline blocks, artifact-tree entries, nodes, placements, sessions,
-runtimes, events, commands, approvals and warnings. Панель резолвит детали из
-уже загруженных Core snapshots и session event log. Future workspace, terminal,
-diff, check, tool-call and external refs показывают explicit unavailable or
-not-implemented states вместо broken links or invented targets.
+session timeline blocks, session evidence-projection entries, nodes,
+placements, sessions, runtimes, events, commands, approvals and warnings.
+Панель резолвит детали из уже загруженных Core snapshots и session event log.
+Future workspace, terminal, diff, check, tool-call and external refs показывают
+explicit unavailable or not-implemented states вместо broken links or invented
+targets.
 
 Так V01 workbench остается traceable, но сохраняет будущую inspector boundary:
 direct workspace inspection все еще должен идти через Core and Node Daemon
@@ -78,7 +79,16 @@ command, dispatches it to Node Daemon, briefly waits for typed command result,
 and returns tree or file payload to Web Control Panel. Node Daemon owns path
 normalization and local filesystem access, including workspace boundary checks,
 allowed-root checks, symlink stop-points, text-size caps, binary/large
-classification, generated/ignored stop-points and permission-denied states.
+classification, generated/ignored classification and permission-denied states.
+
+File tree использует Headless Tree для доступного управления раскрытием,
+фокусом и клавиатурной навигацией. Содержимое каталогов загружается лениво через
+Core, по одному уровню за запрос, поэтому просмотр не ограничен фиксированной
+глубиной workspace tree. Node возвращает сначала каталоги, затем файлы и
+ограничивает ответ первыми 100 отсортированными элементами с явными metadata об
+усечении. Dotfiles и dot-directories остаются видимыми. Generated и ignored
+пути получают визуальную классификацию, но могут быть явно раскрыты; защита
+границы workspace и symlink stop-point сохраняется.
 
 Implemented intervention layer добавляет:
 

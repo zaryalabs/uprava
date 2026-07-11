@@ -1,6 +1,10 @@
 import { apiBase } from "./config";
 import { logClientEvent } from "../logging/client-logger";
 import type { EventEnvelope } from "../protocol/types";
+import {
+  eventEnvelopeSchema,
+  formatProtocolIssues,
+} from "../protocol/validators";
 
 export function openSessionStream(
   sessionThreadId: string,
@@ -14,7 +18,24 @@ export function openSessionStream(
   const source = new EventSource(url, { withCredentials: true });
   source.addEventListener("uprava.event", (event) => {
     try {
-      onEvent(JSON.parse((event as MessageEvent).data) as EventEnvelope);
+      const parsed = eventEnvelopeSchema.safeParse(
+        JSON.parse((event as MessageEvent).data) as unknown,
+      );
+      if (!parsed.success) {
+        logClientEvent(
+          "error",
+          "web.sse",
+          "session stream payload validation failed",
+          {
+            session_thread_id: sessionThreadId,
+            after_seq: afterSeq,
+            detail: formatProtocolIssues(parsed.error.issues),
+          },
+        );
+        onError();
+        return;
+      }
+      onEvent(parsed.data);
     } catch (error) {
       logClientEvent(
         "error",

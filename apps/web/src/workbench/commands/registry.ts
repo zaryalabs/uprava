@@ -17,6 +17,7 @@ import {
 
 import { coreApi } from "../../shared/api/http-client";
 import type {
+  ActionCapability,
   UpravaRef,
   CreatePlacementRequest,
   ProjectPlacementSummary,
@@ -63,6 +64,7 @@ export type WorkbenchCommandContext = {
   navigate?: (path: string) => void;
   openReference?: (reference: UpravaRef) => Promise<void> | void;
   copyText?: (text: string) => Promise<void> | void;
+  availableCommands?: ActionCapability[];
 };
 
 export type UiCommand = {
@@ -220,9 +222,7 @@ const commands: UiCommand[] = [
     id: "session.attach",
     title: "Attach session",
     icon: LogIn,
-    when: (context) =>
-      context.session?.state === "detached" &&
-      context.session.runtime.state !== "stopped",
+    when: (context) => hasAction(context, "session.attach"),
     run: async (context) => {
       const session = requireValue(
         context.session,
@@ -238,10 +238,7 @@ const commands: UiCommand[] = [
     id: "session.detach",
     title: "Detach session",
     icon: LogOut,
-    when: (context) =>
-      Boolean(context.session) &&
-      context.session?.state !== "detached" &&
-      context.session?.state !== "stopped",
+    when: (context) => hasAction(context, "session.detach"),
     run: async (context) => {
       const session = requireValue(
         context.session,
@@ -258,12 +255,7 @@ const commands: UiCommand[] = [
     title: "Send turn",
     icon: Send,
     when: (context) =>
-      Boolean(context.session) &&
-      context.session?.state !== "detached" &&
-      context.session?.state !== "stopped" &&
-      ["ready", "running"].includes(
-        (context.runtime ?? context.session?.runtime)?.state ?? "",
-      ) &&
+      hasAction(context, "session.sendTurn") &&
       Boolean(context.turnContent?.trim()),
     run: async (context) => {
       const session = requireValue(
@@ -284,9 +276,7 @@ const commands: UiCommand[] = [
     id: "runtime.interrupt",
     title: "Interrupt runtime",
     icon: Pause,
-    when: (context) =>
-      context.runtime?.state === "running" ||
-      context.runtime?.state === "blocked",
+    when: (context) => hasAction(context, "runtime.interrupt"),
     run: async (context) => {
       const runtime = requireValue(
         context.runtime,
@@ -302,10 +292,7 @@ const commands: UiCommand[] = [
     id: "runtime.stop",
     title: "Stop runtime",
     icon: Square,
-    when: (context) =>
-      Boolean(context.runtime) &&
-      context.runtime?.state !== "stopped" &&
-      context.runtime?.state !== "expired",
+    when: (context) => hasAction(context, "runtime.stop"),
     run: async (context) => {
       const runtime = requireValue(
         context.runtime,
@@ -321,12 +308,7 @@ const commands: UiCommand[] = [
     id: "runtime.resume",
     title: "Resume runtime",
     icon: RotateCcw,
-    when: (context) =>
-      context.runtime?.state === "stopped" ||
-      context.runtime?.state === "expired" ||
-      context.runtime?.state === "stale" ||
-      context.runtime?.state === "error" ||
-      context.runtime?.state === "interrupted",
+    when: (context) => hasAction(context, "runtime.resume"),
     run: async (context) => {
       const runtime = requireValue(
         context.runtime,
@@ -343,9 +325,8 @@ const commands: UiCommand[] = [
     title: "Resolve approval",
     icon: Check,
     when: (context) =>
-      Boolean(context.session && context.approvalId) &&
-      context.session?.state !== "detached" &&
-      (context.runtime ?? context.session?.runtime)?.state === "blocked" &&
+      hasAction(context, "approval.resolve") &&
+      Boolean(context.approvalId) &&
       typeof context.approved === "boolean",
     run: async (context) => {
       const session = requireValue(
@@ -373,7 +354,8 @@ const commands: UiCommand[] = [
     id: "warning.acknowledge",
     title: "Acknowledge warning",
     icon: ShieldCheck,
-    when: (context) => Boolean(context.session && context.warningKind),
+    when: (context) =>
+      hasAction(context, "warning.acknowledge") && Boolean(context.warningKind),
     run: async (context) => {
       const session = requireValue(
         context.session,
@@ -474,4 +456,14 @@ function requireValue<T>(value: T | null | undefined, message: string): T {
     throw new Error(message);
   }
   return value;
+}
+
+function hasAction(
+  context: WorkbenchCommandContext,
+  action: ActionCapability,
+): boolean {
+  return (
+    Boolean(context.session) &&
+    context.availableCommands?.includes(action) === true
+  );
 }

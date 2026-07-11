@@ -31,7 +31,7 @@ daemon может читать и писать его через dedicated Unix 
 ```text
 user:        uprava
 home:        /var/lib/uprava
-node state:  /var/lib/uprava-node/node.json
+node state:  /var/lib/uprava-node/node.sqlite
 workspace:   /srv/uprava-workspaces/*
 ```
 
@@ -79,9 +79,13 @@ RestartSec=5s
 
 ```text
 UPRAVA_CORE_URL=https://uprava.zrya.io
-UPRAVA_NODE_STATE_PATH=/var/lib/uprava-node/node.json
+UPRAVA_NODE_STATE_PATH=/var/lib/uprava-node/node.sqlite
 UPRAVA_NODE_WORKSPACES=/srv/uprava-workspaces
 ```
+
+0.2.0 использует стабильные paths `/etc/uprava/node.env` и
+`/var/lib/uprava-node/node.sqlite`. Config и JSON state до 0.2.0 сохраняются
+только в проверенном legacy archive, а не в active runtime tree.
 
 `UPRAVA_NODE_WORKSPACES` намеренно указывает на workspace root, чтобы каждый
 checkout under `/srv/uprava-workspaces/*` можно было использовать без нового
@@ -95,6 +99,13 @@ self-hosting posture: внутренний Linux sandbox Codex может быт
 `UPRAVA_NODE_WORKSPACES` allow-list, inherited workspace ACLs and production
 boundary ниже. Future live provider/runtime path должен заменить это
 fine-grained permissions and approval handling.
+
+Это accepted audit risk P0-3, а не production-grade hostile-workload
+isolation. Точный follow-up и exit criteria зафиксированы в
+[`feature-queue.md`](feature-queue.md#6a-provider-native-persistent-execution-policy):
+safe-by-default sandboxing, explicit unsafe-mode switch, real approval handling
+и visible effective policy. Quality-foundation work 0.2.0 не меняет текущие
+launch flags.
 
 ## Git Credentials
 
@@ -123,12 +134,14 @@ Uprava edits /srv/uprava-workspaces/uprava
 -> creates a branch and commit
 -> pushes the branch to GitHub
 -> human reviews and merges to main
--> CI/CD builds, publishes and deploys the release
+-> CI/CD may build and publish immutable artifacts from main
+-> operator explicitly runs production workflow_dispatch activation
 -> https://uprava.zrya.io runs the updated Uprava
 ```
 
 Это intended self-improvement loop. Production changes все равно проходят через
 GitHub, review, merge and normal CI/CD deployment contract.
+Successful build or publish никогда не активирует production неявно.
 
 ## Production Boundary
 

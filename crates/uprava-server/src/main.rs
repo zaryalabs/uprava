@@ -18,7 +18,7 @@ async fn main() -> anyhow::Result<()> {
         return run_healthcheck(&address);
     }
 
-    let log_path = init_tracing("core", "UPRAVA_CORE_LOG_FILE", ".local/logs/core.log")?;
+    let _log_path = init_tracing("core", "UPRAVA_CORE_LOG_FILE", ".local/logs/core.log")?;
 
     let config = AppConfig::from_env()?;
     ensure_sqlite_parent_dir(&config.database_url)?;
@@ -37,9 +37,6 @@ async fn main() -> anyhow::Result<()> {
 
     tracing::info!(
         bind_address = %address,
-        database_url = %config.database_url,
-        log_file = %log_path.display(),
-        client_log_file = %config.client_log_file.display(),
         profile = ?config.profile,
         "starting uprava core"
     );
@@ -52,7 +49,11 @@ async fn main() -> anyhow::Result<()> {
         let _ = shutdown_tx.send(true);
     });
     let server = std::future::IntoFuture::into_future(
-        axum::serve(listener, app).with_graceful_shutdown(wait_for_shutdown(shutdown_rx.clone())),
+        axum::serve(
+            listener,
+            app.into_make_service_with_connect_info::<SocketAddr>(),
+        )
+        .with_graceful_shutdown(wait_for_shutdown(shutdown_rx.clone())),
     );
     tokio::pin!(server);
     let mut shutdown_rx = shutdown_rx;

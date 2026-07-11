@@ -252,6 +252,7 @@ Control plane and stable endpoint. Core owns:
 - node token hashes and credential metadata;
 - latest heartbeat/status snapshot;
 - capability registry for each node;
+- Core-owned `ProjectPlacement` aggregates and their identities;
 - desired node config/policy version;
 - active connection leases;
 - command routing;
@@ -263,8 +264,10 @@ Core не выполняет локальные shell/file/process операц�
 #### Node
 
 Продуктовая сущность: зарегистрированное окружение, где может выполняться
-работа. Node имеет identity, display name, owner/scope, status, capabilities,
-policy and workspace bindings.
+работа. Node имеет identity, display name, owner/scope, status, capabilities и
+policy. Связь Node с canonical workspace path задаёт Core-owned
+`ProjectPlacement`; Node сообщает только operational placement/path context и
+local facts.
 
 #### Node Daemon
 
@@ -869,7 +872,8 @@ Node Daemon должен хранить:
 - node token;
 - local daemon config;
 - local policy cache;
-- workspace bindings;
+- operational `placement_id`/canonical-path context and local placement facts,
+  но не отдельную binding identity;
 - local session/process metadata;
 - raw logs/output where needed;
 - pending events buffer for reconnect.

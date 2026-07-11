@@ -24,7 +24,7 @@ Traefik / platform network
 Uprava Core stack in Docker
   uprava-core  - Rust Core Backend, API, auth, state, event log
   uprava-web   - built Vite Web Control Panel, same public origin as Core
-  core.sqlite  - product-owned persistent volume or bind-mounted state
+  versioned core.sqlite - product-owned 0.1.8 or 0.2.0 state slot
 
 Host systemd
   uprava-node.service - Rust Node Daemon near real files, PTY, Codex, tools
@@ -54,8 +54,8 @@ useful for local smoke tests and synthetic workspaces.
 - Give Core and Node a common app-metrics path.
 - Avoid exposing unauthenticated OTLP receivers to the public internet.
 - Keep observability non-blocking: telemetry failure must not stop agent work.
-- Keep metrics low-cardinality and logs/event ids detailed enough for
-  investigation.
+- Keep metrics and logs low-cardinality; use the propagated correlation id to
+  join request, command and event evidence during investigation.
 
 ## Non-goals
 
@@ -97,8 +97,8 @@ relative base such as `/api/v1` in production. The current local default
 `http://127.0.0.1:8080/api/v1` should remain a development default only.
 
 Core state remains product-owned. SQLite is acceptable for the current
-single-server controlled deployment, but the volume must be included in backup
-and restore procedures.
+single-server controlled deployment, but the stable state path must be included
+in backup and restore procedures as defined in [`deployment.md`](deployment.md).
 
 ### Bare-metal Node Daemon
 
@@ -108,7 +108,7 @@ The Node Daemon should run as a systemd unit on the host:
 /etc/systemd/system/uprava-node.service
 /etc/uprava/node.env
 /var/lib/uprava/
-/var/lib/uprava-node/node.json
+/var/lib/uprava-node/node.sqlite
 /var/log/uprava-node/ optional local fallback logs
 ```
 
@@ -198,8 +198,6 @@ Required log attributes:
 - `service.namespace`: `zarya`;
 - `deployment.environment`: `zarya-main`;
 - `deployment.profile`: `controlled_dev` until a stricter profile exists;
-- `service.instance.id`: container id or daemon installation id;
-- `node.id` when known;
 - `correlation_id` for request/command/runtime flows;
 - event kind, command kind, runtime state and result fields where relevant.
 
@@ -211,7 +209,25 @@ Do not log:
 - session cookies or CSRF values;
 - full prompt/command payloads by default;
 - full file contents;
+- filesystem paths, display names and high-cardinality resource ids;
 - provider secrets or local env dumps.
+
+### Implemented 0.2.0 telemetry contract
+
+Core and Node write to stderr and to a bounded non-blocking file channel. The
+shared defaults are 8,192 queued records, 10 MiB per file and five retained
+files. Override them with `UPRAVA_LOG_CHANNEL_CAPACITY`,
+`UPRAVA_LOG_MAX_BYTES` and `UPRAVA_LOG_MAX_FILES`. Saturated, disconnected or
+failed writers drop the record and increment the exported dropped-log count;
+they never block an async worker.
+
+Optional OTLP span export is enabled by `UPRAVA_OTLP_ENABLED=true` or by setting
+`OTEL_EXPORTER_OTLP_ENDPOINT`. Exporter initialization and delivery failures
+are non-fatal and counted. Core exposes its bounded counters at
+`GET /api/v1/metrics`; Node reports its persisted reconnect, outbox and drop
+counters through heartbeat diagnostics. Metrics and structured logs must not
+contain secrets, prompts, file contents, paths or resource ids. The repository
+enforces the structured-field rule in `scripts/check_logging_policy.py`.
 
 ### Metrics
 
@@ -533,6 +549,9 @@ Core down:
 - Node retries heartbeat and control connection.
 - Node local state remains intact.
 - systemd should not restart Node solely because Core is unavailable.
+
+A reset or telemetry incident must not remove the verified offline legacy
+archive. Active stable state is reset only through the documented procedure.
 
 ## Rollout Plan
 

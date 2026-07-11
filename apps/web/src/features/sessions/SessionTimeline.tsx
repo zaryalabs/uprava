@@ -1,7 +1,11 @@
 import { useMutation, useQueryClient } from "@tanstack/react-query";
+import { useMemo } from "react";
 
 import { queryKeys } from "../../shared/api/query-keys";
-import type { SessionDetail } from "../../shared/protocol/types";
+import type {
+  ActionCapability,
+  SessionDetail,
+} from "../../shared/protocol/types";
 import { Button } from "../../shared/ui/button";
 import { TimelineBlockRenderer } from "../../workbench/blocks/TimelineBlockRenderer";
 import {
@@ -11,7 +15,13 @@ import {
 import { ReferenceActions } from "../../workbench/references/ReferenceActions";
 import { buildSessionTimelineBlocks } from "./timeline-blocks";
 
-export function SessionTimeline({ detail }: { detail: SessionDetail }) {
+export function SessionTimeline({
+  detail,
+  availableCommands,
+}: {
+  detail: SessionDetail;
+  availableCommands: ActionCapability[];
+}) {
   const queryClient = useQueryClient();
   const invalidateSession = async () => {
     await queryClient.invalidateQueries({
@@ -32,16 +42,18 @@ export function SessionTimeline({ detail }: { detail: SessionDetail }) {
         runtime: detail.session.runtime,
         approvalId,
         approved,
+        availableCommands,
         afterSuccess: invalidateSession,
       }),
   });
-  const blocks = buildSessionTimelineBlocks(detail);
+  const blocks = useMemo(() => buildSessionTimelineBlocks(detail), [detail]);
   const canResolveApproval = (approvalId: string, approved: boolean) =>
     canRunCommand("approval.resolve", {
       session: detail.session,
       runtime: detail.session.runtime,
       approvalId,
       approved,
+      availableCommands,
     });
 
   return (

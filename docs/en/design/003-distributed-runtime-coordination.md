@@ -55,7 +55,7 @@ V01 coordination строится вокруг пяти идей.
    project.
 2. **RuntimeSession as coordination unit**. Команды и events координируются
    вокруг `RuntimeSession`, которая привязана к `SessionThread` и
-   `WorkspaceBinding`.
+   `ProjectPlacement`.
 3. **Command proxy, not workflow scheduler**. Core dispatch-ит команды через
    active outbound control channel. Если channel закрыт, Core просит Node
    открыть его через heartbeat response. V01 не делает полноценный
@@ -189,7 +189,7 @@ V01 не требует:
 1. **Core coordinates full runtime lifecycle**: `start`, `send turn`, `stream
    events`, `block`, `interrupt`, `stop`, `expire`, `resume`, `reconcile`.
 2. **Coordination unit is `RuntimeSession`**, linked to `SessionThread` and
-   `WorkspaceBinding`.
+   `ProjectPlacement`.
 3. **V01 is command proxy plus persisted event log**, not a full
    desired-state reconciler.
 4. **Core shows `Nodes -> Projects/Workspaces` tree**. User chooses concrete
@@ -226,7 +226,9 @@ V01 не требует:
 
 ### Core inventory model
 
-Core should distinguish logical project identity from node-local placement.
+Core distinguishes logical project identity from node-local placement. For the
+0.2.0 protocol this is a fixed identity contract, not an open implementation
+choice.
 
 ```text
 Project
@@ -242,16 +244,30 @@ Node
 
 ProjectPlacement
   placement_id
-  project_id optional
+  project_id optional while unbound
   node_id
-  workspace_path
+  canonical_workspace_path
   git_snapshot optional
   runtime_summary
   last_seen_at
 ```
 
-UI can render this as `Nodes -> Projects/Workspaces`, even if the underlying
-model separates `Project` from `ProjectPlacement`.
+`Project` is a Core-owned logical aggregate whose identity is independent of a
+Node or path. `ProjectPlacement` is the physical Node/path binding, and the
+database enforces one Placement per `(node_id, canonical_workspace_path)`.
+One Project may own Placements on multiple Nodes. Node reports canonical local
+facts but does not mint Project or Placement identifiers.
+
+Heartbeat discovery and explicit binding converge on the same physical
+Placement. Discovery creates or refreshes one unbound Placement; binding
+attaches it to a selected or newly created Project. Core never infers
+cross-node Project grouping from a path alone.
+
+`Workspace` is the user-facing workbench over a Placement, not a second
+persisted entity. The Core resource remains `/placements/:id`; the canonical
+Web surface is `/workspaces/:placement_id`. UI may still render the inventory
+as `Nodes -> Projects/Workspaces`, but `Workspace` does not introduce another
+domain identifier.
 
 ### Resource signals
 

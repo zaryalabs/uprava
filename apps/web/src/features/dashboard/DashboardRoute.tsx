@@ -440,7 +440,7 @@ function buildAttentionItems(snapshot: InventorySnapshot): AttentionItem[] {
       detail:
         placement.resource_badges.find((badge) => badge.severity !== "info")
           ?.label ?? `Workspace is ${placement.state}`,
-      to: `/placements/${placement.project_placement_id}`,
+      to: `/workspaces/${placement.project_placement_id}`,
       tone:
         placement.state === "error" || placement.state === "missing"
           ? "bad"

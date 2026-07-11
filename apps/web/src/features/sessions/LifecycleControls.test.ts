@@ -8,27 +8,35 @@ import { lifecycleControlStates } from "./LifecycleControls";
 
 describe("lifecycleControlStates", () => {
   it("enables lifecycle controls from session and runtime state", () => {
-    expect(enabledLabels(session("active", runtime("running")))).toEqual([
-      "Detach",
-      "Interrupt",
-      "Stop",
-    ]);
-    expect(enabledLabels(session("detached", runtime("ready")))).toEqual([
-      "Attach",
-      "Stop",
-    ]);
-    expect(enabledLabels(session("active", runtime("error")))).toEqual([
-      "Detach",
-      "Stop",
-      "Resume",
-    ]);
-    expect(enabledLabels(session("active", runtime("expired")))).toEqual([
-      "Detach",
-      "Resume",
-    ]);
-    expect(enabledLabels(session("stopped", runtime("stopped")))).toEqual([
-      "Resume",
-    ]);
+    expect(
+      enabledLabels(session("active", runtime("running")), [
+        "session.detach",
+        "runtime.interrupt",
+        "runtime.stop",
+      ]),
+    ).toEqual(["Detach", "Cancel", "Stop"]);
+    expect(
+      enabledLabels(session("detached", runtime("ready")), [
+        "session.attach",
+        "runtime.stop",
+      ]),
+    ).toEqual(["Attach", "Stop"]);
+    expect(
+      enabledLabels(session("active", runtime("error")), [
+        "session.detach",
+        "runtime.stop",
+        "runtime.resume",
+      ]),
+    ).toEqual(["Detach", "Stop", "Resume"]);
+    expect(
+      enabledLabels(session("active", runtime("expired")), [
+        "session.detach",
+        "runtime.resume",
+      ]),
+    ).toEqual(["Detach", "Resume"]);
+    expect(
+      enabledLabels(session("stopped", runtime("stopped")), ["runtime.resume"]),
+    ).toEqual(["Resume"]);
   });
 
   it("disables every lifecycle control while a lifecycle mutation is pending", () => {
@@ -36,6 +44,11 @@ describe("lifecycleControlStates", () => {
       {
         session: session("active", runtime("running")),
         runtime: runtime("running"),
+        availableCommands: [
+          "session.detach",
+          "runtime.interrupt",
+          "runtime.stop",
+        ],
       },
       true,
     );
@@ -44,10 +57,14 @@ describe("lifecycleControlStates", () => {
   });
 });
 
-function enabledLabels(sessionSummary: SessionSummary) {
+function enabledLabels(
+  sessionSummary: SessionSummary,
+  availableCommands: import("../../shared/protocol/types").ActionCapability[],
+) {
   return lifecycleControlStates({
     session: sessionSummary,
     runtime: sessionSummary.runtime,
+    availableCommands,
   })
     .filter((control) => control.enabled)
     .map((control) => control.label);

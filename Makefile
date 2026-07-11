@@ -2,6 +2,7 @@ SHELL := /bin/sh
 
 RUST_MANIFEST := Cargo.toml
 CARGO ?= cargo
+PYTHON ?= python3
 RUSTUP ?= rustup
 RUST_TOOLCHAIN ?=
 WEB_DIR := apps/web
@@ -32,6 +33,11 @@ RELEASE_MANIFEST ?= $(RELEASE_DIR).env.release
 NODE_ARTIFACT_PATH ?= $(RELEASE_DIR)/uprava-node
 BUILD_TIMESTAMP ?= $(shell date -u "+%Y-%m-%dT%H:%M:%SZ")
 ALLOW_UNRESOLVED_DIGESTS ?= 0
+UPRAVA_RELEASE_FAMILY ?= 0.2.0
+UPRAVA_CORE_STATE_DIR ?= state/core
+UPRAVA_CORE_CONFIG ?= configuration/core.env
+UPRAVA_NODE_CONFIG ?= /etc/uprava/node.env
+UPRAVA_NODE_STATE_PATH ?= /var/lib/uprava-node/node.sqlite
 DEPLOY_HOST ?= zsa
 DEPLOY_MODE ?= ssh
 INSTALL_DIR ?= /opt/apps/uprava
@@ -50,23 +56,36 @@ else
 WEB_PM := npm
 WEB_RUN := npm --prefix $(WEB_DIR)
 endif
+PLAYWRIGHT_RUN ?= $(WEB_RUN)
 
 .DEFAULT_GOAL := help
 
 help: ## Show available make targets
 	@awk 'BEGIN {FS = ":.*## "}; /^[a-zA-Z0-9_.-]+:.*## / {printf "  %-14s %s\n", $$1, $$2}' $(MAKEFILE_LIST)
 
-prepare: rust-toolchain rust-l rust-t web-l web-t web-dl ops-config systemd-check scripts-check ## Run CI pre-release checks
+prepare: rust-toolchain protocol-check rust-l rust-t web-l web-t web-dl web-e2e ops-config systemd-check scripts-check ## Run CI pre-release checks
 
 build: ## Build releasable Core/Web images and Node artifact
-	docker build -t "$(UPRAVA_CORE_IMAGE)" -f Dockerfile.core .
+	docker build --build-arg UPRAVA_GIT_SHA="$(GIT_SHA)" -t "$(UPRAVA_CORE_IMAGE)" -f Dockerfile.core .
 	docker build \
 		--build-arg VITE_UPRAVA_API_BASE=/api/v1 \
+		--build-arg VITE_UPRAVA_RELEASE_ID="$(GIT_SHA)" \
 		-t "$(UPRAVA_WEB_IMAGE)" \
 		-f apps/web/Dockerfile \
 		apps/web
-	docker build -t "$(UPRAVA_NODE_IMAGE)" -f Dockerfile.node .
+	docker build --build-arg UPRAVA_GIT_SHA="$(GIT_SHA)" -t "$(UPRAVA_NODE_IMAGE)" -f Dockerfile.node .
 	scripts/extract-node-artifact.sh "$(UPRAVA_NODE_IMAGE)" "$(NODE_ARTIFACT_PATH)" >/dev/null
+
+image-runtime: ## Run production images non-root with read-only filesystems
+	UPRAVA_CORE_IMAGE="$(UPRAVA_CORE_IMAGE)" \
+	UPRAVA_WEB_IMAGE="$(UPRAVA_WEB_IMAGE)" \
+	UPRAVA_NODE_IMAGE="$(UPRAVA_NODE_IMAGE)" \
+	UPRAVA_RELEASE_SHA="$(GIT_SHA)" \
+	scripts/check-image-runtime.sh
+
+clean-state-restore: ## Rehearse isolated 0.2.0 Core/Node state and online restore
+	$(CARGO) build --locked -p uprava-server --bin uprava-server -p uprava-node --bin uprava-node
+	scripts/check-clean-state-restore.sh
 
 push: ## Push releasable artifacts and write release manifest
 	docker push "$(UPRAVA_CORE_IMAGE)"
@@ -83,6 +102,11 @@ release-manifest: ## Write builds/releases/<release-id>.env.release
 	UPRAVA_WEB_IMAGE="$(UPRAVA_WEB_IMAGE)" \
 	UPRAVA_NODE_IMAGE="$(UPRAVA_NODE_IMAGE)" \
 	UPRAVA_NODE_VERSION="$(UPRAVA_NODE_VERSION)" \
+	UPRAVA_RELEASE_FAMILY="$(UPRAVA_RELEASE_FAMILY)" \
+	UPRAVA_CORE_STATE_DIR="$(UPRAVA_CORE_STATE_DIR)" \
+	UPRAVA_CORE_CONFIG="$(UPRAVA_CORE_CONFIG)" \
+	UPRAVA_NODE_CONFIG="$(UPRAVA_NODE_CONFIG)" \
+	UPRAVA_NODE_STATE_PATH="$(UPRAVA_NODE_STATE_PATH)" \
 	NODE_ARTIFACT_PATH="$(NODE_ARTIFACT_PATH)" \
 	ALLOW_UNRESOLVED_DIGESTS="$(ALLOW_UNRESOLVED_DIGESTS)" \
 	scripts/write_release_manifest.sh
@@ -94,6 +118,7 @@ install-release-manifest: ## Install active release manifest into INSTALL_DIR
 
 install-ops: ## Install product-owned ops files into INSTALL_DIR
 	$(SUDO) install -d "$(INSTALL_DIR)"
+	$(SUDO) install -d -o 10001 -g 10001 -m 750 "$(INSTALL_DIR)/state/core"
 	$(SUDO) install -m 644 ops/Makefile "$(INSTALL_DIR)/Makefile"
 	$(SUDO) install -m 644 ops/compose.yaml "$(INSTALL_DIR)/compose.yaml"
 
@@ -130,7 +155,7 @@ fmt: docs-fmt rust-fmt web-fmt ## Format all supported project files
 
 l: docs-l rust-l web-l ## Run light checks
 
-dl: l rust-dl web-dl ## Run deep checks
+dl: l protocol-check rust-dl web-dl ## Run deep checks
 
 t: rust-t web-t ## Run tests
 
@@ -172,8 +197,8 @@ docs-fmt: ## Format/check docs when a formatter is available
 	@echo "No docs formatter configured yet; skipping docs format"
 
 docs-l: ## Run lightweight docs checks
-	@find README.md AGENTS.md CONTRIBUTING.md docs -type f \( -name '*.md' -o -name '*.toml' -o -name '*.yaml' -o -name '*.yml' -o -name '*.json' \) -print >/dev/null
-	@echo "Docs files are present"
+	@$(PYTHON) scripts/check_markdown.py --self-test
+	@$(PYTHON) scripts/check_markdown.py
 
 web-install: ## Install web dependencies when web app exists
 	@set -e; \
@@ -198,7 +223,16 @@ scripts-check: ## Run shell syntax checks for product scripts
 	@set -e; \
 	for script in scripts/*.sh; do \
 		sh -n "$$script"; \
-	done
+	done; \
+	sh scripts/check-container-runtime-users.sh; \
+	$(PYTHON) scripts/check_logging_policy.py; \
+	sh scripts/check-ci-policy.sh; \
+	sh scripts/check-ops-rollback.sh; \
+	sh scripts/check-deploy-auto-rollback.sh; \
+	sh scripts/check-backup-restore.sh
+
+protocol-check: ## Check Rust/Web protocol literal drift
+	$(PYTHON) scripts/protocol_check.py
 
 rust-fmt: ## Format Rust code when Cargo workspace exists
 	@if [ -f "$(RUST_MANIFEST)" ]; then \
@@ -239,9 +273,12 @@ rust-dl: ## Run deeper Rust dependency/config checks when tools are available
 		}; \
 		require_tool cargo-audit; \
 		require_tool cargo-deny; \
+		require_tool cargo-machete; \
 		require_tool taplo; \
 		$(CARGO) audit $(CARGO_AUDIT_IGNORE); \
 		$(CARGO) deny check; \
+		$(CARGO) machete; \
+		$(CARGO) doc --workspace --no-deps; \
 		taplo fmt --check $(RUST_TOOL_TOML_FILES); \
 	else \
 		echo "No Cargo.toml found; skipping deep Rust checks"; \
@@ -262,6 +299,7 @@ rust-tools-install: ## Install Rust quality tools required by rust-dl
 		}; \
 		install_tool cargo-audit cargo-audit; \
 		install_tool cargo-deny cargo-deny; \
+		install_tool cargo-machete cargo-machete; \
 		if command -v taplo >/dev/null 2>&1; then \
 			echo "taplo already installed"; \
 		else \
@@ -398,7 +436,7 @@ web-l: ## Run web lint/typecheck when package scripts exist
 web-dl: ## Run web production build when package scripts exist
 	@set -e; \
 	if [ -f "$(WEB_PACKAGE)" ]; then \
-		if [ -d "$(WEB_NODE_MODULES)" ]; then $(WEB_RUN) run build; else echo "Web dependencies are not installed; run make init"; exit 1; fi; \
+		if [ -d "$(WEB_NODE_MODULES)" ]; then $(WEB_RUN) run audit:prod; $(WEB_RUN) run build; else echo "Web dependencies are not installed; run make init"; exit 1; fi; \
 	else \
 		echo "No $(WEB_PACKAGE) found; skipping web build"; \
 	fi
@@ -413,7 +451,7 @@ web-t: ## Run web tests when package scripts exist
 
 web-e2e: ## Run Playwright web E2E tests when browser dependencies exist
 	@if [ -f "$(WEB_PACKAGE)" ]; then \
-		if [ -d "$(WEB_NODE_MODULES)" ]; then $(WEB_RUN) run e2e; else echo "Web dependencies are not installed; skipping web E2E tests"; fi; \
+		if [ -d "$(WEB_NODE_MODULES)" ]; then $(PLAYWRIGHT_RUN) run e2e; else echo "Web dependencies are not installed; skipping web E2E tests"; fi; \
 	else \
 		echo "No $(WEB_PACKAGE) found; skipping web E2E tests"; \
 	fi
@@ -422,4 +460,4 @@ clean: ## Remove common local build and cache artifacts
 	rm -rf target htmlcov coverage .pytest_cache .ruff_cache .mypy_cache .ty
 	rm -rf $(WEB_DIR)/dist $(WEB_DIR)/coverage
 
-.PHONY: help prepare build push release-manifest install-release-manifest deploy init fmt l dl t c pc claw-doctor claw-init claw-map claw-review claw-report claw-ci claw-show claw-fix docs-fmt docs-l web-install ops-config systemd-check scripts-check rust-fmt rust-l rust-dl rust-tools-install rust-t web-r web-fmt web-l web-dl web-t web-e2e core-r node-r dev-up dev-down dev-logs dev-reset dev-smoke compose-up compose-down compose-logs compose-reset compose-smoke codex-smoke clean
+.PHONY: help prepare build image-runtime clean-state-restore push release-manifest install-release-manifest deploy init fmt l dl t c pc claw-doctor claw-init claw-map claw-review claw-report claw-ci claw-show claw-fix docs-fmt docs-l web-install ops-config systemd-check scripts-check rust-fmt rust-l rust-dl rust-tools-install rust-t web-r web-fmt web-l web-dl web-t web-e2e core-r node-r dev-up dev-down dev-logs dev-reset dev-smoke compose-up compose-down compose-logs compose-reset compose-smoke codex-smoke clean

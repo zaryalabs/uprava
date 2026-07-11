@@ -41,7 +41,7 @@ function projection(): AgentProjection {
     active_warnings: [],
     recent_turn_summaries: [],
     recent_message_refs: [{ kind: "message", message_id: "message-1" }],
-    artifact_tree_summary: "summary",
+    evidence_projection_summary: "summary",
     available_block_types: [],
     available_commands: [],
     visible_refs: [],

@@ -207,19 +207,19 @@ A-010 находится на стыке нескольких механик:
 
 Core не должен читать файловую систему ноды напрямую. Его роль:
 
-- хранить project/workspace binding;
+- хранить Project/Placement binding;
 - проверять permissions;
 - маршрутизировать file/terminal/edit commands к нужной Node;
 - хранить event metadata;
-- хранить workspace refs;
+- хранить placement-scoped workspace refs без второй Workspace identity;
 - связывать edits/commands/diffs/checks с trace/review;
 - знать, какой sidecar IDE provider доступен, если он включен.
 
 Минимальные сущности:
 
 ```text
-WorkspaceBinding
-WorkspaceRef
+ProjectPlacement
+PlacementRef
 FileRef
 FileRangeRef
 WorkspaceEditRef
@@ -295,7 +295,7 @@ shape проектировать так, чтобы patch apply появился
 Базовый lifecycle:
 
 ```text
-CreateTerminal(workspace_binding_id, shell/profile)
+CreateTerminal(placement_id, shell/profile)
 -> Core checks terminal permission
 -> Node creates PTY in workspace cwd
 -> Web attaches to terminal stream
@@ -322,17 +322,19 @@ Workspace surface должна быть адресуемой.
 Примеры refs:
 
 ```text
-uprava://workspace/{workspace_id}/file/{path}
-uprava://workspace/{workspace_id}/file/{path}#L10-L20
-uprava://workspace/{workspace_id}/edit/{edit_id}
-uprava://workspace/{workspace_id}/terminal/{terminal_id}
-uprava://workspace/{workspace_id}/terminal/{terminal_id}/command/{command_id}
-uprava://workspace/{workspace_id}/diff/{diff_id}/hunk/{hunk_id}
-uprava://workspace/{workspace_id}/check/{check_run_id}/failure/{failure_id}
+uprava://workspace/{placement_id}/file/{path}
+uprava://workspace/{placement_id}/file/{path}#L10-L20
+uprava://workspace/{placement_id}/edit/{edit_id}
+uprava://workspace/{placement_id}/terminal/{terminal_id}
+uprava://workspace/{placement_id}/terminal/{terminal_id}/command/{command_id}
+uprava://workspace/{placement_id}/diff/{diff_id}/hunk/{hunk_id}
+uprava://workspace/{placement_id}/check/{check_run_id}/failure/{failure_id}
 ```
 
 Это не финальный URI contract, а direction: UI, trace, artifacts, review and
 agent prompts должны ссылаться на одни и те же workspace objects.
+В 0.2.0 `{placement_id}` является identity физического Placement; `Workspace`
+называет user-facing surface и не создаёт отдельную persisted entity или ref.
 
 ### Permissions and trust
 
@@ -385,7 +387,7 @@ FileEditor
 DiffViewer
 TerminalPanel
 CheckPanel
-WorkspaceRefLink
+PlacementWorkspaceLink
 ```
 
 Chosen first-party renderers:

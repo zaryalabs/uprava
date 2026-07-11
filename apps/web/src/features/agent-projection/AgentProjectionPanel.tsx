@@ -42,6 +42,7 @@ export function AgentProjectionPanel({
           ? sessionSummaryFromProjection(projection.data)
           : undefined,
         warningKind,
+        availableCommands: projection.data?.available_commands,
         afterSuccess: invalidateSessionState,
       }),
   });
@@ -55,7 +56,7 @@ export function AgentProjectionPanel({
     <section className="rounded-md border border-[#d9ded4] bg-white p-3">
       <h2 className="text-sm font-semibold">Agent Projection</h2>
       <div className="mt-2 space-y-2 text-sm text-[#536257]">
-        <div>{projection.data.artifact_tree_summary}</div>
+        <div>{projection.data.evidence_projection_summary}</div>
         <div>{projection.data.source_cause_summary}</div>
         {projection.data.active_warnings.length > 0 ? (
           <div className="space-y-2">
@@ -77,6 +78,7 @@ export function AgentProjectionPanel({
                       !canRunCommand("warning.acknowledge", {
                         session: sessionSummary,
                         warningKind: warning.kind,
+                        availableCommands: projection.data.available_commands,
                       })
                     }
                     onClick={() => acknowledgeWarning.mutate(warning.kind)}

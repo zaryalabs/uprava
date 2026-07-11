@@ -2,7 +2,7 @@
 
 Статус: `active`
 
-Current release baseline: `0.1.8`.
+Current release baseline: `0.2.0`.
 
 Этот ledger фиксирует implementation baselines. Он не заменяет
 [`feature-queue.md`](feature-queue.md), где остается ранжированная очередь
@@ -20,7 +20,8 @@ future work.
 | `0.1.5` | 2026-07-06 | shipped | Workspace intervention layer |
 | `0.1.6` | 2026-07-06 | shipped | Unified audit hardening |
 | `0.1.7` | 2026-07-06 | shipped | Workspace renderer and PTY terminal layer |
-| `0.1.8` | 2026-07-08 | current | CI/CD deployment automation and self-hosted Codex execution posture |
+| `0.1.8` | 2026-07-08 | shipped | CI/CD deployment automation and self-hosted Codex execution posture |
+| `0.2.0` | 2026-07-11 | current | Protocol v2 quality foundation, durable Core/Node state, workspace workbench and stable deployment paths |
 
 ## Current Baseline
 

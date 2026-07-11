@@ -16,8 +16,8 @@ export const queryKeys = {
   workspaceTerminals: (placementId: string) =>
     ["placement", placementId, "workspace-terminals"] as const,
   session: (sessionThreadId: string) => ["session", sessionThreadId] as const,
-  artifactTree: (sessionThreadId: string) =>
-    ["session", sessionThreadId, "artifact-tree"] as const,
+  sessionEvidenceProjection: (sessionThreadId: string) =>
+    ["session", sessionThreadId, "evidence-projection"] as const,
   agentProjection: (sessionThreadId: string) =>
     ["session", sessionThreadId, "agent-projection"] as const,
 };

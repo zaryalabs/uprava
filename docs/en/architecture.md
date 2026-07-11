@@ -1,5 +1,19 @@
 # Uprava Architecture
 
+## 0.2.0 public invariants and compatibility
+
+- Core is the sole authority for resource identity, legal state transitions,
+  command state and projected event state; publication occurs only after the
+  durable transaction commits.
+- Node is the sole authority for local SQLite state, workspaces, provider
+  processes and PTYs; bounded owner tasks persist progress before ACK/send and
+  join on shutdown.
+- HTTP failures use the typed `ApiError` envelope and carry `x-correlation-id`;
+  control failures use typed protocol results rather than free-form success.
+- Protocol v2, Core state slot `0.2.0` and Node state slot `0.2.0` form one
+  coordinated breaking boundary. Retained 0.1.8 state is never opened in place
+  by 0.2.0 and rollback selects the matching binary, config and state together.
+
 Status: `active`
 
 This document records the first architectural position on the Uprava
@@ -378,6 +392,70 @@ Client should not own durable workflow state.
 - reporting expected evidence;
 - exposing unresolved risks;
 - following the mode-specific contract.
+
+## 0.2.0 Quality Foundation Contracts
+
+### Project, Placement, And Workspace Identity
+
+- A `Project` is a Core-owned logical aggregate. Its identity is independent
+  of any Node or local path.
+- A `ProjectPlacement` is the physical binding of one Node and one canonical
+  local workspace path. Core persistence must enforce uniqueness of
+  `(node_id, canonical_workspace_path)`.
+- A `Workspace` is the user-facing workbench over a Placement, not another
+  persisted identity. The Core resource route is `/placements/:id`; the Web
+  workbench route is `/workspaces/:placement_id`.
+- One Project may own Placements on multiple Nodes. Core creates Project and
+  Placement identifiers; Node canonicalizes and validates paths and reports
+  local facts.
+- Heartbeat discovery and explicit binding converge on the same Placement for
+  a Node/path pair. Discovery creates or refreshes one unbound Placement;
+  explicit binding attaches it to a selected or newly created Project. A path
+  alone never implies cross-node Project identity.
+
+### Durable State Authority
+
+Core owns durable product state, legal domain transitions and the global event
+record. Numbered SQLx migrations with checksums define its schema. Unknown
+persisted enum or state values are corruption or compatibility errors, not
+fallbacks to an initial state. Every duplicated index or projection has one
+documented authority and rebuild rule; normalized capability rows are
+authoritative; immutable event envelopes and their searchable projections are
+committed in one transaction; session/runtime links have one authoritative
+relation. Enrollment claim, Project/Placement binding, session creation, turn
+submission and event ingestion are units of work, and in-memory notification
+occurs only after commit.
+
+Node owns one transactional local state store and the long-lived local
+resources it operates. A daemon-level `NodeSupervisor` owns registration,
+heartbeat snapshots, command deduplication, runtime metadata, outbox state and
+shutdown. One state-store actor is the only durable-state writer. The 0.2.0
+store is SQLite, with separate tables for identity, command cache, outbox,
+runtime metadata, transcripts and provider resume references. A
+`RuntimeSupervisor` owns provider processes, cancellation, transcripts and
+resume state; a `TerminalSupervisor` owns PTY children independently of a
+control connection. Retention for completed commands, stopped runtimes,
+transcripts and acknowledged outbox entries is explicit and bounded.
+
+### Protocol V2 And Compatibility
+
+Protocol v2 is one coordinated breaking release across Core, Node and Web.
+Rust types in `uprava-protocol` are the source of truth; tracked JSON Schema,
+TypeScript types, runtime validators and canonical fixtures are generated for
+Web-facing roots and checked for drift. Built-in commands and events use tagged
+typed payloads; known kinds do not use arbitrary JSON, while an explicit
+extension variant remains available. Node-only control contracts do not enter
+the browser bundle, and ingress validation proves scope, target and identifier
+relationships.
+
+Compatibility with 0.1.x APIs, schemas and state is not required. There is no
+in-place 0.1.x migration: incompatible state must fail startup clearly with
+reset and re-enrollment guidance, never be silently reinterpreted or deleted.
+The first 0.2.0 run initializes clean stable Core and Node state/config paths.
+The 0.1.8 Core database, Node JSON state and matching configuration are kept in
+a verified offline archive only. Compatibility rollback to 0.1.8 is not
+supported; later compatible releases may roll back while sharing the stable
+schema.
 
 ## Connection Model
 

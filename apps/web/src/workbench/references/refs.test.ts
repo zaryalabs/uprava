@@ -19,6 +19,13 @@ describe("reference helpers", () => {
 
     expect(decodeUpravaRef(encodeUpravaRef(ref))).toEqual(ref);
     expect(refTitle(ref)).toBe("message message-1");
+    expect(encodeUpravaRef(ref)).toMatch(/^r1\.[A-Za-z0-9_-]+$/u);
+  });
+
+  it("rejects malformed, oversized, and unversioned inspector keys", () => {
+    expect(decodeUpravaRef("%7B%22kind%22%3A%22message%22%7D")).toBeNull();
+    expect(decodeUpravaRef("r1.not+base64url")).toBeNull();
+    expect(decodeUpravaRef(`r1.${"a".repeat(4_100)}`)).toBeNull();
   });
 
   it("round-trips reserved future refs through inspector URLs", () => {
@@ -111,7 +118,7 @@ describe("reference helpers", () => {
     ).toBe("/workspaces/placement-1");
     expect(
       routeForRef({ kind: "placement", placement_id: "placement-1" }),
-    ).toBe("/placements/placement-1");
+    ).toBe("/workspaces/placement-1");
     expect(
       routeForRef({ kind: "session", session_thread_id: "session-1" }),
     ).toBe("/sessions/session-1");

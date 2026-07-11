@@ -1,10 +1,28 @@
-FROM rust:1.90-bookworm AS builder
+FROM rust:1.88-bookworm@sha256:af306cfa71d987911a781c37b59d7d67d934f49684058f96cf72079c3626bfe0 AS builder
 WORKDIR /app
+ARG UPRAVA_GIT_SHA=unknown
 ENV CARGO_BUILD_JOBS=1 \
-    CARGO_INCREMENTAL=0
+    CARGO_INCREMENTAL=0 \
+    UPRAVA_BUILD_GIT_SHA=${UPRAVA_GIT_SHA}
 COPY . .
-RUN cargo build --release --bin uprava-server --bin uprava-node
+RUN --mount=type=cache,target=/usr/local/cargo/registry,sharing=locked \
+    --mount=type=cache,target=/app/target,sharing=locked \
+    cargo build --locked --release -p uprava-node --bin uprava-node \
+    && cp /app/target/release/uprava-node /app/uprava-node
 
-FROM debian:bookworm-slim
-COPY --from=builder /app/target/release/uprava-node /usr/local/bin/uprava-node
+FROM debian:bookworm-slim@sha256:60eac759739651111db372c07be67863818726f754804b8707c90979bda511df
+RUN groupadd --system --gid 10001 uprava \
+    && useradd --system --uid 10001 --gid uprava --home-dir /var/lib/uprava \
+        --create-home --shell /usr/sbin/nologin uprava \
+    && install -d -o uprava -g uprava /var/lib/uprava-node \
+        /var/lib/uprava/.local/share /var/lib/uprava/.local/state \
+        /var/lib/uprava/.local/logs /workspaces
+COPY --from=builder --chown=0:0 /app/uprava-node /usr/local/bin/uprava-node
+COPY --from=builder --chown=0:0 /etc/ssl/certs/ca-certificates.crt /etc/ssl/certs/ca-certificates.crt
+ENV HOME=/var/lib/uprava \
+    XDG_DATA_HOME=/var/lib/uprava/.local/share \
+    UPRAVA_NODE_STATE_PATH=/var/lib/uprava-node/node.sqlite \
+    UPRAVA_NODE_WORKSPACES=/workspaces \
+    UPRAVA_NODE_LOG_FILE=/var/lib/uprava-node/node.log
+USER uprava
 CMD ["uprava-node"]

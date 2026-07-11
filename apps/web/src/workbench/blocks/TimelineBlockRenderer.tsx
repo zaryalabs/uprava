@@ -11,8 +11,8 @@ import {
   User,
 } from "lucide-react";
 
-import type { UiBlock } from "../../shared/protocol/types";
 import { Badge } from "../../shared/ui/badge";
+import type { UiBlock } from "./types";
 
 type BadgeTone = "neutral" | "good" | "warn" | "bad" | "info";
 

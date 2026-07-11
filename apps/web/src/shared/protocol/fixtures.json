@@ -1,0 +1,137 @@
+{
+  "command_accepted": {
+    "command_id": "command-fixture",
+    "session": null
+  },
+  "event_envelope": {
+    "actor_ref": {
+      "kind": "system"
+    },
+    "cause_refs": [],
+    "command_id": null,
+    "event_id": "event-fixture",
+    "evidence_refs": [],
+    "happened_at": "2026-07-10T12:00:00Z",
+    "kind": "runtime.ready",
+    "node_id": null,
+    "payload": {
+      "code": null,
+      "expiry_seconds": null,
+      "message": null,
+      "mode": null,
+      "provider": "fixture",
+      "provider_resume_ref": null,
+      "reason": null,
+      "resume_source": null,
+      "transcript_messages": null,
+      "type": "runtime_ready"
+    },
+    "result_refs": [],
+    "runtime_session_id": null,
+    "scope_ref": {
+      "kind": "unknown",
+      "scope": "fixture"
+    },
+    "seq": 1,
+    "session_thread_id": null,
+    "source_refs": [],
+    "turn_id": null
+  },
+  "workspace_command_history": {
+    "commands": [
+      {
+        "command_id": "command-fixture",
+        "completed_at": "2026-07-10T12:00:00Z",
+        "created_at": "2026-07-10T12:00:00Z",
+        "kind": "RunWorkspaceCommand",
+        "payload": {
+          "args": [
+            "l"
+          ],
+          "command": "make"
+        },
+        "result_payload": {
+          "success": true
+        },
+        "state": "completed"
+      }
+    ],
+    "generated_at": "2026-07-10T12:00:00Z",
+    "placement_id": "placement-fixture"
+  },
+  "workspace_command_run": {
+    "args": [
+      "l"
+    ],
+    "command": "make",
+    "completed_at": "2026-07-10T12:00:00Z",
+    "duration_ms": 12,
+    "exit_code": 0,
+    "intent": "check",
+    "label": "Light checks",
+    "placement_id": "placement-fixture",
+    "started_at": "2026-07-10T12:00:00Z",
+    "stderr": "",
+    "stderr_truncated": false,
+    "stdout": "ok\n",
+    "stdout_truncated": false,
+    "success": true,
+    "terminal_command_id": "terminal-command-fixture"
+  },
+  "workspace_terminal_list": {
+    "generated_at": "2026-07-10T12:00:00Z",
+    "placement_id": "placement-fixture",
+    "terminals": [
+      {
+        "cols": 120,
+        "created_at": "2026-07-10T12:00:00Z",
+        "cwd": "/workspace",
+        "exit_code": null,
+        "placement_id": "placement-fixture",
+        "rows": 40,
+        "shell": "/bin/sh",
+        "state": "running",
+        "terminal_id": "terminal-fixture",
+        "title": "Fixture shell",
+        "updated_at": "2026-07-10T12:00:00Z"
+      }
+    ]
+  },
+  "workspace_terminal_open": {
+    "placement_id": "placement-fixture",
+    "replay": [
+      {
+        "data": "ready\n",
+        "sent_at": "2026-07-10T12:00:00Z",
+        "seq": 1,
+        "terminal_id": "terminal-fixture"
+      }
+    ],
+    "terminal": {
+      "cols": 120,
+      "created_at": "2026-07-10T12:00:00Z",
+      "cwd": "/workspace",
+      "exit_code": null,
+      "placement_id": "placement-fixture",
+      "rows": 40,
+      "shell": "/bin/sh",
+      "state": "running",
+      "terminal_id": "terminal-fixture",
+      "title": "Fixture shell",
+      "updated_at": "2026-07-10T12:00:00Z"
+    }
+  },
+  "workspace_terminal_output": {
+    "data": "ready\n",
+    "sent_at": "2026-07-10T12:00:00Z",
+    "seq": 1,
+    "terminal_id": "terminal-fixture"
+  },
+  "workspace_terminal_stream": {
+    "data": "ready\n",
+    "kind": "output",
+    "sent_at": "2026-07-10T12:00:00Z",
+    "seq": 1,
+    "terminal_id": "terminal-fixture"
+  }
+}

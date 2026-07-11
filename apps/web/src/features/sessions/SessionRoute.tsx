@@ -20,7 +20,7 @@ import {
   routeForRef,
   workspaceRefForPlacement,
 } from "../../workbench/references/refs";
-import { ArtifactTree } from "../artifacts/ArtifactTree";
+import { EvidenceProjection } from "../artifacts/EvidenceProjection";
 import { AgentProjectionPanel } from "../agent-projection/AgentProjectionPanel";
 import { ChatComposer } from "./ChatComposer";
 import { LifecycleControls } from "./LifecycleControls";
@@ -32,6 +32,11 @@ export function SessionRoute() {
   const session = useQuery({
     queryKey: queryKeys.session(sessionThreadId ?? ""),
     queryFn: () => coreApi.session(sessionThreadId ?? ""),
+    enabled: Boolean(sessionThreadId),
+  });
+  const agentProjection = useQuery({
+    queryKey: queryKeys.agentProjection(sessionThreadId ?? ""),
+    queryFn: () => coreApi.agentProjection(sessionThreadId ?? ""),
     enabled: Boolean(sessionThreadId),
   });
   const invalidateSession = async () => {
@@ -46,6 +51,7 @@ export function SessionRoute() {
         session: session.data?.session,
         runtime: session.data?.session.runtime,
         turnContent: content,
+        availableCommands: agentProjection.data?.available_commands,
         afterSuccess: invalidateSession,
       }),
   });
@@ -72,7 +78,7 @@ export function SessionRoute() {
         });
       },
     );
-  }, [queryClient, session.data?.events, sessionThreadId]);
+  }, [queryClient, session.data?.session.session_thread_id, sessionThreadId]);
 
   if (session.isError) {
     return <ErrorNotice error={session.error} title="Session load failed" />;
@@ -87,6 +93,7 @@ export function SessionRoute() {
     session: session.data.session,
     runtime: session.data.session.runtime,
     turnContent: "ready",
+    availableCommands: agentProjection.data?.available_commands,
   });
   const projectRef = projectRefForPlacement(session.data.placement);
   const workspaceRef = workspaceRefForPlacement(session.data.placement);
@@ -142,10 +149,14 @@ export function SessionRoute() {
             <LifecycleControls
               session={session.data.session}
               runtime={session.data.session.runtime}
+              availableCommands={agentProjection.data?.available_commands ?? []}
             />
           </div>
         </header>
-        <SessionTimeline detail={session.data} />
+        <SessionTimeline
+          detail={session.data}
+          availableCommands={agentProjection.data?.available_commands ?? []}
+        />
         {sendTurn.isError ? (
           <ErrorNotice error={sendTurn.error} title="Send failed" />
         ) : null}
@@ -156,7 +167,7 @@ export function SessionRoute() {
         />
       </div>
       <aside className="space-y-4">
-        <ArtifactTree
+        <EvidenceProjection
           sessionThreadId={session.data.session.session_thread_id}
         />
         <AgentProjectionPanel

@@ -1,65 +1,34 @@
-export type DeploymentProfile = "controlled_dev";
-export type NodePresence = "reachable" | "stale" | "offline" | "revoked";
-export type RuntimeSessionState =
-  | "starting"
-  | "ready"
-  | "running"
-  | "blocked"
-  | "stopping"
-  | "stopped"
-  | "interrupted"
-  | "resuming"
-  | "stale"
-  | "error"
-  | "expired";
-export type SessionThreadState =
-  | "created"
-  | "active"
-  | "detached"
-  | "stopped"
-  | "degraded";
-export type PlacementState =
-  | "pending"
-  | "validated"
-  | "missing"
-  | "read_only"
-  | "error";
-export type WarningSeverity = "info" | "warning" | "hard_block";
-export type ClientLogLevel = "debug" | "info" | "warn" | "error";
-export type CommandState =
-  | "recorded"
-  | "pending_dispatch"
-  | "dispatched"
-  | "acknowledged"
-  | "completed"
-  | "failed"
-  | "blocked"
-  | "expired";
-export type CommandKind =
-  | "StartRuntime"
-  | "ResumeRuntime"
-  | "SendTurn"
-  | "ResolveApproval"
-  | "InterruptRuntime"
-  | "StopRuntime"
-  | "ValidateWorkspace"
-  | "RefreshResourceSnapshot"
-  | "ListWorkspaceTree"
-  | "ReadWorkspaceFile"
-  | "WriteWorkspaceFile"
-  | "RunWorkspaceCommand"
-  | "ReadWorkspaceDiff"
-  | "OpenWorkspaceTerminal"
-  | "AttachWorkspaceTerminal"
-  | "ResizeWorkspaceTerminal"
-  | "WriteWorkspaceTerminal"
-  | "CloseWorkspaceTerminal";
-export type MessageRole =
-  | "user"
-  | "assistant"
-  | "system"
-  | "runtime"
-  | "approval";
+import type {
+  CLIENT_LOG_LEVEL_VALUES,
+  ACTION_CAPABILITY_VALUES,
+  COMMAND_KIND_VALUES,
+  COMMAND_STATE_VALUES,
+  DEPLOYMENT_PROFILE_VALUES,
+  EVENT_KIND_VALUES,
+  MESSAGE_ROLE_VALUES,
+  NODE_PRESENCE_VALUES,
+  PLACEMENT_STATE_VALUES,
+  RUNTIME_SESSION_STATE_VALUES,
+  SESSION_THREAD_STATE_VALUES,
+  WARNING_SEVERITY_VALUES,
+  WORKSPACE_COMMAND_INTENT_VALUES,
+  WORKSPACE_ENTRY_KIND_VALUES,
+  WORKSPACE_ENTRY_STATUS_VALUES,
+  WORKSPACE_TERMINAL_STATE_VALUES,
+} from "./literals";
+
+export type DeploymentProfile = (typeof DEPLOYMENT_PROFILE_VALUES)[number];
+export type NodePresence = (typeof NODE_PRESENCE_VALUES)[number];
+export type RuntimeSessionState = (typeof RUNTIME_SESSION_STATE_VALUES)[number];
+export type SessionThreadState = (typeof SESSION_THREAD_STATE_VALUES)[number];
+export type PlacementState = (typeof PLACEMENT_STATE_VALUES)[number];
+export type WarningSeverity = (typeof WARNING_SEVERITY_VALUES)[number];
+export type ClientLogLevel = (typeof CLIENT_LOG_LEVEL_VALUES)[number];
+export type CommandState = (typeof COMMAND_STATE_VALUES)[number];
+export type CommandKind = (typeof COMMAND_KIND_VALUES)[number];
+export type EventKind = (typeof EVENT_KIND_VALUES)[number];
+export type ActionCapability = (typeof ACTION_CAPABILITY_VALUES)[number];
+export type MessageRole = (typeof MESSAGE_ROLE_VALUES)[number];
 export type EnrollmentState =
   | "pending_user_approval"
   | "approved"
@@ -77,6 +46,7 @@ export type HealthResponse = {
 export type VersionResponse = {
   name: string;
   version: string;
+  release_id: string;
   api_version: string;
   schema_version: number;
   profile: DeploymentProfile;
@@ -102,8 +72,20 @@ export type ApiError = {
 
 export type CapabilitySummary = {
   key: string;
-  value: unknown;
+  value: CapabilityValue;
 };
+
+export type CapabilityValue =
+  | {
+      kind: "provider";
+      available: boolean;
+      configured: boolean;
+      mode: string;
+      timeout_seconds: number | null;
+      unavailable_reason: string | null;
+    }
+  | { kind: "workspace_validation"; mode: string }
+  | { kind: "extension"; name: string; value: unknown };
 
 export type NodeSummary = {
   node_id: string;
@@ -133,28 +115,20 @@ export type ProjectPlacementSummary = {
   last_validated_at: string | null;
 };
 
-export type WorkspaceEntryKind = "directory" | "file" | "symlink" | "other";
+export type WorkspaceEntryKind = (typeof WORKSPACE_ENTRY_KIND_VALUES)[number];
 
 export type WorkspaceEntryStatus =
-  | "readable"
-  | "directory"
-  | "large"
-  | "binary"
-  | "ignored"
-  | "generated"
-  | "permission_denied"
-  | "outside_workspace"
-  | "missing"
-  | "not_file"
-  | "not_directory"
-  | "symlink"
-  | "error";
+  (typeof WORKSPACE_ENTRY_STATUS_VALUES)[number];
+
+export type WorkspaceEntryClassification = "normal" | "generated" | "ignored";
 
 export type WorkspaceEntry = {
   name: string;
   path: string;
   kind: WorkspaceEntryKind;
   status: WorkspaceEntryStatus;
+  classification: WorkspaceEntryClassification;
+  expandable: boolean;
   byte_len: number | null;
   modified_at: string | null;
   children: WorkspaceEntry[];
@@ -163,6 +137,8 @@ export type WorkspaceEntry = {
 export type WorkspaceTreeResponse = {
   placement_id: string;
   root: WorkspaceEntry;
+  truncated: boolean;
+  total_entries: number | null;
   generated_at: string;
 };
 
@@ -189,7 +165,8 @@ export type WorkspaceFileWriteResponse = {
   written_at: string;
 };
 
-export type WorkspaceCommandIntent = "command" | "check";
+export type WorkspaceCommandIntent =
+  (typeof WORKSPACE_COMMAND_INTENT_VALUES)[number];
 
 export type WorkspaceCommandRunRequest = {
   command: string;
@@ -244,12 +221,7 @@ export type WorkspaceCommandHistoryResponse = {
 };
 
 export type WorkspaceTerminalState =
-  | "opening"
-  | "running"
-  | "detached"
-  | "exited"
-  | "closed"
-  | "error";
+  (typeof WORKSPACE_TERMINAL_STATE_VALUES)[number];
 
 export type WorkspaceTerminalOpenRequest = {
   shell_profile: string | null;
@@ -363,31 +335,104 @@ export type EventEnvelope = {
   turn_id: string | null;
   seq: number;
   session_projection_seq?: number | null;
-  kind: string;
+  kind: EventKind;
   happened_at: string;
   source_refs: UpravaRef[];
   evidence_refs: UpravaRef[];
   cause_refs: UpravaRef[];
   result_refs: UpravaRef[];
-  payload: unknown;
+  payload: EventPayload;
 };
 
-export type UiBlock = {
-  block_id: string;
-  type: string;
-  schema_version: number;
-  surface_id: string;
-  primary_ref: UpravaRef;
-  parent_ref?: UpravaRef | null;
-  children: UiBlock[];
-  source_refs: UpravaRef[];
-  evidence_refs: UpravaRef[];
-  cause_refs: UpravaRef[];
-  related_refs: UpravaRef[];
-  trace_refs: UpravaRef[];
-  data: unknown;
-  actions: string[];
-  fallback_text?: string | null;
+export type EventPayload =
+  | ({ type: RuntimeStatePayloadType } & RuntimeStateEventData)
+  | { type: "runtime_error"; code: string; message: string }
+  | { type: "turn_started" }
+  | { type: "turn_completed" }
+  | {
+      type: "turn_interrupted";
+      provider: string | null;
+      code: string | null;
+      message: string | null;
+    }
+  | ({ type: "provider_activity" } & ProviderActivityEventData)
+  | { type: "provider_output_delta"; content: string }
+  | { type: "provider_message_completed"; content: string }
+  | {
+      type: "approval_requested";
+      approval_id: string;
+      prompt: string;
+      provider: string | null;
+      provider_event_type: string | null;
+      source: string | null;
+    }
+  | {
+      type: "approval_resolved";
+      approval_id: string;
+      approved: boolean;
+      message: string;
+    }
+  | {
+      type: "coordination_warning_acknowledged";
+      warning_kind: string;
+      message: string | null;
+      affected_refs: UpravaRef[];
+    }
+  | ({ type: "workspace_validated" } & WorkspaceSnapshotEventData)
+  | ({ type: "resource_snapshot_updated" } & WorkspaceSnapshotEventData)
+  | { type: "extension"; name: string; value: unknown };
+
+type RuntimeStatePayloadType =
+  | "runtime_starting"
+  | "runtime_ready"
+  | "runtime_running"
+  | "runtime_blocked"
+  | "runtime_expired"
+  | "runtime_resuming"
+  | "runtime_stopped";
+
+type RuntimeStateEventData = {
+  provider: string | null;
+  mode: string | null;
+  resume_source: string | null;
+  provider_resume_ref: unknown | null;
+  transcript_messages: number | null;
+  reason: string | null;
+  code: string | null;
+  message: string | null;
+  expiry_seconds: number | null;
+};
+
+type ProviderActivityEventData = {
+  provider: string | null;
+  source: string | null;
+  provider_event_type: string | null;
+  provider_item_id: string | null;
+  provider_item_type: string | null;
+  phase: string | null;
+  status: string | null;
+  summary: string | null;
+  raw_event: unknown | null;
+  raw_event_truncated: boolean | null;
+  raw_event_original_chars: number | null;
+  raw_event_preview: string | null;
+  dropped_count: number | null;
+  stream: string | null;
+  limit_bytes: number | null;
+  stdout_truncated: boolean | null;
+  stderr_truncated: boolean | null;
+  dropped_activity_count: number | null;
+  max_process_output_bytes: number | null;
+  max_activity_events: number | null;
+  extension: unknown | null;
+};
+
+type WorkspaceSnapshotEventData = {
+  placement_id: string;
+  display_name: string;
+  workspace_path: string;
+  state: PlacementState;
+  resource_badges: ResourceBadge[];
 };
 
 export type InventorySnapshot = {
@@ -582,19 +627,19 @@ export type TextRange = {
   end_offset?: number | null;
 };
 
-export type ArtifactTreeNode = {
-  artifact_id: string;
+export type SessionEvidenceProjectionNode = {
+  evidence_id: string;
   label: string;
   primary_ref: UpravaRef;
   source_refs: UpravaRef[];
   evidence_refs: UpravaRef[];
   cause_refs: UpravaRef[];
-  children: ArtifactTreeNode[];
+  children: SessionEvidenceProjectionNode[];
 };
 
-export type ArtifactTree = {
+export type SessionEvidenceProjection = {
   session_thread_id: string;
-  root: ArtifactTreeNode;
+  root: SessionEvidenceProjectionNode;
   generated_at: string;
 };
 
@@ -607,9 +652,9 @@ export type AgentProjection = {
   active_warnings: ResourceBadge[];
   recent_turn_summaries: string[];
   recent_message_refs: UpravaRef[];
-  artifact_tree_summary: string;
+  evidence_projection_summary: string;
   available_block_types: string[];
-  available_commands: string[];
+  available_commands: ActionCapability[];
   visible_refs: UpravaRef[];
   source_cause_summary: string;
   resume_context: string;

@@ -53,6 +53,28 @@ includes a clean empty database and the previous dev `nodes` table shape without
 you need evidence, then delete the broken local state or use `make
 dev-reset` for the Compose volume.
 
+## 0.2.0 Breaking Reset Contract
+
+0.2.0 uses stable development paths such as `.local/state/core/core.sqlite`
+and `~/.local/share/uprava-node/node.sqlite`. Existing 0.1.8 state must be
+archived before the first run and is not imported. If selected state has the
+wrong schema or format, startup fails with an actionable incompatible-state
+error; it does not reinterpret or delete that state.
+
+Clean 0.2.0 reset procedure:
+
+1. stop Core, Web and Node and copy any 0.2.0 evidence needed for diagnosis;
+2. remove or reinitialize the stable Core and Node development state paths;
+3. start Core with empty stable Core state and matching config;
+4. start Node with empty stable SQLite state and matching config;
+5. create and explicitly approve a new enrollment, then rebind Projects and
+   Placements;
+6. run the clean-state smoke flow.
+
+The old Node JSON state is not imported, so re-enrollment is mandatory. Reset
+must never delete the offline legacy archive. Compatibility rollback to 0.1.8
+is not supported.
+
 ## Security Profile
 
 `controlled_dev` is the only supported V01 development profile. Browser auth is
@@ -130,7 +152,7 @@ make node-r
 ```
 
 The Node writes local development state to
-`~/.local/share/uprava-node/node.json` by default and logs the short-lived
+`~/.local/share/uprava-node/0.2.0/node.sqlite` by default and logs the short-lived
 `enrollment_id`. That state includes a stable `daemon_installation_id` used for
 local diagnostics; the pairing code stays in local Node state for the claim
 request and is not logged. Approve the enrollment through Core:
@@ -160,6 +182,10 @@ credential in the authorization header, sends a `control.hello` frame, receives
 `command.result` frames. If either side receives a control frame with an
 unsupported protocol version, it replies with `control.error` using
 `control.protocol_incompatible` and does not execute that command batch.
+
+For 0.2.0 this becomes protocol v2 as one coordinated breaking release across
+Core, Node and Web. Protocol-v1 API/schema/state compatibility is not required,
+and there is no in-place 0.1.x migration.
 
 Core records node-routed commands before dispatch. The command envelope remains
 stored as JSON for replay, and the command table also keeps queryable actor,
@@ -294,7 +320,7 @@ The Node can also run a minimal Codex adapter when a session is created with
 
 ```sh
 export UPRAVA_CODEX_BINARY=codex
-export UPRAVA_CODEX_TIMEOUT_SECONDS=120
+export UPRAVA_CODEX_TIMEOUT_SECONDS=86400
 ```
 
 Node advertises `provider.codex` as available only when `UPRAVA_CODEX_BINARY`
@@ -332,7 +358,7 @@ bounded node-local transcript path. Missing binary, startup failure, timeout,
 non-zero exit and empty final output map to `runtime.error` with user-safe
 provider codes:
 `provider.workspace_missing`, `provider.missing_binary`,
-`provider.start_failed`, `provider.start_timeout`, `provider.exec_failed` and
+`provider.start_failed`, `provider.execution_timeout`, `provider.exec_failed` and
 `provider.empty_output`.
 
 This is the accepted V01 Codex protocol after the local CLI spike: an exec-mode
@@ -366,7 +392,7 @@ Core deduplicates replayed events by `event_id`. A conflicting `seq` is
 rejected, and a detected sequence gap marks the session degraded and the
 runtime stale with a degraded reason for UI/read-model consumers.
 
-The session artifact tree and agent projection are rebuilt from Core
+The session evidence projection and agent projection are rebuilt from Core
 persistence. The projection includes current turn, pending approvals, active
 warnings, recent message refs, available commands and a safe resume context.
 Runtime-scoped events update `last_runtime_step_at`; healthy runtime events
@@ -390,7 +416,7 @@ SSE event so the client can refetch the snapshot.
 6. Send a turn and verify that user, assistant and runtime event blocks appear.
 7. Stop or resume the runtime from the session header controls.
 8. Reload the browser and verify that inventory, placement, session messages,
-   artifact tree and agent projection reload from Core.
+   evidence projection and agent projection reload from Core.
 
 ## Checks
 

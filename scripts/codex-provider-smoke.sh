@@ -9,7 +9,7 @@ CORE_URL="${CODEX_SMOKE_CORE_URL:-http://127.0.0.1:$CORE_PORT}"
 WEB_URL="${CODEX_SMOKE_WEB_URL:-http://127.0.0.1:$WEB_PORT}"
 STATE_DIR="${CODEX_SMOKE_STATE_DIR:-/private/tmp/uprava-codex-provider-smoke-$$}"
 WORKSPACE_PATH="${CODEX_SMOKE_WORKSPACE_PATH:-$STATE_DIR/workspace}"
-NODE_STATE_PATH="${CODEX_SMOKE_NODE_STATE_PATH:-$STATE_DIR/node.json}"
+NODE_STATE_PATH="${CODEX_SMOKE_NODE_STATE_PATH:-$STATE_DIR/node.sqlite}"
 CORE_DATABASE_URL="${CODEX_SMOKE_DATABASE_URL:-sqlite://$STATE_DIR/core.sqlite}"
 EXPECTED_NODE="${CODEX_SMOKE_NODE_NAME:-Host Codex Node}"
 SESSION_TITLE="${CODEX_SMOKE_SESSION_TITLE:-Codex provider smoke}"
@@ -267,7 +267,7 @@ if [ -z "$CODEX_BINARY" ] || ! command -v "$CODEX_BINARY" >/dev/null 2>&1; then
   fail "codex binary is not available; set UPRAVA_CODEX_BINARY or CODEX_SMOKE_CODEX_BINARY"
 fi
 
-mkdir -p "$STATE_DIR" "$WORKSPACE_PATH"
+mkdir -p "$STATE_DIR" "$WORKSPACE_PATH" "$(dirname "$NODE_STATE_PATH")"
 if [ ! -d "$WORKSPACE_PATH/.git" ]; then
   git -C "$WORKSPACE_PATH" init >/dev/null 2>&1 ||
     fail "failed to initialize disposable git workspace at $WORKSPACE_PATH"
@@ -295,6 +295,7 @@ authenticate
     UPRAVA_NODE_STATE_PATH="$NODE_STATE_PATH" \
     UPRAVA_NODE_WORKSPACES="$WORKSPACE_PATH" \
     UPRAVA_CODEX_BINARY="$CODEX_BINARY" \
+    UPRAVA_CODEX_IGNORE_USER_CONFIG="true" \
     UPRAVA_CODEX_TIMEOUT_SECONDS="$CODEX_TIMEOUT_SECONDS" \
     RUST_LOG="info,uprava_node=debug" \
     cargo run -p uprava-node

@@ -9,6 +9,13 @@ SOURCE_DIR ?= /srv/uprava-workspaces/uprava
 SYSTEMD_UNIT ?= uprava-node.service
 RELEASES_DIR ?= builds/releases
 RELEASE ?=
+CORE_CONFIG_LINK ?= .env
+NODE_CONFIG_LINK ?= /etc/uprava/node.env
+RELEASE_FAMILY ?= 0.2.0
+CORE_STATE_DIR ?= state/core
+CORE_CONFIG ?= configuration/core.env
+NODE_CONFIG ?= /etc/uprava/node.env
+NODE_STATE_PATH ?= /var/lib/uprava-node/node.sqlite
 
 .DEFAULT_GOAL := help
 
@@ -53,6 +60,11 @@ build-local: require-release ## Build a bootstrap release from SOURCE_DIR
 		echo "UPRAVA_RELEASE_ID=$(RELEASE)"; \
 		echo "UPRAVA_RELEASE_SHA=$$sha"; \
 		echo "UPRAVA_RELEASE_AT=$$(date -u +%Y-%m-%dT%H:%M:%SZ)"; \
+		echo "UPRAVA_RELEASE_FAMILY=$(RELEASE_FAMILY)"; \
+		echo "UPRAVA_CORE_STATE_DIR=$(CORE_STATE_DIR)"; \
+		echo "UPRAVA_CORE_CONFIG=$(CORE_CONFIG)"; \
+		echo "UPRAVA_NODE_CONFIG=$(NODE_CONFIG)"; \
+		echo "UPRAVA_NODE_STATE_PATH=$(NODE_STATE_PATH)"; \
 		echo "UPRAVA_CORE_IMAGE=uprava-core:$(RELEASE)"; \
 		echo "UPRAVA_WEB_IMAGE=uprava-web:$(RELEASE)"; \
 		echo "UPRAVA_NODE_ARTIFACT=local-docker-extracted:uprava-node:$(RELEASE)"; \
@@ -60,10 +72,58 @@ build-local: require-release ## Build a bootstrap release from SOURCE_DIR
 	} > "builds/releases/$(RELEASE).env.release"
 
 activate: require-release ## Activate a locally available release
-	@test -f "$(RELEASES_DIR)/$(RELEASE).env.release" || { echo "Missing $(RELEASES_DIR)/$(RELEASE).env.release"; exit 1; }
-	$(SUDO) mkdir -p "$(RELEASES_DIR)/$(RELEASE)"
-	$(SUDO) ln -sfn "$(RELEASES_DIR)/$(RELEASE).env.release" .env.release
+	@set -eu; \
+	manifest="$(RELEASES_DIR)/$(RELEASE).env.release"; \
+	test -f "$$manifest" || { echo "Missing $$manifest"; exit 1; }; \
+	. "$$manifest"; \
+	test "$${UPRAVA_RELEASE_ID:-}" = "$(RELEASE)" || { echo "Manifest release identity mismatch" >&2; exit 1; }; \
+	test -n "$${UPRAVA_CORE_STATE_DIR:-}" || { echo "Manifest is missing UPRAVA_CORE_STATE_DIR" >&2; exit 1; }; \
+	test -f "$${UPRAVA_CORE_CONFIG:-}" || { echo "Missing Core config $${UPRAVA_CORE_CONFIG:-}" >&2; exit 1; }; \
+	test -f "$${UPRAVA_NODE_CONFIG:-}" || { echo "Missing Node config $${UPRAVA_NODE_CONFIG:-}" >&2; exit 1; }; \
+	grep -qx 'UPRAVA_DATABASE_URL=sqlite:///data/core.sqlite' "$$UPRAVA_CORE_CONFIG" || { echo "Core config must use the manifest-mounted /data/core.sqlite" >&2; exit 1; }; \
+	grep -qx "UPRAVA_NODE_STATE_PATH=$${UPRAVA_NODE_STATE_PATH:-}" "$$UPRAVA_NODE_CONFIG" || { echo "Node config state path does not match manifest" >&2; exit 1; }; \
+	test "$${UPRAVA_NODE_STATE_PATH:-}" = /var/lib/uprava-node/node.sqlite || { echo "Node state path must use the stable production path" >&2; exit 1; }; \
+	test "$${UPRAVA_CORE_STATE_DIR}" = state/core || { echo "Core state path must use the stable production path" >&2; exit 1; }; \
+	$(SUDO) mkdir -p "$(RELEASES_DIR)/$(RELEASE)" "$${UPRAVA_CORE_STATE_DIR}"; \
+	$(SUDO) ln -sfn "$$manifest" .env.release; \
+	$(SUDO) ln -sfn "$${UPRAVA_CORE_CONFIG}" "$(CORE_CONFIG_LINK)"; \
+	$(SUDO) ln -sfn "$${UPRAVA_NODE_CONFIG}" "$(NODE_CONFIG_LINK)"; \
 	$(SUDO) ln -sfn "$(RELEASES_DIR)/$(RELEASE)" current
+
+rollback: require-release ## Activate a selected prior release; deploy and smoke remain explicit
+	@set -eu; \
+	release="$(RELEASE)"; \
+	case "$$release" in \
+		''|[!A-Za-z0-9]*|*[!A-Za-z0-9._-]*) \
+			echo "Unsafe RELEASE=$$release; use an alphanumeric release id with only . _ - after the first character" >&2; \
+			exit 1; \
+		;; \
+	esac; \
+	manifest="$(RELEASES_DIR)/$$release.env.release"; \
+	test -f "$$manifest" || { echo "Missing $$manifest" >&2; exit 1; }; \
+	target_release="$$(sed -n 's/^UPRAVA_RELEASE_ID=//p' "$$manifest")"; \
+	if [ "$$target_release" != "$$release" ]; then \
+		echo "Refusing rollback: $$manifest declares UPRAVA_RELEASE_ID=$$target_release, expected $$release" >&2; \
+		exit 1; \
+	fi; \
+	if [ ! -e .env.release ]; then \
+		echo "Missing active .env.release; activate a release before rollback" >&2; \
+		exit 1; \
+	fi; \
+	active_release="$$(sed -n 's/^UPRAVA_RELEASE_ID=//p' .env.release | head -n 1)"; \
+	if [ -z "$$active_release" ]; then \
+		echo "Active .env.release is missing UPRAVA_RELEASE_ID" >&2; \
+		exit 1; \
+	fi; \
+	if [ "$$active_release" = "$$release" ]; then \
+		echo "Refusing rollback: RELEASE=$$release is already active" >&2; \
+		exit 1; \
+	fi; \
+	echo "Rollback preflight passed: $$active_release -> $$release"; \
+	echo "Ensure a verified backup exists before continuing; activation changes only release symlinks."; \
+	$(MAKE) --no-print-directory -f "$(firstword $(MAKEFILE_LIST))" activate RELEASE="$$release" RELEASES_DIR="$(RELEASES_DIR)" SUDO="$(SUDO)" CORE_CONFIG_LINK="$(CORE_CONFIG_LINK)" NODE_CONFIG_LINK="$(NODE_CONFIG_LINK)"; \
+	echo "Rollback release activated: $$release"; \
+	echo "Required follow-up (explicit): make deploy, then make smoke; inspect make status.";
 
 pull: ## Pull Core/Web images when they come from a registry
 	$(COMPOSE_CMD) pull --ignore-pull-failures
@@ -132,15 +192,29 @@ deploy: ## Pull, start/update, show status and run smoke
 
 smoke: ## Run local server smoke checks
 	$(COMPOSE_CMD) exec -T core uprava-server healthcheck 127.0.0.1:8080
-	$(COMPOSE_CMD) exec -T web node -e "const sleep=ms=>new Promise(r=>setTimeout(r,ms));(async()=>{let last;for(let i=0;i<20;i++){try{const r=await fetch('http://127.0.0.1:5173');if(!r.ok)throw new Error(String(r.status));const t=await r.text();if(!t.includes('Uprava'))throw new Error('missing title');return}catch(e){last=e;await sleep(500)}}throw last})()"
+	$(COMPOSE_CMD) exec -T web wget -qO- http://127.0.0.1:8080/health
 	sudo systemctl is-active --quiet $(SYSTEMD_UNIT)
 
 backup: ## Archive Core state directory
 	@set -eu; \
-	mkdir -p backups; \
-	tar -czf "backups/uprava-core-data-$$(date -u +%Y%m%d-%H%M%S).tgz" volumes/core-data
+	backup_id="$$(date -u +%Y%m%d-%H%M%S)"; \
+	mkdir -p "backups/$$backup_id"; \
+	"$(CURDIR)/../scripts/backup-sqlite.sh" \
+		"$${UPRAVA_CORE_STATE_DIR:-state/core}/core.sqlite" \
+		"backups/$$backup_id/core.sqlite"; \
+	tar -czf "backups/uprava-core-data-$$backup_id.tgz" -C "backups/$$backup_id" core.sqlite; \
+	rm -rf "backups/$$backup_id"
 
 restore: ## Restore Core state from BACKUP=<file>
 	@if [ -z "$(BACKUP)" ]; then echo "Set BACKUP=<file>"; exit 1; fi
 	@test -f "$(BACKUP)" || { echo "Missing backup $(BACKUP)"; exit 1; }
 	tar -xzf "$(BACKUP)"
+
+restore-verify: ## Verify a SQLite backup archive without activating it
+	@if [ -z "$(BACKUP)" ]; then echo "Set BACKUP=<file>"; exit 1; fi
+	@test -f "$(BACKUP)" || { echo "Missing backup $(BACKUP)"; exit 1; }
+	@set -eu; \
+	tmp_dir="$$(mktemp -d)"; \
+	trap 'rm -rf "$$tmp_dir"' EXIT INT TERM; \
+	tar -xzf "$(BACKUP)" -C "$$tmp_dir"; \
+	"$(CURDIR)/../scripts/verify-sqlite-backup.sh" "$$(find "$$tmp_dir" -name core.sqlite -type f -print -quit)"

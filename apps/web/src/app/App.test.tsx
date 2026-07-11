@@ -1,5 +1,11 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { cleanup, render, screen } from "@testing-library/react";
+import {
+  cleanup,
+  fireEvent,
+  render,
+  screen,
+  waitFor,
+} from "@testing-library/react";
 import { MemoryRouter } from "react-router-dom";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
@@ -28,15 +34,17 @@ describe("App routes", () => {
     expect(screen.getByText("Pair Node")).toBeVisible();
     expect(screen.getByText("not production-secure")).toBeVisible();
 
-    renderApp("/placements/placement-1");
+    renderApp("/workspaces/placement-1");
 
     expect(
-      await screen.findByRole("heading", { name: "Uprava" }),
+      await screen.findByRole(
+        "heading",
+        { name: "Uprava" },
+        { timeout: 5_000 },
+      ),
     ).toBeVisible();
     expect(screen.getAllByText("Dirty workspace").length).toBeGreaterThan(0);
-    expect(
-      screen.getByRole("button", { name: "Start Codex" }),
-    ).toBeEnabled();
+    expect(screen.getByRole("button", { name: "Start Codex" })).toBeEnabled();
 
     renderApp("/workspaces/placement-1");
 
@@ -45,8 +53,13 @@ describe("App routes", () => {
     ).toBeVisible();
     expect(await screen.findByText("Workspace Inspector")).toBeVisible();
     expect((await screen.findAllByText("README.md")).length).toBeGreaterThan(0);
+    fireEvent.click(screen.getByRole("treeitem", { name: "README.md" }));
     expect(
-      await screen.findByRole("region", { name: "File editor README.md" }),
+      await screen.findByRole(
+        "region",
+        { name: "File editor README.md" },
+        { timeout: 15_000 },
+      ),
     ).toBeVisible();
 
     renderApp("/projects/project-1");
@@ -66,8 +79,23 @@ describe("App routes", () => {
       "href",
       "/workspaces/placement-1",
     );
-    expect(await screen.findByText("Session-local index")).toBeVisible();
+    expect(
+      (await screen.findAllByText("Session evidence projection"))[0],
+    ).toBeVisible();
     expect(await screen.findByText("session.sendTurn")).toBeVisible();
+    expect(MockEventSource.created).toBe(1);
+    MockEventSource.latest?.emit("uprava.event", {
+      ...messageEvent,
+      event_id: "event-streamed",
+      seq: 2,
+      session_projection_seq: 2,
+      payload: {
+        type: "provider_message_completed",
+        content: "Streamed reply",
+      },
+    });
+    expect(await screen.findByText("Streamed reply")).toBeVisible();
+    await waitFor(() => expect(MockEventSource.created).toBe(1));
 
     renderApp("/settings/runtime");
 
@@ -75,9 +103,9 @@ describe("App routes", () => {
       await screen.findByRole("heading", { name: "Runtime Settings" }),
     ).toBeVisible();
     expect(await screen.findByText("uprava-core 0.1.8")).toBeVisible();
-    expect(screen.getByText("v1")).toBeVisible();
+    expect(screen.getByText("v2")).toBeVisible();
     expect(screen.getByText("1")).toBeVisible();
-  });
+  }, 45_000);
 });
 
 function renderApp(path: string) {
@@ -85,6 +113,7 @@ function renderApp(path: string) {
   vi.unstubAllGlobals();
   vi.stubGlobal("fetch", vi.fn(mockFetch));
   vi.stubGlobal("EventSource", MockEventSource);
+  MockEventSource.reset();
 
   const queryClient = new QueryClient({
     defaultOptions: {
@@ -103,13 +132,32 @@ function renderApp(path: string) {
 }
 
 class MockEventSource {
+  static created = 0;
+  static latest: MockEventSource | null = null;
   onerror: (() => void) | null = null;
+  private listeners = new Map<string, (event: MessageEvent) => void>();
 
-  constructor(readonly url: string) {}
+  constructor(readonly url: string) {
+    MockEventSource.created += 1;
+    MockEventSource.latest = this;
+  }
 
-  addEventListener() {}
+  addEventListener(type: string, listener: (event: MessageEvent) => void) {
+    this.listeners.set(type, listener);
+  }
+
+  emit(type: string, payload: unknown) {
+    this.listeners.get(type)?.({
+      data: JSON.stringify(payload),
+    } as MessageEvent);
+  }
 
   close() {}
+
+  static reset() {
+    MockEventSource.created = 0;
+    MockEventSource.latest = null;
+  }
 }
 
 async function mockFetch(input: RequestInfo | URL) {
@@ -142,7 +190,7 @@ function responseForPath(pathname: string) {
       return {
         name: "uprava-core",
         version: "0.1.8",
-        api_version: "v1",
+        api_version: "v2",
         schema_version: 1,
         profile: "controlled_dev",
       };
@@ -160,8 +208,8 @@ function responseForPath(pathname: string) {
       return workspaceTerminals;
     case "/api/v1/sessions/session-1":
       return sessionDetail;
-    case "/api/v1/sessions/session-1/artifact-tree":
-      return artifactTree;
+    case "/api/v1/sessions/session-1/evidence-projection":
+      return evidenceProjection;
     case "/api/v1/sessions/session-1/agent-projection":
       return agentProjection;
     default:
@@ -211,7 +259,19 @@ const inventory = {
       sleep_hint: "unknown",
       heartbeat_age_seconds: 4,
       active_runtime_count: 1,
-      capabilities: [{ key: "provider.codex", value: { configured: true } }],
+      capabilities: [
+        {
+          key: "provider.codex",
+          value: {
+            kind: "provider",
+            available: true,
+            configured: true,
+            mode: "exec",
+            timeout_seconds: 120,
+            unavailable_reason: null,
+          },
+        },
+      ],
       diagnostics: "ok",
     },
   ],
@@ -222,12 +282,16 @@ const inventory = {
 
 const workspaceTree = {
   placement_id: "placement-1",
+  truncated: false,
+  total_entries: 1,
   generated_at: "2026-06-17T00:00:00Z",
   root: {
     name: ".",
     path: ".",
     kind: "directory",
     status: "directory",
+    classification: "normal",
+    expandable: true,
     byte_len: null,
     modified_at: null,
     children: [
@@ -236,6 +300,8 @@ const workspaceTree = {
         path: "README.md",
         kind: "file",
         status: "readable",
+        classification: "normal",
+        expandable: false,
         byte_len: 12,
         modified_at: "2026-06-17T00:00:00Z",
         children: [],
@@ -252,6 +318,8 @@ const workspaceFile = {
     path: "README.md",
     kind: "file",
     status: "readable",
+    classification: "normal",
+    expandable: false,
     byte_len: 12,
     modified_at: "2026-06-17T00:00:00Z",
     children: [],
@@ -283,7 +351,10 @@ const messageEvent = {
   evidence_refs: [],
   cause_refs: [],
   result_refs: [],
-  payload: { content: "Assistant reply" },
+  payload: {
+    type: "provider_message_completed",
+    content: "Assistant reply",
+  },
 };
 
 const sessionDetail = {
@@ -304,12 +375,12 @@ const sessionDetail = {
   events: [messageEvent],
 };
 
-const artifactTree = {
+const evidenceProjection = {
   session_thread_id: "session-1",
   generated_at: "2026-06-17T00:00:00Z",
   root: {
-    artifact_id: "artifact-root",
-    label: "Session-local index",
+    evidence_id: "session:session-1",
+    label: "Session evidence projection",
     primary_ref: { kind: "session", session_thread_id: "session-1" },
     source_refs: [],
     evidence_refs: [],
@@ -327,7 +398,7 @@ const agentProjection = {
   active_warnings: [],
   recent_turn_summaries: ["turn-1 running"],
   recent_message_refs: [{ kind: "message", message_id: "message-assistant" }],
-  artifact_tree_summary: "Session-local index",
+  evidence_projection_summary: "Session evidence projection",
   available_block_types: ["core.assistant-message"],
   available_commands: ["session.sendTurn"],
   visible_refs: [{ kind: "session", session_thread_id: "session-1" }],

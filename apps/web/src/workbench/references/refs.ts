@@ -5,28 +5,41 @@ import type {
 
 export const INSPECT_QUERY_PARAM = "inspect";
 const MAX_INSPECTOR_STACK_DEPTH = 8;
+const REFERENCE_KEY_VERSION = "r1";
+const MAX_REFERENCE_KEY_CHARS = 4_096;
+const MAX_REFERENCE_JSON_CHARS = 3_072;
 
 export function encodeUpravaRef(ref: UpravaRef) {
-  return encodeURIComponent(JSON.stringify(ref));
+  return encodeReferenceKey(ref);
 }
 
 export function encodeInspectorStack(refs: UpravaRef[]) {
-  return encodeURIComponent(JSON.stringify(refs));
+  return refs
+    .slice(-MAX_INSPECTOR_STACK_DEPTH)
+    .map(encodeReferenceKey)
+    .join("~");
 }
 
 export function decodeUpravaRef(
   value: string | null | undefined,
 ): UpravaRef | null {
-  const decoded = decodeJsonValue(value);
-  return isUpravaRef(decoded) ? decoded : null;
+  return decodeReferenceKey(value);
 }
 
 export function decodeInspectorStack(
   value: string | null | undefined,
 ): UpravaRef[] {
-  const decoded = decodeJsonValue(value);
-  if (Array.isArray(decoded)) return decoded.filter(isUpravaRef);
-  return isUpravaRef(decoded) ? [decoded] : [];
+  if (
+    !value ||
+    value.length > MAX_REFERENCE_KEY_CHARS * MAX_INSPECTOR_STACK_DEPTH
+  ) {
+    return [];
+  }
+  return value
+    .split("~")
+    .slice(-MAX_INSPECTOR_STACK_DEPTH)
+    .map(decodeReferenceKey)
+    .filter((ref): ref is UpravaRef => ref !== null);
 }
 
 export function pushInspectorRef(
@@ -85,7 +98,7 @@ export function routeForRef(
     case "project":
       return routeFromString("/projects", stringField(ref, "project_id"));
     case "placement":
-      return routeFromString("/placements", stringField(ref, "placement_id"));
+      return routeFromString("/workspaces", stringField(ref, "placement_id"));
     case "workspace":
       return routeFromString("/workspaces", stringField(ref, "placement_id"));
     case "session":
@@ -221,33 +234,120 @@ function stringField(ref: UpravaRef, field: string) {
 
 export function sameRef(left: UpravaRef | null | undefined, right: UpravaRef) {
   if (!left) return false;
-  return copyReferenceText(left) === copyReferenceText(right);
+  return (
+    JSON.stringify(canonicalize(left)) === JSON.stringify(canonicalize(right))
+  );
 }
 
-function decodeJsonValue(value: string | null | undefined): unknown {
-  if (!value) return null;
-  const candidates = [value];
+function encodeReferenceKey(ref: UpravaRef) {
+  if (!isUpravaRef(ref)) {
+    throw new Error("Cannot encode an invalid Uprava reference");
+  }
+  const json = JSON.stringify(canonicalize(ref));
+  if (json.length > MAX_REFERENCE_JSON_CHARS) {
+    throw new Error("Uprava reference exceeds the URL size limit");
+  }
+  const bytes = new TextEncoder().encode(json);
+  let binary = "";
+  for (const byte of bytes) binary += String.fromCharCode(byte);
+  return `${REFERENCE_KEY_VERSION}.${btoa(binary)
+    .replaceAll("+", "-")
+    .replaceAll("/", "_")
+    .replace(/=+$/u, "")}`;
+}
+
+function decodeReferenceKey(
+  value: string | null | undefined,
+): UpravaRef | null {
+  if (!value || value.length > MAX_REFERENCE_KEY_CHARS) return null;
+  const prefix = `${REFERENCE_KEY_VERSION}.`;
+  if (!value.startsWith(prefix)) return null;
+  const encoded = value.slice(prefix.length);
+  if (!/^[A-Za-z0-9_-]+$/u.test(encoded)) return null;
   try {
-    const decoded = decodeURIComponent(value);
-    if (decoded !== value) candidates.unshift(decoded);
+    const padded = encoded.replaceAll("-", "+").replaceAll("_", "/");
+    const binary = atob(padded.padEnd(Math.ceil(padded.length / 4) * 4, "="));
+    const bytes = Uint8Array.from(binary, (character) =>
+      character.charCodeAt(0),
+    );
+    const json = new TextDecoder("utf-8", { fatal: true }).decode(bytes);
+    if (json.length > MAX_REFERENCE_JSON_CHARS) return null;
+    const decoded = JSON.parse(json) as unknown;
+    return isUpravaRef(decoded) ? decoded : null;
   } catch {
-    // Leave malformed URI sequences to JSON parsing below.
+    return null;
   }
-  for (const candidate of candidates) {
-    try {
-      return JSON.parse(candidate) as unknown;
-    } catch {
-      // Try the next encoding form.
-    }
-  }
-  return null;
 }
 
 function isUpravaRef(value: unknown): value is UpravaRef {
+  if (!isRecord(value) || !boundedString(value.kind, 80)) return false;
+  const requiredByKind: Record<string, string[]> = {
+    node: ["node_id"],
+    project: ["project_id"],
+    placement: ["placement_id"],
+    workspace: ["placement_id"],
+    session: ["session_thread_id"],
+    runtime: ["runtime_session_id"],
+    turn: ["turn_id"],
+    message: ["message_id"],
+    block: ["block_id"],
+    artifact: ["artifact_id"],
+    event: ["event_id"],
+    command: ["command_id"],
+    approval: ["approval_id"],
+    warning: ["warning_kind"],
+    tool_call: ["tool_call_id"],
+    file: ["placement_id", "path"],
+    file_range: ["placement_id", "path"],
+    terminal: ["terminal_id", "placement_id"],
+    terminal_command: ["terminal_command_id"],
+    terminal_output_range: ["terminal_command_id"],
+    diff_hunk: ["diff_id", "hunk_id"],
+    check_result: ["check_run_id"],
+    workspace_edit: ["edit_id"],
+    trace_event: ["trace_event_id"],
+    external_entity: ["integration_kind", "external_id"],
+    unknown: ["ref_type"],
+  };
+  const required = requiredByKind[value.kind];
+  if (!required)
+    return value.kind.startsWith("extension.") && isBoundedJson(value, 0);
   return (
-    typeof value === "object" &&
-    value !== null &&
-    "kind" in value &&
-    typeof value.kind === "string"
+    required.every((field) => boundedString(value[field], 1_024)) &&
+    isBoundedJson(value, 0)
+  );
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
+function boundedString(value: unknown, max: number): value is string {
+  return typeof value === "string" && value.length > 0 && value.length <= max;
+}
+
+function isBoundedJson(value: unknown, depth: number): boolean {
+  if (depth > 6) return false;
+  if (value == null || typeof value === "boolean" || typeof value === "number")
+    return true;
+  if (typeof value === "string") return value.length <= 2_048;
+  if (Array.isArray(value))
+    return (
+      value.length <= 32 &&
+      value.every((item) => isBoundedJson(item, depth + 1))
+    );
+  if (!isRecord(value) || Object.keys(value).length > 32) return false;
+  return Object.entries(value).every(
+    ([key, item]) => key.length <= 80 && isBoundedJson(item, depth + 1),
+  );
+}
+
+function canonicalize(value: unknown): unknown {
+  if (Array.isArray(value)) return value.map(canonicalize);
+  if (!isRecord(value)) return value;
+  return Object.fromEntries(
+    Object.keys(value)
+      .sort()
+      .map((key) => [key, canonicalize(value[key])]),
   );
 }

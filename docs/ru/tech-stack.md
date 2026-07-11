@@ -79,7 +79,7 @@ dependencies к более старому provisional toolchain.
 - Tokio;
 - Axum;
 - Serde;
-- SQLx or SeaORM later, decision deferred;
+- SQLx with numbered, checksummed migrations;
 - SQLite for local/single-user first;
 - Postgres-compatible architecture later;
 - WebSocket or SSE for live session/events;
@@ -176,6 +176,17 @@ if they are missing; `make c` requires them through `rust-dl`. Taplo is
 currently used for formatting checks only.
 
 ## Frontend stack
+
+### npm audit policy для 0.2.0
+
+Release CI отклоняет moderate, high и critical production advisories. Monaco
+для 0.2.0 закреплен на `0.53.0`, поскольку более новая проверенная ветка
+объявляет уязвимую зависимость DOMPurify. В development-only Vite graph остается
+один low-severity advisory `esbuild`: для эксплуатации нужен локальный Windows
+user с запущенным development server, а в Linux static production image этот
+код не попадает. Owner: Uprava maintainers. Expiry: 0.2.1 или 2026-08-31 — что
+наступит раньше; Vite нужно обновить, когда совместимый graph получит
+исправленный esbuild.
 
 ### Base
 
@@ -274,7 +285,10 @@ React Hook Form + Zod нужны для:
 - future integration credentials forms;
 - future task run forms.
 
-Zod полезен как frontend validation boundary. Backend contracts все равно должны быть Rust-first; позже можно подумать о generated schemas.
+Для protocol v2 Rust schema roots в `uprava-protocol` являются source of truth.
+Из них генерируются tracked JSON Schema, TypeScript types and Ajv runtime
+validators для Web-facing HTTP, SSE and terminal payloads. Node control-only
+roots не попадают в browser bundle, а generated artifacts проверяются на drift.
 
 ### Testing
 
@@ -341,10 +355,8 @@ apps/
 
 ## Deferred decisions
 
-- SQLx vs SeaORM vs another DB layer.
 - SQLite-only first or immediate SQLite/Postgres abstraction.
 - WebSocket vs SSE for event streams.
-- OpenAPI vs custom generated client vs shared schema generation.
 - Whether frontend lives under `apps/web` with Vite or later moves to Next.js.
 - Whether Tauri appears in V01 as launcher or waits for a feature queue item.
 - Exact package manager for frontend.

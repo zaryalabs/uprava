@@ -1,10 +1,10 @@
 import type {
-  UpravaRef,
   EventEnvelope,
   Message,
   SessionDetail,
-  UiBlock,
+  UpravaRef,
 } from "../../shared/protocol/types";
+import type { UiBlock } from "../../workbench/blocks/types";
 
 export type TimelineBlockItem = {
   block: UiBlock;
@@ -242,16 +242,17 @@ function isGroupedTurnBoundaryEvent(
 }
 
 function turnActivityRow(event: EventEnvelope) {
-  const payload = isRecord(event.payload) ? event.payload : {};
+  const payload =
+    event.payload.type === "provider_activity" ? event.payload : null;
   const providerEventType = stringValue(
-    payload.provider_event_type,
+    payload?.provider_event_type,
     "provider.activity",
   );
-  const providerItemType = optionalString(payload.provider_item_type);
-  const providerItemId = optionalString(payload.provider_item_id);
-  const phase = optionalString(payload.phase);
-  const status = optionalString(payload.status);
-  const summary = stringValue(payload.summary, providerEventType);
+  const providerItemType = optionalString(payload?.provider_item_type);
+  const providerItemId = optionalString(payload?.provider_item_id);
+  const phase = optionalString(payload?.phase);
+  const status = optionalString(payload?.status);
+  const summary = stringValue(payload?.summary, providerEventType);
 
   return {
     eventId: event.event_id,
@@ -263,9 +264,9 @@ function turnActivityRow(event: EventEnvelope) {
     phase,
     status,
     summary,
-    rawEvent: payload.raw_event,
-    rawEventPreview: optionalString(payload.raw_event_preview),
-    rawEventTruncated: payload.raw_event_truncated === true,
+    rawEvent: payload?.raw_event,
+    rawEventPreview: optionalString(payload?.raw_event_preview),
+    rawEventTruncated: payload?.raw_event_truncated === true,
   };
 }
 
@@ -350,9 +351,9 @@ function pendingApprovalIds(events: EventEnvelope[]) {
 }
 
 function approvalPromptFromEvent(event: EventEnvelope) {
-  if (!isRecord(event.payload)) return "Approval requested";
-  const prompt = event.payload.prompt;
-  return typeof prompt === "string" ? prompt : "Approval requested";
+  return event.payload.type === "approval_requested" && event.payload.prompt
+    ? event.payload.prompt
+    : "Approval requested";
 }
 
 function blockTypeForEvent(event: EventEnvelope) {

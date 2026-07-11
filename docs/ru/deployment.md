@@ -61,8 +61,10 @@ Target layout:
   systemd/
     uprava-node.service.example
   backups/
-  volumes/
-    core-data/
+  configuration/
+    core.env
+  state/
+    core/core.sqlite
 ```
 
 Host-level files:
@@ -71,7 +73,7 @@ Host-level files:
 /etc/systemd/system/uprava-node.service
 /etc/uprava/node.env
 /var/lib/uprava/
-/var/lib/uprava-node/node.json
+/var/lib/uprava-node/node.sqlite
 /var/log/uprava-node/ optional local fallback logs
 /srv/uprava-workspaces/ root-created workspace boundary with uprava ACL
 /srv/uprava-workspaces/uprava/ editable self-hosting checkout
@@ -80,6 +82,19 @@ Host-level files:
 The product repository owns templates and docs for host-level files. The server
 owns the installed unit file, env file, local state, workspace root and actual
 workspace permissions.
+
+### Stable State And Configuration Cut Breaking Release 0.2.0
+
+0.2.0 намеренно начинает работу с чистыми стабильными state paths. In-place
+migration с 0.1.8 и compatibility rollback на 0.1.8 отсутствуют. До activation
+operator создаёт и проверяет offline legacy archive. Затем новые binaries
+инициализируют `state/core/core.sqlite` и `/var/lib/uprava-node/node.sqlite`;
+binary 0.1.8 никогда не должен открывать эти файлы.
+
+Каждый immutable release manifest объявляет стабильные Core/Node state и config
+paths. Activation отклоняет другие production paths. Rollback допустим только
+между последующими releases с совместимым schema contract. Immutable artifacts
+адресуются release id, а mutable state не содержит package version в pathname.
 
 ## Runtime Units
 
@@ -101,6 +116,18 @@ https://uprava.zrya.io/api/v1 -> Core API
 
 The Web build should use a same-origin API base such as `/api/v1` in
 production. Local development may keep `http://127.0.0.1:8080/api/v1`.
+
+### Идентичность контейнеров
+
+Release images не запускают application processes от root. Core и image с
+Node artifact используют выделенного пользователя `uprava` (UID/GID `10001`),
+а Web — пользователя `node` из базового image. Images заранее создают и
+назначают владельца runtime directories, затем переключаются на non-root
+пользователя. Core хранит SQLite и logs в `/data`; Node image по умолчанию
+использует `/var/lib/uprava-node` для state и `/workspaces` для workspace
+access. Production Compose или host mounts должны сохранять write access для
+соответствующего non-root identity; нельзя исправлять permission failures,
+переопределяя `USER` на root.
 
 ### Systemd Unit
 
@@ -184,6 +211,12 @@ The top-level product contract stays:
 prepare -> build -> push -> deploy
 ```
 
+Ordinary checks, builds and immutable artifact publishing могут выполняться
+после попадания changes в `main`. Они не активируют production. Production
+activation остаётся явным manual GitHub Actions `workflow_dispatch` с выбранным
+release id; push, merge или successful publish event не запускают `deploy`
+неявно.
+
 ### `prepare`
 
 Expected checks:
@@ -249,6 +282,7 @@ restart
 deploy
 smoke
 backup
+rollback
 restore
 ```
 
@@ -261,8 +295,8 @@ Suggested meanings:
 - `status` - show Compose status and `systemctl status uprava-node.service`.
 - `logs` - show Compose logs and `journalctl -u uprava-node`.
 - `deploy` - run `pull`, optional migrations, `up`, `status` and `smoke`.
-- `rollback` if added later - activate previous release and run the same
-  deploy path.
+- `rollback` - проверяет и активирует выбранный предыдущий release только.
+  Deploy и smoke остаются явными последующими действиями.
 
 ## Deploy Order
 
@@ -279,6 +313,10 @@ Core/Web and Node should share one release id because the control protocol is a
 product contract. Ordinary releases should tolerate the short mixed-version
 window during restart. Breaking protocol changes need explicit release notes and
 maintenance planning.
+
+Для protocol v2 release id основан на Git SHA, а Core, Web and Node переходят
+как один coordinated release. Artifacts `0.2.0-rc.N` никогда не активируются с
+state/config slot 0.1.8.
 
 ## Smoke Checks
 
@@ -316,17 +354,49 @@ systemd, Docker, proxy or production file operations.
 
 ## Rollback
 
-Rollback should use the same path as deploy:
+Rollback использует явный preflight target и затем проходит обычные deploy и
+smoke gates:
 
 ```bash
 cd /opt/apps/uprava
-make activate RELEASE=<previous-release-id>
+make backup                         # сначала снять/проверить state backup
+make rollback RELEASE=<previous-release-id>
 make deploy
+make smoke
+make status
 ```
 
-Rollback works only if the previous release manifest still points to available
-Core/Web images and Node artifact, and if Core state is compatible. Any release
-that changes durable state must document rollback limits.
+`make rollback` требует `RELEASE`, проверяет наличие
+`builds/releases/<release-id>.env.release`, отказывается выбирать уже
+активный release и только затем выполняет существующее переключение symlink
+через `activate`. Target намеренно не запускает Compose, systemd, pull,
+migration или smoke. Оператор должен подтвердить пригодный backup до
+activation и явно выполнить `make deploy` и `make smoke` после неё.
+
+Для breaking release 0.2.0 rollback вместе выбирает release manifest 0.1.8,
+Core config, Core state, Node config и Node JSON state. Он никогда не запускает
+old binary с new schema. Сохранённые slots 0.1.8 остаются неизменными до
+acceptance 0.2.0. Работа, созданная только в 0.2.0, после rollback отсутствует;
+эта loss boundary должна быть показана до activation.
+
+### Clean Reset 0.2.0 И Re-enrollment
+
+Clean reset может остановить candidate, сохранить evidence и удалить или
+переинициализировать только Core and Node state slots `0.2.0`. Он никогда не
+удаляет, не truncate и не переписывает state или configuration slots `0.1.8`.
+После reset:
+
+1. запустить Core с empty Core slot 0.2.0 и Core config 0.2.0;
+2. запустить Node с empty SQLite slot 0.2.0 и Node config 0.2.0;
+3. создать новое enrollment, явно approve его и дать Node сохранить новый
+   credential 0.2.0;
+4. заново bind Projects and Placements; Project, Placement, session,
+   transcript или resume state 0.1.8 не импортируются in place;
+5. запустить smoke checks против candidate release id.
+
+Если процесс видит incompatible state в выбранном slot 0.2.0, startup обязана
+завершиться actionable incompatible-state error, а не автоматически migrate,
+reinterpret или удалить state.
 
 ## What Belongs Where
 
@@ -345,11 +415,11 @@ Server-owned state:
 - `/opt/apps/uprava/.env`;
 - active `.env.release` symlink;
 - active `current` release symlink;
-- persisted Core data;
+- stable Core state и Core config;
 - installed systemd unit;
 - `/etc/uprava/node.env`;
 - `/var/lib/uprava/`;
-- `/var/lib/uprava-node/node.json`;
+- `/var/lib/uprava-node/node.sqlite`;
 - `/srv/uprava-workspaces/`;
 - `/srv/uprava-workspaces/uprava/`;
 - real workspace files and credentials;

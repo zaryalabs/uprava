@@ -257,13 +257,5 @@ function providerCapabilityAvailable(
   if (!capability) {
     return false;
   }
-  return capabilityValueAvailable(capability.value);
-}
-
-function capabilityValueAvailable(value: unknown): boolean {
-  if (!value || typeof value !== "object" || !("available" in value)) {
-    return true;
-  }
-  const available = (value as { available?: unknown }).available;
-  return typeof available === "boolean" ? available : true;
+  return capability.value.kind === "provider" && capability.value.available;
 }
