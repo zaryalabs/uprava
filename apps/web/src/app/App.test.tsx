@@ -11,6 +11,13 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { App } from "./App";
 
+vi.mock("../features/workspace-inspector/MonacoViews", () => ({
+  MonacoFileEditor: ({ path }: { path: string }) => (
+    <div role="region" aria-label={`File editor ${path}`} />
+  ),
+  MonacoDiffTextViewer: () => <div role="region" aria-label="Diff viewer" />,
+}));
+
 describe("App routes", () => {
   afterEach(() => {
     vi.unstubAllGlobals();
