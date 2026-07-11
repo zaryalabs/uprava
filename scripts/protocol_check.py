@@ -14,7 +14,8 @@ from pathlib import Path
 
 
 ROOT = Path(__file__).resolve().parents[1]
-RUST_PROTOCOL = ROOT / "crates/uprava-protocol/src/lib.rs"
+RUST_PROTOCOL_ROOT = ROOT / "crates/uprava-protocol/src"
+RUST_PROTOCOL = RUST_PROTOCOL_ROOT / "lib.rs"
 WEB_TYPES = ROOT / "apps/web/src/shared/protocol/types.ts"
 WEB_LITERALS = ROOT / "apps/web/src/shared/protocol/literals.ts"
 
@@ -100,7 +101,7 @@ ENUM_SPECS: list[tuple[str, str, str, str | None, str]] = [
 
 
 def main() -> int:
-    rust_source = RUST_PROTOCOL.read_text()
+    rust_source = read_rust_protocol_source()
     web_source = WEB_TYPES.read_text()
     literal_source = WEB_LITERALS.read_text()
     rust_by_constant: dict[str, list[str]] = {}
@@ -147,6 +148,13 @@ def main() -> int:
 
     print(f"Protocol drift check passed for {len(ENUM_SPECS)} Web-facing enums")
     return 0
+
+
+def read_rust_protocol_source() -> str:
+    return "\n".join(
+        path.read_text()
+        for path in sorted(RUST_PROTOCOL_ROOT.glob("*.rs"))
+    )
 
 
 def rust_enum_wire_values(source: str, enum_name: str, rename_all: str) -> list[str]:
