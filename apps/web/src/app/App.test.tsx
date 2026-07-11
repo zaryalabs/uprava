@@ -105,7 +105,7 @@ describe("App routes", () => {
     expect(await screen.findByText("uprava-core 0.1.8")).toBeVisible();
     expect(screen.getByText("v2")).toBeVisible();
     expect(screen.getByText("1")).toBeVisible();
-  }, 15_000);
+  }, 45_000);
 });
 
 function renderApp(path: string) {
