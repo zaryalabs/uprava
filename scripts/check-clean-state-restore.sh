@@ -19,7 +19,7 @@ cleanup() {
 }
 trap cleanup EXIT INT TERM
 
-for command in curl python3 sqlite3; do
+for command in curl python3; do
     command -v "$command" >/dev/null 2>&1 || {
         echo "$command is required for clean-state rehearsal" >&2
         exit 1
