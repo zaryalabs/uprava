@@ -20,6 +20,20 @@ cleanup() {
 }
 trap cleanup EXIT INT TERM
 
+curl_with_retry() {
+    url=$1
+    attempt=0
+    while :; do
+        if response=$(curl -fsS "$url"); then
+            printf '%s' "$response"
+            return 0
+        fi
+        attempt=$((attempt + 1))
+        test "$attempt" -lt 10 || return 1
+        sleep 1
+    done
+}
+
 docker network create "$network" >/dev/null
 docker run -d --name "$core" --network "$network" \
     --read-only --cap-drop ALL --security-opt no-new-privileges \
@@ -47,10 +61,10 @@ until curl -fsS "http://127.0.0.1:$core_port/api/v1/health" >/dev/null; do
     test "$attempt" -lt 30 || { docker logs "$core"; exit 1; }
     sleep 1
 done
-curl -fsS "http://127.0.0.1:$web_port/health" | grep -qx ok
-version=$(curl -fsS "http://127.0.0.1:$core_port/api/v1/version")
+curl_with_retry "http://127.0.0.1:$web_port/health" | grep -qx ok
+version=$(curl_with_retry "http://127.0.0.1:$core_port/api/v1/version")
 printf '%s' "$version" | grep -q "\"release_id\":\"$UPRAVA_RELEASE_SHA\""
-curl -fsS "http://127.0.0.1:$core_port/api/v1/metrics" | grep -q '^uprava_core_requests_total '
+curl_with_retry "http://127.0.0.1:$core_port/api/v1/metrics" | grep -q '^uprava_core_requests_total '
 
 docker run -d --name "$node" --network "$network" \
     --read-only --cap-drop ALL --security-opt no-new-privileges \
