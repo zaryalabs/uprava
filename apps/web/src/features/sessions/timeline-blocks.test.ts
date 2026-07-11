@@ -1,7 +1,13 @@
 import { describe, expect, it } from "vitest";
 
 import { buildSessionTimelineBlocks, blockFromEvent } from "./timeline-blocks";
-import type { EventEnvelope, SessionDetail } from "../../shared/protocol/types";
+import type {
+  EventEnvelope,
+  EventKind,
+  EventPayload,
+  SessionDetail,
+} from "../../shared/protocol/types";
+import { eventPayloadTypeForKind } from "../../shared/protocol/validators";
 import {
   getTimelineBlockRenderer,
   registeredTimelineBlockTypes,
@@ -271,7 +277,7 @@ function detailWithApproval(): SessionDetail {
   };
 }
 
-function eventWithPayload(kind: string, payload: unknown): EventEnvelope {
+function eventWithPayload(kind: EventKind, payload: unknown): EventEnvelope {
   return {
     event_id:
       kind === "provider.message.completed" ? "event-message" : `event-${kind}`,
@@ -289,6 +295,14 @@ function eventWithPayload(kind: string, payload: unknown): EventEnvelope {
     evidence_refs: [],
     cause_refs: [],
     result_refs: [],
-    payload,
+    payload: typedPayload(kind, payload),
   };
+}
+
+function typedPayload(kind: EventKind, payload: unknown): EventPayload {
+  const fields =
+    typeof payload === "object" && payload !== null && !Array.isArray(payload)
+      ? payload
+      : {};
+  return { type: eventPayloadTypeForKind(kind), ...fields } as EventPayload;
 }

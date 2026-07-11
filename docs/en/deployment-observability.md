@@ -54,8 +54,8 @@ useful for local smoke tests and synthetic workspaces.
 - Give Core and Node a common app-metrics path.
 - Avoid exposing unauthenticated OTLP receivers to the public internet.
 - Keep observability non-blocking: telemetry failure must not stop agent work.
-- Keep metrics low-cardinality and logs/event ids detailed enough for
-  investigation.
+- Keep metrics and logs low-cardinality; use the propagated correlation id to
+  join request, command and event evidence during investigation.
 
 ## Non-goals
 
@@ -201,8 +201,6 @@ Required log attributes:
 - `service.namespace`: `zarya`;
 - `deployment.environment`: `zarya-main`;
 - `deployment.profile`: `controlled_dev` until a stricter profile exists;
-- `service.instance.id`: container id or daemon installation id;
-- `node.id` when known;
 - `correlation_id` for request/command/runtime flows;
 - event kind, command kind, runtime state and result fields where relevant.
 
@@ -214,7 +212,25 @@ Do not log:
 - session cookies or CSRF values;
 - full prompt/command payloads by default;
 - full file contents;
+- filesystem paths, display names and high-cardinality resource ids;
 - provider secrets or local env dumps.
+
+### Implemented 0.2.0 telemetry contract
+
+Core and Node write to stderr and to a bounded non-blocking file channel. The
+shared defaults are 8,192 queued records, 10 MiB per file and five retained
+files. Override them with `UPRAVA_LOG_CHANNEL_CAPACITY`,
+`UPRAVA_LOG_MAX_BYTES` and `UPRAVA_LOG_MAX_FILES`. Saturated, disconnected or
+failed writers drop the record and increment the exported dropped-log count;
+they never block an async worker.
+
+Optional OTLP span export is enabled by `UPRAVA_OTLP_ENABLED=true` or by setting
+`OTEL_EXPORTER_OTLP_ENDPOINT`. Exporter initialization and delivery failures
+are non-fatal and counted. Core exposes its bounded counters at
+`GET /api/v1/metrics`; Node reports its persisted reconnect, outbox and drop
+counters through heartbeat diagnostics. Metrics and structured logs must not
+contain secrets, prompts, file contents, paths or resource ids. The repository
+enforces the structured-field rule in `scripts/check_logging_policy.py`.
 
 ### Metrics
 

@@ -1,5 +1,19 @@
 # Uprava Architecture
 
+## Public invariants и compatibility версии 0.2.0
+
+- Core — единственный authority для resource identity, legal state transitions,
+  command state и projected event state; publication выполняется только после
+  commit durable transaction.
+- Node — единственный authority для local SQLite state, workspaces, provider
+  processes и PTY; bounded owner tasks сохраняют progress до ACK/send и
+  завершаются через join при shutdown.
+- HTTP failures используют typed envelope `ApiError` и `x-correlation-id`;
+  control failures возвращают typed protocol results вместо free-form success.
+- Protocol v2, Core state slot `0.2.0` и Node state slot `0.2.0` образуют одну
+  coordinated breaking boundary. Версия 0.2.0 не открывает retained state 0.1.8
+  in place; rollback одновременно выбирает matching binary, config и state.
+
 Статус: `active`
 
 Этот документ фиксирует первую архитектурную позицию по client/server модели Uprava.

@@ -44,6 +44,41 @@ mod tests {
         assert!(!is_supported_protocol_version("v1"));
     }
 
+    #[test]
+    fn action_capability_uses_the_authoritative_web_wire_literal() {
+        let encoded = serde_json::to_string(&ActionCapability::SessionSendTurn)
+            .expect("action capability serializes");
+
+        assert_eq!(encoded, "\"session.sendTurn\"");
+    }
+
+    #[test]
+    fn known_command_payload_cannot_match_a_different_command_kind() {
+        let payload = CommandPayload::SendTurn {
+            content: "hello".to_owned(),
+            turn_id: TurnId::from("turn-1"),
+        };
+
+        assert!(payload.matches_kind(CommandKind::SendTurn));
+        assert!(!payload.matches_kind(CommandKind::ResolveApproval));
+        assert!(!CommandPayload::Extension {
+            name: "vendor.example".to_owned(),
+            value: json_payload(),
+        }
+        .matches_kind(CommandKind::SendTurn));
+    }
+
+    #[test]
+    fn known_event_payload_cannot_match_a_different_event_kind() {
+        let payload = EventPayload::from_json(
+            EventKind::RuntimeError,
+            serde_json::json!({ "code": "failed", "message": "failure" }),
+        );
+
+        assert!(payload.matches_kind(EventKind::RuntimeError));
+        assert!(!payload.matches_kind(EventKind::RuntimeReady));
+    }
+
     fn json_payload() -> serde_json_value::JsonValue {
         serde_json_value::JsonValue(serde_json::json!({ "sample": true }))
     }
@@ -53,25 +88,35 @@ mod tests {
         let command = CommandEnvelope {
             command_id: CommandId::from("command-1"),
             kind: CommandKind::SendTurn,
-            target_node_id: NodeId::from("node-1"),
+            target: CommandTarget::SessionRuntime {
+                node_id: NodeId::from("node-1"),
+                project_placement_id: ProjectPlacementId::from("placement-1"),
+                session_thread_id: SessionThreadId::from("session-1"),
+                runtime_session_id: RuntimeSessionId::from("runtime-1"),
+            },
             actor_ref: ActorRef::local_user(),
-            session_thread_id: Some(SessionThreadId::from("session-1")),
-            runtime_session_id: Some(RuntimeSessionId::from("runtime-1")),
-            project_placement_id: Some(ProjectPlacementId::from("placement-1")),
             source_refs: vec![],
             cause_refs: vec![UpravaRef::Session {
                 session_thread_id: SessionThreadId::from("session-1"),
             }],
             issued_at: Utc::now(),
             correlation_id: CorrelationId::from("corr-1"),
-            payload: json_payload(),
+            payload: CommandPayload::SendTurn {
+                content: "fixture".to_owned(),
+                turn_id: TurnId::from("turn-1"),
+            },
         };
 
         let encoded = serde_json::to_string(&command).expect("command serializes");
         let decoded: CommandEnvelope =
             serde_json::from_str(&encoded).expect("command deserializes");
+        let wire: serde_json::Value =
+            serde_json::from_str(&encoded).expect("command wire json parses");
 
         assert_eq!(decoded.kind, CommandKind::SendTurn);
+        assert_eq!(wire["target"]["kind"], "session_runtime");
+        assert!(wire.get("target_node_id").is_none());
+        assert!(wire.get("session_thread_id").is_none());
     }
 
     #[test]
@@ -98,7 +143,10 @@ mod tests {
             evidence_refs: vec![],
             cause_refs: vec![],
             result_refs: vec![],
-            payload: json_payload(),
+            payload: EventPayload::from_json(
+                EventKind::ProviderMessageCompleted,
+                serde_json::json!({ "content": "fixture" }),
+            ),
         };
 
         let encoded = serde_json::to_string(&event).expect("event serializes");
@@ -122,7 +170,7 @@ mod tests {
             "seq": 1,
             "kind": "runtime.ready",
             "happened_at": Utc::now(),
-            "payload": { "sample": true }
+            "payload": { "type": "runtime_ready", "provider": "fixture" }
         });
 
         let decoded: EventEnvelope =
@@ -171,7 +219,10 @@ mod tests {
             result_refs: vec![UpravaRef::Message {
                 message_id: MessageId::from("message-1"),
             }],
-            payload: json_payload(),
+            payload: EventPayload::from_json(
+                EventKind::ProviderOutputDelta,
+                serde_json::json!({ "content": "fixture" }),
+            ),
         };
 
         let encoded = serde_json::to_string(&event).expect("event serializes");

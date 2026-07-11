@@ -3,7 +3,10 @@ import { z } from "zod";
 import {
   COMMAND_KIND_VALUES,
   COMMAND_STATE_VALUES,
+  EVENT_KIND_VALUES,
   MESSAGE_ROLE_VALUES,
+  PLACEMENT_STATE_VALUES,
+  WARNING_SEVERITY_VALUES,
   WORKSPACE_COMMAND_INTENT_VALUES,
   WORKSPACE_TERMINAL_STATE_VALUES,
 } from "./literals";
@@ -12,6 +15,8 @@ import type {
   CommandKind,
   CommandState,
   EventEnvelope,
+  EventKind,
+  EventPayload,
   MessageRole,
   WorkspaceCommandHistoryItem,
   WorkspaceCommandHistoryResponse,
@@ -46,6 +51,10 @@ export const commandKindSchema = z.enum(
   COMMAND_KIND_VALUES,
 ) satisfies z.ZodType<CommandKind>;
 
+export const eventKindSchema = z.enum(
+  EVENT_KIND_VALUES,
+) satisfies z.ZodType<EventKind>;
+
 export const messageRoleSchema = z.enum(
   MESSAGE_ROLE_VALUES,
 ) satisfies z.ZodType<MessageRole>;
@@ -61,6 +70,171 @@ export const workspaceTerminalStateSchema = z.enum(
 const nullableString = z.string().nullable();
 const nullableNumber = z.number().nullable();
 const protocolRefSchema = z.object({ kind: z.string() }).passthrough();
+const runtimeStateEventPayloadSchema = z
+  .object({
+    type: z.enum([
+      "runtime_starting",
+      "runtime_ready",
+      "runtime_running",
+      "runtime_blocked",
+      "runtime_expired",
+      "runtime_resuming",
+      "runtime_stopped",
+    ]),
+    provider: nullableString,
+    mode: nullableString,
+    resume_source: nullableString,
+    provider_resume_ref: z.unknown().nullable(),
+    transcript_messages: nullableNumber,
+    reason: nullableString,
+    code: nullableString,
+    message: nullableString,
+    expiry_seconds: nullableNumber,
+  })
+  .strict();
+const providerActivityEventPayloadSchema = z
+  .object({
+    type: z.literal("provider_activity"),
+    provider: nullableString,
+    source: nullableString,
+    provider_event_type: nullableString,
+    provider_item_id: nullableString,
+    provider_item_type: nullableString,
+    phase: nullableString,
+    status: nullableString,
+    summary: nullableString,
+    raw_event: z.unknown().nullable(),
+    raw_event_truncated: z.boolean().nullable(),
+    raw_event_original_chars: nullableNumber,
+    raw_event_preview: nullableString,
+    dropped_count: nullableNumber,
+    stream: nullableString,
+    limit_bytes: nullableNumber,
+    stdout_truncated: z.boolean().nullable(),
+    stderr_truncated: z.boolean().nullable(),
+    dropped_activity_count: nullableNumber,
+    max_process_output_bytes: nullableNumber,
+    max_activity_events: nullableNumber,
+    extension: z.unknown().nullable(),
+  })
+  .strict();
+const workspaceSnapshotEventFields = {
+  placement_id: z.string(),
+  display_name: z.string(),
+  workspace_path: z.string(),
+  state: z.enum(PLACEMENT_STATE_VALUES),
+  resource_badges: z.array(
+    z
+      .object({
+        kind: z.string(),
+        severity: z.enum(WARNING_SEVERITY_VALUES),
+        label: z.string(),
+      })
+      .strict(),
+  ),
+};
+export const eventPayloadSchema = z.union([
+  runtimeStateEventPayloadSchema,
+  z
+    .object({
+      type: z.literal("runtime_error"),
+      code: z.string(),
+      message: z.string(),
+    })
+    .strict(),
+  z.object({ type: z.literal("turn_started") }).strict(),
+  z.object({ type: z.literal("turn_completed") }).strict(),
+  z
+    .object({
+      type: z.literal("turn_interrupted"),
+      provider: nullableString,
+      code: nullableString,
+      message: nullableString,
+    })
+    .strict(),
+  providerActivityEventPayloadSchema,
+  z
+    .object({ type: z.literal("provider_output_delta"), content: z.string() })
+    .strict(),
+  z
+    .object({
+      type: z.literal("provider_message_completed"),
+      content: z.string(),
+    })
+    .strict(),
+  z
+    .object({
+      type: z.literal("approval_requested"),
+      approval_id: z.string(),
+      prompt: z.string(),
+      provider: nullableString,
+      provider_event_type: nullableString,
+      source: nullableString,
+    })
+    .strict(),
+  z
+    .object({
+      type: z.literal("approval_resolved"),
+      approval_id: z.string(),
+      approved: z.boolean(),
+      message: z.string(),
+    })
+    .strict(),
+  z
+    .object({
+      type: z.literal("coordination_warning_acknowledged"),
+      warning_kind: z.string(),
+      message: nullableString,
+      affected_refs: z.array(protocolRefSchema),
+    })
+    .strict(),
+  z
+    .object({
+      type: z.literal("workspace_validated"),
+      ...workspaceSnapshotEventFields,
+    })
+    .strict(),
+  z
+    .object({
+      type: z.literal("resource_snapshot_updated"),
+      ...workspaceSnapshotEventFields,
+    })
+    .strict(),
+  z
+    .object({
+      type: z.literal("extension"),
+      name: z.string(),
+      value: z.unknown(),
+    })
+    .strict(),
+]) satisfies z.ZodType<EventPayload>;
+
+const payloadTypeByEventKind: Record<EventKind, EventPayload["type"]> = {
+  "runtime.starting": "runtime_starting",
+  "runtime.ready": "runtime_ready",
+  "runtime.running": "runtime_running",
+  "runtime.blocked": "runtime_blocked",
+  "runtime.expired": "runtime_expired",
+  "runtime.resuming": "runtime_resuming",
+  "runtime.stopped": "runtime_stopped",
+  "runtime.error": "runtime_error",
+  "turn.started": "turn_started",
+  "turn.completed": "turn_completed",
+  "turn.interrupted": "turn_interrupted",
+  "provider.activity": "provider_activity",
+  "provider.output.delta": "provider_output_delta",
+  "provider.message.completed": "provider_message_completed",
+  "approval.requested": "approval_requested",
+  "approval.resolved": "approval_resolved",
+  "coordination.warning_acknowledged": "coordination_warning_acknowledged",
+  "workspace.validated": "workspace_validated",
+  "resource.snapshot.updated": "resource_snapshot_updated",
+  extension: "extension",
+};
+
+export function eventPayloadTypeForKind(kind: EventKind): EventPayload["type"] {
+  return payloadTypeByEventKind[kind];
+}
 const commandAcceptedSessionSchema = z.custom<
   CommandAcceptedResponse["session"]
 >((value) => value === null || (typeof value === "object" && value !== null));
@@ -207,15 +381,24 @@ export const eventEnvelopeSchema = z
       .nonnegative()
       .nullable()
       .optional(),
-    kind: z.string(),
+    kind: eventKindSchema,
     happened_at: z.string(),
     source_refs: z.array(protocolRefSchema),
     evidence_refs: z.array(protocolRefSchema),
     cause_refs: z.array(protocolRefSchema),
     result_refs: z.array(protocolRefSchema),
-    payload: z.unknown(),
+    payload: eventPayloadSchema,
   })
-  .strict() satisfies z.ZodType<EventEnvelope>;
+  .strict()
+  .superRefine((event, context) => {
+    if (payloadTypeByEventKind[event.kind] !== event.payload.type) {
+      context.addIssue({
+        code: "custom",
+        path: ["payload", "type"],
+        message: `payload type ${event.payload.type} does not match event kind ${event.kind}`,
+      });
+    }
+  }) satisfies z.ZodType<EventEnvelope>;
 
 export function parseTerminalStreamFrame(
   value: unknown,

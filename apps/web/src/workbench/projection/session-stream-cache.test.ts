@@ -2,7 +2,13 @@ import { QueryClient } from "@tanstack/react-query";
 import { describe, expect, it } from "vitest";
 
 import { queryKeys } from "../../shared/api/query-keys";
-import type { EventEnvelope, SessionDetail } from "../../shared/protocol/types";
+import type {
+  EventEnvelope,
+  EventKind,
+  EventPayload,
+  SessionDetail,
+} from "../../shared/protocol/types";
+import { eventPayloadTypeForKind } from "../../shared/protocol/validators";
 import { applySessionStreamEventToCache } from "./session-stream-cache";
 
 describe("applySessionStreamEventToCache", () => {
@@ -146,7 +152,7 @@ function detailWithSeq(
 
 function eventWithSeq(
   seq: number,
-  kind = "runtime.ready",
+  kind: EventKind = "runtime.ready",
   payload: unknown = {},
   sessionProjectionSeq?: number,
 ): EventEnvelope {
@@ -167,6 +173,14 @@ function eventWithSeq(
     evidence_refs: [],
     cause_refs: [],
     result_refs: [],
-    payload,
+    payload: typedPayload(kind, payload),
   };
+}
+
+function typedPayload(kind: EventKind, payload: unknown): EventPayload {
+  const fields =
+    typeof payload === "object" && payload !== null && !Array.isArray(payload)
+      ? payload
+      : {};
+  return { type: eventPayloadTypeForKind(kind), ...fields } as EventPayload;
 }

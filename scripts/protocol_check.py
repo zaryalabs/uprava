@@ -9,6 +9,7 @@ for protocol enums that are manually represented in the web client.
 from __future__ import annotations
 
 import re
+import subprocess
 import sys
 from pathlib import Path
 
@@ -18,9 +19,17 @@ RUST_PROTOCOL_ROOT = ROOT / "crates/uprava-protocol/src"
 RUST_PROTOCOL = RUST_PROTOCOL_ROOT / "lib.rs"
 WEB_TYPES = ROOT / "apps/web/src/shared/protocol/types.ts"
 WEB_LITERALS = ROOT / "apps/web/src/shared/protocol/literals.ts"
+WEB_FIXTURES = ROOT / "apps/web/src/shared/protocol/fixtures.json"
 
 
 ENUM_SPECS: list[tuple[str, str, str, str | None, str]] = [
+    (
+        "ActionCapability",
+        "ActionCapability",
+        "snake_case",
+        None,
+        "ACTION_CAPABILITY_VALUES",
+    ),
     (
         "DeploymentProfile",
         "DeploymentProfile",
@@ -54,6 +63,7 @@ ENUM_SPECS: list[tuple[str, str, str, str | None, str]] = [
     ("ClientLogLevel", "ClientLogLevel", "snake_case", None, "CLIENT_LOG_LEVEL_VALUES"),
     ("CommandState", "CommandState", "snake_case", None, "COMMAND_STATE_VALUES"),
     ("CommandKind", "CommandKind", "PascalCase", None, "COMMAND_KIND_VALUES"),
+    ("EventKind", "EventKind", "snake_case", None, "EVENT_KIND_VALUES"),
     ("MessageRole", "MessageRole", "snake_case", None, "MESSAGE_ROLE_VALUES"),
     (
         "WorkspaceEntryKind",
@@ -131,13 +141,21 @@ def main() -> int:
             )
 
     expected_literals = render_web_literals(rust_by_constant)
+    expected_fixtures = render_web_fixtures()
     if len(sys.argv) == 2 and sys.argv[1] == "--write":
         WEB_LITERALS.write_text(expected_literals)
+        WEB_FIXTURES.write_text(expected_fixtures)
         print(f"Wrote {WEB_LITERALS.relative_to(ROOT)}")
+        print(f"Wrote {WEB_FIXTURES.relative_to(ROOT)}")
         return 0
     if literal_source != expected_literals:
         failures.append(
             "Generated Web protocol literals are stale. "
+            "Run `python3 scripts/protocol_check.py --write` and commit the result."
+        )
+    if not WEB_FIXTURES.exists() or WEB_FIXTURES.read_text() != expected_fixtures:
+        failures.append(
+            "Generated Web protocol fixtures are stale. "
             "Run `python3 scripts/protocol_check.py --write` and commit the result."
         )
 
@@ -146,8 +164,22 @@ def main() -> int:
         print("\n\n".join(failures), file=sys.stderr)
         return 1
 
-    print(f"Protocol drift check passed for {len(ENUM_SPECS)} Web-facing enums")
+    print(
+        f"Protocol drift check passed for {len(ENUM_SPECS)} Web-facing enums "
+        "and canonical Rust fixtures"
+    )
     return 0
+
+
+def render_web_fixtures() -> str:
+    result = subprocess.run(
+        ["cargo", "run", "-q", "-p", "uprava-protocol", "--example", "web_fixtures"],
+        cwd=ROOT,
+        check=True,
+        capture_output=True,
+        text=True,
+    )
+    return result.stdout
 
 
 def read_rust_protocol_source() -> str:

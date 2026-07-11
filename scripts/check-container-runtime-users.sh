@@ -21,10 +21,29 @@ check_image() {
 
 check_image Dockerfile.core uprava
 check_image Dockerfile.node uprava
-check_image apps/web/Dockerfile node
+check_image apps/web/Dockerfile 101
+
+for file in Dockerfile.core Dockerfile.node apps/web/Dockerfile; do
+    if grep '^FROM[[:space:]]' "$file" | grep -Ev '^FROM[[:space:]]+[^[:space:]]+@sha256:[0-9a-f]{64}([[:space:]]|$)' >/dev/null; then
+        echo "$file: every release base must use an immutable digest" >&2
+        exit 1
+    fi
+done
+
+grep -q 'cargo build --locked --release -p uprava-server --bin uprava-server' Dockerfile.core
+grep -q 'cargo build --locked --release -p uprava-node --bin uprava-node' Dockerfile.node
+grep -q '^RUN npm ci$' apps/web/Dockerfile
+grep -q '^FROM nginxinc/nginx-unprivileged:' apps/web/Dockerfile
+if awk '/^FROM / { stage++ } stage > 1 { print }' apps/web/Dockerfile | grep -Eq 'node_modules|npm run|vite'; then
+    echo "apps/web/Dockerfile: runtime stage must be static-only" >&2
+    exit 1
+fi
 
 grep -Eq '^ENV HOME=/var/lib/uprava([[:space:]]|\\$)' Dockerfile.core
 grep -Eq '^ENV HOME=/var/lib/uprava([[:space:]]|\\$)' Dockerfile.node
-grep -Eq '^ENV NODE_ENV=production([[:space:]]|\\$)' apps/web/Dockerfile
 grep -q '/data' Dockerfile.core
 grep -q '/var/lib/uprava-node/0.2.0' Dockerfile.node
+grep -q 'install -d -o 10001 -g 10001 -m 750 "$(INSTALL_DIR)/state/0.2.0/core"' Makefile
+grep -q 'wget -qO- http://127.0.0.1:8080/health' ops/Makefile
+grep -q 'ca-certificates.crt /etc/ssl/certs/ca-certificates.crt' Dockerfile.core
+grep -q 'ca-certificates.crt /etc/ssl/certs/ca-certificates.crt' Dockerfile.node

@@ -188,6 +188,16 @@ Taplo is currently used for formatting checks only.
 
 ## Frontend Stack
 
+### 0.2.0 npm audit policy
+
+Release CI rejects moderate, high and critical production advisories. Monaco is
+pinned to `0.53.0` for 0.2.0 because the newer tested branch declares a
+vulnerable DOMPurify dependency. One low-severity `esbuild` advisory remains in
+the development-only Vite graph: it requires a local Windows user to run the
+development server and does not reach the Linux static production image.
+Owner: Uprava maintainers. Expiry: 0.2.1 or 2026-08-31, whichever comes first;
+upgrade Vite when its compatible graph contains the fixed esbuild release.
+
 ### Base
 
 V01 choice:

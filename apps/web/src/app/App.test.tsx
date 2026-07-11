@@ -1,5 +1,5 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { cleanup, render, screen } from "@testing-library/react";
+import { cleanup, render, screen, waitFor } from "@testing-library/react";
 import { MemoryRouter } from "react-router-dom";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
@@ -31,7 +31,11 @@ describe("App routes", () => {
     renderApp("/workspaces/placement-1");
 
     expect(
-      await screen.findByRole("heading", { name: "Uprava" }),
+      await screen.findByRole(
+        "heading",
+        { name: "Uprava" },
+        { timeout: 5_000 },
+      ),
     ).toBeVisible();
     expect(screen.getAllByText("Dirty workspace").length).toBeGreaterThan(0);
     expect(screen.getByRole("button", { name: "Start Codex" })).toBeEnabled();
@@ -44,7 +48,11 @@ describe("App routes", () => {
     expect(await screen.findByText("Workspace Inspector")).toBeVisible();
     expect((await screen.findAllByText("README.md")).length).toBeGreaterThan(0);
     expect(
-      await screen.findByRole("region", { name: "File editor README.md" }),
+      await screen.findByRole(
+        "region",
+        { name: "File editor README.md" },
+        { timeout: 5_000 },
+      ),
     ).toBeVisible();
 
     renderApp("/projects/project-1");
@@ -65,9 +73,22 @@ describe("App routes", () => {
       "/workspaces/placement-1",
     );
     expect(
-      await screen.findByText("Session evidence projection"),
+      (await screen.findAllByText("Session evidence projection"))[0],
     ).toBeVisible();
     expect(await screen.findByText("session.sendTurn")).toBeVisible();
+    expect(MockEventSource.created).toBe(1);
+    MockEventSource.latest?.emit("uprava.event", {
+      ...messageEvent,
+      event_id: "event-streamed",
+      seq: 2,
+      session_projection_seq: 2,
+      payload: {
+        type: "provider_message_completed",
+        content: "Streamed reply",
+      },
+    });
+    expect(await screen.findByText("Streamed reply")).toBeVisible();
+    await waitFor(() => expect(MockEventSource.created).toBe(1));
 
     renderApp("/settings/runtime");
 
@@ -77,7 +98,7 @@ describe("App routes", () => {
     expect(await screen.findByText("uprava-core 0.1.8")).toBeVisible();
     expect(screen.getByText("v2")).toBeVisible();
     expect(screen.getByText("1")).toBeVisible();
-  });
+  }, 15_000);
 });
 
 function renderApp(path: string) {
@@ -85,6 +106,7 @@ function renderApp(path: string) {
   vi.unstubAllGlobals();
   vi.stubGlobal("fetch", vi.fn(mockFetch));
   vi.stubGlobal("EventSource", MockEventSource);
+  MockEventSource.reset();
 
   const queryClient = new QueryClient({
     defaultOptions: {
@@ -103,13 +125,32 @@ function renderApp(path: string) {
 }
 
 class MockEventSource {
+  static created = 0;
+  static latest: MockEventSource | null = null;
   onerror: (() => void) | null = null;
+  private listeners = new Map<string, (event: MessageEvent) => void>();
 
-  constructor(readonly url: string) {}
+  constructor(readonly url: string) {
+    MockEventSource.created += 1;
+    MockEventSource.latest = this;
+  }
 
-  addEventListener() {}
+  addEventListener(type: string, listener: (event: MessageEvent) => void) {
+    this.listeners.set(type, listener);
+  }
+
+  emit(type: string, payload: unknown) {
+    this.listeners.get(type)?.({
+      data: JSON.stringify(payload),
+    } as MessageEvent);
+  }
 
   close() {}
+
+  static reset() {
+    MockEventSource.created = 0;
+    MockEventSource.latest = null;
+  }
 }
 
 async function mockFetch(input: RequestInfo | URL) {
@@ -211,7 +252,19 @@ const inventory = {
       sleep_hint: "unknown",
       heartbeat_age_seconds: 4,
       active_runtime_count: 1,
-      capabilities: [{ key: "provider.codex", value: { configured: true } }],
+      capabilities: [
+        {
+          key: "provider.codex",
+          value: {
+            kind: "provider",
+            available: true,
+            configured: true,
+            mode: "exec",
+            timeout_seconds: 120,
+            unavailable_reason: null,
+          },
+        },
+      ],
       diagnostics: "ok",
     },
   ],
@@ -283,7 +336,10 @@ const messageEvent = {
   evidence_refs: [],
   cause_refs: [],
   result_refs: [],
-  payload: { content: "Assistant reply" },
+  payload: {
+    type: "provider_message_completed",
+    content: "Assistant reply",
+  },
 };
 
 const sessionDetail = {

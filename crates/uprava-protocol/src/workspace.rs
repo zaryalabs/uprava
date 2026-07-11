@@ -11,6 +11,7 @@ pub struct HealthResponse {
 pub struct VersionResponse {
     pub name: String,
     pub version: String,
+    pub release_id: String,
     pub api_version: String,
     pub schema_version: i64,
     pub profile: DeploymentProfile,
@@ -48,7 +49,39 @@ pub struct NodeSummary {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct CapabilitySummary {
     pub key: String,
-    pub value: serde_json_value::JsonValue,
+    pub value: CapabilityValue,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(tag = "kind", rename_all = "snake_case")]
+pub enum CapabilityValue {
+    Provider {
+        available: bool,
+        configured: bool,
+        mode: String,
+        timeout_seconds: Option<u64>,
+        unavailable_reason: Option<String>,
+    },
+    WorkspaceValidation {
+        mode: String,
+    },
+    Extension {
+        name: String,
+        value: serde_json_value::JsonValue,
+    },
+}
+
+impl CapabilityValue {
+    #[must_use]
+    pub fn provider(available: bool) -> Self {
+        Self::Provider {
+            available,
+            configured: true,
+            mode: "exec".to_owned(),
+            timeout_seconds: None,
+            unavailable_reason: None,
+        }
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]

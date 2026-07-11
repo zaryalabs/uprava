@@ -12,7 +12,7 @@ describe("providerChoiceOptions", () => {
     expect(
       providerChoiceOptions(
         nodeWithCapabilities([
-          { key: "provider.codex", value: { available: false } },
+          { key: "provider.codex", value: providerCapability(false) },
         ]),
       ),
     ).toEqual([{ id: "codex", label: "Codex", available: false }]);
@@ -20,12 +20,23 @@ describe("providerChoiceOptions", () => {
     expect(
       providerChoiceOptions(
         nodeWithCapabilities([
-          { key: "provider.codex", value: { available: true } },
+          { key: "provider.codex", value: providerCapability(true) },
         ]),
       ),
     ).toEqual([{ id: "codex", label: "Codex", available: true }]);
   });
 });
+
+function providerCapability(available: boolean) {
+  return {
+    kind: "provider" as const,
+    available,
+    configured: true,
+    mode: "exec",
+    timeout_seconds: 120,
+    unavailable_reason: available ? null : "binary_not_found",
+  };
+}
 
 function nodeWithCapabilities(
   capabilities: NodeSummary["capabilities"],

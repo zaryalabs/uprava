@@ -1,8 +1,10 @@
 import type {
   CLIENT_LOG_LEVEL_VALUES,
+  ACTION_CAPABILITY_VALUES,
   COMMAND_KIND_VALUES,
   COMMAND_STATE_VALUES,
   DEPLOYMENT_PROFILE_VALUES,
+  EVENT_KIND_VALUES,
   MESSAGE_ROLE_VALUES,
   NODE_PRESENCE_VALUES,
   PLACEMENT_STATE_VALUES,
@@ -24,6 +26,8 @@ export type WarningSeverity = (typeof WARNING_SEVERITY_VALUES)[number];
 export type ClientLogLevel = (typeof CLIENT_LOG_LEVEL_VALUES)[number];
 export type CommandState = (typeof COMMAND_STATE_VALUES)[number];
 export type CommandKind = (typeof COMMAND_KIND_VALUES)[number];
+export type EventKind = (typeof EVENT_KIND_VALUES)[number];
+export type ActionCapability = (typeof ACTION_CAPABILITY_VALUES)[number];
 export type MessageRole = (typeof MESSAGE_ROLE_VALUES)[number];
 export type EnrollmentState =
   | "pending_user_approval"
@@ -42,6 +46,7 @@ export type HealthResponse = {
 export type VersionResponse = {
   name: string;
   version: string;
+  release_id: string;
   api_version: string;
   schema_version: number;
   profile: DeploymentProfile;
@@ -67,8 +72,20 @@ export type ApiError = {
 
 export type CapabilitySummary = {
   key: string;
-  value: unknown;
+  value: CapabilityValue;
 };
+
+export type CapabilityValue =
+  | {
+      kind: "provider";
+      available: boolean;
+      configured: boolean;
+      mode: string;
+      timeout_seconds: number | null;
+      unavailable_reason: string | null;
+    }
+  | { kind: "workspace_validation"; mode: string }
+  | { kind: "extension"; name: string; value: unknown };
 
 export type NodeSummary = {
   node_id: string;
@@ -312,13 +329,104 @@ export type EventEnvelope = {
   turn_id: string | null;
   seq: number;
   session_projection_seq?: number | null;
-  kind: string;
+  kind: EventKind;
   happened_at: string;
   source_refs: UpravaRef[];
   evidence_refs: UpravaRef[];
   cause_refs: UpravaRef[];
   result_refs: UpravaRef[];
-  payload: unknown;
+  payload: EventPayload;
+};
+
+export type EventPayload =
+  | ({ type: RuntimeStatePayloadType } & RuntimeStateEventData)
+  | { type: "runtime_error"; code: string; message: string }
+  | { type: "turn_started" }
+  | { type: "turn_completed" }
+  | {
+      type: "turn_interrupted";
+      provider: string | null;
+      code: string | null;
+      message: string | null;
+    }
+  | ({ type: "provider_activity" } & ProviderActivityEventData)
+  | { type: "provider_output_delta"; content: string }
+  | { type: "provider_message_completed"; content: string }
+  | {
+      type: "approval_requested";
+      approval_id: string;
+      prompt: string;
+      provider: string | null;
+      provider_event_type: string | null;
+      source: string | null;
+    }
+  | {
+      type: "approval_resolved";
+      approval_id: string;
+      approved: boolean;
+      message: string;
+    }
+  | {
+      type: "coordination_warning_acknowledged";
+      warning_kind: string;
+      message: string | null;
+      affected_refs: UpravaRef[];
+    }
+  | ({ type: "workspace_validated" } & WorkspaceSnapshotEventData)
+  | ({ type: "resource_snapshot_updated" } & WorkspaceSnapshotEventData)
+  | { type: "extension"; name: string; value: unknown };
+
+type RuntimeStatePayloadType =
+  | "runtime_starting"
+  | "runtime_ready"
+  | "runtime_running"
+  | "runtime_blocked"
+  | "runtime_expired"
+  | "runtime_resuming"
+  | "runtime_stopped";
+
+type RuntimeStateEventData = {
+  provider: string | null;
+  mode: string | null;
+  resume_source: string | null;
+  provider_resume_ref: unknown | null;
+  transcript_messages: number | null;
+  reason: string | null;
+  code: string | null;
+  message: string | null;
+  expiry_seconds: number | null;
+};
+
+type ProviderActivityEventData = {
+  provider: string | null;
+  source: string | null;
+  provider_event_type: string | null;
+  provider_item_id: string | null;
+  provider_item_type: string | null;
+  phase: string | null;
+  status: string | null;
+  summary: string | null;
+  raw_event: unknown | null;
+  raw_event_truncated: boolean | null;
+  raw_event_original_chars: number | null;
+  raw_event_preview: string | null;
+  dropped_count: number | null;
+  stream: string | null;
+  limit_bytes: number | null;
+  stdout_truncated: boolean | null;
+  stderr_truncated: boolean | null;
+  dropped_activity_count: number | null;
+  max_process_output_bytes: number | null;
+  max_activity_events: number | null;
+  extension: unknown | null;
+};
+
+type WorkspaceSnapshotEventData = {
+  placement_id: string;
+  display_name: string;
+  workspace_path: string;
+  state: PlacementState;
+  resource_badges: ResourceBadge[];
 };
 
 export type InventorySnapshot = {
@@ -540,7 +648,7 @@ export type AgentProjection = {
   recent_message_refs: UpravaRef[];
   evidence_projection_summary: string;
   available_block_types: string[];
-  available_commands: string[];
+  available_commands: ActionCapability[];
   visible_refs: UpravaRef[];
   source_cause_summary: string;
   resume_context: string;

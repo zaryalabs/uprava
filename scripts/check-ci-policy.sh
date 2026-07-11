@@ -490,15 +490,16 @@ validate_prepare_payload() {
       expected[1] = "          rust_cache_dir=\"${PWD}/.ci-cache/rust\""
       expected[2] = "          mkdir -p \"${rust_cache_dir}/cargo\" \"${rust_cache_dir}/rustup\""
       expected[3] = "          web_run=\"docker run --rm --user $(id -u):$(id -g) -e npm_config_cache=/tmp/.npm -v ${PWD}/apps/web:/work -w /work node:24-bookworm-slim npm\""
-      expected[4] = "          cargo_image=\"docker run --rm --user $(id -u):$(id -g) -e CARGO_HOME=/work/.cache/cargo -e CARGO_TARGET_DIR=/work/target -e RUSTUP_HOME=/work/.cache/rustup -v ${rust_cache_dir}:/work/.cache -v ${PWD}:/work -w /work rust:bookworm\""
-      expected[5] = "          cargo_run=\"${cargo_image} cargo\""
-      expected[6] = "          rustup_run=\"${cargo_image} rustup\""
-      expected[7] = "          make web-install prepare WEB_RUN=\"${web_run}\" CARGO=\"${cargo_run}\" RUSTUP=\"${rustup_run}\" RUST_TOOLCHAIN=stable"
+      expected[4] = "          playwright_run=\"docker run --rm --user $(id -u):$(id -g) -e HOME=/tmp -e npm_config_cache=/tmp/.npm -v ${PWD}/apps/web:/work -w /work mcr.microsoft.com/playwright@sha256:57b65fdc9ceabe0ef613124c7bbe2babcf9362c4d85e382fe3b03604e84b428a npm\""
+      expected[5] = "          cargo_image=\"docker run --rm --user $(id -u):$(id -g) -e CARGO_HOME=/work/.cache/cargo -e CARGO_TARGET_DIR=/work/target -e RUSTUP_HOME=/work/.cache/rustup -v ${rust_cache_dir}:/work/.cache -v ${PWD}:/work -w /work rust:bookworm\""
+      expected[6] = "          cargo_run=\"${cargo_image} cargo\""
+      expected[7] = "          rustup_run=\"${cargo_image} rustup\""
+      expected[8] = "          make web-install prepare WEB_RUN=\"${web_run}\" PLAYWRIGHT_RUN=\"${playwright_run}\" CARGO=\"${cargo_run}\" RUSTUP=\"${rustup_run}\" RUST_TOOLCHAIN=stable"
     }
     $0 ~ /^[[:space:]]*$/ || $0 ~ /^[[:space:]]*#/ { next }
     { active++; if (active > 19 && $0 != expected[active - 19]) exit 1 }
-    END { if (active != 26) exit 1 }
-  ' || fail "check/Prepare: payload must be the exact canonical seven-line prepare sequence"
+    END { if (active != 27) exit 1 }
+  ' || fail "check/Prepare: payload must be the exact canonical eight-line prepare sequence"
 }
 
 validate_rust_check_payload() {
@@ -523,12 +524,14 @@ validate_release_payload() {
   step_block release "Build and publish release" | awk '
     BEGIN {
       expected[1] = "          make build"
-      expected[2] = "          make push"
+      expected[2] = "          make image-runtime"
+      expected[3] = "          make clean-state-restore"
+      expected[4] = "          make push"
     }
     $0 ~ /^[[:space:]]*$/ || $0 ~ /^[[:space:]]*#/ { next }
     { active++; if (active > 19 && $0 != expected[active - 19]) exit 1 }
-    END { if (active != 21) exit 1 }
-  ' || fail "release/Build and publish release: payload must be exactly make build then make push"
+    END { if (active != 23) exit 1 }
+  ' || fail "release/Build and publish release: payload must build, runtime-check, restore-check, then push"
 }
 
 validate_login_payload() {
@@ -717,8 +720,6 @@ step_requires_active release "Build and publish release" '^[[:space:]]+make push
 validate_step_once deploy "Deploy current HEAD release"
 step_requires_active deploy "Deploy current HEAD release" '^[[:space:]]+make deploy[[:space:]]+.*$' "active deployment command is missing"
 
-if grep -Eiq 'playwright|web-e2e' "$workflow"; then
-  fail "the final Playwright gate is not enabled in this unit"
-fi
+step_requires_active check "Prepare" 'mcr\.microsoft\.com/playwright@sha256:[0-9a-f]{64}' "pinned Playwright image is required"
 
 echo "CI workflow policy is valid"

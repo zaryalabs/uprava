@@ -177,6 +177,17 @@ currently used for formatting checks only.
 
 ## Frontend stack
 
+### npm audit policy для 0.2.0
+
+Release CI отклоняет moderate, high и critical production advisories. Monaco
+для 0.2.0 закреплен на `0.53.0`, поскольку более новая проверенная ветка
+объявляет уязвимую зависимость DOMPurify. В development-only Vite graph остается
+один low-severity advisory `esbuild`: для эксплуатации нужен локальный Windows
+user с запущенным development server, а в Linux static production image этот
+код не попадает. Owner: Uprava maintainers. Expiry: 0.2.1 или 2026-08-31 — что
+наступит раньше; Vite нужно обновить, когда совместимый graph получит
+исправленный esbuild.
+
 ### Base
 
 Выбор для V01:

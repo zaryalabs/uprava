@@ -5,6 +5,13 @@ services:
     image: ${UPRAVA_CORE_IMAGE:-uprava-core:local}
     container_name: uprava-core
     restart: unless-stopped
+    read_only: true
+    init: true
+    cap_drop: [ALL]
+    security_opt:
+      - no-new-privileges:true
+    tmpfs:
+      - /tmp:rw,noexec,nosuid,nodev,size=64m
     environment:
       UPRAVA_CORE_BIND: 0.0.0.0:8080
       UPRAVA_DATABASE_URL: ${UPRAVA_DATABASE_URL:-sqlite:///data/core.sqlite}
@@ -15,7 +22,7 @@ services:
       UPRAVA_CORE_LOG_FILE: ${UPRAVA_CORE_LOG_FILE:-/data/core.log}
       RUST_LOG: ${UPRAVA_CORE_RUST_LOG:-info}
     volumes:
-      - ./volumes/core-data:/data
+      - ./${UPRAVA_CORE_STATE_DIR:-state/0.2.0/core}:/data
     healthcheck:
       test: ["CMD", "uprava-server", "healthcheck", "127.0.0.1:8080"]
       interval: 30s
@@ -45,11 +52,25 @@ services:
     image: ${UPRAVA_WEB_IMAGE:-uprava-web:local}
     container_name: uprava-web
     restart: unless-stopped
+    read_only: true
+    init: true
+    cap_drop: [ALL]
+    security_opt:
+      - no-new-privileges:true
+    tmpfs:
+      - /tmp:rw,noexec,nosuid,nodev,size=16m
+      - /var/cache/nginx:rw,noexec,nosuid,nodev,size=16m
+      - /var/run:rw,noexec,nosuid,nodev,size=1m
     depends_on:
       core:
         condition: service_healthy
     environment:
-      __VITE_ADDITIONAL_SERVER_ALLOWED_HOSTS: ${UPRAVA_DOMAIN:-uprava.zrya.io}
+      UPRAVA_RELEASE_ID: ${UPRAVA_RELEASE_ID:-unknown}
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://127.0.0.1:8080/health"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
     labels:
       - traefik.enable=true
       - traefik.docker.network=platform
@@ -65,7 +86,7 @@ services:
       - traefik.http.routers.uprava-web-http.middlewares=uprava-https-redirect@docker
       - traefik.http.routers.uprava-web-http.priority=10
       - traefik.http.routers.uprava-web-http.service=uprava-web
-      - traefik.http.services.uprava-web.loadbalancer.server.port=5173
+      - traefik.http.services.uprava-web.loadbalancer.server.port=8080
     networks:
       - platform
 

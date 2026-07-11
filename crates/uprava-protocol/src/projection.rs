@@ -148,7 +148,7 @@ pub struct AgentProjection {
     #[serde(default)]
     pub available_block_types: Vec<String>,
     #[serde(default)]
-    pub available_commands: Vec<String>,
+    pub available_commands: Vec<ActionCapability>,
     #[serde(default)]
     pub visible_refs: Vec<UpravaRef>,
     pub source_cause_summary: String,

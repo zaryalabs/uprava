@@ -69,7 +69,9 @@ test.describe("real local profile", () => {
     await expect(
       main.getByText(expectedAssistantContent, { exact: true }),
     ).toBeVisible();
-    await expect(main.getByText("Session-local index")).toBeVisible();
+    await expect(
+      main.getByRole("heading", { name: "Evidence Projection" }),
+    ).toBeVisible();
     await expect(main.getByText(provider, { exact: true })).toBeVisible();
     await expect(main.getByText("ready", { exact: true })).toBeVisible();
 
@@ -113,7 +115,9 @@ test.describe("real local profile", () => {
         page.getByRole("main").getByText(postResumeAssistant, { exact: true }),
       ).toBeVisible();
       await expect(
-        page.getByRole("main").getByText("Session-local index"),
+        page
+          .getByRole("main")
+          .getByRole("heading", { name: "Evidence Projection" }),
       ).toBeVisible();
     }
   });

@@ -102,6 +102,14 @@ Node config/state как одну операцию. Binary 0.1.8 нельзя з
 0.2.0 и наоборот. Legacy database сохраняется через SQLite online backup или
 quiesced snapshot; нельзя вслепую копировать или архивировать live SQLite file.
 
+Поэтому каждый immutable release manifest объявляет
+`UPRAVA_RELEASE_FAMILY`, `UPRAVA_CORE_STATE_DIR`, `UPRAVA_CORE_CONFIG`,
+`UPRAVA_NODE_CONFIG` и `UPRAVA_NODE_STATE_PATH`. Activation отклоняет
+отсутствующие config-файлы и state paths вне объявленного family, затем вместе
+переключает stable config links, `.env.release` и `current`. Automatic deploy
+rollback использует тот же путь activation и восстанавливает artifacts,
+configuration и matching state.
+
 ## Runtime Units
 
 ### Compose Units

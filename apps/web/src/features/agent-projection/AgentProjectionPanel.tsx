@@ -42,6 +42,7 @@ export function AgentProjectionPanel({
           ? sessionSummaryFromProjection(projection.data)
           : undefined,
         warningKind,
+        availableCommands: projection.data?.available_commands,
         afterSuccess: invalidateSessionState,
       }),
   });
@@ -77,6 +78,7 @@ export function AgentProjectionPanel({
                       !canRunCommand("warning.acknowledge", {
                         session: sessionSummary,
                         warningKind: warning.kind,
+                        availableCommands: projection.data.available_commands,
                       })
                     }
                     onClick={() => acknowledgeWarning.mutate(warning.kind)}

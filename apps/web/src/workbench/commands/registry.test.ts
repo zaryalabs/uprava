@@ -29,15 +29,19 @@ describe("workbench command registry", () => {
     ).toBe(true);
   });
 
-  it("enables interrupt only for running or blocked runtimes", () => {
+  it("uses authoritative projected runtime actions", () => {
     expect(
       canRunCommand("runtime.interrupt", {
+        session: sessionWithState("active"),
         runtime: runtimeWithState("running"),
+        availableCommands: ["runtime.interrupt"],
       }),
     ).toBe(true);
     expect(
       canRunCommand("runtime.interrupt", {
-        runtime: runtimeWithState("ready"),
+        session: sessionWithState("active"),
+        runtime: runtimeWithState("running"),
+        availableCommands: [],
       }),
     ).toBe(false);
   });
@@ -47,24 +51,30 @@ describe("workbench command registry", () => {
       canRunCommand("warning.acknowledge", {
         session: sessionWithState("active"),
         warningKind: "dirty_workspace",
+        availableCommands: ["warning.acknowledge"],
       }),
     ).toBe(true);
     expect(
       canRunCommand("warning.acknowledge", {
         session: sessionWithState("active"),
+        availableCommands: ["warning.acknowledge"],
       }),
     ).toBe(false);
   });
 
-  it("keeps stopped and expired runtimes out of stop command", () => {
+  it("uses authoritative projected stop action", () => {
     expect(
       canRunCommand("runtime.stop", {
+        session: sessionWithState("active"),
         runtime: runtimeWithState("running"),
+        availableCommands: ["runtime.stop"],
       }),
     ).toBe(true);
     expect(
       canRunCommand("runtime.stop", {
-        runtime: runtimeWithState("expired"),
+        session: sessionWithState("active"),
+        runtime: runtimeWithState("running"),
+        availableCommands: [],
       }),
     ).toBe(false);
   });
@@ -74,24 +84,28 @@ describe("workbench command registry", () => {
       canRunCommand("session.sendTurn", {
         session: sessionWithState("active"),
         turnContent: "hello",
+        availableCommands: ["session.sendTurn"],
       }),
     ).toBe(true);
     expect(
       canRunCommand("session.sendTurn", {
         session: sessionWithState("detached"),
         turnContent: "hello",
+        availableCommands: [],
       }),
     ).toBe(false);
     expect(
       canRunCommand("session.sendTurn", {
         session: sessionWithState("active"),
         turnContent: "   ",
+        availableCommands: ["session.sendTurn"],
       }),
     ).toBe(false);
     expect(
       canRunCommand("session.sendTurn", {
         session: sessionWithRuntime("active", runtimeWithState("expired")),
         turnContent: "hello",
+        availableCommands: [],
       }),
     ).toBe(false);
   });
@@ -102,6 +116,7 @@ describe("workbench command registry", () => {
         session: sessionWithRuntime("active", runtimeWithState("blocked")),
         approvalId: "approval-1",
         approved: true,
+        availableCommands: ["approval.resolve"],
       }),
     ).toBe(true);
     expect(
@@ -109,6 +124,7 @@ describe("workbench command registry", () => {
         session: sessionWithRuntime("active", runtimeWithState("ready")),
         approvalId: "approval-1",
         approved: true,
+        availableCommands: [],
       }),
     ).toBe(false);
     expect(
@@ -116,6 +132,7 @@ describe("workbench command registry", () => {
         session: sessionWithRuntime("detached", runtimeWithState("blocked")),
         approvalId: "approval-1",
         approved: true,
+        availableCommands: [],
       }),
     ).toBe(false);
   });

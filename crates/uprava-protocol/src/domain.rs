@@ -150,9 +150,34 @@ pub enum CommandKind {
     ResizeWorkspaceTerminal,
     WriteWorkspaceTerminal,
     CloseWorkspaceTerminal,
+    Extension,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub enum ActionCapability {
+    #[serde(rename = "session.attach")]
+    SessionAttach,
+    #[serde(rename = "session.detach")]
+    SessionDetach,
+    #[serde(rename = "session.sendTurn")]
+    SessionSendTurn,
+    #[serde(rename = "runtime.interrupt")]
+    RuntimeInterrupt,
+    #[serde(rename = "runtime.stop")]
+    RuntimeStop,
+    #[serde(rename = "runtime.resume")]
+    RuntimeResume,
+    #[serde(rename = "approval.resolve")]
+    ApprovalResolve,
+    #[serde(rename = "warning.acknowledge")]
+    WarningAcknowledge,
+    #[serde(rename = "reference.openInInspector")]
+    ReferenceOpenInInspector,
+    #[serde(rename = "reference.copy")]
+    ReferenceCopy,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum EventKind {
     #[serde(rename = "runtime.starting")]
@@ -193,4 +218,6 @@ pub enum EventKind {
     WorkspaceValidated,
     #[serde(rename = "resource.snapshot.updated")]
     ResourceSnapshotUpdated,
+    #[serde(rename = "extension")]
+    Extension,
 }

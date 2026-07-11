@@ -4,6 +4,11 @@ import { Badge } from "../../shared/ui/badge";
 export function RuntimeSettingsRoute() {
   const health = useHealth();
   const version = useVersion();
+  const webRelease = import.meta.env.VITE_UPRAVA_RELEASE_ID ?? "dev";
+  const releaseMatches =
+    !version.data ||
+    webRelease === "dev" ||
+    version.data.release_id === webRelease;
   return (
     <section className="space-y-4">
       <h1 className="text-2xl font-semibold">Runtime Settings</h1>
@@ -13,6 +18,9 @@ export function RuntimeSettingsRoute() {
           <Badge tone={health.data?.status === "ok" ? "good" : "warn"}>
             {health.data?.status ?? "pending"}
           </Badge>
+          <Badge tone={releaseMatches ? "good" : "bad"}>
+            {releaseMatches ? "Release aligned" : "Release mismatch"}
+          </Badge>
         </div>
         <dl className="mt-4 grid gap-3 text-sm sm:grid-cols-2">
           <div>
@@ -21,6 +29,14 @@ export function RuntimeSettingsRoute() {
             </dt>
             <dd className="mt-1 text-[#1f2a24]">
               {version.data?.name ?? "pending"} {version.data?.version ?? ""}
+            </dd>
+          </div>
+          <div>
+            <dt className="text-xs font-semibold uppercase tracking-normal text-[#667268]">
+              Release
+            </dt>
+            <dd className="mt-1 break-all font-mono text-[#1f2a24]">
+              {version.data?.release_id ?? webRelease}
             </dd>
           </div>
           <div>

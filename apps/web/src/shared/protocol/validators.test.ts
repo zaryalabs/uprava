@@ -80,4 +80,27 @@ describe("protocol validators", () => {
 
     expect(parsed.success).toBe(false);
   });
+
+  it("rejects event payloads that do not match the envelope kind", () => {
+    const parsed = eventEnvelopeSchema.safeParse({
+      event_id: "event-1",
+      command_id: null,
+      actor_ref: { kind: "system" },
+      scope_ref: { kind: "runtime", runtime_session_id: "runtime-1" },
+      node_id: "node-1",
+      runtime_session_id: "runtime-1",
+      session_thread_id: "session-1",
+      turn_id: null,
+      seq: 1,
+      kind: "runtime.ready",
+      happened_at: "2026-07-10T00:00:00Z",
+      source_refs: [],
+      evidence_refs: [],
+      cause_refs: [],
+      result_refs: [],
+      payload: { type: "turn_started" },
+    });
+
+    expect(parsed.success).toBe(false);
+  });
 });

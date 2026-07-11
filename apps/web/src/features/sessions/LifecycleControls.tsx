@@ -3,6 +3,7 @@ import { LogIn, LogOut, Pause, Play, RotateCcw, Square } from "lucide-react";
 
 import { queryKeys } from "../../shared/api/query-keys";
 import type {
+  ActionCapability,
   RuntimeSummary,
   SessionSummary,
 } from "../../shared/protocol/types";
@@ -17,9 +18,14 @@ import {
 type Props = {
   session: SessionSummary;
   runtime: RuntimeSummary;
+  availableCommands: ActionCapability[];
 };
 
-export function LifecycleControls({ session, runtime }: Props) {
+export function LifecycleControls({
+  session,
+  runtime,
+  availableCommands,
+}: Props) {
   const queryClient = useQueryClient();
   const invalidate = async () => {
     await Promise.all([
@@ -29,7 +35,12 @@ export function LifecycleControls({ session, runtime }: Props) {
       }),
     ]);
   };
-  const context = { session, runtime, afterSuccess: invalidate };
+  const context = {
+    session,
+    runtime,
+    availableCommands,
+    afterSuccess: invalidate,
+  };
   const command = useMutation({
     mutationFn: (id: WorkbenchCommandId) => runWorkbenchCommand(id, context),
   });

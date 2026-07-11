@@ -6,10 +6,16 @@ import TsWorker from "monaco-editor/esm/vs/language/typescript/ts.worker?worker"
 
 let installed = false;
 
+type MonacoGlobal = typeof globalThis & {
+  MonacoEnvironment?: {
+    getWorker(workerId: string, label: string): Worker;
+  };
+};
+
 export function ensureMonacoEnvironment() {
   if (installed) return;
   installed = true;
-  globalThis.MonacoEnvironment = {
+  (globalThis as MonacoGlobal).MonacoEnvironment = {
     getWorker(_workerId: string, label: string) {
       if (label === "json") return new JsonWorker();
       if (label === "css" || label === "scss" || label === "less") {

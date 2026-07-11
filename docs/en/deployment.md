@@ -105,6 +105,13 @@ against 0.2.0 state, or the reverse. The legacy database must be preserved by
 SQLite online backup or a quiesced snapshot; do not copy or archive a live
 SQLite file blindly.
 
+Every immutable release manifest therefore declares `UPRAVA_RELEASE_FAMILY`,
+`UPRAVA_CORE_STATE_DIR`, `UPRAVA_CORE_CONFIG`, `UPRAVA_NODE_CONFIG` and
+`UPRAVA_NODE_STATE_PATH`. Activation refuses missing config files or state
+paths outside the declared family and updates the stable config links together
+with `.env.release` and `current`. Automatic deploy rollback uses the same
+activation path, restoring artifacts, configuration and matching state.
+
 ## Runtime Units
 
 ### Compose Units

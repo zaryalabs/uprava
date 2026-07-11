@@ -54,8 +54,8 @@ useful for local smoke tests and synthetic workspaces.
 - Give Core and Node a common app-metrics path.
 - Avoid exposing unauthenticated OTLP receivers to the public internet.
 - Keep observability non-blocking: telemetry failure must not stop agent work.
-- Keep metrics low-cardinality and logs/event ids detailed enough for
-  investigation.
+- Keep metrics and logs low-cardinality; propagated correlation id связывает
+  request, command и event evidence при расследовании.
 
 ## Non-goals
 
@@ -201,8 +201,6 @@ Required log attributes:
 - `service.namespace`: `zarya`;
 - `deployment.environment`: `zarya-main`;
 - `deployment.profile`: `controlled_dev` until a stricter profile exists;
-- `service.instance.id`: container id or daemon installation id;
-- `node.id` when known;
 - `correlation_id` for request/command/runtime flows;
 - event kind, command kind, runtime state and result fields where relevant.
 
@@ -214,7 +212,24 @@ Do not log:
 - session cookies or CSRF values;
 - full prompt/command payloads by default;
 - full file contents;
+- filesystem paths, display names и high-cardinality resource ids;
 - provider secrets or local env dumps.
+
+### Реализованный telemetry contract 0.2.0
+
+Core и Node пишут в stderr и в bounded non-blocking file channel. Общие
+defaults: 8 192 queued records, 10 MiB на файл и пять retained files. Они
+настраиваются через `UPRAVA_LOG_CHANNEL_CAPACITY`, `UPRAVA_LOG_MAX_BYTES` и
+`UPRAVA_LOG_MAX_FILES`. При saturation, disconnect или ошибке writer запись
+отбрасывается, счетчик dropped logs увеличивается, async worker не блокируется.
+
+Optional OTLP span export включается через `UPRAVA_OTLP_ENABLED=true` или
+`OTEL_EXPORTER_OTLP_ENDPOINT`. Ошибки инициализации и отправки не завершают
+процесс и учитываются счетчиком. Core публикует bounded counters через
+`GET /api/v1/metrics`; Node отправляет persisted reconnect, outbox и drop
+counters в heartbeat diagnostics. Metrics и structured logs не содержат
+secrets, prompts, file contents, paths или resource ids. Репозиторий проверяет
+structured fields скриптом `scripts/check_logging_policy.py`.
 
 ### Metrics
 

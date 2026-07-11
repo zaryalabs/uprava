@@ -23,7 +23,7 @@ test("renders warning badges and structured session blocks from snapshots", asyn
   await expect(page.getByText("Local Node").first()).toBeVisible();
   await expect(page.getByText("stale", { exact: true }).first()).toBeVisible();
 
-  await page.goto("/placements/placement-1");
+  await page.goto("/workspaces/placement-1");
   await expect(
     page.getByRole("main").getByText("Dirty workspace"),
   ).toBeVisible();
@@ -65,6 +65,24 @@ test("renders warning badges and structured session blocks from snapshots", asyn
   await expect.poll(() => core.warningAcknowledged).toBe(true);
 });
 
+test("loads Monaco only after a workspace file is opened", async ({ page }) => {
+  const resources: string[] = [];
+  page.on("response", (response) => resources.push(response.url()));
+  await mockCoreApi(page);
+
+  await page.goto("/");
+  await expect(page.getByRole("heading", { name: "Dashboard" })).toBeVisible();
+  expect(resources.some(isMonacoResource)).toBe(false);
+  expect(resources.some(isXtermResource)).toBe(false);
+
+  await page.goto("/workspaces/placement-1");
+  await expect(
+    page.getByRole("region", { name: "File editor README.md" }),
+  ).toBeVisible();
+  await expect.poll(() => resources.some(isMonacoResource)).toBe(true);
+  expect(resources.some(isXtermResource)).toBe(false);
+});
+
 async function mockCoreApi(page: import("@playwright/test").Page) {
   const state = { validationAttempts: 0, warningAcknowledged: false };
   await mockPublicShellApi(page);
@@ -83,6 +101,46 @@ async function mockCoreApi(page: import("@playwright/test").Page) {
       body: json(placement),
     });
   });
+  await page.route(
+    "**/api/v1/placements/placement-1/workspace/tree**",
+    async (route) => {
+      await route.fulfill({
+        contentType: "application/json",
+        body: json(workspaceTree),
+      });
+    },
+  );
+  await page.route(
+    "**/api/v1/placements/placement-1/workspace/file**",
+    async (route) => {
+      await route.fulfill({
+        contentType: "application/json",
+        body: json(workspaceFile),
+      });
+    },
+  );
+  await page.route(
+    "**/api/v1/placements/placement-1/workspace/commands?**",
+    async (route) => {
+      await route.fulfill({
+        contentType: "application/json",
+        body: json({
+          placement_id: "placement-1",
+          commands: [],
+          generated_at: "2026-06-17T00:00:00Z",
+        }),
+      });
+    },
+  );
+  await page.route(
+    "**/api/v1/placements/placement-1/workspace/terminals",
+    async (route) => {
+      await route.fulfill({
+        contentType: "application/json",
+        body: json({ placement_id: "placement-1", terminals: [] }),
+      });
+    },
+  );
   await page.route("**/api/v1/project-placements/validate", async (route) => {
     state.validationAttempts += 1;
     if (state.validationAttempts === 1) {
@@ -104,7 +162,7 @@ async function mockCoreApi(page: import("@playwright/test").Page) {
     });
   });
   await page.route(
-    "**/api/v1/sessions/session-1/artifact-tree",
+    "**/api/v1/sessions/session-1/evidence-projection",
     async (route) => {
       await route.fulfill({
         contentType: "application/json",
@@ -179,6 +237,14 @@ function json(value: unknown) {
   return JSON.stringify(value);
 }
 
+function isMonacoResource(url: string) {
+  return url.includes("MonacoViews") || url.includes("monaco-editor");
+}
+
+function isXtermResource(url: string) {
+  return url.includes("XtermTerminal") || url.includes("@xterm");
+}
+
 const runtime = {
   runtime_session_id: "runtime-1",
   provider: "codex",
@@ -201,6 +267,39 @@ const placement = {
   last_validated_at: "2026-06-17T00:00:00Z",
 };
 
+const readmeEntry = {
+  name: "README.md",
+  path: "README.md",
+  kind: "file",
+  status: "readable",
+  byte_len: 16,
+  modified_at: "2026-06-17T00:00:00Z",
+  children: [],
+};
+
+const workspaceTree = {
+  placement_id: "placement-1",
+  root: {
+    name: "uprava",
+    path: ".",
+    kind: "directory",
+    status: "directory",
+    byte_len: null,
+    modified_at: "2026-06-17T00:00:00Z",
+    children: [readmeEntry],
+  },
+  generated_at: "2026-06-17T00:00:00Z",
+};
+
+const workspaceFile = {
+  placement_id: "placement-1",
+  path: "README.md",
+  metadata: readmeEntry,
+  content: "# Uprava\n",
+  truncated: false,
+  generated_at: "2026-06-17T00:00:00Z",
+};
+
 const session = {
   session_thread_id: "session-1",
   project_placement_id: "placement-1",
@@ -221,7 +320,19 @@ const inventory = {
       sleep_hint: "unknown",
       heartbeat_age_seconds: 75,
       active_runtime_count: 1,
-      capabilities: [{ key: "provider.codex", value: { configured: true } }],
+      capabilities: [
+        {
+          key: "provider.codex",
+          value: {
+            kind: "provider",
+            available: true,
+            configured: true,
+            mode: "local",
+            timeout_seconds: 120,
+            unavailable_reason: null,
+          },
+        },
+      ],
       diagnostics: "last heartbeat stale",
     },
   ],
@@ -246,7 +357,7 @@ const messageEvent = {
   evidence_refs: [],
   cause_refs: [],
   result_refs: [],
-  payload: { content: "Assistant reply" },
+  payload: { type: "provider_message_completed", content: "Assistant reply" },
 };
 
 const approvalEvent = {
@@ -254,7 +365,14 @@ const approvalEvent = {
   event_id: "event-approval",
   seq: 2,
   kind: "approval.requested",
-  payload: { approval_id: "approval-1", prompt: "Allow command?" },
+  payload: {
+    type: "approval_requested",
+    approval_id: "approval-1",
+    prompt: "Allow command?",
+    provider: "codex",
+    provider_event_type: null,
+    source: null,
+  },
 };
 
 const runtimeErrorEvent = {
@@ -262,7 +380,11 @@ const runtimeErrorEvent = {
   event_id: "event-runtime-error",
   seq: 3,
   kind: "runtime.error",
-  payload: { code: "provider.failed", message: "Provider failed safely" },
+  payload: {
+    type: "runtime_error",
+    code: "provider.failed",
+    message: "Provider failed safely",
+  },
 };
 
 const sessionDetail = {
@@ -331,7 +453,11 @@ const agentProjection = {
   artifact_tree_summary:
     "Session-local index: 2 messages, 3 events, 1 pending approvals",
   available_block_types: ["core.assistant-message", "core.approval-request"],
-  available_commands: ["session.sendTurn", "approval.resolve"],
+  available_commands: [
+    "session.sendTurn",
+    "approval.resolve",
+    "warning.acknowledge",
+  ],
   visible_refs: [{ kind: "session", session_thread_id: "session-1" }],
   source_cause_summary: "Known event source refs are preserved",
   resume_context: "Runtime blocked on approval",
