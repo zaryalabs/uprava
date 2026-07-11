@@ -55,37 +55,25 @@ dev-reset` for the Compose volume.
 
 ## 0.2.0 Breaking Reset Contract
 
-The existing unversioned paths above are the 0.1.8 sources. Before the first
-0.2.0 run, preserve them and the effective environment in these reserved local
-slots:
-
-| Release | Core state | Core config | Node state | Node config |
-| --- | --- | --- | --- | --- |
-| `0.1.8` | `.local/state/0.1.8/core.sqlite` | `.local/config/0.1.8/core.env` | `~/.local/share/uprava-node/0.1.8/node.json` | `~/.config/uprava-node/0.1.8/node.env` |
-| `0.2.0` | `.local/state/0.2.0/core.sqlite` | `.local/config/0.2.0/core.env` | `~/.local/share/uprava-node/0.2.0/node.sqlite` | `~/.config/uprava-node/0.2.0/node.env` |
-
-These are release-family slots, not an in-place migration. The 0.2.0
-implementation must select only its 0.2.0 state and config. The retained 0.1.8
-slots are read only during 0.2.0 work and stay available for rollback. If a
-selected state has the wrong schema or format, startup fails with an actionable
-incompatible-state error; it does not import, reinterpret or delete that state.
+0.2.0 uses stable development paths such as `.local/state/core/core.sqlite`
+and `~/.local/share/uprava-node/node.sqlite`. Existing 0.1.8 state must be
+archived before the first run and is not imported. If selected state has the
+wrong schema or format, startup fails with an actionable incompatible-state
+error; it does not reinterpret or delete that state.
 
 Clean 0.2.0 reset procedure:
 
 1. stop Core, Web and Node and copy any 0.2.0 evidence needed for diagnosis;
-2. remove or reinitialize only the 0.2.0 Core and Node state slots;
-3. start Core with the empty 0.2.0 Core slot and matching config;
-4. start Node with the empty 0.2.0 SQLite slot and matching config;
+2. remove or reinitialize the stable Core and Node development state paths;
+3. start Core with empty stable Core state and matching config;
+4. start Node with empty stable SQLite state and matching config;
 5. create and explicitly approve a new enrollment, then rebind Projects and
    Placements;
 6. run the clean-state smoke flow.
 
 The old Node JSON state is not imported, so re-enrollment is mandatory. Reset
-must never delete or rewrite a 0.1.8 state/config slot. `make dev-reset` may be
-extended to initialize or clear the selected 0.2.0 development slot, but it
-must preserve all 0.1.8 slots. Rolling back means selecting the 0.1.8 binaries,
-Core config/state and Node config/state together; work created only in 0.2.0 is
-not present after rollback.
+must never delete the offline legacy archive. Compatibility rollback to 0.1.8
+is not supported.
 
 ## Security Profile
 

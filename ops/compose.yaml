@@ -22,7 +22,7 @@ services:
       UPRAVA_CORE_LOG_FILE: ${UPRAVA_CORE_LOG_FILE:-/data/core.log}
       RUST_LOG: ${UPRAVA_CORE_RUST_LOG:-info}
     volumes:
-      - ./${UPRAVA_CORE_STATE_DIR:-state/0.2.0/core}:/data
+      - ./${UPRAVA_CORE_STATE_DIR:-state/core}:/data
     healthcheck:
       test: ["CMD", "uprava-server", "healthcheck", "127.0.0.1:8080"]
       interval: 30s

@@ -451,11 +451,11 @@ relationships.
 Compatibility with 0.1.x APIs, schemas and state is not required. There is no
 in-place 0.1.x migration: incompatible state must fail startup clearly with
 reset and re-enrollment guidance, never be silently reinterpreted or deleted.
-The first 0.2.0 run uses separate versioned Core and Node state/config slots;
-the retained 0.1.8 Core database, Node JSON state and matching configuration
-remain available for rollback. Rollback selects old binaries, configuration
-and state together and does not carry work created only in 0.2.0 back to
-0.1.8.
+The first 0.2.0 run initializes clean stable Core and Node state/config paths.
+The 0.1.8 Core database, Node JSON state and matching configuration are kept in
+a verified offline archive only. Compatibility rollback to 0.1.8 is not
+supported; later compatible releases may roll back while sharing the stable
+schema.
 
 ## Connection Model
 

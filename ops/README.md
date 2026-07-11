@@ -13,9 +13,10 @@ make deploy
 
 Normal CI/CD publishes immutable Core/Web images plus the `uprava-node` GHCR
 artifact and a release manifest. The manifest couples those artifacts to the
-release-family Core state directory, Core config, Node config and Node state
-path. `make activate RELEASE=<release-id>` validates and switches all four
-slots together before `make deploy` starts anything.
+stable Core state directory, Core config, Node config and Node state path.
+`make activate RELEASE=<release-id>` validates the stable paths and switches
+the immutable artifacts before `make deploy` starts anything. Rollback is
+supported only between releases that share the current schema contract.
 
 To return to an earlier release, verify a backup first, then run the explicit
 rollback preflight. It refuses a missing or already-active manifest and only

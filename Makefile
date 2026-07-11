@@ -34,10 +34,10 @@ NODE_ARTIFACT_PATH ?= $(RELEASE_DIR)/uprava-node
 BUILD_TIMESTAMP ?= $(shell date -u "+%Y-%m-%dT%H:%M:%SZ")
 ALLOW_UNRESOLVED_DIGESTS ?= 0
 UPRAVA_RELEASE_FAMILY ?= 0.2.0
-UPRAVA_CORE_STATE_DIR ?= state/$(UPRAVA_RELEASE_FAMILY)/core
-UPRAVA_CORE_CONFIG ?= configuration/releases/$(UPRAVA_RELEASE_FAMILY)/core.env
-UPRAVA_NODE_CONFIG ?= /etc/uprava/releases/$(UPRAVA_RELEASE_FAMILY)/node.env
-UPRAVA_NODE_STATE_PATH ?= /var/lib/uprava-node/$(UPRAVA_RELEASE_FAMILY)/node.sqlite
+UPRAVA_CORE_STATE_DIR ?= state/core
+UPRAVA_CORE_CONFIG ?= configuration/core.env
+UPRAVA_NODE_CONFIG ?= /etc/uprava/node.env
+UPRAVA_NODE_STATE_PATH ?= /var/lib/uprava-node/node.sqlite
 DEPLOY_HOST ?= zsa
 DEPLOY_MODE ?= ssh
 INSTALL_DIR ?= /opt/apps/uprava
@@ -118,7 +118,7 @@ install-release-manifest: ## Install active release manifest into INSTALL_DIR
 
 install-ops: ## Install product-owned ops files into INSTALL_DIR
 	$(SUDO) install -d "$(INSTALL_DIR)"
-	$(SUDO) install -d -o 10001 -g 10001 -m 750 "$(INSTALL_DIR)/state/0.2.0/core"
+	$(SUDO) install -d -o 10001 -g 10001 -m 750 "$(INSTALL_DIR)/state/core"
 	$(SUDO) install -m 644 ops/Makefile "$(INSTALL_DIR)/Makefile"
 	$(SUDO) install -m 644 ops/compose.yaml "$(INSTALL_DIR)/compose.yaml"
 

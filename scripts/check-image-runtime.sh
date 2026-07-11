@@ -58,14 +58,14 @@ docker run -d --name "$node" --network "$network" \
     --tmpfs /var/lib/uprava-node:rw,noexec,nosuid,nodev,size=64m,uid=10001,gid=10001 \
     --tmpfs /workspaces:rw,nosuid,nodev,size=64m,uid=10001,gid=10001 \
     -e UPRAVA_CORE_URL="http://$core:8080" \
-    -e UPRAVA_NODE_STATE_PATH=/var/lib/uprava-node/0.2.0/node.sqlite \
+    -e UPRAVA_NODE_STATE_PATH=/var/lib/uprava-node/node.sqlite \
     -e UPRAVA_NODE_WORKSPACES=/workspaces \
     -e UPRAVA_NODE_LOG_FILE=/var/lib/uprava-node/node.log \
     "$UPRAVA_NODE_IMAGE" >/dev/null
 
 attempt=0
 until [ "$(docker inspect -f '{{.State.Status}}' "$node")" = running ] \
-    && docker exec "$node" sh -c 'test -s /var/lib/uprava-node/node.log && test -s /var/lib/uprava-node/0.2.0/node.sqlite'; do
+    && docker exec "$node" sh -c 'test -s /var/lib/uprava-node/node.log && test -s /var/lib/uprava-node/node.sqlite'; do
     attempt=$((attempt + 1))
     status=$(docker inspect -f '{{.State.Status}}' "$node")
     if [ "$status" = exited ] || [ "$attempt" -ge 30 ]; then

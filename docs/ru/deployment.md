@@ -61,24 +61,19 @@ Target layout:
   systemd/
     uprava-node.service.example
   backups/
-  config/
-    0.1.8/core.env
-    0.2.0/core.env
+  configuration/
+    core.env
   state/
-    0.1.8/core/core.sqlite
-    0.2.0/core/core.sqlite
+    core/core.sqlite
 ```
 
 Host-level files:
 
 ```text
 /etc/systemd/system/uprava-node.service
-/etc/uprava/node.env -> /etc/uprava/releases/<active-version>/node.env
-/etc/uprava/releases/0.1.8/node.env
-/etc/uprava/releases/0.2.0/node.env
+/etc/uprava/node.env
 /var/lib/uprava/
-/var/lib/uprava-node/0.1.8/node.json
-/var/lib/uprava-node/0.2.0/node.sqlite
+/var/lib/uprava-node/node.sqlite
 /var/log/uprava-node/ optional local fallback logs
 /srv/uprava-workspaces/ root-created workspace boundary with uprava ACL
 /srv/uprava-workspaces/uprava/ editable self-hosting checkout
@@ -88,27 +83,18 @@ The product repository owns templates and docs for host-level files. The server
 owns the installed unit file, env file, local state, workspace root and actual
 workspace permissions.
 
-### State And Configuration Slots Breaking Release 0.2.0
+### Stable State And Configuration Cut Breaking Release 0.2.0
 
-Paths выше резервируют независимые release-family slots. До первой activation
-candidate 0.2.0 operator сохраняет и проверяет текущие Core database 0.1.8,
-Node JSON state и их effective Core/Node environment files в slots `0.1.8`.
-Core 0.2.0 запускается только с `state/0.2.0/core/core.sqlite`; Node 0.2.0 —
-только с `/var/lib/uprava-node/0.2.0/node.sqlite` и config slots 0.2.0.
+0.2.0 намеренно начинает работу с чистыми стабильными state paths. In-place
+migration с 0.1.8 и compatibility rollback на 0.1.8 отсутствуют. До activation
+operator создаёт и проверяет offline legacy archive. Затем новые binaries
+инициализируют `state/core/core.sqlite` и `/var/lib/uprava-node/node.sqlite`;
+binary 0.1.8 никогда не должен открывать эти файлы.
 
-Active Core config и systemd `EnvironmentFile` могут быть stable symlinks, но
-activation обязана переключать binaries, release manifest, Core config/state и
-Node config/state как одну операцию. Binary 0.1.8 нельзя запускать со state
-0.2.0 и наоборот. Legacy database сохраняется через SQLite online backup или
-quiesced snapshot; нельзя вслепую копировать или архивировать live SQLite file.
-
-Поэтому каждый immutable release manifest объявляет
-`UPRAVA_RELEASE_FAMILY`, `UPRAVA_CORE_STATE_DIR`, `UPRAVA_CORE_CONFIG`,
-`UPRAVA_NODE_CONFIG` и `UPRAVA_NODE_STATE_PATH`. Activation отклоняет
-отсутствующие config-файлы и state paths вне объявленного family, затем вместе
-переключает stable config links, `.env.release` и `current`. Automatic deploy
-rollback использует тот же путь activation и восстанавливает artifacts,
-configuration и matching state.
+Каждый immutable release manifest объявляет стабильные Core/Node state и config
+paths. Activation отклоняет другие production paths. Rollback допустим только
+между последующими releases с совместимым schema contract. Immutable artifacts
+адресуются release id, а mutable state не содержит package version в pathname.
 
 ## Runtime Units
 
@@ -138,7 +124,7 @@ Node artifact используют выделенного пользовател
 а Web — пользователя `node` из базового image. Images заранее создают и
 назначают владельца runtime directories, затем переключаются на non-root
 пользователя. Core хранит SQLite и logs в `/data`; Node image по умолчанию
-использует `/var/lib/uprava-node/0.2.0` для state и `/workspaces` для workspace
+использует `/var/lib/uprava-node` для state и `/workspaces` для workspace
 access. Production Compose или host mounts должны сохранять write access для
 соответствующего non-root identity; нельзя исправлять permission failures,
 переопределяя `USER` на root.
@@ -429,11 +415,11 @@ Server-owned state:
 - `/opt/apps/uprava/.env`;
 - active `.env.release` symlink;
 - active `current` release symlink;
-- versioned Core state и matching Core config slots;
+- stable Core state и Core config;
 - installed systemd unit;
-- `/etc/uprava/node.env` и versioned Node config slots;
+- `/etc/uprava/node.env`;
 - `/var/lib/uprava/`;
-- versioned Node JSON state 0.1.8 и Node SQLite state slot 0.2.0;
+- `/var/lib/uprava-node/node.sqlite`;
 - `/srv/uprava-workspaces/`;
 - `/srv/uprava-workspaces/uprava/`;
 - real workspace files and credentials;

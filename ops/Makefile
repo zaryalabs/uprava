@@ -12,10 +12,10 @@ RELEASE ?=
 CORE_CONFIG_LINK ?= .env
 NODE_CONFIG_LINK ?= /etc/uprava/node.env
 RELEASE_FAMILY ?= 0.2.0
-CORE_STATE_DIR ?= state/$(RELEASE_FAMILY)/core
-CORE_CONFIG ?= configuration/releases/$(RELEASE_FAMILY)/core.env
-NODE_CONFIG ?= /etc/uprava/releases/$(RELEASE_FAMILY)/node.env
-NODE_STATE_PATH ?= /var/lib/uprava-node/$(RELEASE_FAMILY)/node.sqlite
+CORE_STATE_DIR ?= state/core
+CORE_CONFIG ?= configuration/core.env
+NODE_CONFIG ?= /etc/uprava/node.env
+NODE_STATE_PATH ?= /var/lib/uprava-node/node.sqlite
 
 .DEFAULT_GOAL := help
 
@@ -77,14 +77,13 @@ activate: require-release ## Activate a locally available release
 	test -f "$$manifest" || { echo "Missing $$manifest"; exit 1; }; \
 	. "$$manifest"; \
 	test "$${UPRAVA_RELEASE_ID:-}" = "$(RELEASE)" || { echo "Manifest release identity mismatch" >&2; exit 1; }; \
-	test -n "$${UPRAVA_RELEASE_FAMILY:-}" || { echo "Manifest is missing UPRAVA_RELEASE_FAMILY" >&2; exit 1; }; \
 	test -n "$${UPRAVA_CORE_STATE_DIR:-}" || { echo "Manifest is missing UPRAVA_CORE_STATE_DIR" >&2; exit 1; }; \
 	test -f "$${UPRAVA_CORE_CONFIG:-}" || { echo "Missing Core config $${UPRAVA_CORE_CONFIG:-}" >&2; exit 1; }; \
 	test -f "$${UPRAVA_NODE_CONFIG:-}" || { echo "Missing Node config $${UPRAVA_NODE_CONFIG:-}" >&2; exit 1; }; \
 	grep -qx 'UPRAVA_DATABASE_URL=sqlite:///data/core.sqlite' "$$UPRAVA_CORE_CONFIG" || { echo "Core config must use the manifest-mounted /data/core.sqlite" >&2; exit 1; }; \
 	grep -qx "UPRAVA_NODE_STATE_PATH=$${UPRAVA_NODE_STATE_PATH:-}" "$$UPRAVA_NODE_CONFIG" || { echo "Node config state path does not match manifest" >&2; exit 1; }; \
-	case "$${UPRAVA_NODE_STATE_PATH:-}" in /var/lib/uprava-node/"$$UPRAVA_RELEASE_FAMILY"/*) ;; *) echo "Node state path does not match release family" >&2; exit 1;; esac; \
-	case "$${UPRAVA_CORE_STATE_DIR}" in state/"$$UPRAVA_RELEASE_FAMILY"/core) ;; *) echo "Core state path does not match release family" >&2; exit 1;; esac; \
+	test "$${UPRAVA_NODE_STATE_PATH:-}" = /var/lib/uprava-node/node.sqlite || { echo "Node state path must use the stable production path" >&2; exit 1; }; \
+	test "$${UPRAVA_CORE_STATE_DIR}" = state/core || { echo "Core state path must use the stable production path" >&2; exit 1; }; \
 	$(SUDO) mkdir -p "$(RELEASES_DIR)/$(RELEASE)" "$${UPRAVA_CORE_STATE_DIR}"; \
 	$(SUDO) ln -sfn "$$manifest" .env.release; \
 	$(SUDO) ln -sfn "$${UPRAVA_CORE_CONFIG}" "$(CORE_CONFIG_LINK)"; \
@@ -201,7 +200,7 @@ backup: ## Archive Core state directory
 	backup_id="$$(date -u +%Y%m%d-%H%M%S)"; \
 	mkdir -p "backups/$$backup_id"; \
 	"$(CURDIR)/../scripts/backup-sqlite.sh" \
-		"$${UPRAVA_CORE_STATE_DIR:-state/0.2.0/core}/core.sqlite" \
+		"$${UPRAVA_CORE_STATE_DIR:-state/core}/core.sqlite" \
 		"backups/$$backup_id/core.sqlite"; \
 	tar -czf "backups/uprava-core-data-$$backup_id.tgz" -C "backups/$$backup_id" core.sqlite; \
 	rm -rf "backups/$$backup_id"

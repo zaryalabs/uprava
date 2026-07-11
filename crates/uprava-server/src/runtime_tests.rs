@@ -189,7 +189,7 @@ fn app_config_from_env_uses_documented_defaults() {
     assert_eq!(config.bind_address, "127.0.0.1:8080");
     assert_eq!(
         config.database_url,
-        "sqlite://.local/state/0.2.0/core/core.sqlite"
+        "sqlite://.local/state/core/core.sqlite"
     );
     assert_eq!(config.profile, DeploymentProfile::ControlledDev);
     assert_eq!(

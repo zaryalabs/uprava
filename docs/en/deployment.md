@@ -62,24 +62,19 @@ Target layout:
   systemd/
     uprava-node.service.example
   backups/
-  config/
-    0.1.8/core.env
-    0.2.0/core.env
+  configuration/
+    core.env
   state/
-    0.1.8/core/core.sqlite
-    0.2.0/core/core.sqlite
+    core/core.sqlite
 ```
 
 Host-level files:
 
 ```text
 /etc/systemd/system/uprava-node.service
-/etc/uprava/node.env -> /etc/uprava/releases/<active-version>/node.env
-/etc/uprava/releases/0.1.8/node.env
-/etc/uprava/releases/0.2.0/node.env
+/etc/uprava/node.env
 /var/lib/uprava/
-/var/lib/uprava-node/0.1.8/node.json
-/var/lib/uprava-node/0.2.0/node.sqlite
+/var/lib/uprava-node/node.sqlite
 /var/log/uprava-node/ optional local fallback logs
 /srv/uprava-workspaces/ root-created workspace boundary with uprava ACL
 /srv/uprava-workspaces/uprava/ editable self-hosting checkout
@@ -89,28 +84,19 @@ The product repository owns templates and docs for host-level files. The server
 owns the installed unit file, env file, local state, workspace root and actual
 workspace permissions.
 
-### Breaking 0.2.0 State And Configuration Slots
+### Breaking 0.2.0 State And Configuration Cut
 
-The paths above reserve independent release-family slots. Before the first
-0.2.0 candidate is activated, the operator preserves and verifies the current
-0.1.8 Core database, Node JSON state and their effective Core/Node environment
-files in the `0.1.8` slots. The 0.2.0 Core starts only against
-`state/0.2.0/core/core.sqlite`; the 0.2.0 Node starts only against
-`/var/lib/uprava-node/0.2.0/node.sqlite` and the 0.2.0 configuration slots.
+0.2.0 deliberately starts from clean stable state paths. There is no in-place
+0.1.8 migration and no compatibility rollback to 0.1.8. Before activation the
+operator creates and verifies an offline legacy archive. The new binaries then
+initialize `state/core/core.sqlite` and `/var/lib/uprava-node/node.sqlite`; a
+0.1.8 binary must never open those files.
 
-The active Core config and systemd `EnvironmentFile` may be stable symlinks,
-but activation must switch binaries, release manifest, Core config/state and
-Node config/state as one operation. A 0.1.8 binary must never be started
-against 0.2.0 state, or the reverse. The legacy database must be preserved by
-SQLite online backup or a quiesced snapshot; do not copy or archive a live
-SQLite file blindly.
-
-Every immutable release manifest therefore declares `UPRAVA_RELEASE_FAMILY`,
-`UPRAVA_CORE_STATE_DIR`, `UPRAVA_CORE_CONFIG`, `UPRAVA_NODE_CONFIG` and
-`UPRAVA_NODE_STATE_PATH`. Activation refuses missing config files or state
-paths outside the declared family and updates the stable config links together
-with `.env.release` and `current`. Automatic deploy rollback uses the same
-activation path, restoring artifacts, configuration and matching state.
+Every immutable release manifest declares the stable Core and Node state and
+configuration paths. Activation refuses any other production paths. Rollback
+is supported only between later releases that share the current schema
+contract. Immutable artifacts remain addressed by release id while mutable
+state does not contain a package version in its pathname.
 
 ## Runtime Units
 
@@ -139,7 +125,7 @@ Release images do not run application processes as root. Core and the Node
 artifact image use the dedicated `uprava` user (UID/GID `10001`); Web uses the
 base image's `node` user. The images create and own their runtime directories
 before switching users. Core persists SQLite and logs under `/data`, while the
-Node image defaults to `/var/lib/uprava-node/0.2.0` for state and `/workspaces`
+Node image defaults to `/var/lib/uprava-node` for state and `/workspaces`
 for workspace access. Production Compose or host mounts must preserve write
 access for the corresponding non-root identity; do not solve permission
 failures by overriding `USER` to root.
@@ -329,8 +315,8 @@ window during restart. Breaking protocol changes need explicit release notes and
 maintenance planning.
 
 For protocol v2, the release id is Git-SHA-based and Core, Web and Node move as
-one coordinated release. `0.2.0-rc.N` artifacts are never activated against a
-0.1.8 state/config slot.
+one coordinated release. The first activation initializes clean stable state;
+it never imports the 0.1.8 database or Node JSON state.
 
 ## Smoke Checks
 
@@ -387,20 +373,19 @@ switch. It intentionally does not run Compose, systemd, pull, migration or
 smoke commands. The operator must confirm a usable backup before activation and
 must run `make deploy` and `make smoke` explicitly afterwards.
 
-For the 0.2.0 breaking release, rollback selects the 0.1.8 release manifest,
-Core config, Core state, Node config and Node JSON state together. It never
-starts the old binary against the new schema. The retained 0.1.8 slots stay
-unchanged until 0.2.0 is accepted. Work created only in 0.2.0 is absent after
-rollback and this loss boundary must be shown before activation.
+The 0.2.0 breaking release cannot roll back to 0.1.8. Rollback is available
+only between later releases that explicitly share the stable state schema.
+The verified 0.1.8 archive is evidence and break-glass material, not an active
+rollback target.
 
 ### 0.2.0 Clean Reset And Re-enrollment
 
-A clean reset is allowed to stop the candidate, back up evidence, and remove or
-reinitialize only the `0.2.0` Core and Node state slots. It must never delete,
-truncate or rewrite any `0.1.8` state or configuration slot. After reset:
+A clean reset may stop the candidate, back up evidence, and reinitialize the
+stable Core and Node state paths. It must never modify the offline legacy
+archive. After reset:
 
-1. start Core with the empty 0.2.0 Core slot and 0.2.0 Core config;
-2. start Node with the empty 0.2.0 SQLite slot and 0.2.0 Node config;
+1. start Core with empty `state/core` and stable Core config;
+2. start Node with empty `/var/lib/uprava-node/node.sqlite` and stable config;
 3. create a new enrollment, approve it explicitly and let Node store the new
    0.2.0 credential;
 4. rebind Projects and Placements; no 0.1.8 Project, Placement, session,
@@ -428,11 +413,11 @@ Server-owned state:
 - `/opt/apps/uprava/.env`;
 - active `.env.release` symlink;
 - active `current` release symlink;
-- versioned Core state and matching Core config slots;
+- stable Core state and Core config;
 - installed systemd unit;
-- `/etc/uprava/node.env` and versioned Node config slots;
+- `/etc/uprava/node.env`;
 - `/var/lib/uprava/`;
-- versioned 0.1.8 Node JSON and 0.2.0 Node SQLite state slots;
+- `/var/lib/uprava-node/node.sqlite`;
 - `/srv/uprava-workspaces/`;
 - `/srv/uprava-workspaces/uprava/`;
 - real workspace files and credentials;

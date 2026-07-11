@@ -34,7 +34,7 @@ Use a dedicated server user:
 ```text
 user:        uprava
 home:        /var/lib/uprava
-node state:  /var/lib/uprava-node/0.1.8/node.json or 0.2.0/node.sqlite
+node state:  /var/lib/uprava-node/node.sqlite
 workspace:   /srv/uprava-workspaces/*
 ```
 
@@ -82,15 +82,14 @@ The first self-hosting env file should include:
 
 ```text
 UPRAVA_CORE_URL=https://uprava.zrya.io
-UPRAVA_NODE_STATE_PATH=/var/lib/uprava-node/0.1.8/node.json
+UPRAVA_NODE_STATE_PATH=/var/lib/uprava-node/node.sqlite
 UPRAVA_NODE_WORKSPACES=/srv/uprava-workspaces
 ```
 
-For 0.2.0 activation, use the matching config slot
-`/etc/uprava/releases/0.2.0/node.env` and
-`UPRAVA_NODE_STATE_PATH=/var/lib/uprava-node/0.2.0/node.sqlite`. Retain the
-0.1.8 config and JSON state separately. Resetting or re-enrolling 0.2.0 must
-never delete them.
+0.2.0 uses the stable `/etc/uprava/node.env` configuration and
+`/var/lib/uprava-node/node.sqlite` state paths. The pre-0.2.0 config and JSON
+state are retained only in the verified legacy archive, not in the active
+runtime tree.
 
 `UPRAVA_NODE_WORKSPACES` intentionally points at the workspace root so every
 checkout under `/srv/uprava-workspaces/*` can be used without another server

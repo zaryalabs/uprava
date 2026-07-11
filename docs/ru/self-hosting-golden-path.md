@@ -31,7 +31,7 @@ daemon может читать и писать его через dedicated Unix 
 ```text
 user:        uprava
 home:        /var/lib/uprava
-node state:  /var/lib/uprava-node/0.1.8/node.json or 0.2.0/node.sqlite
+node state:  /var/lib/uprava-node/node.sqlite
 workspace:   /srv/uprava-workspaces/*
 ```
 
@@ -79,15 +79,13 @@ RestartSec=5s
 
 ```text
 UPRAVA_CORE_URL=https://uprava.zrya.io
-UPRAVA_NODE_STATE_PATH=/var/lib/uprava-node/0.1.8/node.json
+UPRAVA_NODE_STATE_PATH=/var/lib/uprava-node/node.sqlite
 UPRAVA_NODE_WORKSPACES=/srv/uprava-workspaces
 ```
 
-Для activation 0.2.0 используется matching config slot
-`/etc/uprava/releases/0.2.0/node.env` и
-`UPRAVA_NODE_STATE_PATH=/var/lib/uprava-node/0.2.0/node.sqlite`. Config 0.1.8 и
-JSON state сохраняются отдельно. Reset или re-enrollment 0.2.0 никогда не
-удаляют их.
+0.2.0 использует стабильные paths `/etc/uprava/node.env` и
+`/var/lib/uprava-node/node.sqlite`. Config и JSON state до 0.2.0 сохраняются
+только в проверенном legacy archive, а не в active runtime tree.
 
 `UPRAVA_NODE_WORKSPACES` намеренно указывает на workspace root, чтобы каждый
 checkout under `/srv/uprava-workspaces/*` можно было использовать без нового

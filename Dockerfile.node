@@ -14,15 +14,15 @@ FROM debian:bookworm-slim@sha256:60eac759739651111db372c07be67863818726f754804b8
 RUN groupadd --system --gid 10001 uprava \
     && useradd --system --uid 10001 --gid uprava --home-dir /var/lib/uprava \
         --create-home --shell /usr/sbin/nologin uprava \
-    && install -d -o uprava -g uprava /var/lib/uprava-node/0.2.0 \
+    && install -d -o uprava -g uprava /var/lib/uprava-node \
         /var/lib/uprava/.local/share /var/lib/uprava/.local/state \
         /var/lib/uprava/.local/logs /workspaces
 COPY --from=builder --chown=0:0 /app/uprava-node /usr/local/bin/uprava-node
 COPY --from=builder --chown=0:0 /etc/ssl/certs/ca-certificates.crt /etc/ssl/certs/ca-certificates.crt
 ENV HOME=/var/lib/uprava \
     XDG_DATA_HOME=/var/lib/uprava/.local/share \
-    UPRAVA_NODE_STATE_PATH=/var/lib/uprava-node/0.2.0/node.sqlite \
+    UPRAVA_NODE_STATE_PATH=/var/lib/uprava-node/node.sqlite \
     UPRAVA_NODE_WORKSPACES=/workspaces \
     UPRAVA_NODE_LOG_FILE=/var/lib/uprava-node/node.log
 USER uprava
-CMD ["sh", "-c", "mkdir -p /var/lib/uprava-node/0.2.0 && exec uprava-node"]
+CMD ["uprava-node"]

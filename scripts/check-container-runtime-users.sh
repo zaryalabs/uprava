@@ -42,8 +42,8 @@ fi
 grep -Eq '^ENV HOME=/var/lib/uprava([[:space:]]|\\$)' Dockerfile.core
 grep -Eq '^ENV HOME=/var/lib/uprava([[:space:]]|\\$)' Dockerfile.node
 grep -q '/data' Dockerfile.core
-grep -q '/var/lib/uprava-node/0.2.0' Dockerfile.node
-grep -q 'install -d -o 10001 -g 10001 -m 750 "$(INSTALL_DIR)/state/0.2.0/core"' Makefile
+grep -q 'UPRAVA_NODE_STATE_PATH=/var/lib/uprava-node/node.sqlite' Dockerfile.node
+grep -q 'install -d -o 10001 -g 10001 -m 750 "$(INSTALL_DIR)/state/core"' Makefile
 grep -q 'wget -qO- http://127.0.0.1:8080/health' ops/Makefile
 grep -q 'ca-certificates.crt /etc/ssl/certs/ca-certificates.crt' Dockerfile.core
 grep -q 'ca-certificates.crt /etc/ssl/certs/ca-certificates.crt' Dockerfile.node
