@@ -8,7 +8,9 @@ for protocol enums that are manually represented in the web client.
 
 from __future__ import annotations
 
+import os
 import re
+import shlex
 import subprocess
 import sys
 from pathlib import Path
@@ -179,8 +181,9 @@ def main() -> int:
 
 
 def render_web_fixtures() -> str:
+    cargo = shlex.split(os.environ.get("CARGO", "cargo"))
     result = subprocess.run(
-        ["cargo", "run", "-q", "-p", "uprava-protocol", "--example", "web_fixtures"],
+        [*cargo, "run", "-q", "-p", "uprava-protocol", "--example", "web_fixtures"],
         cwd=ROOT,
         check=True,
         capture_output=True,
