@@ -130,6 +130,14 @@ export const MESSAGE_ROLE_VALUES = [
   "approval",
 ] as const;
 
+export const SCHEDULED_MESSAGE_STATE_VALUES = [
+  "scheduled",
+  "sending",
+  "sent",
+  "failed",
+  "cancelled",
+] as const;
+
 export const WORKSPACE_ENTRY_KIND_VALUES = [
   "directory",
   "file",

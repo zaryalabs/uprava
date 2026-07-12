@@ -2,7 +2,7 @@
 
 Status: `active`
 
-Current release baseline: `0.2.3`.
+Current release baseline: `0.2.4`.
 
 This ledger records implementation baselines. It does not replace
 [`feature-queue.md`](feature-queue.md), which remains the ranked list of future
@@ -24,11 +24,12 @@ work.
 | `0.2.0` | 2026-07-11 | shipped | Protocol v2 quality foundation, durable Core/Node state, workspace workbench and stable deployment paths |
 | `0.2.1` | 2026-07-11 | shipped | Zarya 0.1 Web Control Panel alignment, flat work-sheet shell, system overview, agent work phases and visual regression gates |
 | `0.2.2` | 2026-07-12 | shipped | Automatic main delivery, bounded CI workspaces, coordinated state epoch reset, scoped Node enrollment and functional production smoke |
-| `0.2.3` | 2026-07-12 | current | Clean-bootstrap four-phase CI/CD, containerized prepare, explicit deploy/finalize boundaries and state-neutral delivery |
+| `0.2.3` | 2026-07-12 | shipped | Clean-bootstrap four-phase CI/CD, containerized prepare, explicit deploy/finalize boundaries and state-neutral delivery |
+| `0.2.4` | 2026-07-12 | current | Delayed session messages: durable Core-owned one-off future turns with guarded dispatch |
 
 ## Current Baseline
 
-`0.2.3` includes the protocol-v2 `0.2.0` baseline, the completed Zarya 0.1 Web
+`0.2.4` includes the protocol-v2 `0.2.0` baseline, the completed Zarya 0.1 Web
 UI/UX alignment and the clean-bootstrap four-phase delivery path. The current
 implementation includes the first working
 distributed control panel, the six
@@ -90,6 +91,10 @@ release path:
   ordinary deploys and a read-only Node readiness interface;
 - separate health/SHA/heartbeat/version finalization plus bounded Uprava-only
   release, image and stale runner-workspace retention.
+- Core-owned delayed session-message records with UTC due time plus explicit
+  IANA timezone, `scheduled -> sending -> sent | failed | cancelled` lifecycle,
+  session-local UI, edit/reschedule/send-now/cancel/retry controls and typed
+  guard failures; due dispatch uses the ordinary send-turn admission path.
 
 New audits and temporary plans should treat these as current implementation
 facts. They may still refer to `V01` when discussing the historical first

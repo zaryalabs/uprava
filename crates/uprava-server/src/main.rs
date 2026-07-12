@@ -247,8 +247,8 @@ mod tests {
     fn deployment_node_accepts_fresh_matching_heartbeat() {
         let now = Utc::now();
         let result = validate_deployment_node(
-            Some(("reachable".to_owned(), Some(now), "0.2.3".to_owned())),
-            "0.2.3",
+            Some(("reachable".to_owned(), Some(now), "0.2.4".to_owned())),
+            "0.2.4",
             45,
             now,
         );
@@ -261,8 +261,8 @@ mod tests {
         let now = Utc::now();
         let heartbeat = now - chrono::Duration::seconds(46);
         let error = validate_deployment_node(
-            Some(("reachable".to_owned(), Some(heartbeat), "0.2.3".to_owned())),
-            "0.2.3",
+            Some(("reachable".to_owned(), Some(heartbeat), "0.2.4".to_owned())),
+            "0.2.4",
             45,
             now,
         )

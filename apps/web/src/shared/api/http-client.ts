@@ -16,6 +16,8 @@ import type {
   PlacementDeletionResponse,
   ResolveApprovalRequest,
   SendTurnRequest,
+  CreateScheduledMessageRequest,
+  ScheduledSessionMessage,
   SessionDetail,
   VersionResponse,
   WebAuthLoginRequest,
@@ -88,6 +90,22 @@ export async function apiPost<T>(
     path,
     {
       method: "POST",
+      headers: { "content-type": "application/json" },
+      body: body === undefined ? undefined : JSON.stringify(body),
+    },
+    schema,
+  );
+}
+
+export async function apiPatch<T>(
+  path: string,
+  body?: unknown,
+  schema?: ProtocolSchema<T>,
+): Promise<T> {
+  return apiRequest<T>(
+    path,
+    {
+      method: "PATCH",
       headers: { "content-type": "application/json" },
       body: body === undefined ? undefined : JSON.stringify(body),
     },
@@ -386,6 +404,44 @@ export const coreApi = {
       `/sessions/${encodeURIComponent(sessionThreadId)}/turns`,
       request,
       commandAcceptedResponseSchema,
+    ),
+  createScheduledMessage: (
+    sessionThreadId: string,
+    request: CreateScheduledMessageRequest,
+  ) =>
+    apiPost<ScheduledSessionMessage>(
+      `/sessions/${encodeURIComponent(sessionThreadId)}/scheduled-messages`,
+      request,
+    ),
+  updateScheduledMessage: (
+    sessionThreadId: string,
+    scheduledMessageId: string,
+    request: import("../protocol/types").UpdateScheduledMessageRequest,
+  ) =>
+    apiPatch<ScheduledSessionMessage>(
+      `/sessions/${encodeURIComponent(sessionThreadId)}/scheduled-messages/${encodeURIComponent(scheduledMessageId)}`,
+      request,
+    ),
+  cancelScheduledMessage: (
+    sessionThreadId: string,
+    scheduledMessageId: string,
+  ) =>
+    apiDelete<ScheduledSessionMessage>(
+      `/sessions/${encodeURIComponent(sessionThreadId)}/scheduled-messages/${encodeURIComponent(scheduledMessageId)}`,
+    ),
+  sendScheduledMessageNow: (
+    sessionThreadId: string,
+    scheduledMessageId: string,
+  ) =>
+    apiPost<ScheduledSessionMessage>(
+      `/sessions/${encodeURIComponent(sessionThreadId)}/scheduled-messages/${encodeURIComponent(scheduledMessageId)}/send-now`,
+    ),
+  retryScheduledMessage: (
+    sessionThreadId: string,
+    scheduledMessageId: string,
+  ) =>
+    apiPost<ScheduledSessionMessage>(
+      `/sessions/${encodeURIComponent(sessionThreadId)}/scheduled-messages/${encodeURIComponent(scheduledMessageId)}/retry`,
     ),
   resolveApproval: (
     sessionThreadId: string,

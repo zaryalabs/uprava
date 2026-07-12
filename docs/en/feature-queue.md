@@ -36,12 +36,11 @@ That belongs in [v01.md](v01.md).
 
 ## Queue Overview
 
-Current release baseline: `0.2.3`. Done items `0` through `6`, the unified
+Current release baseline: `0.2.4`. Done items `0` through `7`, the unified
 audit hardening release and the `5a` workspace renderer release correspond to
 the shipped versions recorded in [`releases.md`](releases.md). Item `6` spans
 the workbench alignment and the first stable self-hosted deployment path.
-The next planned queue item is delayed session messages before new unattended
-runtime mechanisms are added.
+The next planned queue item is Background Workers and scheduled agent runs.
 
 | Order | Done | Mechanism / Feature Slice | First Useful Slice | Dependency | Complexity |
 | --- | --- | --- | --- | --- | --- |
@@ -53,7 +52,7 @@ runtime mechanisms are added.
 | 5 | + | Workspace intervention layer | Lightweight editor, terminal, command history, diff/check entry points | Read-only inspector, events | High |
 | 5a | + | Workspace renderer and PTY terminal layer | Monaco file/diff renderers and xterm-backed interactive PTY sessions | Workspace intervention, Core/Node control channel | High |
 | 6 | + | Daily-use hardening and deployment readiness | Stable panel layout, product polish, server deploy path, CI/CD baseline | `0.1.8` deployable workbench, security baseline | High |
-| 7 | - | Delayed session messages | Durable one-off future turns for an existing session | Runtime/session guards, Core-owned persistence | Medium |
+| 7 | + | Delayed session messages | Durable one-off future turns for an existing session | Runtime/session guards, Core-owned persistence | Medium |
 | 8 | - | Background Workers and scheduled agent runs | Durable unattended agent-run definitions, schedules and observable runs | Persistent runtime policy, placements, trace | High |
 | 9 | - | Causality and trace UX | Coarse source/cause links with raw fallback | Workspace refs, event log | Medium |
 | 10 | - | Git and review basics | Better diff, branch/worktree awareness, check results | Workspace intervention, trace | Medium |
@@ -264,6 +263,12 @@ session-local list; edit, reschedule, send-now and cancel while still
 scheduled. At its due time, Core evaluates the normal session/runtime guards.
 If the turn cannot be accepted, the record stays visible with a typed reason and
 an explicit retry or reschedule action rather than retrying invisibly.
+
+**Delivered in `0.2.4`:** The Core stores the record and runs the durable
+dispatcher. It claims each record before dispatch, calls the regular send-turn
+admission path, and preserves a typed failure for a manual retry or
+reschedule. The session UI exposes creation, editing/rescheduling, send-now,
+cancel and retry.
 
 **Target direction:** Delivery policies such as exact-time versus
 not-before-when-ready, retained history and failure notifications. Recurrence,

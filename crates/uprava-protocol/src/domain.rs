@@ -90,6 +90,17 @@ pub enum TurnState {
     Failed,
 }
 
+/// Lifecycle of one Core-owned future turn for an existing session.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum ScheduledMessageState {
+    Scheduled,
+    Sending,
+    Sent,
+    Failed,
+    Cancelled,
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum CommandState {

@@ -68,6 +68,13 @@ ENUM_SPECS: list[tuple[str, str, str, str | None, str]] = [
     ("EventKind", "EventKind", "snake_case", None, "EVENT_KIND_VALUES"),
     ("MessageRole", "MessageRole", "snake_case", None, "MESSAGE_ROLE_VALUES"),
     (
+        "ScheduledMessageState",
+        "ScheduledMessageState",
+        "snake_case",
+        None,
+        "SCHEDULED_MESSAGE_STATE_VALUES",
+    ),
+    (
         "WorkspaceEntryKind",
         "WorkspaceEntryKind",
         "snake_case",

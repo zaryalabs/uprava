@@ -9,6 +9,7 @@ import type {
   NODE_PRESENCE_VALUES,
   PLACEMENT_STATE_VALUES,
   RUNTIME_SESSION_STATE_VALUES,
+  SCHEDULED_MESSAGE_STATE_VALUES,
   SESSION_THREAD_STATE_VALUES,
   WARNING_SEVERITY_VALUES,
   WORKSPACE_COMMAND_INTENT_VALUES,
@@ -29,6 +30,8 @@ export type CommandKind = (typeof COMMAND_KIND_VALUES)[number];
 export type EventKind = (typeof EVENT_KIND_VALUES)[number];
 export type ActionCapability = (typeof ACTION_CAPABILITY_VALUES)[number];
 export type MessageRole = (typeof MESSAGE_ROLE_VALUES)[number];
+export type ScheduledMessageState =
+  (typeof SCHEDULED_MESSAGE_STATE_VALUES)[number];
 export type EnrollmentState =
   | "pending_user_approval"
   | "approved"
@@ -447,6 +450,29 @@ export type SessionDetail = {
   placement: ProjectPlacementSummary;
   messages: Message[];
   events: EventEnvelope[];
+  scheduled_messages?: ScheduledSessionMessage[];
+};
+
+export type ScheduledMessageFailure = {
+  code: string;
+  message: string;
+};
+
+export type ScheduledSessionMessage = {
+  scheduled_message_id: string;
+  session_thread_id: string;
+  content: string;
+  due_at: string;
+  timezone: string;
+  state: ScheduledMessageState;
+  created_at: string;
+  updated_at: string;
+  sending_at: string | null;
+  sent_at: string | null;
+  cancelled_at: string | null;
+  command_id: string | null;
+  turn_id: string | null;
+  failure: ScheduledMessageFailure | null;
 };
 
 export type CreatePlacementRequest = {
@@ -463,6 +489,18 @@ export type CreateSessionRequest = {
 
 export type SendTurnRequest = {
   content: string;
+};
+
+export type CreateScheduledMessageRequest = {
+  content: string;
+  due_at: string;
+  timezone: string;
+};
+
+export type UpdateScheduledMessageRequest = {
+  content?: string;
+  due_at?: string;
+  timezone?: string;
 };
 
 export type ResolveApprovalRequest = {

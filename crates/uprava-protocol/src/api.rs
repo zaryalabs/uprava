@@ -35,6 +35,32 @@ pub struct SessionDetail {
     pub placement: ProjectPlacementSummary,
     pub messages: Vec<Message>,
     pub events: Vec<EventEnvelope>,
+    pub scheduled_messages: Vec<ScheduledSessionMessage>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ScheduledSessionMessage {
+    pub scheduled_message_id: String,
+    pub session_thread_id: SessionThreadId,
+    pub content: String,
+    pub due_at: DateTime<Utc>,
+    /// IANA timezone selected by the person who scheduled the message.
+    pub timezone: String,
+    pub state: ScheduledMessageState,
+    pub created_at: DateTime<Utc>,
+    pub updated_at: DateTime<Utc>,
+    pub sending_at: Option<DateTime<Utc>>,
+    pub sent_at: Option<DateTime<Utc>>,
+    pub cancelled_at: Option<DateTime<Utc>>,
+    pub command_id: Option<CommandId>,
+    pub turn_id: Option<TurnId>,
+    pub failure: Option<ScheduledMessageFailure>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ScheduledMessageFailure {
+    pub code: String,
+    pub message: String,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -76,6 +102,20 @@ pub struct CreateSessionRequest {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct SendTurnRequest {
     pub content: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct CreateScheduledMessageRequest {
+    pub content: String,
+    pub due_at: DateTime<Utc>,
+    pub timezone: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct UpdateScheduledMessageRequest {
+    pub content: Option<String>,
+    pub due_at: Option<DateTime<Utc>>,
+    pub timezone: Option<String>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]

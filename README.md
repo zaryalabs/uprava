@@ -21,8 +21,8 @@ Uprava should be a control plane and work surface for agent workloads:
 
 ## Current State
 
-The current repository state is the `0.2.3` clean-bootstrap four-phase CI/CD
-baseline on top of protocol v2, plus product and architecture documentation.
+The current repository state is the `0.2.4` delayed-session-message baseline
+on top of protocol v2, plus product and architecture documentation.
 `V01` names the first product cut that
 shipped as `0.1.0`; the current implementation has moved through six completed
 feature queue slices, one unified audit hardening slice, and one workspace
@@ -137,6 +137,8 @@ The `0.1.8` implementation baseline now includes:
   PTY terminal sessions routed through Core and owned by Node;
 - unified audit hardening for quality gates, Node state/file safety, command
   retry semantics, session stream cursors, healthcheck and web error states;
+- Core-owned durable delayed one-off session messages with explicit timezones,
+  lifecycle visibility and guarded dispatch through the normal turn path;
 - GitHub Actions release automation, deploy manifests and server activation
   scripts for the self-hosted Core/Web/Node release path;
 - Docker Compose dev profile for Core and Web, plus host Node Daemon run and

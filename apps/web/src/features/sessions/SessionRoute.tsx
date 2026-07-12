@@ -25,6 +25,7 @@ import { AgentProjectionPanel } from "../agent-projection/AgentProjectionPanel";
 import { ChatComposer } from "./ChatComposer";
 import { LifecycleControls } from "./LifecycleControls";
 import { SessionTimeline } from "./SessionTimeline";
+import { ScheduledMessagesPanel } from "./ScheduledMessagesPanel";
 
 export function SessionRoute() {
   const { sessionThreadId } = useParams();
@@ -173,6 +174,11 @@ export function SessionRoute() {
             pending={sendTurn.isPending}
             disabled={!canSendTurn}
             onSend={(content) => sendTurn.mutateAsync(content).then(() => {})}
+          />
+          <ScheduledMessagesPanel
+            sessionThreadId={session.data.session.session_thread_id}
+            messages={session.data.scheduled_messages ?? []}
+            onChanged={invalidateSession}
           />
         </div>
         <aside

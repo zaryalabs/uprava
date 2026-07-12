@@ -2,7 +2,7 @@
 
 Статус: `active`
 
-Current release baseline: `0.2.3`.
+Current release baseline: `0.2.4`.
 
 Этот ledger фиксирует implementation baselines. Он не заменяет
 [`feature-queue.md`](feature-queue.md), где остается ранжированная очередь
@@ -24,11 +24,12 @@ future work.
 | `0.2.0` | 2026-07-11 | shipped | Protocol v2 quality foundation, durable Core/Node state, workspace workbench and stable deployment paths |
 | `0.2.1` | 2026-07-11 | shipped | Zarya 0.1 Web Control Panel alignment, flat work-sheet shell, system overview, agent work phases and visual regression gates |
 | `0.2.2` | 2026-07-12 | shipped | Automatic main delivery, bounded CI workspaces, coordinated state epoch reset, scoped Node enrollment and functional production smoke |
-| `0.2.3` | 2026-07-12 | current | Clean-bootstrap four-phase CI/CD, containerized prepare, explicit deploy/finalize boundaries and state-neutral delivery |
+| `0.2.3` | 2026-07-12 | shipped | Clean-bootstrap four-phase CI/CD, containerized prepare, explicit deploy/finalize boundaries and state-neutral delivery |
+| `0.2.4` | 2026-07-12 | current | Отложенные сообщения в сессии: долговечные Core-owned одноразовые будущие turn с guarded dispatch |
 
 ## Current Baseline
 
-`0.2.3` включает protocol-v2 baseline `0.2.0`, завершённое Zarya 0.1 Web UI/UX
+`0.2.4` включает protocol-v2 baseline `0.2.0`, завершённое Zarya 0.1 Web UI/UX
 alignment и clean-bootstrap four-phase delivery path. Текущая реализация включает
 первый working distributed
 control panel, шесть закрытых
@@ -89,6 +90,10 @@ renderer/PTY terminal layer, а также первый deployable self-hosted r
   ordinary deploys и read-only interface Node readiness;
 - отдельный health/SHA/heartbeat/version finalize и bounded Uprava-only
   retention releases, images и stale runner workspaces.
+- Core-owned записи отложенных сообщений с UTC due time и явной IANA timezone,
+  lifecycle `scheduled -> sending -> sent | failed | cancelled`, списком и UI
+  внутри сессии, edit/reschedule/send-now/cancel/retry и typed guard failures;
+  отправка в срок использует обычный send-turn admission path.
 
 Новые аудиты и temporary plans должны считать это фактами текущей реализации.
 Они могут ссылаться на `V01`, когда обсуждают исторический первый продуктовый

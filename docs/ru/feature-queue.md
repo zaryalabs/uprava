@@ -37,12 +37,11 @@ dependency, complexity, risk and value. Позиции могут двигать
 
 ## Обзор очереди
 
-Current release baseline: `0.2.3`. Закрытые пункты `0` through `6`, unified
+Current release baseline: `0.2.4`. Закрытые пункты `0` through `7`, unified
 audit hardening release и `5a` workspace renderer release соответствуют shipped
 versions, зафиксированным в [`releases.md`](releases.md). Пункт `6` включает
 workbench alignment и первый стабильный self-hosted deployment path.
-Следующий плановый пункт очереди - отложенные сообщения в сессии перед новыми
-unattended runtime mechanisms.
+Следующий плановый пункт очереди — Background Workers и scheduled agent runs.
 
 | Order | Done | Mechanism / Feature Slice | First Useful Slice | Dependency | Complexity |
 | --- | --- | --- | --- | --- | --- |
@@ -54,7 +53,7 @@ unattended runtime mechanisms.
 | 5 | + | Workspace intervention layer | Lightweight editor, terminal, command history, diff/check entry points | Read-only inspector, events | High |
 | 5a | + | Workspace renderer and PTY terminal layer | Monaco file/diff renderers and xterm-backed interactive PTY sessions | Workspace intervention, Core/Node control channel | High |
 | 6 | + | Daily-use hardening and deployment readiness | Stable panel layout, product polish, server deploy path, CI/CD baseline | `0.1.8` deployable workbench, security baseline | High |
-| 7 | - | Отложенные сообщения в сессии | Долговечные одноразовые будущие turn существующей сессии | Runtime/session guards, Core-owned persistence | Medium |
+| 7 | + | Отложенные сообщения в сессии | Долговечные одноразовые будущие turn существующей сессии | Runtime/session guards, Core-owned persistence | Medium |
 | 8 | - | Background Workers и scheduled agent runs | Долговечные определения unattended agent work, расписания и наблюдаемые runs | Persistent runtime policy, placements, trace | High |
 | 9 | - | Causality and trace UX | Coarse source/cause links with raw fallback | Workspace refs, event log | Medium |
 | 10 | - | Git and review basics | Better diff, branch/worktree awareness, check results | Workspace intervention, trace | Medium |
@@ -269,6 +268,11 @@ edit/reschedule/send-now/cancel, пока запись остаётся `schedul
 время Core проверяет обычные session/runtime guards. Если turn не принят,
 запись остаётся видимой с typed reason и явным действием retry или reschedule,
 а не повторяется скрытно.
+
+**Delivered в `0.2.4`:** Core хранит запись и запускает durable dispatcher.
+Перед отправкой он атомарно claim'ит запись, вызывает обычный send-turn
+admission path и сохраняет typed failure для ручного retry или reschedule. UI
+сессии поддерживает создание, edit/reschedule, send-now, cancel и retry.
 
 **Target direction:** Delivery policies вроде exact-time или
 not-before-when-ready, видимая history и notifications о failure. Recurrence,

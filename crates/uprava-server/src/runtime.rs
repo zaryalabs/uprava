@@ -34,7 +34,7 @@ use axum::{
     },
     middleware::{self, Next},
     response::{IntoResponse, Sse},
-    routing::{get, post},
+    routing::{get, patch, post},
     Json, Router,
 };
 use chrono::{DateTime, Utc};
@@ -59,25 +59,27 @@ use uprava_protocol::{
     ApproveNodeEnrollmentResponse, CapabilitySummary, CapabilityValue,
     ClientCreateNodeEnrollmentRequest, ClientLogLevel, ClientLogRequest, ClientLogResponse,
     CommandAcceptedResponse, CommandEnvelope, CommandId, CommandKind, CommandPayload, CommandState,
-    CommandTarget, ControlFrame, CorrelationId, CreatePlacementRequest, CreateSessionRequest,
-    EnrollmentId, EnrollmentState, EventEnvelope, EventId, EventKind, EventPayload, EvidenceId,
-    HealthResponse, InventorySnapshot, Message, MessageId, MessageRole,
-    NodeCredentialRotationResponse, NodeDeletionResponse, NodeEnrollmentClaimRequest,
-    NodeEnrollmentClaimResponse, NodeEnrollmentRequest, NodeEnrollmentRequestedResponse,
-    NodeEnrollmentSummary, NodeHeartbeatRequest, NodeHeartbeatResponse, NodeId, NodePresence,
-    NodeRevocationResponse, PlacementDeletionResponse, PlacementState, ProjectId,
-    ProjectPlacementId, ProjectPlacementSummary, ResolveApprovalRequest, ResourceBadge,
-    RuntimeSessionId, RuntimeSessionState, RuntimeSummary, ScopeRef, SecurityMode, SecurityStatus,
+    CommandTarget, ControlFrame, CorrelationId, CreatePlacementRequest,
+    CreateScheduledMessageRequest, CreateSessionRequest, EnrollmentId, EnrollmentState,
+    EventEnvelope, EventId, EventKind, EventPayload, EvidenceId, HealthResponse, InventorySnapshot,
+    Message, MessageId, MessageRole, NodeCredentialRotationResponse, NodeDeletionResponse,
+    NodeEnrollmentClaimRequest, NodeEnrollmentClaimResponse, NodeEnrollmentRequest,
+    NodeEnrollmentRequestedResponse, NodeEnrollmentSummary, NodeHeartbeatRequest,
+    NodeHeartbeatResponse, NodeId, NodePresence, NodeRevocationResponse, PlacementDeletionResponse,
+    PlacementState, ProjectId, ProjectPlacementId, ProjectPlacementSummary, ResolveApprovalRequest,
+    ResourceBadge, RuntimeSessionId, RuntimeSessionState, RuntimeSummary, ScheduledMessageFailure,
+    ScheduledMessageState, ScheduledSessionMessage, ScopeRef, SecurityMode, SecurityStatus,
     SendTurnRequest, SessionDetail, SessionEvidenceProjection, SessionEvidenceProjectionNode,
     SessionSummary, SessionThreadId, SessionThreadState, SleepHint, TerminalId, TurnId, TurnState,
-    UpravaRef, VersionResponse, WarningAcknowledgementResponse, WarningSeverity,
-    WebAuthLoginRequest, WebAuthResponse, WebAuthSetupRequest, WebAuthStatusResponse,
-    WorkspaceCommandHistoryItem, WorkspaceCommandHistoryResponse, WorkspaceCommandRunRequest,
-    WorkspaceCommandRunResponse, WorkspaceDiffResponse, WorkspaceFileContentResponse,
-    WorkspaceFileWriteRequest, WorkspaceFileWriteResponse, WorkspaceSnapshot,
-    WorkspaceTerminalClientFrame, WorkspaceTerminalListResponse, WorkspaceTerminalOpenRequest,
-    WorkspaceTerminalOpenResponse, WorkspaceTerminalState, WorkspaceTerminalStreamFrame,
-    WorkspaceTerminalSummary, WorkspaceTreeResponse, CURRENT_PROTOCOL_VERSION as API_VERSION,
+    UpdateScheduledMessageRequest, UpravaRef, VersionResponse, WarningAcknowledgementResponse,
+    WarningSeverity, WebAuthLoginRequest, WebAuthResponse, WebAuthSetupRequest,
+    WebAuthStatusResponse, WorkspaceCommandHistoryItem, WorkspaceCommandHistoryResponse,
+    WorkspaceCommandRunRequest, WorkspaceCommandRunResponse, WorkspaceDiffResponse,
+    WorkspaceFileContentResponse, WorkspaceFileWriteRequest, WorkspaceFileWriteResponse,
+    WorkspaceSnapshot, WorkspaceTerminalClientFrame, WorkspaceTerminalListResponse,
+    WorkspaceTerminalOpenRequest, WorkspaceTerminalOpenResponse, WorkspaceTerminalState,
+    WorkspaceTerminalStreamFrame, WorkspaceTerminalSummary, WorkspaceTreeResponse,
+    CURRENT_PROTOCOL_VERSION as API_VERSION,
 };
 use uuid::Uuid;
 
@@ -131,6 +133,9 @@ const MAX_EVENT_BATCH_ITEMS: usize = 128;
 const MAX_TERMINAL_OUTPUT_CHARS: usize = 65_536;
 const MAX_CONTROL_JSON_DEPTH: usize = 32;
 const MAX_CONTROL_STRING_CHARS: usize = 65_536;
+const SCHEDULED_MESSAGE_TICK: Duration = Duration::from_millis(250);
+const MAX_SCHEDULED_MESSAGE_CONTENT_CHARS: usize = 65_536;
+const MAX_SCHEDULED_MESSAGE_TIMEZONE_CHARS: usize = 100;
 
 tokio::task_local! {
     static REQUEST_CORRELATION_ID: CorrelationId;
@@ -372,6 +377,8 @@ impl AppState {
             core_metrics: Arc::new(CoreMetrics::default()),
         });
         state.migrate().await?;
+        recover_interrupted_scheduled_messages(&state).await?;
+        spawn_scheduled_message_dispatcher(Arc::downgrade(&state));
         Ok(state)
     }
 
@@ -625,6 +632,22 @@ pub fn build_router(state: Arc<AppState>) -> Router {
             get(session_agent_projection),
         )
         .route("/sessions/{session_thread_id}/turns", post(send_turn_route))
+        .route(
+            "/sessions/{session_thread_id}/scheduled-messages",
+            post(create_scheduled_message_route),
+        )
+        .route(
+            "/sessions/{session_thread_id}/scheduled-messages/{scheduled_message_id}",
+            patch(update_scheduled_message_route).delete(cancel_scheduled_message_route),
+        )
+        .route(
+            "/sessions/{session_thread_id}/scheduled-messages/{scheduled_message_id}/send-now",
+            post(send_scheduled_message_now_route),
+        )
+        .route(
+            "/sessions/{session_thread_id}/scheduled-messages/{scheduled_message_id}/retry",
+            post(retry_scheduled_message_route),
+        )
         .route(
             "/sessions/{session_thread_id}/approvals/{approval_id}/resolve",
             post(resolve_approval_route),
@@ -4390,7 +4413,16 @@ async fn send_turn_with_correlation(
     request: SendTurnRequest,
     correlation_id: CorrelationId,
 ) -> Result<CommandAcceptedResponse, AppError> {
-    if request.content.trim().is_empty() {
+    submit_turn_with_correlation(state, session_id, request.content, correlation_id).await
+}
+
+async fn submit_turn_with_correlation(
+    state: &AppState,
+    session_id: SessionThreadId,
+    content: String,
+    correlation_id: CorrelationId,
+) -> Result<CommandAcceptedResponse, AppError> {
+    if content.trim().is_empty() {
         return Err(AppError::bad_request(
             "validation.empty_turn",
             "Turn content cannot be empty",
@@ -4403,8 +4435,6 @@ async fn send_turn_with_correlation(
     let command_id = CommandId::new();
     let turn_id = TurnId::new();
     let user_message_id = MessageId::new();
-    let content = request.content;
-
     let command = CommandEnvelope {
         command_id: command_id.clone(),
         kind: CommandKind::SendTurn,
@@ -4442,6 +4472,390 @@ async fn send_turn_with_correlation(
     Ok(CommandAcceptedResponse {
         command_id,
         session: Some(session),
+    })
+}
+
+async fn create_scheduled_message_route(
+    State(state): State<Arc<AppState>>,
+    Path(session_thread_id): Path<String>,
+    Json(request): Json<CreateScheduledMessageRequest>,
+) -> Result<Json<ScheduledSessionMessage>, AppError> {
+    let session_id = SessionThreadId::from(session_thread_id);
+    load_session_detail(&state, &session_id).await?;
+    validate_scheduled_message_input(&request.content, request.due_at, &request.timezone)?;
+    let now = Utc::now();
+    let scheduled_message_id = Uuid::new_v4().to_string();
+    sqlx::query(
+        r#"
+        insert into scheduled_messages (
+            scheduled_message_id, session_thread_id, content, due_at, timezone, state,
+            created_at, updated_at, sending_at, sent_at, cancelled_at, command_id, turn_id,
+            failure_code, failure_message
+        ) values (?1, ?2, ?3, ?4, ?5, 'scheduled', ?6, ?6, null, null, null, null, null, null, null)
+        "#,
+    )
+    .bind(&scheduled_message_id)
+    .bind(session_id.as_str())
+    .bind(request.content.trim())
+    .bind(request.due_at)
+    .bind(request.timezone.trim())
+    .bind(now)
+    .execute(&state.pool)
+    .await?;
+    load_scheduled_message(&state, &session_id, &scheduled_message_id)
+        .await
+        .map(Json)
+}
+
+async fn update_scheduled_message_route(
+    State(state): State<Arc<AppState>>,
+    Path((session_thread_id, scheduled_message_id)): Path<(String, String)>,
+    Json(request): Json<UpdateScheduledMessageRequest>,
+) -> Result<Json<ScheduledSessionMessage>, AppError> {
+    let session_id = SessionThreadId::from(session_thread_id);
+    let existing = load_scheduled_message(&state, &session_id, &scheduled_message_id).await?;
+    if !matches!(
+        existing.state,
+        ScheduledMessageState::Scheduled | ScheduledMessageState::Failed
+    ) {
+        return Err(AppError::bad_request(
+            "scheduled_message.not_editable",
+            "Only scheduled or failed messages can be edited or rescheduled",
+        ));
+    }
+    let content = request.content.unwrap_or(existing.content);
+    let due_at = request.due_at.unwrap_or(existing.due_at);
+    let timezone = request.timezone.unwrap_or(existing.timezone);
+    validate_scheduled_message_input(&content, due_at, &timezone)?;
+    let now = Utc::now();
+    sqlx::query(
+        r#"
+        update scheduled_messages
+        set content = ?1, due_at = ?2, timezone = ?3, state = 'scheduled', updated_at = ?4,
+            sending_at = null, sent_at = null, cancelled_at = null, command_id = null, turn_id = null,
+            failure_code = null, failure_message = null
+        where scheduled_message_id = ?5 and session_thread_id = ?6
+          and state in ('scheduled', 'failed')
+        "#,
+    )
+    .bind(content.trim())
+    .bind(due_at)
+    .bind(timezone.trim())
+    .bind(now)
+    .bind(&scheduled_message_id)
+    .bind(session_id.as_str())
+    .execute(&state.pool)
+    .await?;
+    load_scheduled_message(&state, &session_id, &scheduled_message_id)
+        .await
+        .map(Json)
+}
+
+async fn cancel_scheduled_message_route(
+    State(state): State<Arc<AppState>>,
+    Path((session_thread_id, scheduled_message_id)): Path<(String, String)>,
+) -> Result<Json<ScheduledSessionMessage>, AppError> {
+    let session_id = SessionThreadId::from(session_thread_id);
+    let now = Utc::now();
+    let result = sqlx::query(
+        "update scheduled_messages set state = 'cancelled', cancelled_at = ?1, updated_at = ?1 where scheduled_message_id = ?2 and session_thread_id = ?3 and state = 'scheduled'",
+    )
+    .bind(now)
+    .bind(&scheduled_message_id)
+    .bind(session_id.as_str())
+    .execute(&state.pool)
+    .await?;
+    if result.rows_affected() == 0 {
+        return Err(AppError::bad_request(
+            "scheduled_message.not_cancellable",
+            "Only scheduled messages can be cancelled",
+        ));
+    }
+    load_scheduled_message(&state, &session_id, &scheduled_message_id)
+        .await
+        .map(Json)
+}
+
+async fn send_scheduled_message_now_route(
+    State(state): State<Arc<AppState>>,
+    Path((session_thread_id, scheduled_message_id)): Path<(String, String)>,
+) -> Result<Json<ScheduledSessionMessage>, AppError> {
+    let session_id = SessionThreadId::from(session_thread_id);
+    claim_scheduled_message(&state, &session_id, &scheduled_message_id, "scheduled").await?;
+    dispatch_scheduled_message(&state, &session_id, &scheduled_message_id).await?;
+    load_scheduled_message(&state, &session_id, &scheduled_message_id)
+        .await
+        .map(Json)
+}
+
+async fn retry_scheduled_message_route(
+    State(state): State<Arc<AppState>>,
+    Path((session_thread_id, scheduled_message_id)): Path<(String, String)>,
+) -> Result<Json<ScheduledSessionMessage>, AppError> {
+    let session_id = SessionThreadId::from(session_thread_id);
+    claim_scheduled_message(&state, &session_id, &scheduled_message_id, "failed").await?;
+    dispatch_scheduled_message(&state, &session_id, &scheduled_message_id).await?;
+    load_scheduled_message(&state, &session_id, &scheduled_message_id)
+        .await
+        .map(Json)
+}
+
+fn validate_scheduled_message_input(
+    content: &str,
+    due_at: DateTime<Utc>,
+    timezone: &str,
+) -> Result<(), AppError> {
+    if content.trim().is_empty() {
+        return Err(AppError::bad_request(
+            "validation.empty_scheduled_message",
+            "Scheduled message content cannot be empty",
+        ));
+    }
+    if content.chars().count() > MAX_SCHEDULED_MESSAGE_CONTENT_CHARS {
+        return Err(AppError::bad_request(
+            "validation.scheduled_message_too_large",
+            "Scheduled message content exceeds the allowed size",
+        ));
+    }
+    if due_at <= Utc::now() {
+        return Err(AppError::bad_request(
+            "validation.scheduled_message_not_future",
+            "Scheduled message time must be in the future",
+        ));
+    }
+    let timezone = timezone.trim();
+    if timezone.is_empty()
+        || timezone.chars().count() > MAX_SCHEDULED_MESSAGE_TIMEZONE_CHARS
+        || !timezone.chars().all(|character| {
+            character.is_ascii_alphanumeric() || matches!(character, '/' | '_' | '-' | '+')
+        })
+    {
+        return Err(AppError::bad_request(
+            "validation.scheduled_message_timezone",
+            "Scheduled message timezone must be a valid explicit timezone name",
+        ));
+    }
+    Ok(())
+}
+
+fn spawn_scheduled_message_dispatcher(state: std::sync::Weak<AppState>) {
+    tokio::spawn(async move {
+        loop {
+            tokio::time::sleep(SCHEDULED_MESSAGE_TICK).await;
+            let Some(state) = state.upgrade() else {
+                break;
+            };
+            if let Err(error) = dispatch_due_scheduled_messages(&state).await {
+                tracing::error!(error = %error, "scheduled message dispatcher tick failed");
+            }
+        }
+    });
+}
+
+async fn recover_interrupted_scheduled_messages(state: &AppState) -> Result<(), AppError> {
+    let now = Utc::now();
+    sqlx::query(
+        "update scheduled_messages set state = 'failed', updated_at = ?1, failure_code = 'scheduled_message.dispatch_interrupted', failure_message = 'Core restarted while this delayed message was being dispatched; retry or reschedule it explicitly' where state = 'sending'",
+    )
+    .bind(now)
+    .execute(&state.pool)
+    .await?;
+    Ok(())
+}
+
+async fn dispatch_due_scheduled_messages(state: &AppState) -> Result<(), AppError> {
+    let due_ids: Vec<(String, String)> = sqlx::query_as(
+        "select scheduled_message_id, session_thread_id from scheduled_messages where state = 'scheduled' and due_at <= ?1 order by due_at asc, scheduled_message_id asc",
+    )
+    .bind(Utc::now())
+    .fetch_all(&state.pool)
+    .await?;
+    for (scheduled_message_id, session_thread_id) in due_ids {
+        let session_id = SessionThreadId::from(session_thread_id);
+        if claim_scheduled_message(state, &session_id, &scheduled_message_id, "scheduled")
+            .await
+            .is_ok()
+        {
+            dispatch_scheduled_message(state, &session_id, &scheduled_message_id).await?;
+        }
+    }
+    Ok(())
+}
+
+async fn claim_scheduled_message(
+    state: &AppState,
+    session_id: &SessionThreadId,
+    scheduled_message_id: &str,
+    expected_state: &str,
+) -> Result<(), AppError> {
+    let now = Utc::now();
+    let result = sqlx::query(
+        "update scheduled_messages set state = 'sending', sending_at = ?1, updated_at = ?1, failure_code = null, failure_message = null where scheduled_message_id = ?2 and session_thread_id = ?3 and state = ?4",
+    )
+    .bind(now)
+    .bind(scheduled_message_id)
+    .bind(session_id.as_str())
+    .bind(expected_state)
+    .execute(&state.pool)
+    .await?;
+    if result.rows_affected() == 1 {
+        return Ok(());
+    }
+    Err(AppError::bad_request(
+        "scheduled_message.not_sendable",
+        "Scheduled message is no longer available to send",
+    ))
+}
+
+async fn dispatch_scheduled_message(
+    state: &AppState,
+    session_id: &SessionThreadId,
+    scheduled_message_id: &str,
+) -> Result<(), AppError> {
+    let scheduled = load_scheduled_message(state, session_id, scheduled_message_id).await?;
+    if scheduled.state != ScheduledMessageState::Sending {
+        return Ok(());
+    }
+    match submit_turn_with_correlation(
+        state,
+        session_id.clone(),
+        scheduled.content,
+        CorrelationId::new(),
+    )
+    .await
+    {
+        Ok(accepted) => {
+            let turn_id: Option<String> =
+                sqlx::query_scalar("select turn_id from turns where command_id = ?1")
+                    .bind(accepted.command_id.as_str())
+                    .fetch_optional(&state.pool)
+                    .await?;
+            let now = Utc::now();
+            sqlx::query(
+                "update scheduled_messages set state = 'sent', sent_at = ?1, updated_at = ?1, command_id = ?2, turn_id = ?3 where scheduled_message_id = ?4 and session_thread_id = ?5 and state = 'sending'",
+            )
+            .bind(now)
+            .bind(accepted.command_id.as_str())
+            .bind(turn_id)
+            .bind(scheduled_message_id)
+            .bind(session_id.as_str())
+            .execute(&state.pool)
+            .await?;
+        }
+        Err(error) => {
+            let (code, message) = scheduled_message_failure(&error);
+            let now = Utc::now();
+            sqlx::query(
+                "update scheduled_messages set state = 'failed', updated_at = ?1, failure_code = ?2, failure_message = ?3 where scheduled_message_id = ?4 and session_thread_id = ?5 and state = 'sending'",
+            )
+            .bind(now)
+            .bind(code)
+            .bind(message)
+            .bind(scheduled_message_id)
+            .bind(session_id.as_str())
+            .execute(&state.pool)
+            .await?;
+        }
+    }
+    Ok(())
+}
+
+fn scheduled_message_failure(error: &AppError) -> (String, String) {
+    match error {
+        AppError::NotFound { code, message }
+        | AppError::BadRequest { code, message }
+        | AppError::Auth { code, message }
+        | AppError::RateLimited { code, message }
+        | AppError::Internal { code, message } => ((*code).to_owned(), message.clone()),
+        AppError::Database(_) => (
+            "internal.database".to_owned(),
+            "Core database operation failed".to_owned(),
+        ),
+        AppError::Serialization(_) => (
+            "internal.serialization".to_owned(),
+            "Core serialization failed".to_owned(),
+        ),
+        AppError::Io(_) => (
+            "internal.io".to_owned(),
+            "Core IO operation failed".to_owned(),
+        ),
+        AppError::TaskJoin(_) => (
+            "internal.task_join".to_owned(),
+            "Core background task failed".to_owned(),
+        ),
+    }
+}
+
+async fn load_scheduled_message(
+    state: &AppState,
+    session_id: &SessionThreadId,
+    scheduled_message_id: &str,
+) -> Result<ScheduledSessionMessage, AppError> {
+    let row = sqlx::query(
+        r#"
+        select scheduled_message_id, session_thread_id, content, due_at, timezone, state,
+               created_at, updated_at, sending_at, sent_at, cancelled_at, command_id, turn_id,
+               failure_code, failure_message
+        from scheduled_messages
+        where scheduled_message_id = ?1 and session_thread_id = ?2
+        "#,
+    )
+    .bind(scheduled_message_id)
+    .bind(session_id.as_str())
+    .fetch_optional(&state.pool)
+    .await?
+    .ok_or_else(|| {
+        AppError::not_found("scheduled_message.not_found", "Scheduled message not found")
+    })?;
+    row_to_scheduled_message(row)
+}
+
+async fn load_scheduled_messages(
+    state: &AppState,
+    session_id: &SessionThreadId,
+) -> Result<Vec<ScheduledSessionMessage>, AppError> {
+    let rows = sqlx::query(
+        r#"
+        select scheduled_message_id, session_thread_id, content, due_at, timezone, state,
+               created_at, updated_at, sending_at, sent_at, cancelled_at, command_id, turn_id,
+               failure_code, failure_message
+        from scheduled_messages
+        where session_thread_id = ?1
+        order by due_at desc, created_at desc
+        "#,
+    )
+    .bind(session_id.as_str())
+    .fetch_all(&state.pool)
+    .await?;
+    rows.into_iter().map(row_to_scheduled_message).collect()
+}
+
+fn row_to_scheduled_message(
+    row: sqlx::sqlite::SqliteRow,
+) -> Result<ScheduledSessionMessage, AppError> {
+    let failure_code: Option<String> = row.try_get("failure_code")?;
+    let failure_message: Option<String> = row.try_get("failure_message")?;
+    Ok(ScheduledSessionMessage {
+        scheduled_message_id: row.try_get("scheduled_message_id")?,
+        session_thread_id: SessionThreadId::from(row.try_get::<String, _>("session_thread_id")?),
+        content: row.try_get("content")?,
+        due_at: row.try_get("due_at")?,
+        timezone: row.try_get("timezone")?,
+        state: parse_scheduled_message_state(row.try_get::<String, _>("state")?.as_str()),
+        created_at: row.try_get("created_at")?,
+        updated_at: row.try_get("updated_at")?,
+        sending_at: row.try_get("sending_at")?,
+        sent_at: row.try_get("sent_at")?,
+        cancelled_at: row.try_get("cancelled_at")?,
+        command_id: row
+            .try_get::<Option<String>, _>("command_id")?
+            .map(CommandId::from),
+        turn_id: row
+            .try_get::<Option<String>, _>("turn_id")?
+            .map(TurnId::from),
+        failure: failure_code
+            .zip(failure_message)
+            .map(|(code, message)| ScheduledMessageFailure { code, message }),
     })
 }
 
@@ -6781,11 +7195,13 @@ async fn load_session_detail(
         load_placement_for_session(state, &session.project_placement_id, session_id).await?;
     let messages = load_messages(state, session_id).await?;
     let events = load_events(state, session_id, 0).await?;
+    let scheduled_messages = load_scheduled_messages(state, session_id).await?;
     Ok(SessionDetail {
         session,
         placement,
         messages,
         events,
+        scheduled_messages,
     })
 }
 
@@ -8657,6 +9073,16 @@ fn format_turn_state(value: TurnState) -> &'static str {
     }
 }
 
+fn parse_scheduled_message_state(value: &str) -> ScheduledMessageState {
+    match value {
+        "sending" => ScheduledMessageState::Sending,
+        "sent" => ScheduledMessageState::Sent,
+        "failed" => ScheduledMessageState::Failed,
+        "cancelled" => ScheduledMessageState::Cancelled,
+        _ => ScheduledMessageState::Scheduled,
+    }
+}
+
 fn format_approval_state(value: ApprovalState) -> &'static str {
     match value {
         ApprovalState::Requested => "requested",
@@ -9272,6 +9698,37 @@ const MIGRATION_7: &[&str] = &[
     "#,
 ];
 
+const MIGRATION_8: &[&str] = &[
+    r#"
+    create table if not exists scheduled_messages (
+        scheduled_message_id text primary key,
+        session_thread_id text not null references session_threads(session_thread_id) on delete cascade,
+        content text not null,
+        due_at text not null,
+        timezone text not null,
+        state text not null check (state in ('scheduled', 'sending', 'sent', 'failed', 'cancelled')),
+        created_at text not null,
+        updated_at text not null,
+        sending_at text,
+        sent_at text,
+        cancelled_at text,
+        command_id text references commands(command_id),
+        turn_id text references turns(turn_id),
+        failure_code text,
+        failure_message text
+    )
+    "#,
+    r#"
+    create index if not exists scheduled_messages_due_idx
+    on scheduled_messages(state, due_at, scheduled_message_id)
+    where state = 'scheduled'
+    "#,
+    r#"
+    create index if not exists scheduled_messages_session_idx
+    on scheduled_messages(session_thread_id, due_at desc, created_at desc)
+    "#,
+];
+
 const MIGRATIONS: &[Migration] = &[
     Migration {
         version: 1,
@@ -9306,6 +9763,11 @@ const MIGRATIONS: &[Migration] = &[
     Migration {
         version: 7,
         statements: MIGRATION_7,
+        ignore_duplicate_columns: false,
+    },
+    Migration {
+        version: 8,
+        statements: MIGRATION_8,
         ignore_duplicate_columns: false,
     },
 ];

@@ -383,7 +383,8 @@ async fn migration_creates_baseline_schema_from_empty_database() {
                   'events',
                   'warning_acknowledgements',
                   'event_publication_outbox',
-                  'command_dispatch_outbox'
+                  'command_dispatch_outbox',
+                  'scheduled_messages'
               )
             "#,
     )
@@ -391,14 +392,14 @@ async fn migration_creates_baseline_schema_from_empty_database() {
     .await
     .expect("baseline tables count loads");
 
-    assert_eq!(table_count, 16);
+    assert_eq!(table_count, 17);
 
     let applied_versions: Vec<i64> =
         sqlx::query_scalar("select version from schema_migrations order by version")
             .fetch_all(&state.pool)
             .await
             .expect("migration versions load");
-    assert_eq!(applied_versions, vec![1, 2, 3, 4, 5, 6, 7]);
+    assert_eq!(applied_versions, vec![1, 2, 3, 4, 5, 6, 7, 8]);
 
     let metadata: (String, i64) =
         sqlx::query_as("select slot, schema_version from core_schema_meta")
@@ -423,7 +424,7 @@ async fn migration_runner_is_idempotent_and_does_not_duplicate_versions() {
         .fetch_one(&state.pool)
         .await
         .expect("migration count loads");
-    assert_eq!(migration_count, 7);
+    assert_eq!(migration_count, 8);
 }
 
 #[tokio::test]
@@ -637,7 +638,7 @@ async fn migration_concurrent_file_backed_starts_share_one_numbered_history() {
         .fetch_one(&pool)
         .await
         .expect("migration count loads");
-    assert_eq!(count, 7);
+    assert_eq!(count, 8);
     drop(first);
     drop(second);
     pool.close().await;
@@ -4952,6 +4953,228 @@ async fn send_turn_persists_durable_turn_and_user_message() {
     assert_eq!(turn_state, "created");
     assert_eq!(content, "persist this turn");
     assert_eq!(user_message_count, 1);
+}
+
+#[tokio::test]
+async fn scheduled_message_persists_and_is_visible_in_its_session() {
+    let state = test_state().await;
+    let (_node_id, detail, workspace_path) = create_test_session(&state).await;
+    let due_at = Utc::now() + chrono::Duration::minutes(5);
+
+    let scheduled = create_scheduled_message_route(
+        State(state.clone()),
+        Path(detail.session.session_thread_id.to_string()),
+        Json(CreateScheduledMessageRequest {
+            content: "check the final result".to_owned(),
+            due_at,
+            timezone: "Europe/Moscow".to_owned(),
+        }),
+    )
+    .await
+    .expect("scheduled message creates")
+    .0;
+    let reloaded = load_session_detail(&state, &detail.session.session_thread_id)
+        .await
+        .expect("session detail loads");
+
+    assert_eq!(scheduled.state, ScheduledMessageState::Scheduled);
+    assert_eq!(scheduled.timezone, "Europe/Moscow");
+    assert_eq!(reloaded.scheduled_messages, vec![scheduled]);
+    std::fs::remove_dir_all(workspace_path).expect("workspace dir removes");
+}
+
+#[tokio::test]
+async fn scheduled_message_dispatches_through_the_normal_turn_path() {
+    let state = test_state().await;
+    let (_node_id, detail, workspace_path) = create_test_session(&state).await;
+    set_session_runtime_state(&state, &detail, RuntimeSessionState::Ready).await;
+    let scheduled = create_scheduled_message_route(
+        State(state.clone()),
+        Path(detail.session.session_thread_id.to_string()),
+        Json(CreateScheduledMessageRequest {
+            content: "run the deferred turn".to_owned(),
+            due_at: Utc::now() + chrono::Duration::minutes(5),
+            timezone: "UTC".to_owned(),
+        }),
+    )
+    .await
+    .expect("scheduled message creates")
+    .0;
+
+    claim_scheduled_message(
+        &state,
+        &detail.session.session_thread_id,
+        &scheduled.scheduled_message_id,
+        "scheduled",
+    )
+    .await
+    .expect("scheduled message claims");
+    dispatch_scheduled_message(
+        &state,
+        &detail.session.session_thread_id,
+        &scheduled.scheduled_message_id,
+    )
+    .await
+    .expect("scheduled message dispatches");
+    let dispatched = load_scheduled_message(
+        &state,
+        &detail.session.session_thread_id,
+        &scheduled.scheduled_message_id,
+    )
+    .await
+    .expect("scheduled message reloads");
+
+    assert_eq!(dispatched.state, ScheduledMessageState::Sent);
+    assert!(dispatched.command_id.is_some());
+    assert!(dispatched.turn_id.is_some());
+    std::fs::remove_dir_all(workspace_path).expect("workspace dir removes");
+}
+
+#[tokio::test]
+async fn due_scheduled_message_is_claimed_and_dispatched_once() {
+    let state = test_state().await;
+    let (_node_id, detail, workspace_path) = create_test_session(&state).await;
+    set_session_runtime_state(&state, &detail, RuntimeSessionState::Ready).await;
+    let scheduled = create_scheduled_message_route(
+        State(state.clone()),
+        Path(detail.session.session_thread_id.to_string()),
+        Json(CreateScheduledMessageRequest {
+            content: "dispatch when due".to_owned(),
+            due_at: Utc::now() + chrono::Duration::minutes(5),
+            timezone: "UTC".to_owned(),
+        }),
+    )
+    .await
+    .expect("scheduled message creates")
+    .0;
+    sqlx::query("update scheduled_messages set due_at = ?1 where scheduled_message_id = ?2")
+        .bind(Utc::now() - chrono::Duration::seconds(1))
+        .bind(&scheduled.scheduled_message_id)
+        .execute(&state.pool)
+        .await
+        .expect("message becomes due");
+
+    dispatch_due_scheduled_messages(&state)
+        .await
+        .expect("due messages dispatch");
+    dispatch_due_scheduled_messages(&state)
+        .await
+        .expect("sent message is not redispatched");
+    let command_count: i64 = sqlx::query_scalar(
+        "select count(*) from commands where session_thread_id = ?1 and kind = 'SendTurn'",
+    )
+    .bind(detail.session.session_thread_id.as_str())
+    .fetch_one(&state.pool)
+    .await
+    .expect("command count loads");
+    let dispatched = load_scheduled_message(
+        &state,
+        &detail.session.session_thread_id,
+        &scheduled.scheduled_message_id,
+    )
+    .await
+    .expect("scheduled message reloads");
+
+    assert_eq!(dispatched.state, ScheduledMessageState::Sent);
+    assert_eq!(command_count, 1);
+    std::fs::remove_dir_all(workspace_path).expect("workspace dir removes");
+}
+
+#[tokio::test]
+async fn scheduled_message_records_typed_guard_failure_without_retrying() {
+    let state = test_state().await;
+    let (_node_id, detail, workspace_path) = create_test_session(&state).await;
+    let scheduled = create_scheduled_message_route(
+        State(state.clone()),
+        Path(detail.session.session_thread_id.to_string()),
+        Json(CreateScheduledMessageRequest {
+            content: "do not dispatch while detached".to_owned(),
+            due_at: Utc::now() + chrono::Duration::minutes(5),
+            timezone: "UTC".to_owned(),
+        }),
+    )
+    .await
+    .expect("scheduled message creates")
+    .0;
+    sqlx::query("update session_threads set state = 'detached' where session_thread_id = ?1")
+        .bind(detail.session.session_thread_id.as_str())
+        .execute(&state.pool)
+        .await
+        .expect("session detaches");
+
+    claim_scheduled_message(
+        &state,
+        &detail.session.session_thread_id,
+        &scheduled.scheduled_message_id,
+        "scheduled",
+    )
+    .await
+    .expect("scheduled message claims");
+    dispatch_scheduled_message(
+        &state,
+        &detail.session.session_thread_id,
+        &scheduled.scheduled_message_id,
+    )
+    .await
+    .expect("failed dispatch is recorded");
+    let failed = load_scheduled_message(
+        &state,
+        &detail.session.session_thread_id,
+        &scheduled.scheduled_message_id,
+    )
+    .await
+    .expect("scheduled message reloads");
+
+    assert_eq!(failed.state, ScheduledMessageState::Failed);
+    assert_eq!(
+        failed.failure.expect("typed failure exists").code,
+        "session.detached"
+    );
+    std::fs::remove_dir_all(workspace_path).expect("workspace dir removes");
+}
+
+#[tokio::test]
+async fn interrupted_scheduled_dispatch_becomes_a_visible_manual_retry() {
+    let state = test_state().await;
+    let (_node_id, detail, workspace_path) = create_test_session(&state).await;
+    let scheduled = create_scheduled_message_route(
+        State(state.clone()),
+        Path(detail.session.session_thread_id.to_string()),
+        Json(CreateScheduledMessageRequest {
+            content: "recover after Core restart".to_owned(),
+            due_at: Utc::now() + chrono::Duration::minutes(5),
+            timezone: "UTC".to_owned(),
+        }),
+    )
+    .await
+    .expect("scheduled message creates")
+    .0;
+    claim_scheduled_message(
+        &state,
+        &detail.session.session_thread_id,
+        &scheduled.scheduled_message_id,
+        "scheduled",
+    )
+    .await
+    .expect("scheduled message claims");
+
+    recover_interrupted_scheduled_messages(&state)
+        .await
+        .expect("interrupted dispatches recover");
+    let failed = load_scheduled_message(
+        &state,
+        &detail.session.session_thread_id,
+        &scheduled.scheduled_message_id,
+    )
+    .await
+    .expect("scheduled message reloads");
+
+    assert_eq!(failed.state, ScheduledMessageState::Failed);
+    assert_eq!(
+        failed.failure.expect("typed failure exists").code,
+        "scheduled_message.dispatch_interrupted"
+    );
+    std::fs::remove_dir_all(workspace_path).expect("workspace dir removes");
 }
 
 #[tokio::test]
