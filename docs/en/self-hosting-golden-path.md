@@ -84,6 +84,8 @@ The first self-hosting env file should include:
 UPRAVA_CORE_URL=https://uprava.zrya.io
 UPRAVA_NODE_STATE_PATH=/var/lib/uprava-node/node.sqlite
 UPRAVA_NODE_WORKSPACES=/srv/uprava-workspaces
+HOME=/var/lib/uprava
+UPRAVA_CODEX_BINARY=/opt/codex/bin/codex
 ```
 
 0.2.0 uses the stable `/etc/uprava/node.env` configuration and
@@ -94,6 +96,13 @@ runtime tree.
 `UPRAVA_NODE_WORKSPACES` intentionally points at the workspace root so every
 checkout under `/srv/uprava-workspaces/*` can be used without another server
 permissions step.
+
+Install the Codex CLI outside user homes in a root-owned system location, such
+as `/opt/codex/bin/codex`, and set `UPRAVA_CODEX_BINARY` to that absolute path.
+The daemon uses `HOME=/var/lib/uprava`; its Codex state, including auth, belongs
+under `/var/lib/uprava/.codex` with `0700` directories and `0600` files. Keep
+`ProtectHome=true` on the systemd unit: the daemon can run the system CLI and
+use its own state without gaining access to `/home`.
 
 For the current `codex exec` adapter, the Node launches Codex with
 `--skip-git-repo-check` and

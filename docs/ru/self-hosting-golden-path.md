@@ -81,6 +81,8 @@ RestartSec=5s
 UPRAVA_CORE_URL=https://uprava.zrya.io
 UPRAVA_NODE_STATE_PATH=/var/lib/uprava-node/node.sqlite
 UPRAVA_NODE_WORKSPACES=/srv/uprava-workspaces
+HOME=/var/lib/uprava
+UPRAVA_CODEX_BINARY=/opt/codex/bin/codex
 ```
 
 0.2.0 использует стабильные paths `/etc/uprava/node.env` и
@@ -90,6 +92,14 @@ UPRAVA_NODE_WORKSPACES=/srv/uprava-workspaces
 `UPRAVA_NODE_WORKSPACES` намеренно указывает на workspace root, чтобы каждый
 checkout under `/srv/uprava-workspaces/*` можно было использовать без нового
 server permissions step.
+
+Codex CLI нужно устанавливать вне user homes в root-owned system location,
+например `/opt/codex/bin/codex`, и задавать этот абсолютный путь через
+`UPRAVA_CODEX_BINARY`. Daemon использует `HOME=/var/lib/uprava`; его Codex
+state, включая auth, находится в `/var/lib/uprava/.codex` с правами `0700` на
+директории и `0600` на файлы. В systemd unit следует сохранить
+`ProtectHome=true`: daemon получает system CLI и собственный state, но не
+доступ к `/home`.
 
 Для текущего `codex exec` adapter Node запускает Codex с
 `--skip-git-repo-check` и
