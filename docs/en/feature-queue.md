@@ -40,7 +40,7 @@ Current release baseline: `0.2.4`. Done items `0` through `7`, the unified
 audit hardening release and the `5a` workspace renderer release correspond to
 the shipped versions recorded in [`releases.md`](releases.md). Item `6` spans
 the workbench alignment and the first stable self-hosted deployment path.
-The next planned queue item is Background Workers and scheduled agent runs.
+The next planned queue item is Background Jobs and scheduled agent runs.
 
 | Order | Done | Mechanism / Feature Slice | First Useful Slice | Dependency | Complexity |
 | --- | --- | --- | --- | --- | --- |
@@ -53,7 +53,7 @@ The next planned queue item is Background Workers and scheduled agent runs.
 | 5a | + | Workspace renderer and PTY terminal layer | Monaco file/diff renderers and xterm-backed interactive PTY sessions | Workspace intervention, Core/Node control channel | High |
 | 6 | + | Daily-use hardening and deployment readiness | Stable panel layout, product polish, server deploy path, CI/CD baseline | `0.1.8` deployable workbench, security baseline | High |
 | 7 | + | Delayed session messages | Durable one-off future turns for an existing session | Runtime/session guards, Core-owned persistence | Medium |
-| 8 | - | Background Workers and scheduled agent runs | Durable unattended agent-run definitions, schedules and observable runs | Persistent runtime policy, placements, trace | High |
+| 8 | - | Background Jobs and scheduled agent runs | Durable unattended agent-run definitions, schedules and observable runs | Placements, provider runtime, durable events | High |
 | 9 | - | Causality and trace UX | Coarse source/cause links with raw fallback | Workspace refs, event log | Medium |
 | 10 | - | Git and review basics | Better diff, branch/worktree awareness, check results | Workspace intervention, trace | Medium |
 | 11 | - | Tool Registry v1 | Real tool metadata, permissions, routing, and audit policy | V01 capability model, events | High |
@@ -252,7 +252,7 @@ and task-runtime work is built.
 
 **Value:** Lets a person prepare a follow-up turn without interrupting an
 active agent or keeping the browser open. A delayed message is one future turn
-for one existing session, not a recurring automation or a Worker Run.
+for one existing session, not a recurring automation or a Job Run.
 
 **Dependency:** Runtime/session admission guards and durable Core persistence;
 the eventual dispatch must use the ordinary send-turn path.
@@ -274,30 +274,48 @@ cancel and retry.
 not-before-when-ready, retained history and failure notifications. Recurrence,
 new-session launch, approval bypass and chained automation remain out of scope.
 
-### 8. Background Workers and scheduled agent runs
+### 8. Background Jobs and scheduled agent runs
 
 **Value:** Adds a controlled unattended-work mode for recurring bounded agent
 work, without treating an immortal process or an opaque workflow graph as the
 product model.
 
-**Dependency:** Persistent execution policy, project/workspace placements,
-durable events and trace/evidence. A Worker reuses the normal provider runtime
-path rather than introducing a hidden executor.
+**Dependency:** Project/workspace placements, the normal provider runtime path,
+and durable Core events. A Job does not introduce a hidden executor.
+Provider-native sandboxing and the stricter execution policy in item `16a` do
+not block this slice: the current controlled deployment consciously accepts OS
+user and/or VM isolation together with the risks of unrestricted provider
+execution.
 
-**First useful slice:** A paused-by-default Worker definition with immutable
-prompt/execution revisions, one target placement, manual run plus simple
-interval/daily/weekly schedules with an explicit IANA timezone, and a mandatory
-manual test-before-enable flow. Each trigger is evaluated separately from
-admission; the default overlap policy is `skip` and permits at most one active
-run per Worker. The UI exposes Worker configuration, run history, typed skipped
-outcomes, warnings, trace/evidence and an attention inbox for blocked or failed
-runs. Current checkout and optional Git worktree are explicit modes.
+**First useful slice:** A paused-by-default Job definition with one target
+placement, a prompt/task description and launch parameters, a manual test run,
+and simple interval/daily/weekly schedules with an explicit IANA timezone. A
+Job operates only in the current placement workspace; worktrees and isolated
+task runtimes are deferred. Every launch is retained as an observable Job Run.
+The UI exposes configuration, run history, a final summary, available provider
+output/logs, typed skipped/failed outcomes, and navigation to ordinary
+session/trace evidence. The default overlap policy is `skip` and permits at
+most one active run per Job.
 
-**Target direction:** Event and task-tracker triggers, explicit buffering
-policies, budgets, notifications, review/PR loops and eventually isolated task
+Schedules use a stop-on-error policy by default: a failed run, or one that
+cannot start because of a runtime/admission error, pauses subsequent automatic
+runs until a person acts. This is an opt-out parameter, so the user can allow a
+schedule to continue after errors. Manual runs remain available while the
+schedule is paused.
+
+Before automatic and ordinary interactive starts, Core checks provider usage
+limits when possible. If Codex reports `5%` or less remaining in either the
+five-hour or weekly limit, a new chat/session or Job Run is rejected with a
+typed reason. The user can explicitly force the start. If the provider exposes
+no reliable machine-readable usage data, quota state is `unknown`, not an
+invented value; missing data alone does not block a start.
+
+**Target direction:** Immutable configuration revisions, event and task-tracker
+triggers, explicit buffering policies, budgets, notifications, richer
+summaries/evidence, review/PR loops, worktrees, and eventually isolated task
 runtimes. The first slice excludes a visual workflow canvas, arbitrary
-multi-step pipelines, unlimited backfill and automatic cleanup of unreviewed
-work.
+multi-step pipelines, and unlimited backfill. Add restrictions when demonstrated
+necessary; prompt/task description remains the primary behavior contract.
 
 ### 9. Causality and trace UX
 

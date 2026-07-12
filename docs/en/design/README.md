@@ -67,6 +67,7 @@ docs/en/design/007-plugins-tool-registry-and-mcp-strategy.md
 docs/en/design/008-go-to-source-and-causality-ux.md
 docs/en/design/009-human-agent-dual-interface.md
 docs/en/design/010-project-workspace-surface.md
+docs/en/design/011-background-jobs.md
 ```
 
 Recommended document structure:
@@ -142,6 +143,7 @@ These principles should run through all key mechanisms:
 | A-008 | Go to source and causality UX | How do we make an equivalent of go to definition, but for agent work? How does a user go from answer, diff line, failed check, artifact, decision, status, or UI block to source/evidence/cause: prompt/context/tool call/command/event/file change/raw log? What is a source/cause graph, and what is log noise? | Causality UI/UX model: navigation from result to source, evidence, and cause, with a minimum source/cause link model that does not dump raw trace. |
 | **A-009** | Human-agent dual interface and Agent as First-Class Citizen | How do we make UI understandable to both humans and agents? What are machine-readable UI state, context entry points, internal Uprava agent, chat over UI element, agent identity, capabilities, status, memory, permissions, and ownership? | Dual-interface model where the agent is a visible system participant, not a hidden process behind text chat. |
 | A-010 | Project Workspace Surface | How does the user see and change a concrete agent workspace? Where do file tree, file viewer/editor, terminal/PTY, command history, diff/check views, and "open full IDE" sidecar live? How do Core/Node Daemon provide permissions, path boundaries, edit lifecycle, trace, and addressable workspace refs? | Post-V01 workspace surface model: inspect-first, edit-light, terminal-capable, traceable, with optional full IDE sidecar later. |
+| A-011 | Background Jobs | How should prompt-first unattended work be configured, launched manually or on schedule, observed as runs, and stopped after errors without prematurely building a workflow engine? | Job/Job Run model for controlled deployment: current workspace, durable schedule, summary/output UX, stop-on-error, and shared Codex quota admission. |
 
 Not every important topic is a separate key mechanism. Some should stay as user
 scenarios or slices inside design docs:

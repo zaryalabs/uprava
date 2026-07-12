@@ -52,7 +52,7 @@ slices should be selected from the feature queue:
 - workspace shell and references;
 - Project Workspace Inspector;
 - delayed session messages;
-- Background Workers and scheduled agent runs;
+- Background Jobs and scheduled agent runs;
 - causality and trace UX;
 - git and review basics;
 - Tool Registry v1;

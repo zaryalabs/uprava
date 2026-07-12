@@ -82,7 +82,8 @@
 | F-052 | Иерархический подход к планированию | Двигаться от масштаба к деталям, чтобы снизить когнитивную нагрузку при проектировании. | `docs/ru/uprava-notes.md:78-81` |
 | F-053 | C4 + Activity Diagram + UML State Machine | Использовать C4, activity diagrams и UML state machines для проектирования Uprava и агентских процессов. | `docs/ru/uprava-notes.md:81` |
 | F-054 | Отложенные сообщения в сессии | Долговечный одноразовый будущий turn существующей сессии; он проходит обычную runtime/session admission, а не становится повторяющейся автоматизацией. | User clarification, 2026-07-12 |
-| F-055 | Background Workers и scheduled agent runs | Долговечное Worker definition с revisions, triggers, admission decisions и наблюдаемыми bounded runs для unattended agent work. | User clarification, 2026-07-12 |
+| F-055 | Background Jobs и scheduled agent runs | Долговечное Job definition с task prompt, параметрами, schedules, stop-on-error policy и наблюдаемыми runs для unattended agent work в текущем workspace. | User clarification, 2026-07-12 |
+| F-056 | Provider quota admission | Общая best-effort проверка пятичасового и недельного Codex limits перед chat и Job starts; порог 5%, typed rejection, explicit force override и честное состояние `unknown`. | User clarification, 2026-07-12 |
 
 ## 4. Developer Workflow
 

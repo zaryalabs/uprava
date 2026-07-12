@@ -41,7 +41,7 @@ Current release baseline: `0.2.4`. Закрытые пункты `0` through `7`
 audit hardening release и `5a` workspace renderer release соответствуют shipped
 versions, зафиксированным в [`releases.md`](releases.md). Пункт `6` включает
 workbench alignment и первый стабильный self-hosted deployment path.
-Следующий плановый пункт очереди — Background Workers и scheduled agent runs.
+Следующий плановый пункт очереди — Background Jobs и scheduled agent runs.
 
 | Order | Done | Mechanism / Feature Slice | First Useful Slice | Dependency | Complexity |
 | --- | --- | --- | --- | --- | --- |
@@ -54,7 +54,7 @@ workbench alignment и первый стабильный self-hosted deployment 
 | 5a | + | Workspace renderer and PTY terminal layer | Monaco file/diff renderers and xterm-backed interactive PTY sessions | Workspace intervention, Core/Node control channel | High |
 | 6 | + | Daily-use hardening and deployment readiness | Stable panel layout, product polish, server deploy path, CI/CD baseline | `0.1.8` deployable workbench, security baseline | High |
 | 7 | + | Отложенные сообщения в сессии | Долговечные одноразовые будущие turn существующей сессии | Runtime/session guards, Core-owned persistence | Medium |
-| 8 | - | Background Workers и scheduled agent runs | Долговечные определения unattended agent work, расписания и наблюдаемые runs | Persistent runtime policy, placements, trace | High |
+| 8 | - | Background Jobs и scheduled agent runs | Долговечные определения unattended agent work, расписания и наблюдаемые runs | Placements, provider runtime, durable events | High |
 | 9 | - | Causality and trace UX | Coarse source/cause links with raw fallback | Workspace refs, event log | Medium |
 | 10 | - | Git and review basics | Better diff, branch/worktree awareness, check results | Workspace intervention, trace | Medium |
 | 11 | - | Tool Registry v1 | Real tool metadata, permissions, routing and audit policy | V01 capability model, events | High |
@@ -257,7 +257,7 @@ registries, plugins, artifacts and task-runtime work.
 **Value:** Позволяет человеку подготовить follow-up turn, не прерывая активного
 агента и не удерживая browser открытым. Отложенное сообщение — один будущий
 turn конкретной существующей сессии, а не повторяющаяся автоматизация и не
-Worker Run.
+Job Run.
 
 **Dependency:** Runtime/session admission guards и durable Core persistence;
 фактическая отправка должна проходить обычным send-turn path.
@@ -279,29 +279,46 @@ not-before-when-ready, видимая history и notifications о failure. Recur
 запуск новой сессии, обход approvals и цепочки автоматизации остаются за
 пределами этого среза.
 
-### 8. Background Workers и scheduled agent runs
+### 8. Background Jobs и scheduled agent runs
 
 **Value:** Добавляет управляемый unattended-work mode для повторяемой bounded
 agent work, не объявляя бессмертный process или непрозрачный workflow graph
 продуктовой моделью.
 
-**Dependency:** Persistent execution policy, project/workspace placements,
-durable events и trace/evidence. Worker использует обычный provider runtime
-path, а не отдельный скрытый executor.
+**Dependency:** Project/workspace placements, обычный provider runtime path и
+durable Core events. Job не вводит отдельный скрытый executor. Provider-native
+sandboxing и более строгая execution policy из пункта `16a` не блокируют этот
+срез: для текущего controlled deployment сознательно принимается изоляция
+отдельным OS user и/или VM вместе с рисками unrestricted provider execution.
 
-**First useful slice:** Paused-by-default Worker definition с immutable
-prompt/execution revisions, одним target placement, manual run и простыми
-interval/daily/weekly schedules с explicit IANA timezone, а также обязательным
-manual test-before-enable flow. Trigger occurrence отделён от admission;
-default overlap policy — `skip`, не больше одного active run на Worker. UI
-показывает configuration, run history, typed skipped outcomes, warnings,
-trace/evidence и attention inbox для blocked/failed runs. Current checkout и
-optional Git worktree являются явными modes.
+**First useful slice:** Paused-by-default Job definition с одним target
+placement, prompt/task description и параметрами запуска, manual test run и
+простыми interval/daily/weekly schedules с explicit IANA timezone. Job работает
+только в текущем placement workspace; worktree и isolated task runtime
+отложены. Каждый запуск сохраняется как наблюдаемый Job Run. UI показывает
+конфигурацию, run history, итоговый summary, доступный provider output/logs,
+typed skipped/failed outcomes и переход к обычной session/trace evidence.
+Default overlap policy — `skip`, не больше одного active run на Job.
 
-**Target direction:** Event и task-tracker triggers, explicit buffering
-policies, budgets, notifications, review/PR loops и затем isolated task
-runtimes. Первый срез исключает visual workflow canvas, arbitrary multi-step
-pipelines, unlimited backfill и automatic cleanup unreviewed work.
+Расписание по умолчанию использует stop-on-error policy: failed или не
+стартовавший из-за runtime/admission error run приостанавливает дальнейшие
+автоматические запуски Job до явного действия человека. Это opt-out параметр:
+пользователь может разрешить расписанию продолжаться после ошибки. Manual run
+остаётся доступен независимо от паузы расписания.
+
+Перед автоматическим и обычным interactive start Core по возможности проверяет
+provider usage limits. Если Codex сообщает, что у пятичасового или недельного
+лимита осталось `5%` или меньше, новый chat/session и Job Run не запускаются с
+typed reason. Пользователь может сделать explicit force start. Если provider не
+даёт надёжных machine-readable данных, состояние quota должно быть `unknown`, а
+не выдуманным числом; отсутствие данных само по себе не блокирует запуск.
+
+**Target direction:** Immutable configuration revisions, event и task-tracker
+triggers, explicit buffering policies, budgets, notifications, richer
+summaries/evidence, review/PR loops, worktrees и затем isolated task runtimes.
+Первый срез исключает visual workflow canvas, arbitrary multi-step pipelines и
+unlimited backfill. Ограничения должны добавляться по подтверждённой
+необходимости; основная task behavior пока задаётся prompt/description.
 
 ### 9. Causality and trace UX
 
