@@ -20,6 +20,7 @@ const CORE_CONFIG_ENV_VARS: &[&str] = &[
     "UPRAVA_MAX_PENDING_ENROLLMENTS",
     "UPRAVA_RUNTIME_EXPIRY_SECONDS",
     "UPRAVA_AUTO_APPROVE_ENROLLMENTS",
+    "UPRAVA_AUTO_APPROVE_NODE_NAME",
     "UPRAVA_CLIENT_LOG_FILE",
     "UPRAVA_WEB_AUTH",
     "UPRAVA_WEB_SESSION_TTL_SECONDS",
@@ -130,6 +131,7 @@ fn test_config(runtime_expiry_seconds: i64) -> AppConfig {
         max_pending_enrollments: 100,
         runtime_expiry_seconds,
         auto_approve_enrollments: false,
+        auto_approve_node_name: None,
         client_log_file: std::env::temp_dir()
             .join(format!("uprava-client-log-{}.jsonl", Uuid::new_v4())),
         web_auth_required: false,
@@ -222,6 +224,7 @@ fn app_config_from_env_uses_documented_defaults() {
     assert_eq!(config.enrollment_ttl_seconds, 600);
     assert_eq!(config.runtime_expiry_seconds, 86_400);
     assert!(!config.auto_approve_enrollments);
+    assert_eq!(config.auto_approve_node_name, None);
     assert_eq!(
         config.client_log_file,
         PathBuf::from(".local/logs/client.log")
@@ -251,6 +254,7 @@ fn app_config_from_env_parses_overrides() {
     std::env::set_var("UPRAVA_WEB_SESSION_TTL_SECONDS", "3600");
     std::env::set_var("UPRAVA_COOKIE_SECURE", "true");
     std::env::set_var("UPRAVA_CORE_SHUTDOWN_TIMEOUT_SECONDS", "2");
+    std::env::set_var("UPRAVA_AUTO_APPROVE_NODE_NAME", " Zarya Server ");
 
     let config = AppConfig::from_env().expect("overridden core config parses");
 
@@ -270,6 +274,10 @@ fn app_config_from_env_parses_overrides() {
     assert_eq!(config.enrollment_ttl_seconds, 30);
     assert_eq!(config.runtime_expiry_seconds, 120);
     assert!(!config.auto_approve_enrollments);
+    assert_eq!(
+        config.auto_approve_node_name.as_deref(),
+        Some("Zarya Server")
+    );
     assert_eq!(
         config.client_log_file,
         PathBuf::from("/tmp/uprava-client.jsonl")
@@ -1714,6 +1722,54 @@ async fn unapproved_enrollment_claim_remains_pending() {
     .expect("claim returns pending");
 
     assert!(claim.pending);
+}
+
+#[tokio::test]
+async fn matching_production_node_name_is_auto_approved() {
+    let mut config = test_config(86_400);
+    config.auto_approve_node_name = Some("Zarya Server".to_owned());
+    let state = AppState::new(config, memory_pool().await)
+        .await
+        .expect("state migrates");
+
+    let requested = create_enrollment(&state, " Zarya Server ", Some("0.2.2"), vec![])
+        .await
+        .expect("matching enrollment creates");
+
+    assert_eq!(requested.status, EnrollmentState::Approved);
+}
+
+#[tokio::test]
+async fn non_matching_node_name_still_requires_approval() {
+    let mut config = test_config(86_400);
+    config.auto_approve_node_name = Some("Zarya Server".to_owned());
+    let state = AppState::new(config, memory_pool().await)
+        .await
+        .expect("state migrates");
+
+    let requested = create_enrollment(&state, "Unexpected Node", Some("0.2.2"), vec![])
+        .await
+        .expect("non-matching enrollment creates");
+
+    assert_eq!(requested.status, EnrollmentState::PendingUserApproval);
+}
+
+#[tokio::test]
+async fn duplicate_production_node_name_is_not_auto_approved() {
+    let mut config = test_config(86_400);
+    config.auto_approve_node_name = Some("Zarya Server".to_owned());
+    let state = AppState::new(config, memory_pool().await)
+        .await
+        .expect("state migrates");
+    create_enrollment(&state, "Zarya Server", Some("0.2.2"), vec![])
+        .await
+        .expect("first enrollment creates");
+
+    let duplicate = create_enrollment(&state, "Zarya Server", Some("0.2.2"), vec![])
+        .await
+        .expect("duplicate enrollment creates");
+
+    assert_eq!(duplicate.status, EnrollmentState::PendingUserApproval);
 }
 
 #[tokio::test]

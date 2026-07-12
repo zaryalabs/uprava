@@ -4,8 +4,6 @@ SUDO ?= sudo
 COMPOSE ?= $(SUDO) docker compose
 COMPOSE_FILE ?= compose.yaml
 COMPOSE_CMD = $(COMPOSE) --env-file .env --env-file .env.release -f $(COMPOSE_FILE)
-SOURCE_GIT ?= $(SUDO) -Hu uprava git
-SOURCE_DIR ?= /srv/uprava-workspaces/uprava
 SYSTEMD_UNIT ?= uprava-node.service
 RELEASES_DIR ?= builds/releases
 RELEASE ?=
@@ -16,6 +14,10 @@ CORE_STATE_DIR ?= state/core
 CORE_CONFIG ?= configuration/core.env
 NODE_CONFIG ?= /etc/uprava/node.env
 NODE_STATE_PATH ?= /var/lib/uprava-node/node.sqlite
+CORE_STATE_EPOCH_MARKER ?= state/.state-epoch
+NODE_STATE_EPOCH_MARKER ?= /var/lib/uprava-node/.state-epoch
+OPS_SCRIPT_DIR ?= $(if $(wildcard $(CURDIR)/scripts/reset-state-epoch.sh),$(CURDIR)/scripts,$(CURDIR)/../scripts)
+PRODUCTION_SMOKE ?= $(OPS_SCRIPT_DIR)/production-smoke.sh
 
 .DEFAULT_GOAL := help
 
@@ -39,38 +41,6 @@ releases: ## List locally available release manifests
 require-release:
 	@if [ -z "$(RELEASE)" ]; then echo "Set RELEASE=<release-id>"; exit 1; fi
 
-build-local: require-release ## Build a bootstrap release from SOURCE_DIR
-	@set -eu; \
-	sha="$$($(SOURCE_GIT) -C "$(SOURCE_DIR)" rev-parse HEAD)"; \
-	release_dir="builds/releases/$(RELEASE)"; \
-	mkdir -p "$$release_dir"; \
-	sudo docker build -t "uprava-core:$(RELEASE)" -f "$(SOURCE_DIR)/Dockerfile.core" "$(SOURCE_DIR)"; \
-	sudo docker build \
-		--build-arg VITE_UPRAVA_API_BASE=/api/v1 \
-		-t "uprava-web:$(RELEASE)" \
-		-f "$(SOURCE_DIR)/apps/web/Dockerfile" \
-		"$(SOURCE_DIR)/apps/web"; \
-	sudo docker build -t "uprava-node:$(RELEASE)" -f "$(SOURCE_DIR)/Dockerfile.node" "$(SOURCE_DIR)"; \
-	container_id="$$(sudo docker create "uprava-node:$(RELEASE)")"; \
-	trap 'sudo docker rm -f "$$container_id" >/dev/null 2>&1 || true' EXIT; \
-	sudo docker cp "$$container_id:/usr/local/bin/uprava-node" "$$release_dir/uprava-node"; \
-	sudo chmod 755 "$$release_dir/uprava-node"; \
-	node_sha="$$(sha256sum "$$release_dir/uprava-node" | awk '{print $$1}')"; \
-	{ \
-		echo "UPRAVA_RELEASE_ID=$(RELEASE)"; \
-		echo "UPRAVA_RELEASE_SHA=$$sha"; \
-		echo "UPRAVA_RELEASE_AT=$$(date -u +%Y-%m-%dT%H:%M:%SZ)"; \
-		echo "UPRAVA_RELEASE_FAMILY=$(RELEASE_FAMILY)"; \
-		echo "UPRAVA_CORE_STATE_DIR=$(CORE_STATE_DIR)"; \
-		echo "UPRAVA_CORE_CONFIG=$(CORE_CONFIG)"; \
-		echo "UPRAVA_NODE_CONFIG=$(NODE_CONFIG)"; \
-		echo "UPRAVA_NODE_STATE_PATH=$(NODE_STATE_PATH)"; \
-		echo "UPRAVA_CORE_IMAGE=uprava-core:$(RELEASE)"; \
-		echo "UPRAVA_WEB_IMAGE=uprava-web:$(RELEASE)"; \
-		echo "UPRAVA_NODE_ARTIFACT=local-docker-extracted:uprava-node:$(RELEASE)"; \
-		echo "UPRAVA_NODE_SHA256=$$node_sha"; \
-	} > "builds/releases/$(RELEASE).env.release"
-
 activate: require-release ## Activate a locally available release
 	@set -eu; \
 	manifest="$(RELEASES_DIR)/$(RELEASE).env.release"; \
@@ -84,6 +54,8 @@ activate: require-release ## Activate a locally available release
 	grep -qx "UPRAVA_NODE_STATE_PATH=$${UPRAVA_NODE_STATE_PATH:-}" "$$UPRAVA_NODE_CONFIG" || { echo "Node config state path does not match manifest" >&2; exit 1; }; \
 	test "$${UPRAVA_NODE_STATE_PATH:-}" = /var/lib/uprava-node/node.sqlite || { echo "Node state path must use the stable production path" >&2; exit 1; }; \
 	test "$${UPRAVA_CORE_STATE_DIR}" = state/core || { echo "Core state path must use the stable production path" >&2; exit 1; }; \
+	test -n "$${UPRAVA_STATE_EPOCH:-}" || { echo "Manifest is missing UPRAVA_STATE_EPOCH" >&2; exit 1; }; \
+	test -n "$${UPRAVA_AUTO_APPROVE_NODE_NAME:-}" || { echo "Manifest is missing UPRAVA_AUTO_APPROVE_NODE_NAME" >&2; exit 1; }; \
 	$(SUDO) mkdir -p "$(RELEASES_DIR)/$(RELEASE)" "$${UPRAVA_CORE_STATE_DIR}"; \
 	$(SUDO) ln -sfn "$$manifest" .env.release; \
 	$(SUDO) ln -sfn "$${UPRAVA_CORE_CONFIG}" "$(CORE_CONFIG_LINK)"; \
@@ -126,7 +98,7 @@ rollback: require-release ## Activate a selected prior release; deploy and smoke
 	echo "Required follow-up (explicit): make deploy, then make smoke; inspect make status.";
 
 pull: ## Pull Core/Web images when they come from a registry
-	$(COMPOSE_CMD) pull --ignore-pull-failures
+	$(COMPOSE_CMD) pull
 	$(MAKE) --no-print-directory node-artifact
 
 node-artifact: ## Fetch, extract and verify the active Node artifact
@@ -146,15 +118,7 @@ node-artifact: ## Fetch, extract and verify the active Node artifact
 	if [ -z "$$expected_sha" ]; then echo "UPRAVA_NODE_SHA256 is missing from .env.release" >&2; exit 1; fi; \
 	release_dir="$(RELEASES_DIR)/$$release_id"; \
 	output="$$release_dir/uprava-node"; \
-	case "$$artifact" in \
-		local-docker-extracted:*) \
-			test -x "$$output" || { echo "Missing executable $$output for local bootstrap artifact"; exit 1; }; \
-			actual_sha="$$(checksum_file "$$output")"; \
-			test "$$actual_sha" = "$$expected_sha" || { echo "Checksum mismatch for $$output"; exit 1; }; \
-			echo "Node artifact already installed at $$output"; \
-			exit 0; \
-			;; \
-	esac; \
+	case "$$artifact" in ghcr.io/zaryalabs/uprava-node@sha256:*) ;; *) echo "Node artifact must be a digest-pinned GHCR image" >&2; exit 1;; esac; \
 	$(SUDO) mkdir -p "$$release_dir"; \
 	if ! $(SUDO) docker image inspect "$$artifact" >/dev/null 2>&1; then \
 		$(SUDO) docker pull "$$artifact"; \
@@ -174,32 +138,61 @@ node-artifact: ## Fetch, extract and verify the active Node artifact
 
 up: ## Start or update Core/Web and Node
 	$(COMPOSE_CMD) up -d --remove-orphans
-	sudo systemctl restart $(SYSTEMD_UNIT)
+	$(SUDO) systemctl restart $(SYSTEMD_UNIT)
 
 down: ## Stop Core/Web and Node
 	$(COMPOSE_CMD) down
-	sudo systemctl stop $(SYSTEMD_UNIT)
+	$(SUDO) systemctl stop $(SYSTEMD_UNIT)
 
 restart: ## Restart Core/Web and Node
 	$(COMPOSE_CMD) restart
-	sudo systemctl restart $(SYSTEMD_UNIT)
+	$(SUDO) systemctl restart $(SYSTEMD_UNIT)
 
-deploy: ## Pull, start/update, show status and run smoke
+state-transition: ## Reset coordinated SQLite state once when the manifest epoch changes
+	@set -eu; \
+	. ./.env.release; \
+	core_epoch="$$(sed -n '1p' "$(CORE_STATE_EPOCH_MARKER)" 2>/dev/null || true)"; \
+	node_epoch="$$(sed -n '1p' "$(NODE_STATE_EPOCH_MARKER)" 2>/dev/null || true)"; \
+	if [ "$$core_epoch" = "$$UPRAVA_STATE_EPOCH" ] && [ "$$node_epoch" = "$$UPRAVA_STATE_EPOCH" ]; then \
+		echo "State epoch $$UPRAVA_STATE_EPOCH is already active"; \
+		exit 0; \
+	fi; \
+	$(COMPOSE_CMD) down; \
+	$(SUDO) systemctl stop $(SYSTEMD_UNIT) || true; \
+	$(SUDO) install -d -o 10001 -g 10001 -m 750 "$$UPRAVA_CORE_STATE_DIR"; \
+	$(SUDO) install -d -o uprava -g uprava -m 700 "$$(dirname "$$UPRAVA_NODE_STATE_PATH")"; \
+	$(SUDO) $(OPS_SCRIPT_DIR)/reset-state-epoch.sh \
+		"$$UPRAVA_STATE_EPOCH" \
+		"$$UPRAVA_CORE_STATE_DIR/core.sqlite" \
+		"$$UPRAVA_NODE_STATE_PATH" \
+		"$(CORE_STATE_EPOCH_MARKER)" \
+		"$(NODE_STATE_EPOCH_MARKER)"; \
+	$(SUDO) chown 10001:10001 "$(CORE_STATE_EPOCH_MARKER)"; \
+	$(SUDO) chown uprava:uprava "$(NODE_STATE_EPOCH_MARKER)"
+
+deploy: ## Pull, apply state epoch, start/update, run functional smoke and retention
 	$(MAKE) --no-print-directory pull
+	$(MAKE) --no-print-directory state-transition
 	$(MAKE) --no-print-directory up
 	$(MAKE) --no-print-directory status
 	$(MAKE) --no-print-directory smoke
+	$(MAKE) --no-print-directory retention
 
-smoke: ## Run local server smoke checks
+smoke: ## Run functional production smoke checks
 	$(COMPOSE_CMD) exec -T core uprava-server healthcheck 127.0.0.1:8080
 	$(COMPOSE_CMD) exec -T web wget -qO- http://127.0.0.1:8080/health
-	sudo systemctl is-active --quiet $(SYSTEMD_UNIT)
+	$(SUDO) systemctl is-active --quiet $(SYSTEMD_UNIT)
+	$(SUDO) INSTALL_DIR="$(CURDIR)" RELEASE_MANIFEST="$(CURDIR)/.env.release" $(PRODUCTION_SMOKE)
+
+retention: ## Keep bounded Uprava releases and images
+	$(SUDO) INSTALL_DIR="$(CURDIR)" $(OPS_SCRIPT_DIR)/prune-uprava-releases.sh
+	$(SUDO) $(OPS_SCRIPT_DIR)/prune-uprava-images.sh
 
 backup: ## Archive Core state directory
 	@set -eu; \
 	backup_id="$$(date -u +%Y%m%d-%H%M%S)"; \
 	mkdir -p "backups/$$backup_id"; \
-	"$(CURDIR)/../scripts/backup-sqlite.sh" \
+	"$(OPS_SCRIPT_DIR)/backup-sqlite.sh" \
 		"$${UPRAVA_CORE_STATE_DIR:-state/core}/core.sqlite" \
 		"backups/$$backup_id/core.sqlite"; \
 	tar -czf "backups/uprava-core-data-$$backup_id.tgz" -C "backups/$$backup_id" core.sqlite; \
@@ -217,4 +210,4 @@ restore-verify: ## Verify a SQLite backup archive without activating it
 	tmp_dir="$$(mktemp -d)"; \
 	trap 'rm -rf "$$tmp_dir"' EXIT INT TERM; \
 	tar -xzf "$(BACKUP)" -C "$$tmp_dir"; \
-	"$(CURDIR)/../scripts/verify-sqlite-backup.sh" "$$(find "$$tmp_dir" -name core.sqlite -type f -print -quit)"
+	"$(OPS_SCRIPT_DIR)/verify-sqlite-backup.sh" "$$(find "$$tmp_dir" -name core.sqlite -type f -print -quit)"

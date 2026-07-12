@@ -21,7 +21,7 @@ Uprava should be a control plane and work surface for agent workloads:
 
 ## Current State
 
-The current repository state is the shipped `0.2.1` design-system alignment
+The current repository state is the `0.2.2` automatic-delivery and bounded-CI
 baseline on top of protocol v2, plus product and architecture documentation.
 `V01` names the first product cut that
 shipped as `0.1.0`; the current implementation has moved through five completed

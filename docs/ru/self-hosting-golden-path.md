@@ -134,14 +134,16 @@ Uprava edits /srv/uprava-workspaces/uprava
 -> creates a branch and commit
 -> pushes the branch to GitHub
 -> human reviews and merges to main
--> CI/CD may build and publish immutable artifacts from main
--> operator explicitly runs production workflow_dispatch activation
+-> CI/CD проверяет main и собирает/publish immutable artifacts
+-> successful main delivery автоматически активирует именно этот release
+-> functional production smoke проверяет Core, Web and Node heartbeat
 -> https://uprava.zrya.io runs the updated Uprava
 ```
 
 Это intended self-improvement loop. Production changes все равно проходят через
 GitHub, review, merge and normal CI/CD deployment contract.
-Successful build or publish никогда не активирует production неявно.
+Только successful checked update в `main` активирует production; PR и failed
+checks ничего не publish и не deploy.
 
 ## Production Boundary
 

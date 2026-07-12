@@ -17,6 +17,8 @@ UPRAVA_CORE_STATE_DIR=state/core
 UPRAVA_CORE_CONFIG=configuration/core.env
 UPRAVA_NODE_CONFIG=configuration/node.env
 UPRAVA_NODE_STATE_PATH=/var/lib/uprava-node/node.sqlite
+UPRAVA_STATE_EPOCH=0.2.2
+UPRAVA_AUTO_APPROVE_NODE_NAME='Zarya Server'
 EOF
 cat > "$release_dir/prior.env.release" <<'EOF'
 UPRAVA_RELEASE_ID=prior
@@ -25,6 +27,8 @@ UPRAVA_CORE_STATE_DIR=state/core
 UPRAVA_CORE_CONFIG=configuration/core.env
 UPRAVA_NODE_CONFIG=configuration/node.env
 UPRAVA_NODE_STATE_PATH=/var/lib/uprava-node/node.sqlite
+UPRAVA_STATE_EPOCH=0.2.2
+UPRAVA_AUTO_APPROVE_NODE_NAME='Zarya Server'
 EOF
 cat > "$release_dir/mismatch.env.release" <<'EOF'
 UPRAVA_RELEASE_ID=other

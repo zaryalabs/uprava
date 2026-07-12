@@ -13,6 +13,16 @@ core_state_dir="${UPRAVA_CORE_STATE_DIR:?UPRAVA_CORE_STATE_DIR is required}"
 core_config="${UPRAVA_CORE_CONFIG:?UPRAVA_CORE_CONFIG is required}"
 node_config="${UPRAVA_NODE_CONFIG:?UPRAVA_NODE_CONFIG is required}"
 node_state_path="${UPRAVA_NODE_STATE_PATH:?UPRAVA_NODE_STATE_PATH is required}"
+state_epoch="${UPRAVA_STATE_EPOCH:?UPRAVA_STATE_EPOCH is required}"
+auto_approve_node_name="${UPRAVA_AUTO_APPROVE_NODE_NAME:?UPRAVA_AUTO_APPROVE_NODE_NAME is required}"
+
+case "$auto_approve_node_name" in
+  *"'"*|*'
+'*)
+    printf "UPRAVA_AUTO_APPROVE_NODE_NAME may not contain quotes or newlines\n" >&2
+    exit 1
+    ;;
+esac
 
 image_repository() {
   local image="$1"
@@ -96,6 +106,8 @@ tmp_file="$(mktemp)"
   printf "UPRAVA_CORE_CONFIG=%s\n" "$core_config"
   printf "UPRAVA_NODE_CONFIG=%s\n" "$node_config"
   printf "UPRAVA_NODE_STATE_PATH=%s\n" "$node_state_path"
+  printf "UPRAVA_STATE_EPOCH=%s\n" "$state_epoch"
+  printf "UPRAVA_AUTO_APPROVE_NODE_NAME='%s'\n" "$auto_approve_node_name"
   printf "UPRAVA_CORE_IMAGE=%s\n" "$core_image"
   printf "UPRAVA_WEB_IMAGE=%s\n" "$web_image"
   printf "UPRAVA_NODE_ARTIFACT=%s\n" "$node_image"

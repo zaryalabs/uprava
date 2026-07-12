@@ -2,7 +2,7 @@
 
 Status: `active`
 
-Current release baseline: `0.2.1`.
+Current release baseline: `0.2.2`.
 
 This ledger records implementation baselines. It does not replace
 [`feature-queue.md`](feature-queue.md), which remains the ranked list of future
@@ -22,12 +22,14 @@ work.
 | `0.1.7` | 2026-07-06 | shipped | Workspace renderer and PTY terminal layer |
 | `0.1.8` | 2026-07-08 | shipped | CI/CD deployment automation and self-hosted Codex execution posture |
 | `0.2.0` | 2026-07-11 | shipped | Protocol v2 quality foundation, durable Core/Node state, workspace workbench and stable deployment paths |
-| `0.2.1` | 2026-07-11 | current | Zarya 0.1 Web Control Panel alignment, flat work-sheet shell, system overview, agent work phases and visual regression gates |
+| `0.2.1` | 2026-07-11 | shipped | Zarya 0.1 Web Control Panel alignment, flat work-sheet shell, system overview, agent work phases and visual regression gates |
+| `0.2.2` | 2026-07-12 | current | Automatic main delivery, bounded CI workspaces, coordinated state epoch reset, scoped Node enrollment and functional production smoke |
 
 ## Current Baseline
 
-`0.2.1` includes the protocol-v2 `0.2.0` baseline and the completed Zarya 0.1
-Web UI/UX alignment. The current implementation includes the first working
+`0.2.2` includes the protocol-v2 `0.2.0` baseline, the completed Zarya 0.1 Web
+UI/UX alignment and the hardened automatic delivery path. The current
+implementation includes the first working
 distributed control panel, the five
 completed feature queue slices after `0.1.0`, the unified audit hardening slice,
 the workspace renderer/PTY terminal layer, and the first deployable self-hosted
@@ -71,6 +73,14 @@ release path:
   Inspector chrome;
 - component, keyboard and responsive visual regression coverage for the Zarya
   UI vocabulary.
+- automatic immutable release publication and production activation after a
+  successful update to `main`;
+- bounded per-job CI workspaces with unconditional cleanup, orphaned-workspace GC
+  and a free-space preflight;
+- digest-pinned Core/Web/Node manifests, temporary registry credentials and
+  project-scoped image/release retention;
+- a coordinated `0.2.2` Core/Node state epoch reset, scoped automatic
+  enrollment for the declared production Node and heartbeat-backed smoke.
 
 New audits and temporary plans should treat these as current implementation
 facts. They may still refer to `V01` when discussing the historical first

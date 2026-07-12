@@ -20,6 +20,7 @@ services:
       UPRAVA_COOKIE_SECURE: ${UPRAVA_COOKIE_SECURE:-true}
       UPRAVA_CLIENT_LOG_FILE: ${UPRAVA_CLIENT_LOG_FILE:-/data/client.log}
       UPRAVA_CORE_LOG_FILE: ${UPRAVA_CORE_LOG_FILE:-/data/core.log}
+      UPRAVA_AUTO_APPROVE_NODE_NAME: ${UPRAVA_AUTO_APPROVE_NODE_NAME:-}
       RUST_LOG: ${UPRAVA_CORE_RUST_LOG:-info}
     volumes:
       - ./${UPRAVA_CORE_STATE_DIR:-state/core}:/data

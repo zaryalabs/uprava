@@ -1,22 +1,15 @@
 # Uprava Server Ops
 
-These files are copied to `/opt/apps/uprava` on the Zarya server.
-
-The first bootstrap can build a release from an existing checkout:
-
-```bash
-cd /opt/apps/uprava
-make build-local RELEASE="$(date -u +%Y%m%d-%H%M%S)-$(git -C /srv/uprava-workspaces/uprava rev-parse --short HEAD)"
-make activate RELEASE="<release-id>"
-make deploy
-```
+These files are copied to `/opt/apps/uprava` by the automatic `main` delivery
+job. Production releases are never built or activated manually on the server.
 
 Normal CI/CD publishes immutable Core/Web images plus the `uprava-node` GHCR
 artifact and a release manifest. The manifest couples those artifacts to the
 stable Core state directory, Core config, Node config and Node state path.
-`make activate RELEASE=<release-id>` validates the stable paths and switches
-the immutable artifacts before `make deploy` starts anything. Rollback is
-supported only between releases that share the current schema contract.
+The delivery job validates stable paths, activates the digest-pinned manifest,
+applies a coordinated state epoch when required, starts the runtime and accepts
+the deployment only after functional Core/Web/Node smoke. Rollback remains an
+optional break-glass operation between releases that share the schema contract.
 
 To return to an earlier release, verify a backup first, then run the explicit
 rollback preflight. It refuses a missing or already-active manifest and only

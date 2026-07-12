@@ -5681,7 +5681,28 @@ async fn create_enrollment(
     let enrollment_id = EnrollmentId::new();
     let pairing_code = new_secret("pair");
     let expires_at = now + chrono::Duration::seconds(state.config.enrollment_ttl_seconds);
-    let approved_at = state.config.auto_approve_enrollments.then_some(now);
+    let normalized_display_name = display_name.trim();
+    let existing_identity_count: i64 = sqlx::query_scalar(
+        r#"
+        select
+            (select count(*) from nodes
+             where display_name = ?1 and presence != 'revoked')
+          + (select count(*) from node_enrollments
+             where display_name = ?1
+               and status in ('pending_user_approval', 'approved')
+               and claimed_node_id is null
+               and expires_at > ?2)
+        "#,
+    )
+    .bind(normalized_display_name)
+    .bind(now)
+    .fetch_one(&state.pool)
+    .await?;
+    let scoped_auto_approval = state.config.auto_approve_node_name.as_deref()
+        == Some(normalized_display_name)
+        && existing_identity_count == 0;
+    let approved_at =
+        (state.config.auto_approve_enrollments || scoped_auto_approval).then_some(now);
     let status = if approved_at.is_some() {
         EnrollmentState::Approved
     } else {
@@ -5698,7 +5719,7 @@ async fn create_enrollment(
         "#,
     )
     .bind(enrollment_id.as_str())
-    .bind(display_name.trim())
+    .bind(normalized_display_name)
     .bind(daemon_version)
     .bind(serde_json::to_string(&capabilities)?)
     .bind(hash_secret(&pairing_code))

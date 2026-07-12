@@ -38,6 +38,8 @@ UPRAVA_CORE_STATE_DIR ?= state/core
 UPRAVA_CORE_CONFIG ?= configuration/core.env
 UPRAVA_NODE_CONFIG ?= /etc/uprava/node.env
 UPRAVA_NODE_STATE_PATH ?= /var/lib/uprava-node/node.sqlite
+UPRAVA_STATE_EPOCH ?= 0.2.2
+UPRAVA_AUTO_APPROVE_NODE_NAME ?= Zarya Server
 DEPLOY_HOST ?= zsa
 DEPLOY_MODE ?= ssh
 INSTALL_DIR ?= /opt/apps/uprava
@@ -107,6 +109,8 @@ release-manifest: ## Write builds/releases/<release-id>.env.release
 	UPRAVA_CORE_CONFIG="$(UPRAVA_CORE_CONFIG)" \
 	UPRAVA_NODE_CONFIG="$(UPRAVA_NODE_CONFIG)" \
 	UPRAVA_NODE_STATE_PATH="$(UPRAVA_NODE_STATE_PATH)" \
+	UPRAVA_STATE_EPOCH="$(UPRAVA_STATE_EPOCH)" \
+	UPRAVA_AUTO_APPROVE_NODE_NAME="$(UPRAVA_AUTO_APPROVE_NODE_NAME)" \
 	NODE_ARTIFACT_PATH="$(NODE_ARTIFACT_PATH)" \
 	ALLOW_UNRESOLVED_DIGESTS="$(ALLOW_UNRESOLVED_DIGESTS)" \
 	scripts/write_release_manifest.sh
@@ -119,8 +123,15 @@ install-release-manifest: ## Install active release manifest into INSTALL_DIR
 install-ops: ## Install product-owned ops files into INSTALL_DIR
 	$(SUDO) install -d "$(INSTALL_DIR)"
 	$(SUDO) install -d -o 10001 -g 10001 -m 750 "$(INSTALL_DIR)/state/core"
+	$(SUDO) install -d "$(INSTALL_DIR)/scripts"
 	$(SUDO) install -m 644 ops/Makefile "$(INSTALL_DIR)/Makefile"
 	$(SUDO) install -m 644 ops/compose.yaml "$(INSTALL_DIR)/compose.yaml"
+	$(SUDO) install -m 755 scripts/reset-state-epoch.sh "$(INSTALL_DIR)/scripts/reset-state-epoch.sh"
+	$(SUDO) install -m 755 scripts/production-smoke.sh "$(INSTALL_DIR)/scripts/production-smoke.sh"
+	$(SUDO) install -m 755 scripts/prune-uprava-images.sh "$(INSTALL_DIR)/scripts/prune-uprava-images.sh"
+	$(SUDO) install -m 755 scripts/prune-uprava-releases.sh "$(INSTALL_DIR)/scripts/prune-uprava-releases.sh"
+	$(SUDO) install -m 755 scripts/backup-sqlite.sh "$(INSTALL_DIR)/scripts/backup-sqlite.sh"
+	$(SUDO) install -m 755 scripts/verify-sqlite-backup.sh "$(INSTALL_DIR)/scripts/verify-sqlite-backup.sh"
 
 deploy: ## Deploy the selected release through the server installation Makefile
 	RELEASE_ID="$(RELEASE_ID)" \
@@ -228,7 +239,11 @@ scripts-check: ## Run shell syntax checks for product scripts
 	$(PYTHON) scripts/check_logging_policy.py; \
 	sh scripts/check-ci-policy.sh; \
 	sh scripts/check-ops-rollback.sh; \
-	sh scripts/check-deploy-auto-rollback.sh; \
+	sh scripts/check-deploy-entrypoint.sh; \
+	sh scripts/check-release-manifest.sh; \
+	sh scripts/check-state-epoch.sh; \
+	sh scripts/check-production-smoke.sh; \
+	sh scripts/check-release-retention.sh; \
 	sh scripts/check-backup-restore.sh
 
 protocol-check: ## Check Rust/Web protocol literal drift

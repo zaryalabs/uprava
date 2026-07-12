@@ -7,7 +7,10 @@ on:
   push:
     branches:
       - main
-  workflow_dispatch:
+
+concurrency:
+  group: uprava-${{ github.event_name }}-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
   check:
@@ -18,90 +21,49 @@ jobs:
       contents: read
       packages: read
     runs-on: [self-hosted, zarya-main, geo-eu, ci]
+    env:
+      RUN_WORKSPACE: ${{ github.workspace }}/.ci-workspace/${{ github.run_id }}-${{ github.run_attempt }}-check
     steps:
-      - name: Clean persistent runner workspace
+      - name: Prepare bounded workspace
         run: |
-          test -n "${GITHUB_WORKSPACE:-}"
-          test -n "${GITHUB_RUN_ID:-}"
-          test -n "${GITHUB_RUN_ATTEMPT:-}"
-          test -n "${GITHUB_JOB:-}"
-          test "${PWD}" = "${GITHUB_WORKSPACE}"
-          github_workspace_physical="$(pwd -P)"
-          workspace_root="${GITHUB_WORKSPACE}/.ci-workspace"
-          test ! -L "${workspace_root}"
-          mkdir -p "${workspace_root}"
-          test ! -L "${workspace_root}"
-          cd "${workspace_root}"
-          workspace_root_physical="$(pwd -P)"
-          test "${workspace_root_physical}" = "${github_workspace_physical}/.ci-workspace"
-          find . -mindepth 1 -maxdepth 1 -type d -mtime +7 -exec rm -rf -- {} +
-          run_workspace_name="${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}-${GITHUB_JOB}"
-          test ! -L "${run_workspace_name}"
-          mkdir "${run_workspace_name}"
-          test ! -L "${run_workspace_name}"
-          cd "${run_workspace_name}"
-          run_workspace="$(pwd -P)"
-          test "${run_workspace}" = "${workspace_root_physical}/${run_workspace_name}"
-          find . -mindepth 1 -maxdepth 1 -exec rm -rf -- {} +
-          git init .
-          git reset --hard HEAD 2>/dev/null || true
-          git clean -ffdx
+          set -eu
+          root="${GITHUB_WORKSPACE}/.ci-workspace"
+          test ! -L "${root}"
+          mkdir -p "${root}"
+          find "${root}" -mindepth 1 -maxdepth 1 -type d -mmin +360 -exec rm -rf -- {} +
+          test ! -e "${RUN_WORKSPACE}"
+          mkdir "${RUN_WORKSPACE}"
+          available_kb="$(df -Pk "${root}" | awk 'NR == 2 { print $4 }')"
+          test "${available_kb}" -ge 10485760
 
       - name: Checkout repository
-        working-directory: ${{ github.workspace }}
         run: |
-          test -n "${GITHUB_WORKSPACE:-}"
-          test -n "${GITHUB_RUN_ID:-}"
-          test -n "${GITHUB_RUN_ATTEMPT:-}"
-          test -n "${GITHUB_JOB:-}"
-          test "${PWD}" = "${GITHUB_WORKSPACE}"
-          github_workspace_physical="$(pwd -P)"
-          workspace_root="${GITHUB_WORKSPACE}/.ci-workspace"
-          test ! -L "${workspace_root}"
-          cd "${workspace_root}"
-          workspace_root_physical="$(pwd -P)"
-          test "${workspace_root_physical}" = "${github_workspace_physical}/.ci-workspace"
-          run_workspace_name="${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}-${GITHUB_JOB}"
-          test ! -L "${run_workspace_name}"
-          cd "${run_workspace_name}"
-          run_workspace="$(pwd -P)"
-          test "${run_workspace}" = "${workspace_root_physical}/${run_workspace_name}"
+          set -eu
+          cd "${RUN_WORKSPACE}"
           git init .
-          git remote remove origin 2>/dev/null || true
           git remote add origin "https://x-access-token:${GITHUB_TOKEN}@github.com/${GITHUB_REPOSITORY}.git"
           git fetch --depth=1 origin "${CHECKOUT_REF}"
           git checkout --force --detach FETCH_HEAD
         env:
-          CHECKOUT_REF: ${{ github.ref }}
+          CHECKOUT_REF: ${{ github.event.pull_request.head.sha || github.sha }}
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Prepare
-        working-directory: ${{ github.workspace }}
+        working-directory: ${{ env.RUN_WORKSPACE }}
         run: |
-          test -n "${GITHUB_WORKSPACE:-}"
-          test -n "${GITHUB_RUN_ID:-}"
-          test -n "${GITHUB_RUN_ATTEMPT:-}"
-          test -n "${GITHUB_JOB:-}"
-          test "${PWD}" = "${GITHUB_WORKSPACE}"
-          github_workspace_physical="$(pwd -P)"
-          workspace_root="${GITHUB_WORKSPACE}/.ci-workspace"
-          test ! -L "${workspace_root}"
-          cd "${workspace_root}"
-          workspace_root_physical="$(pwd -P)"
-          test "${workspace_root_physical}" = "${github_workspace_physical}/.ci-workspace"
-          run_workspace_name="${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}-${GITHUB_JOB}"
-          test ! -L "${run_workspace_name}"
-          cd "${run_workspace_name}"
-          run_workspace="$(pwd -P)"
-          test "${run_workspace}" = "${workspace_root_physical}/${run_workspace_name}"
-          rust_cache_dir="${PWD}/.ci-cache/rust"
+          set -eu
+          rust_cache_dir="${RUN_WORKSPACE}/.ci-cache/rust"
           mkdir -p "${rust_cache_dir}/cargo" "${rust_cache_dir}/rustup"
-          web_run="docker run --rm --user $(id -u):$(id -g) -e npm_config_cache=/tmp/.npm -v ${PWD}/apps/web:/work -w /work node:24-bookworm-slim npm"
-          playwright_run="docker run --rm --user $(id -u):$(id -g) -e HOME=/tmp -e npm_config_cache=/tmp/.npm -v ${PWD}/apps/web:/work -w /work mcr.microsoft.com/playwright@sha256:57b65fdc9ceabe0ef613124c7bbe2babcf9362c4d85e382fe3b03604e84b428a npm"
-          cargo_image="docker run --rm --user $(id -u):$(id -g) -e CARGO_HOME=/work/.cache/cargo -e CARGO_TARGET_DIR=/work/target -e RUSTUP_HOME=/work/.cache/rustup -v ${rust_cache_dir}:/work/.cache -v ${PWD}:/work -w /work rust:bookworm"
-          cargo_run="${cargo_image} cargo"
-          rustup_run="${cargo_image} rustup"
-          make web-install prepare WEB_RUN="${web_run}" PLAYWRIGHT_RUN="${playwright_run}" CARGO="${cargo_run}" RUSTUP="${rustup_run}" RUST_TOOLCHAIN=stable
+          web_run="docker run --rm --user $(id -u):$(id -g) -e npm_config_cache=/tmp/.npm -v ${RUN_WORKSPACE}/apps/web:/work -w /work node:24-bookworm-slim npm"
+          playwright_run="docker run --rm --user $(id -u):$(id -g) -e HOME=/tmp -e npm_config_cache=/tmp/.npm -v ${RUN_WORKSPACE}/apps/web:/work -w /work mcr.microsoft.com/playwright@sha256:57b65fdc9ceabe0ef613124c7bbe2babcf9362c4d85e382fe3b03604e84b428a npm"
+          cargo_image="docker run --rm --user $(id -u):$(id -g) -e CARGO_HOME=/work/.cache/cargo -e CARGO_TARGET_DIR=/work/target -e RUSTUP_HOME=/work/.cache/rustup -v ${rust_cache_dir}:/work/.cache -v ${RUN_WORKSPACE}:/work -w /work rust:bookworm"
+          make web-install prepare WEB_RUN="${web_run}" PLAYWRIGHT_RUN="${playwright_run}" CARGO="${cargo_image} cargo" RUSTUP="${cargo_image} rustup" RUST_TOOLCHAIN=stable
+
+      - name: Cleanup workspace
+        if: always()
+        run: |
+          chmod -R u+rwX "${RUN_WORKSPACE}" 2>/dev/null || true
+          rm -rf "${RUN_WORKSPACE}"
 
   msrv:
     if: >-
@@ -111,84 +73,43 @@ jobs:
       contents: read
       packages: read
     runs-on: [self-hosted, zarya-main, geo-eu, ci]
+    env:
+      RUN_WORKSPACE: ${{ github.workspace }}/.ci-workspace/${{ github.run_id }}-${{ github.run_attempt }}-msrv
     steps:
-      - name: Clean persistent runner workspace
+      - name: Prepare bounded workspace
         run: |
-          test -n "${GITHUB_WORKSPACE:-}"
-          test -n "${GITHUB_RUN_ID:-}"
-          test -n "${GITHUB_RUN_ATTEMPT:-}"
-          test -n "${GITHUB_JOB:-}"
-          test "${PWD}" = "${GITHUB_WORKSPACE}"
-          github_workspace_physical="$(pwd -P)"
-          workspace_root="${GITHUB_WORKSPACE}/.ci-workspace"
-          test ! -L "${workspace_root}"
-          mkdir -p "${workspace_root}"
-          test ! -L "${workspace_root}"
-          cd "${workspace_root}"
-          workspace_root_physical="$(pwd -P)"
-          test "${workspace_root_physical}" = "${github_workspace_physical}/.ci-workspace"
-          find . -mindepth 1 -maxdepth 1 -type d -mtime +7 -exec rm -rf -- {} +
-          run_workspace_name="${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}-${GITHUB_JOB}"
-          test ! -L "${run_workspace_name}"
-          mkdir "${run_workspace_name}"
-          test ! -L "${run_workspace_name}"
-          cd "${run_workspace_name}"
-          run_workspace="$(pwd -P)"
-          test "${run_workspace}" = "${workspace_root_physical}/${run_workspace_name}"
-          find . -mindepth 1 -maxdepth 1 -exec rm -rf -- {} +
-          git init .
-          git reset --hard HEAD 2>/dev/null || true
-          git clean -ffdx
+          set -eu
+          root="${GITHUB_WORKSPACE}/.ci-workspace"
+          test ! -L "${root}"
+          mkdir -p "${root}"
+          find "${root}" -mindepth 1 -maxdepth 1 -type d -mmin +360 -exec rm -rf -- {} +
+          test ! -e "${RUN_WORKSPACE}"
+          mkdir "${RUN_WORKSPACE}"
+          available_kb="$(df -Pk "${root}" | awk 'NR == 2 { print $4 }')"
+          test "${available_kb}" -ge 10485760
 
       - name: Checkout repository
-        working-directory: ${{ github.workspace }}
         run: |
-          test -n "${GITHUB_WORKSPACE:-}"
-          test -n "${GITHUB_RUN_ID:-}"
-          test -n "${GITHUB_RUN_ATTEMPT:-}"
-          test -n "${GITHUB_JOB:-}"
-          test "${PWD}" = "${GITHUB_WORKSPACE}"
-          github_workspace_physical="$(pwd -P)"
-          workspace_root="${GITHUB_WORKSPACE}/.ci-workspace"
-          test ! -L "${workspace_root}"
-          cd "${workspace_root}"
-          workspace_root_physical="$(pwd -P)"
-          test "${workspace_root_physical}" = "${github_workspace_physical}/.ci-workspace"
-          run_workspace_name="${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}-${GITHUB_JOB}"
-          test ! -L "${run_workspace_name}"
-          cd "${run_workspace_name}"
-          run_workspace="$(pwd -P)"
-          test "${run_workspace}" = "${workspace_root_physical}/${run_workspace_name}"
+          set -eu
+          cd "${RUN_WORKSPACE}"
           git init .
-          git remote remove origin 2>/dev/null || true
           git remote add origin "https://x-access-token:${GITHUB_TOKEN}@github.com/${GITHUB_REPOSITORY}.git"
           git fetch --depth=1 origin "${CHECKOUT_REF}"
           git checkout --force --detach FETCH_HEAD
         env:
-          CHECKOUT_REF: ${{ github.ref }}
+          CHECKOUT_REF: ${{ github.event.pull_request.head.sha || github.sha }}
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Check Rust 1.88 MSRV
-        working-directory: ${{ github.workspace }}
+        working-directory: ${{ env.RUN_WORKSPACE }}
         run: |
-          test -n "${GITHUB_WORKSPACE:-}"
-          test -n "${GITHUB_RUN_ID:-}"
-          test -n "${GITHUB_RUN_ATTEMPT:-}"
-          test -n "${GITHUB_JOB:-}"
-          test "${PWD}" = "${GITHUB_WORKSPACE}"
-          github_workspace_physical="$(pwd -P)"
-          workspace_root="${GITHUB_WORKSPACE}/.ci-workspace"
-          test ! -L "${workspace_root}"
-          cd "${workspace_root}"
-          workspace_root_physical="$(pwd -P)"
-          test "${workspace_root_physical}" = "${github_workspace_physical}/.ci-workspace"
-          run_workspace_name="${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}-${GITHUB_JOB}"
-          test ! -L "${run_workspace_name}"
-          cd "${run_workspace_name}"
-          run_workspace="$(pwd -P)"
-          test "${run_workspace}" = "${workspace_root_physical}/${run_workspace_name}"
-          cargo_image="docker run --rm --user $(id -u):$(id -g) -e CARGO_TARGET_DIR=/work/target -v ${PWD}:/work -w /work rust:1.88-bookworm"
-          ${cargo_image} cargo check --workspace --all-targets --locked
+          docker run --rm --user "$(id -u):$(id -g)" -e CARGO_TARGET_DIR=/work/target -v "${RUN_WORKSPACE}:/work" -w /work rust:1.88-bookworm cargo check --workspace --all-targets --locked
+
+      - name: Cleanup workspace
+        if: always()
+        run: |
+          chmod -R u+rwX "${RUN_WORKSPACE}" 2>/dev/null || true
+          rm -rf "${RUN_WORKSPACE}"
 
   stable:
     if: >-
@@ -198,301 +119,108 @@ jobs:
       contents: read
       packages: read
     runs-on: [self-hosted, zarya-main, geo-eu, ci]
+    env:
+      RUN_WORKSPACE: ${{ github.workspace }}/.ci-workspace/${{ github.run_id }}-${{ github.run_attempt }}-stable
     steps:
-      - name: Clean persistent runner workspace
+      - name: Prepare bounded workspace
         run: |
-          test -n "${GITHUB_WORKSPACE:-}"
-          test -n "${GITHUB_RUN_ID:-}"
-          test -n "${GITHUB_RUN_ATTEMPT:-}"
-          test -n "${GITHUB_JOB:-}"
-          test "${PWD}" = "${GITHUB_WORKSPACE}"
-          github_workspace_physical="$(pwd -P)"
-          workspace_root="${GITHUB_WORKSPACE}/.ci-workspace"
-          test ! -L "${workspace_root}"
-          mkdir -p "${workspace_root}"
-          test ! -L "${workspace_root}"
-          cd "${workspace_root}"
-          workspace_root_physical="$(pwd -P)"
-          test "${workspace_root_physical}" = "${github_workspace_physical}/.ci-workspace"
-          find . -mindepth 1 -maxdepth 1 -type d -mtime +7 -exec rm -rf -- {} +
-          run_workspace_name="${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}-${GITHUB_JOB}"
-          test ! -L "${run_workspace_name}"
-          mkdir "${run_workspace_name}"
-          test ! -L "${run_workspace_name}"
-          cd "${run_workspace_name}"
-          run_workspace="$(pwd -P)"
-          test "${run_workspace}" = "${workspace_root_physical}/${run_workspace_name}"
-          find . -mindepth 1 -maxdepth 1 -exec rm -rf -- {} +
-          git init .
-          git reset --hard HEAD 2>/dev/null || true
-          git clean -ffdx
+          set -eu
+          root="${GITHUB_WORKSPACE}/.ci-workspace"
+          test ! -L "${root}"
+          mkdir -p "${root}"
+          find "${root}" -mindepth 1 -maxdepth 1 -type d -mmin +360 -exec rm -rf -- {} +
+          test ! -e "${RUN_WORKSPACE}"
+          mkdir "${RUN_WORKSPACE}"
+          available_kb="$(df -Pk "${root}" | awk 'NR == 2 { print $4 }')"
+          test "${available_kb}" -ge 10485760
 
       - name: Checkout repository
-        working-directory: ${{ github.workspace }}
         run: |
-          test -n "${GITHUB_WORKSPACE:-}"
-          test -n "${GITHUB_RUN_ID:-}"
-          test -n "${GITHUB_RUN_ATTEMPT:-}"
-          test -n "${GITHUB_JOB:-}"
-          test "${PWD}" = "${GITHUB_WORKSPACE}"
-          github_workspace_physical="$(pwd -P)"
-          workspace_root="${GITHUB_WORKSPACE}/.ci-workspace"
-          test ! -L "${workspace_root}"
-          cd "${workspace_root}"
-          workspace_root_physical="$(pwd -P)"
-          test "${workspace_root_physical}" = "${github_workspace_physical}/.ci-workspace"
-          run_workspace_name="${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}-${GITHUB_JOB}"
-          test ! -L "${run_workspace_name}"
-          cd "${run_workspace_name}"
-          run_workspace="$(pwd -P)"
-          test "${run_workspace}" = "${workspace_root_physical}/${run_workspace_name}"
+          set -eu
+          cd "${RUN_WORKSPACE}"
           git init .
-          git remote remove origin 2>/dev/null || true
           git remote add origin "https://x-access-token:${GITHUB_TOKEN}@github.com/${GITHUB_REPOSITORY}.git"
           git fetch --depth=1 origin "${CHECKOUT_REF}"
           git checkout --force --detach FETCH_HEAD
         env:
-          CHECKOUT_REF: ${{ github.ref }}
+          CHECKOUT_REF: ${{ github.event.pull_request.head.sha || github.sha }}
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Check current stable Rust
-        working-directory: ${{ github.workspace }}
+        working-directory: ${{ env.RUN_WORKSPACE }}
         run: |
-          test -n "${GITHUB_WORKSPACE:-}"
-          test -n "${GITHUB_RUN_ID:-}"
-          test -n "${GITHUB_RUN_ATTEMPT:-}"
-          test -n "${GITHUB_JOB:-}"
-          test "${PWD}" = "${GITHUB_WORKSPACE}"
-          github_workspace_physical="$(pwd -P)"
-          workspace_root="${GITHUB_WORKSPACE}/.ci-workspace"
-          test ! -L "${workspace_root}"
-          cd "${workspace_root}"
-          workspace_root_physical="$(pwd -P)"
-          test "${workspace_root_physical}" = "${github_workspace_physical}/.ci-workspace"
-          run_workspace_name="${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}-${GITHUB_JOB}"
-          test ! -L "${run_workspace_name}"
-          cd "${run_workspace_name}"
-          run_workspace="$(pwd -P)"
-          test "${run_workspace}" = "${workspace_root_physical}/${run_workspace_name}"
-          cargo_image="docker run --rm --user $(id -u):$(id -g) -e CARGO_TARGET_DIR=/work/target -v ${PWD}:/work -w /work rust:bookworm"
-          ${cargo_image} cargo check --workspace --all-targets --locked
+          docker run --rm --user "$(id -u):$(id -g)" -e CARGO_TARGET_DIR=/work/target -v "${RUN_WORKSPACE}:/work" -w /work rust:bookworm cargo check --workspace --all-targets --locked
 
-  release:
+      - name: Cleanup workspace
+        if: always()
+        run: |
+          chmod -R u+rwX "${RUN_WORKSPACE}" 2>/dev/null || true
+          rm -rf "${RUN_WORKSPACE}"
+
+  delivery:
     needs: [check, msrv, stable]
-    if: github.event_name == 'push' || github.event_name == 'workflow_dispatch'
+    if: github.event_name == 'push'
     permissions:
       contents: read
       packages: write
     runs-on: [self-hosted, zarya-main, geo-eu, ci]
+    env:
+      RUN_WORKSPACE: ${{ github.workspace }}/.ci-workspace/${{ github.run_id }}-${{ github.run_attempt }}-delivery
+      DOCKER_CONFIG: ${{ github.workspace }}/.ci-workspace/${{ github.run_id }}-${{ github.run_attempt }}-delivery/.docker
     steps:
-      - name: Clean persistent runner workspace
+      - name: Prepare bounded workspace
         run: |
-          test -n "${GITHUB_WORKSPACE:-}"
-          test -n "${GITHUB_RUN_ID:-}"
-          test -n "${GITHUB_RUN_ATTEMPT:-}"
-          test -n "${GITHUB_JOB:-}"
-          test "${PWD}" = "${GITHUB_WORKSPACE}"
-          github_workspace_physical="$(pwd -P)"
-          workspace_root="${GITHUB_WORKSPACE}/.ci-workspace"
-          test ! -L "${workspace_root}"
-          mkdir -p "${workspace_root}"
-          test ! -L "${workspace_root}"
-          cd "${workspace_root}"
-          workspace_root_physical="$(pwd -P)"
-          test "${workspace_root_physical}" = "${github_workspace_physical}/.ci-workspace"
-          find . -mindepth 1 -maxdepth 1 -type d -mtime +7 -exec rm -rf -- {} +
-          run_workspace_name="${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}-${GITHUB_JOB}"
-          test ! -L "${run_workspace_name}"
-          mkdir "${run_workspace_name}"
-          test ! -L "${run_workspace_name}"
-          cd "${run_workspace_name}"
-          run_workspace="$(pwd -P)"
-          test "${run_workspace}" = "${workspace_root_physical}/${run_workspace_name}"
-          find . -mindepth 1 -maxdepth 1 -exec rm -rf -- {} +
-          git init .
-          git reset --hard HEAD 2>/dev/null || true
-          git clean -ffdx
+          set -eu
+          root="${GITHUB_WORKSPACE}/.ci-workspace"
+          test ! -L "${root}"
+          mkdir -p "${root}"
+          find "${root}" -mindepth 1 -maxdepth 1 -type d -mmin +360 -exec rm -rf -- {} +
+          test ! -e "${RUN_WORKSPACE}"
+          mkdir "${RUN_WORKSPACE}"
+          available_kb="$(df -Pk "${root}" | awk 'NR == 2 { print $4 }')"
+          test "${available_kb}" -ge 10485760
 
       - name: Checkout repository
-        working-directory: ${{ github.workspace }}
         run: |
-          test -n "${GITHUB_WORKSPACE:-}"
-          test -n "${GITHUB_RUN_ID:-}"
-          test -n "${GITHUB_RUN_ATTEMPT:-}"
-          test -n "${GITHUB_JOB:-}"
-          test "${PWD}" = "${GITHUB_WORKSPACE}"
-          github_workspace_physical="$(pwd -P)"
-          workspace_root="${GITHUB_WORKSPACE}/.ci-workspace"
-          test ! -L "${workspace_root}"
-          cd "${workspace_root}"
-          workspace_root_physical="$(pwd -P)"
-          test "${workspace_root_physical}" = "${github_workspace_physical}/.ci-workspace"
-          run_workspace_name="${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}-${GITHUB_JOB}"
-          test ! -L "${run_workspace_name}"
-          cd "${run_workspace_name}"
-          run_workspace="$(pwd -P)"
-          test "${run_workspace}" = "${workspace_root_physical}/${run_workspace_name}"
+          set -eu
+          cd "${RUN_WORKSPACE}"
           git init .
-          git remote remove origin 2>/dev/null || true
           git remote add origin "https://x-access-token:${GITHUB_TOKEN}@github.com/${GITHUB_REPOSITORY}.git"
           git fetch --depth=1 origin "${CHECKOUT_REF}"
           git checkout --force --detach FETCH_HEAD
         env:
-          CHECKOUT_REF: ${{ github.ref }}
+          CHECKOUT_REF: ${{ github.sha }}
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Login to GHCR
-        working-directory: ${{ github.workspace }}
         run: |
-          test -n "${GITHUB_WORKSPACE:-}"
-          test -n "${GITHUB_RUN_ID:-}"
-          test -n "${GITHUB_RUN_ATTEMPT:-}"
-          test -n "${GITHUB_JOB:-}"
-          test "${PWD}" = "${GITHUB_WORKSPACE}"
-          github_workspace_physical="$(pwd -P)"
-          workspace_root="${GITHUB_WORKSPACE}/.ci-workspace"
-          test ! -L "${workspace_root}"
-          cd "${workspace_root}"
-          workspace_root_physical="$(pwd -P)"
-          test "${workspace_root_physical}" = "${github_workspace_physical}/.ci-workspace"
-          run_workspace_name="${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}-${GITHUB_JOB}"
-          test ! -L "${run_workspace_name}"
-          cd "${run_workspace_name}"
-          run_workspace="$(pwd -P)"
-          test "${run_workspace}" = "${workspace_root_physical}/${run_workspace_name}"
-          echo "${{ secrets.GITHUB_TOKEN }}" | docker login ghcr.io -u "${GITHUB_REPOSITORY_OWNER}" --password-stdin
+          mkdir -p "${DOCKER_CONFIG}"
+          echo "${GITHUB_TOKEN}" | docker login ghcr.io -u "${GITHUB_REPOSITORY_OWNER}" --password-stdin
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Build and publish release
-        working-directory: ${{ github.workspace }}
+      - name: Build and publish immutable release
+        working-directory: ${{ env.RUN_WORKSPACE }}
         run: |
-          test -n "${GITHUB_WORKSPACE:-}"
-          test -n "${GITHUB_RUN_ID:-}"
-          test -n "${GITHUB_RUN_ATTEMPT:-}"
-          test -n "${GITHUB_JOB:-}"
-          test "${PWD}" = "${GITHUB_WORKSPACE}"
-          github_workspace_physical="$(pwd -P)"
-          workspace_root="${GITHUB_WORKSPACE}/.ci-workspace"
-          test ! -L "${workspace_root}"
-          cd "${workspace_root}"
-          workspace_root_physical="$(pwd -P)"
-          test "${workspace_root_physical}" = "${github_workspace_physical}/.ci-workspace"
-          run_workspace_name="${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}-${GITHUB_JOB}"
-          test ! -L "${run_workspace_name}"
-          cd "${run_workspace_name}"
-          run_workspace="$(pwd -P)"
-          test "${run_workspace}" = "${workspace_root_physical}/${run_workspace_name}"
+          set -eu
           make build
           make image-runtime
-          cargo_image="docker run --rm --user $(id -u):$(id -g) -e CARGO_TARGET_DIR=/work/target -v ${PWD}:/work -w /work rust:bookworm"
+          cargo_image="docker run --rm --user $(id -u):$(id -g) -e CARGO_TARGET_DIR=/work/target -v ${RUN_WORKSPACE}:/work -w /work rust:bookworm"
           make clean-state-restore CARGO="${cargo_image} cargo"
           make push
 
-  deploy:
-    needs: release
-    if: github.event_name == 'workflow_dispatch'
-    permissions:
-      contents: read
-      packages: read
-    runs-on: [self-hosted, zarya-main, geo-eu, ci]
-    steps:
-      - name: Clean persistent runner workspace
+      - name: Deploy main release
+        working-directory: ${{ env.RUN_WORKSPACE }}
         run: |
-          test -n "${GITHUB_WORKSPACE:-}"
-          test -n "${GITHUB_RUN_ID:-}"
-          test -n "${GITHUB_RUN_ATTEMPT:-}"
-          test -n "${GITHUB_JOB:-}"
-          test "${PWD}" = "${GITHUB_WORKSPACE}"
-          github_workspace_physical="$(pwd -P)"
-          workspace_root="${GITHUB_WORKSPACE}/.ci-workspace"
-          test ! -L "${workspace_root}"
-          mkdir -p "${workspace_root}"
-          test ! -L "${workspace_root}"
-          cd "${workspace_root}"
-          workspace_root_physical="$(pwd -P)"
-          test "${workspace_root_physical}" = "${github_workspace_physical}/.ci-workspace"
-          find . -mindepth 1 -maxdepth 1 -type d -mtime +7 -exec rm -rf -- {} +
-          run_workspace_name="${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}-${GITHUB_JOB}"
-          test ! -L "${run_workspace_name}"
-          mkdir "${run_workspace_name}"
-          test ! -L "${run_workspace_name}"
-          cd "${run_workspace_name}"
-          run_workspace="$(pwd -P)"
-          test "${run_workspace}" = "${workspace_root_physical}/${run_workspace_name}"
-          find . -mindepth 1 -maxdepth 1 -exec rm -rf -- {} +
-          git init .
-          git reset --hard HEAD 2>/dev/null || true
-          git clean -ffdx
-
-      - name: Checkout repository
-        working-directory: ${{ github.workspace }}
-        run: |
-          test -n "${GITHUB_WORKSPACE:-}"
-          test -n "${GITHUB_RUN_ID:-}"
-          test -n "${GITHUB_RUN_ATTEMPT:-}"
-          test -n "${GITHUB_JOB:-}"
-          test "${PWD}" = "${GITHUB_WORKSPACE}"
-          github_workspace_physical="$(pwd -P)"
-          workspace_root="${GITHUB_WORKSPACE}/.ci-workspace"
-          test ! -L "${workspace_root}"
-          cd "${workspace_root}"
-          workspace_root_physical="$(pwd -P)"
-          test "${workspace_root_physical}" = "${github_workspace_physical}/.ci-workspace"
-          run_workspace_name="${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}-${GITHUB_JOB}"
-          test ! -L "${run_workspace_name}"
-          cd "${run_workspace_name}"
-          run_workspace="$(pwd -P)"
-          test "${run_workspace}" = "${workspace_root_physical}/${run_workspace_name}"
-          git init .
-          git remote remove origin 2>/dev/null || true
-          git remote add origin "https://x-access-token:${GITHUB_TOKEN}@github.com/${GITHUB_REPOSITORY}.git"
-          git fetch --depth=1 origin "${CHECKOUT_REF}"
-          git checkout --force --detach FETCH_HEAD
-        env:
-          CHECKOUT_REF: ${{ github.ref }}
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-
-      - name: Login to GHCR
-        working-directory: ${{ github.workspace }}
-        run: |
-          test -n "${GITHUB_WORKSPACE:-}"
-          test -n "${GITHUB_RUN_ID:-}"
-          test -n "${GITHUB_RUN_ATTEMPT:-}"
-          test -n "${GITHUB_JOB:-}"
-          test "${PWD}" = "${GITHUB_WORKSPACE}"
-          github_workspace_physical="$(pwd -P)"
-          workspace_root="${GITHUB_WORKSPACE}/.ci-workspace"
-          test ! -L "${workspace_root}"
-          cd "${workspace_root}"
-          workspace_root_physical="$(pwd -P)"
-          test "${workspace_root_physical}" = "${github_workspace_physical}/.ci-workspace"
-          run_workspace_name="${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}-${GITHUB_JOB}"
-          test ! -L "${run_workspace_name}"
-          cd "${run_workspace_name}"
-          run_workspace="$(pwd -P)"
-          test "${run_workspace}" = "${workspace_root_physical}/${run_workspace_name}"
-          echo "${{ secrets.GITHUB_TOKEN }}" | docker login ghcr.io -u "${GITHUB_REPOSITORY_OWNER}" --password-stdin
-
-      - name: Deploy current HEAD release
-        working-directory: ${{ github.workspace }}
-        run: |
-          test -n "${GITHUB_WORKSPACE:-}"
-          test -n "${GITHUB_RUN_ID:-}"
-          test -n "${GITHUB_RUN_ATTEMPT:-}"
-          test -n "${GITHUB_JOB:-}"
-          test "${PWD}" = "${GITHUB_WORKSPACE}"
-          github_workspace_physical="$(pwd -P)"
-          workspace_root="${GITHUB_WORKSPACE}/.ci-workspace"
-          test ! -L "${workspace_root}"
-          cd "${workspace_root}"
-          workspace_root_physical="$(pwd -P)"
-          test "${workspace_root_physical}" = "${github_workspace_physical}/.ci-workspace"
-          run_workspace_name="${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}-${GITHUB_JOB}"
-          test ! -L "${run_workspace_name}"
-          cd "${run_workspace_name}"
-          run_workspace="$(pwd -P)"
-          test "${run_workspace}" = "${workspace_root_physical}/${run_workspace_name}"
+          set -eu
           RELEASE_ID="$(git rev-parse --short=12 HEAD)"
-          make release-manifest RELEASE_ID="${RELEASE_ID}"
           make install-ops INSTALL_DIR=/opt/apps/uprava SUDO=sudo
-          make install-release-manifest DEPLOY_HOST=zsa INSTALL_DIR=/opt/apps/uprava SUDO=sudo RELEASE_ID="${RELEASE_ID}"
-          make deploy DEPLOY_HOST=zsa INSTALL_DIR=/opt/apps/uprava SUDO=sudo RELEASE_ID="${RELEASE_ID}" DEPLOY_MODE=local
+          make install-release-manifest INSTALL_DIR=/opt/apps/uprava SUDO=sudo RELEASE_ID="${RELEASE_ID}"
+          make deploy INSTALL_DIR=/opt/apps/uprava SUDO=sudo RELEASE_ID="${RELEASE_ID}" DEPLOY_MODE=local
+
+      - name: Cleanup credentials and workspace
+        if: always()
+        run: |
+          docker logout ghcr.io >/dev/null 2>&1 || true
+          chmod -R u+rwX "${RUN_WORKSPACE}" 2>/dev/null || true
+          rm -rf "${RUN_WORKSPACE}"

@@ -31,7 +31,7 @@ Node Daemon runtime unit: host systemd
 Release manifest: .env.release
 Server entrypoint: /opt/apps/uprava/Makefile
 Target: zarya-main / production-main
-Runner labels: self-hosted, zarya-main, geo-eu, deploy
+Runner labels: self-hosted, zarya-main, geo-eu, ci
 ```
 
 Core and Web belong in Docker because they are browser-facing services with
@@ -196,6 +196,8 @@ UPRAVA_WEB_IMAGE=ghcr.io/zaryalabs/uprava-web@sha256:<digest>
 UPRAVA_NODE_ARTIFACT=ghcr.io/zaryalabs/uprava-node@sha256:<digest>
 UPRAVA_NODE_SHA256=<sha256>
 UPRAVA_NODE_VERSION=0.1.x
+UPRAVA_STATE_EPOCH=0.2.2
+UPRAVA_AUTO_APPROVE_NODE_NAME='Zarya Server'
 ```
 
 The host artifact transport is the `uprava-node` GHCR image. CI extracts
@@ -212,10 +214,11 @@ The top-level product contract stays:
 prepare -> build -> push -> deploy
 ```
 
-Ordinary checks, builds and immutable artifact publishing may run after changes
-land on `main`. They do not activate production. Production activation remains
-an explicit manual GitHub Actions `workflow_dispatch` using a selected release
-id; no push, merge or successful publish event implicitly runs `deploy`.
+Pull requests run checks only. Every successful update to `main` builds and
+publishes one immutable Git-SHA release and then activates that exact release in
+production. There is no manual production deploy path or `workflow_dispatch`
+activation. The delivery job owns temporary registry credentials and removes
+its workspace and credentials after every outcome.
 
 ### `prepare`
 
@@ -247,15 +250,16 @@ Expected outputs:
 
 ### `deploy`
 
-The GitHub Actions deploy job should be manual `workflow_dispatch` and should
-only:
+The GitHub Actions delivery job runs automatically after all checks succeed on
+`main` and performs only the repository-owned release and server entrypoints:
 
 ```bash
-install -m 644 "builds/releases/${RELEASE_ID}.env.release" \
-  "/opt/apps/uprava/builds/releases/${RELEASE_ID}.env.release"
-cd /opt/apps/uprava
-make activate RELEASE="${RELEASE_ID}"
-make deploy
+make push
+make install-ops INSTALL_DIR=/opt/apps/uprava SUDO=sudo
+make install-release-manifest INSTALL_DIR=/opt/apps/uprava SUDO=sudo \
+  RELEASE_ID="${RELEASE_ID}"
+make deploy INSTALL_DIR=/opt/apps/uprava SUDO=sudo \
+  RELEASE_ID="${RELEASE_ID}" DEPLOY_MODE=local
 ```
 
 Workflow YAML must not inline `docker compose`, `systemctl`, migration or smoke
@@ -279,8 +283,10 @@ pull
 up
 down
 restart
+state-transition
 deploy
 smoke
+retention
 backup
 rollback
 restore
@@ -294,7 +300,12 @@ Suggested meanings:
 - `up` - apply Compose Core/Web state and start/restart `uprava-node.service`.
 - `status` - show Compose status and `systemctl status uprava-node.service`.
 - `logs` - show Compose logs and `journalctl -u uprava-node`.
-- `deploy` - run `pull`, optional migrations, `up`, `status` and `smoke`.
+- `state-transition` - reset the coordinated Core/Node SQLite state once when
+  the immutable manifest declares a new state epoch.
+- `deploy` - run `pull`, state transition, `up`, `status`, functional `smoke`
+  and project-scoped retention.
+- `retention` - keep bounded Uprava releases and images without pruning other
+  products on the shared host.
 - `rollback` - validate and activate a selected prior release only. It does not
   deploy or smoke-test automatically; those follow-up actions stay explicit.
 
@@ -302,12 +313,17 @@ Suggested meanings:
 
 Default release activation:
 
-1. Copy the release manifest to `/opt/apps/uprava/builds/releases/`.
+1. The successful `main` delivery installs the digest-pinned release manifest
+   into `/opt/apps/uprava/builds/releases/`.
 2. `make activate RELEASE=<release-id>` updates `.env.release` and `current`.
 3. `make pull` fetches images and the Node artifact.
 4. Core/Web update through Compose.
 5. Node Daemon restarts through the approved product-owned systemd path.
-6. Smoke checks verify Core, Web and Node heartbeat/readiness.
+6. Scoped auto-enrollment accepts only the Node display name declared by the
+   release manifest.
+7. Smoke checks verify Core, public Web, writable SQLite, state epoch, Node
+   version, workspace projection and fresh heartbeat.
+8. Retention removes old Uprava release artifacts and image references.
 
 Core/Web and Node should share one release id because the control protocol is a
 product contract. Ordinary releases should tolerate the short mixed-version
@@ -324,18 +340,24 @@ Minimum production smoke:
 
 - Core `/api/v1/health` responds internally.
 - Web route responds through the public origin.
-- Core can access its persistent state.
+- Core can access and write its persistent state.
 - Node Daemon process is active.
 - Node heartbeats to Core after restart.
-- Node reports expected version or release id when that field is implemented.
+- Node reports the version declared by the release manifest.
+- Node projects at least one allowed workspace into Core.
+- Core and Node state epoch markers match the release manifest.
 - One central metric and one central Node log are visible after observability is
   wired.
 
 ## Runner And Privileges
 
-The deploy runner must not receive broad host control.
+The current self-hosted runner is a trusted privileged runner. Docker group
+membership is an explicitly accepted controlled-development risk for `0.2.2`.
+Pull requests from forks are not executed on it, and production credentials are
+available only to the automatic `main` delivery job through a temporary Docker
+configuration.
 
-Allowed model:
+The intended later hardening model remains:
 
 - runner can copy release manifests into `/opt/apps/uprava/builds/releases/`;
 - runner can call `/opt/apps/uprava/Makefile`;
@@ -378,19 +400,26 @@ only between later releases that explicitly share the stable state schema.
 The verified 0.1.8 archive is evidence and break-glass material, not an active
 rollback target.
 
-### 0.2.0 Clean Reset And Re-enrollment
+### 0.2.2 Coordinated State Epoch Reset And Re-enrollment
 
-A clean reset may stop the candidate, back up evidence, and reinitialize the
-stable Core and Node state paths. It must never modify the offline legacy
-archive. After reset:
+A release manifest declares `UPRAVA_STATE_EPOCH`. When it differs from either
+installed epoch marker, deployment automatically stops Core/Node, removes only
+the stable Core and Node SQLite database/WAL/SHM files, records both markers and
+starts the new release. Re-running the same epoch is idempotent and preserves
+state. The offline legacy archive is never modified. After reset:
+
+The reset also removes the current Core users. After the first `0.2.2` delivery,
+create the Web administrator again through the normal first-run setup. This is
+the only required post-reset product action; Node enrollment and deployment
+remain automatic.
 
 1. start Core with empty `state/core` and stable Core config;
 2. start Node with empty `/var/lib/uprava-node/node.sqlite` and stable config;
-3. create a new enrollment, approve it explicitly and let Node store the new
-   0.2.0 credential;
+3. the Core auto-approves only the exact production Node display name declared
+   by the immutable manifest and Node stores the new credential;
 4. rebind Projects and Placements; no 0.1.8 Project, Placement, session,
    transcript or resume state is imported in place;
-5. run smoke checks against the candidate release id.
+5. run functional smoke checks against the deployed Git SHA and Node version.
 
 If either process sees incompatible state in its selected 0.2.0 slot, startup
 must fail with an actionable incompatible-state error rather than migrate,

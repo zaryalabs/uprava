@@ -18,6 +18,7 @@ pub struct AppConfig {
     pub max_pending_enrollments: i64,
     pub runtime_expiry_seconds: i64,
     pub auto_approve_enrollments: bool,
+    pub auto_approve_node_name: Option<String>,
     pub client_log_file: PathBuf,
     pub web_auth_required: bool,
     pub web_session_ttl_seconds: i64,
@@ -42,6 +43,7 @@ impl AppConfig {
             max_pending_enrollments: parse_env_i64("UPRAVA_MAX_PENDING_ENROLLMENTS", 100)?,
             runtime_expiry_seconds: parse_env_i64("UPRAVA_RUNTIME_EXPIRY_SECONDS", 86_400)?,
             auto_approve_enrollments: parse_auto_approve_enrollments()?,
+            auto_approve_node_name: parse_optional_non_empty("UPRAVA_AUTO_APPROVE_NODE_NAME"),
             client_log_file: std::env::var("UPRAVA_CLIENT_LOG_FILE")
                 .map(PathBuf::from)
                 .unwrap_or_else(|_| PathBuf::from(".local/logs/client.log")),
@@ -130,6 +132,13 @@ fn parse_auto_approve_enrollments() -> Result<bool, ConfigError> {
         return Err(ConfigError::AutoApproveEnrollments);
     }
     Ok(false)
+}
+
+fn parse_optional_non_empty(name: &str) -> Option<String> {
+    std::env::var(name)
+        .ok()
+        .map(|value| value.trim().to_owned())
+        .filter(|value| !value.is_empty())
 }
 
 pub(crate) fn default_allowed_origins() -> Vec<HeaderValue> {
