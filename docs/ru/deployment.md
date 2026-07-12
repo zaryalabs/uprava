@@ -207,6 +207,12 @@ restart systemd. Deploy must not download a mutable `latest` daemon binary.
 
 ## CI/CD Stages
 
+Принятый целевой pipeline определён в [`ci-cd.md`](ci-cd.md) как
+`prepare -> build -> deploy -> finalize`. Детали ниже описывают текущую
+transitional implementation до перехода на четырёхфазный контракт. В целевом
+дизайне smoke и retention относятся к `finalize`, а `deploy` только применяет
+выбранный release.
+
 The top-level product contract stays:
 
 ```text
@@ -400,6 +406,11 @@ acceptance 0.2.0. Работа, созданная только в 0.2.0, пос
 эта loss boundary должна быть показана до activation.
 
 ### Coordinated State Epoch Reset 0.2.2 И Re-enrollment
+
+Этот раздел описывает transitional, а не target behavior. Принятый дизайн CI/CD
+удаляет automatic state epochs из ordinary delivery. Текущий disposable SQLite
+state будет один раз сброшен как явная server maintenance operation; см.
+[`ci-cd.md`](ci-cd.md#сброс-production-state).
 
 Release manifest объявляет `UPRAVA_STATE_EPOCH`. Если он отличается от любого
 installed epoch marker, deployment автоматически останавливает Core/Node,

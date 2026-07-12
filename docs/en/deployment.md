@@ -208,6 +208,12 @@ Deploy must not download a mutable `latest` daemon binary.
 
 ## CI/CD Stages
 
+The accepted target pipeline is defined in [`ci-cd.md`](ci-cd.md) as
+`prepare -> build -> deploy -> finalize`. The details below describe the current
+transitional implementation until that four-phase contract is adopted. In the
+target design, smoke and retention belong to `finalize`, while `deploy` only
+applies the selected release.
+
 The top-level product contract stays:
 
 ```text
@@ -401,6 +407,11 @@ The verified 0.1.8 archive is evidence and break-glass material, not an active
 rollback target.
 
 ### 0.2.2 Coordinated State Epoch Reset And Re-enrollment
+
+This section documents transitional, not target, behavior. The accepted CI/CD
+design removes automatic state epochs from ordinary delivery. The disposable
+current SQLite state will instead be reset once as explicit server maintenance;
+see [`ci-cd.md`](ci-cd.md#production-state-reset).
 
 A release manifest declares `UPRAVA_STATE_EPOCH`. When it differs from either
 installed epoch marker, deployment automatically stops Core/Node, removes only

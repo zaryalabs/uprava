@@ -25,6 +25,7 @@ design docs.
 - [`workspace-inspector.md`](workspace-inspector.md) - направление Project Workspace Inspector.
 - [`workspace-editing-and-ide-sidecar.md`](workspace-editing-and-ide-sidecar.md) - базовое редактирование workspace и optional full-IDE sidecar.
 - [`deployment.md`](deployment.md) - deployment model Uprava: Core/Web in Docker, Node Daemon через systemd and `.env.release`.
+- [`ci-cd.md`](ci-cd.md) - принятый четырёхфазный дизайн CI/CD: prepare, build, deploy и finalize.
 - [`deployment-observability.md`](deployment-observability.md) - рабочая позиция по Core/Web in Docker, bare-metal Node Daemon and observability.
 - [`self-hosting-golden-path.md`](self-hosting-golden-path.md) - server workflow, где Uprava редактирует отдельный clone себя и push-ит branches через normal review and CI/CD.
 - [`audit-2026-07-09.md`](audit/audit-2026-07-09.md) - единый аудит архитектуры, качества кода, reliability, security и delivery для baseline `0.1.8`.
