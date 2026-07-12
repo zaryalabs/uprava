@@ -149,12 +149,13 @@ install-ops: ## Bootstrap product-owned directories and ops files
 init: ## Install local hooks and project dependencies when manifests exist
 	@set -e; \
 	if command -v pre-commit >/dev/null 2>&1; then \
-		pre-commit install; \
+		pre-commit install --hook-type pre-commit --hook-type pre-push; \
 	else \
 		echo "pre-commit is not installed; install it to enable commit hooks"; \
 	fi
 	@set -e; \
 	if [ -f "$(RUST_MANIFEST)" ]; then \
+		$(RUSTUP) toolchain install 1.88.0 --profile minimal --component rustfmt,clippy; \
 		$(CARGO) fetch; \
 		$(MAKE) --no-print-directory rust-tools-install; \
 	else \
@@ -176,6 +177,11 @@ dl: l protocol-check rust-dl web-dl ## Run deep checks
 t: rust-t web-t ## Run tests
 
 c: fmt dl t ## Run full local quality gate
+
+push-check: docs-l protocol-check rust-l rust-t web-l web-t web-dl scripts-check push-check-msrv rust-dl web-e2e ## Run the same source checks as a main CI prepare
+
+push-check-msrv: ## Check the Rust workspace against the minimum supported toolchain
+	$(RUSTUP) run 1.88.0 cargo check --workspace --all-targets --locked
 
 pc: ## Run pre-commit hooks on all files
 	@if command -v pre-commit >/dev/null 2>&1; then \
@@ -481,4 +487,4 @@ clean: ## Remove common local build and cache artifacts
 	rm -rf target htmlcov coverage .pytest_cache .ruff_cache .mypy_cache .ty
 	rm -rf $(WEB_DIR)/dist $(WEB_DIR)/coverage
 
-.PHONY: help prepare ci-prepare ci-build ci-deploy ci-finalize build image-runtime clean-state-restore push release-manifest install-release-manifest install-ops init fmt l dl t c pc claw-doctor claw-init claw-map claw-review claw-report claw-ci claw-show claw-fix docs-fmt docs-l web-install ops-config systemd-check scripts-check rust-fmt rust-l rust-dl rust-tools-install rust-t web-r web-fmt web-l web-dl web-t web-e2e core-r node-r dev-up dev-down dev-logs dev-reset dev-smoke compose-up compose-down compose-logs compose-reset compose-smoke codex-smoke clean
+.PHONY: help prepare ci-prepare ci-build ci-deploy ci-finalize build image-runtime clean-state-restore push release-manifest install-release-manifest install-ops init fmt l dl t c push-check push-check-msrv pc claw-doctor claw-init claw-map claw-review claw-report claw-ci claw-show claw-fix docs-fmt docs-l web-install ops-config systemd-check scripts-check rust-fmt rust-l rust-dl rust-tools-install rust-t web-r web-fmt web-l web-dl web-t web-e2e core-r node-r dev-up dev-down dev-logs dev-reset dev-smoke compose-up compose-down compose-logs compose-reset compose-smoke codex-smoke clean

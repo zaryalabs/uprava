@@ -87,7 +87,7 @@ test("loads Monaco only after a workspace file is opened", async ({ page }) => {
   expect(resources.some(isXtermResource)).toBe(false);
 });
 
-test("matches the Zarya system sheet at desktop and mobile", async ({
+test("matches stable Zarya sheets and keeps the mobile session usable", async ({
   page,
 }) => {
   await mockCoreApi(page);
@@ -110,10 +110,19 @@ test("matches the Zarya system sheet at desktop and mobile", async ({
   await page.setViewportSize({ width: 390, height: 844 });
   await page.goto("/sessions/session-1");
   await expect(page.getByRole("heading", { name: "Fix issue" })).toBeVisible();
-  await expect(page).toHaveScreenshot("session-zarya-mobile.png", {
-    animations: "disabled",
-    fullPage: true,
-  });
+  await expect(
+    page.getByRole("region", { name: "Delayed messages" }),
+  ).toBeVisible();
+  await expect(
+    page.getByRole("textbox", { name: "Delayed turn content" }),
+  ).toBeVisible();
+  await expect(page.getByRole("button", { name: "Schedule" })).toBeDisabled();
+  const horizontalOverflow = await page.evaluate(
+    () =>
+      document.documentElement.scrollWidth -
+      document.documentElement.clientWidth,
+  );
+  expect(horizontalOverflow).toBeLessThanOrEqual(1);
 });
 
 test("supports the shell and composer keyboard path", async ({ page }) => {

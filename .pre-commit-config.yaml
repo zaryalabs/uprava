@@ -20,8 +20,11 @@ repos:
         entry: make l
         language: system
         pass_filenames: false
-      - id: make-t
-        name: make t
-        entry: make t
+        stages: [pre-commit]
+      - id: make-push-check
+        name: make push-check
+        entry: make push-check
         language: system
         pass_filenames: false
+        stages: [pre-push]
+        always_run: true

@@ -7256,8 +7256,12 @@ mod tests {
         };
 
         let store = NodeStateStore::new(local_state, state_path.clone());
+        let client = reqwest::Client::builder()
+            .no_proxy()
+            .build()
+            .expect("test client builds");
         let enrolled = store
-            .ensure_enrollment(&reqwest::Client::new(), &config)
+            .ensure_enrollment(&client, &config)
             .await
             .expect("stale enrollment clears");
         server.await.expect("test server finishes");

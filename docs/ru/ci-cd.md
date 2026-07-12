@@ -53,6 +53,27 @@ Pull requests запускают только быстрые deterministic check
 работает на stable. Production health, systemd, public-domain и SQLite checks не
 относятся к `prepare`.
 
+## Локальные проверки commit и push
+
+Локальные hooks дают раннюю обратную связь, но не переносят ответственность с
+CI. Hook `pre-commit` запускает проверки форматирования, lint и типов через
+`make l`; Rust и Web test suites на каждом commit не запускаются. Это сохраняет
+достаточно быстрый внутренний цикл разработки.
+
+Hook `pre-push` запускает `make push-check`. Эта цель одновременно является
+каноническим набором source checks для успешного prepare path ветки `main` и
+включает unit и integration tests, production Web build, MSRV, dependency
+checks и Web E2E tests. Локальный hook работает в host-окружении разработчика,
+поэтому авторитетным воспроизводимым запуском остаётся CI внутри pinned prepare
+container.
+
+Локальный pre-push намеренно не вызывает `ci/run.sh`: lifecycle временного CI
+worktree, disk preflight, очистка устаревших workspaces, release build,
+публикация в registry, deployment и production validation остаются только на
+сервере. Недостающие локальные зависимости следует явно устанавливать через
+`make init`, а не неявно во время push. Инициализация также устанавливает MSRV
+toolchain, необходимый общему набору проверок.
+
 ## Build
 
 `build` запускается только после успешного обновления `main` и не изменяет

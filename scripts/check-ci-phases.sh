@@ -54,9 +54,16 @@ SH
 chmod 755 "$tmp/bin/"*
 
 CALLS="$calls" PATH="$tmp/bin:$PATH" MAKE="$tmp/bin/make" CI_MAIN=0 bash "$repo/ci/prepare.sh" >/dev/null
-! grep -q '^cargo ' "$calls"
+grep -q '^make docs-l protocol-check rust-l rust-t web-l web-t web-dl scripts-check$' "$calls"
 CALLS="$calls" PATH="$tmp/bin:$PATH" MAKE="$tmp/bin/make" CI_MAIN=1 bash "$repo/ci/prepare.sh" >/dev/null
-grep -q '^cargo +1.88.0 check' "$calls"
+grep -q '^make push-check$' "$calls"
+
+grep -q 'entry: make l' "$repo/.pre-commit-config.yaml"
+grep -A4 'entry: make l' "$repo/.pre-commit-config.yaml" | grep -q 'stages: \[pre-commit\]'
+! grep -q 'entry: make t' "$repo/.pre-commit-config.yaml"
+grep -q 'entry: make push-check' "$repo/.pre-commit-config.yaml"
+grep -A5 'entry: make push-check' "$repo/.pre-commit-config.yaml" | grep -q 'stages: \[pre-push\]'
+grep -q 'pre-commit install --hook-type pre-commit --hook-type pre-push' "$repo/Makefile"
 
 CALLS="$calls" PATH="$tmp/bin:$PATH" MAKE="$tmp/bin/make" CI_ARTIFACT_DIR="$tmp/handoff" \
     RELEASE_MANIFEST="$tmp/release.env" DOCKER_CONFIG="$tmp/docker-config" bash "$repo/ci/build.sh" >/dev/null

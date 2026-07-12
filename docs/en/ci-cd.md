@@ -53,6 +53,26 @@ A full stable Rust check is not a separate job when the normal Rust test suite
 already runs on stable. Production health, systemd, public-domain and SQLite
 checks do not belong in `prepare`.
 
+## Local Commit And Push Gates
+
+Local hooks provide early feedback without moving authority away from CI. The
+`pre-commit` hook runs formatting, lint and type checks through `make l`; it
+does not run the Rust or Web test suites. This keeps the inner commit loop
+reasonably short.
+
+The `pre-push` hook runs `make push-check`. That target is also the canonical
+source-check set used by the successful `main` prepare path and includes unit
+and integration tests, the production Web build, MSRV, dependency checks and
+Web E2E tests. The hook runs in the developer's host environment, so CI remains
+the authoritative reproducible run inside the pinned prepare container.
+
+Local pre-push deliberately does not call `ci/run.sh`: CI worktree lifecycle,
+disk preflight, stale-workspace cleanup, release build, registry publication,
+deployment and production validation remain server-only concerns. Missing
+local dependencies should be repaired explicitly with `make init`, not
+installed implicitly during a push. Initialization installs the MSRV toolchain
+required by the shared gate in addition to the normal development dependencies.
+
 ## Build
 
 `build` runs only for a successful update of `main` and does not mutate
