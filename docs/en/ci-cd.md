@@ -1,6 +1,6 @@
 # CI/CD Design
 
-Status: accepted target design; implementation is pending.
+Status: implemented production contract.
 
 Uprava CI/CD has four product-level phases:
 
@@ -64,7 +64,7 @@ production. It:
 6. publishes that manifest as the handoff artifact for `deploy`.
 
 The phase does not install files under `/opt`, call systemd, reset state, run
-production smoke checks or prune the server. A large clean-state deployment
+production validation or prune the server. A large clean-state deployment
 rehearsal is not an every-build requirement; focused image startup tests provide
 the artifact-level assurance.
 
@@ -138,21 +138,12 @@ ops/                      installed production operations contract
 
 ## Production State Reset
 
-Ordinary delivery never deletes Core or Node state. A release manifest must not
-carry a one-off `UPRAVA_STATE_EPOCH` reset instruction, and `deploy` must not
-accept a casual `RESET_STATE=1` switch.
+Ordinary delivery never deletes Core or Node state. A release manifest carries
+no one-off reset instruction, and `deploy` accepts no casual reset switch.
 
-The current disposable SQLite state may be reset once as an explicit server
-maintenance operation before the new delivery model is activated. The operator
-stops Core and Node and removes only the documented Core/Node SQLite, WAL and SHM
-files. This is not a manual deployment: subsequent release installation still
-happens automatically from `main`.
-
-A reusable maintenance helper may be added later only with explicit typed
-confirmation, exact path validation and a refusal to run while services are
-active. CI must never call it. Scoped auto-enrollment for the exact production
-Node name may remain as a durable policy and is independent of state reset.
-
-Existing automatic state-reset code and the combined deploy/smoke/retention
-target are transitional implementation and must be removed when adopting this
-design.
+The pre-adoption disposable SQLite state was removed once during the production
+clean rebuild. Ordinary CI/CD contains no state-reset target, flag or manifest
+field. Any future maintenance reset must be a separate operator workflow with
+typed confirmation and exact path validation and must never be called by CI.
+Scoped auto-enrollment for the exact production Node name remains an independent
+durable bootstrap policy.

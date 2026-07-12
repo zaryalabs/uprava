@@ -184,7 +184,7 @@ Release CI отклоняет moderate, high и critical production advisories. 
 объявляет уязвимую зависимость DOMPurify. В development-only Vite graph остается
 один low-severity advisory `esbuild`: для эксплуатации нужен локальный Windows
 user с запущенным development server, а в Linux static production image этот
-код не попадает. Для `0.2.2` exception перепроверен: он остаётся
+код не попадает. Для `0.2.3` exception перепроверен: он остаётся
 development-only, а production audit по-прежнему отклоняет moderate и более
 серьёзные advisories. Owner: Uprava maintainers. Next expiry: `0.2.3` или
 2026-08-31 — что наступит раньше; Vite нужно обновить, когда совместимый graph

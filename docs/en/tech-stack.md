@@ -195,7 +195,7 @@ pinned to `0.53.0` for 0.2.0 because the newer tested branch declares a
 vulnerable DOMPurify dependency. One low-severity `esbuild` advisory remains in
 the development-only Vite graph: it requires a local Windows user to run the
 development server and does not reach the Linux static production image.
-The exception was rechecked for `0.2.2`: it remains development-only and the
+The exception was rechecked for `0.2.3`: it remains development-only and the
 production audit still rejects moderate or higher advisories. Owner: Uprava
 maintainers. Next expiry: `0.2.3` or 2026-08-31, whichever comes first; upgrade
 Vite when its compatible graph contains the fixed esbuild release.

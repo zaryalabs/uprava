@@ -140,7 +140,7 @@ Uprava edits /srv/uprava-workspaces/uprava
 -> human reviews and merges to main
 -> CI/CD checks main and builds/publishes immutable artifacts
 -> successful main delivery automatically activates that exact release
--> functional production smoke verifies Core, Web and Node heartbeat
+-> finalize verifies Core, Web, release SHA, Node version and heartbeat
 -> https://uprava.zrya.io runs the updated Uprava
 ```
 

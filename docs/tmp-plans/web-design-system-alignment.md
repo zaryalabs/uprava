@@ -12,7 +12,8 @@ Scope: привести production Web Control Panel к локальной Zarya
 
 ## Sources
 
-- Local source of truth: [Zarya Design System 0.1](../../.local/context/design/DESIGN.md).
+- Local source of truth: `../../.local/context/design/DESIGN.md` (private,
+  intentionally absent from clean CI checkouts).
 - Local visual reference: `../../.local/context/design/prototype/` (`Dashboard`
   and `Agent Chat`).
 - [A-004 Modular UI and Work Surface](../en/design/004-modular-ui-work-surface.md).

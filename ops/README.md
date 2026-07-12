@@ -1,30 +1,15 @@
 # Uprava Server Ops
 
-These files are copied to `/opt/apps/uprava` by the automatic `main` delivery
-job. Production releases are never built or activated manually on the server.
+These files are installed from scratch by the automatic `main` pipeline.
+Production releases are never built or activated manually on the server.
 
-Normal CI/CD publishes immutable Core/Web images plus the `uprava-node` GHCR
-artifact and a release manifest. The manifest couples those artifacts to the
-stable Core state directory, Core config, Node config and Node state path.
-The delivery job validates stable paths, activates the digest-pinned manifest,
-applies a coordinated state epoch when required, starts the runtime and accepts
-the deployment only after functional Core/Web/Node smoke. Rollback remains an
-optional break-glass operation between releases that share the schema contract.
+`deploy` validates stable host inputs in `/etc/uprava`, activates the
+digest-pinned manifest, pulls Core/Web, verifies the extracted Node checksum,
+starts Compose and restarts the product-owned systemd unit. It does not inspect
+health, reset state, prune artifacts or roll back. The separate `finalize`
+phase owns operational readiness checks and bounded Uprava-only retention.
 
-To return to an earlier release, verify a backup first, then run the explicit
-rollback preflight. It refuses a missing or already-active manifest and only
-switches the artifact, configuration and matching-state symlinks; deploy and
-smoke remain mandatory follow-up steps:
-
-```bash
-make backup
-make rollback RELEASE="<previous-release-id>"
-make deploy
-make smoke
-```
-
-For registry-based releases, `make pull` pulls Core/Web images, pulls the
-`UPRAVA_NODE_ARTIFACT` image from `.env.release`, extracts
-`/usr/local/bin/uprava-node` into `builds/releases/<release-id>/`, verifies
-`UPRAVA_NODE_SHA256`, and then `make deploy` updates Compose and restarts the
-product-owned systemd unit.
+The clean-bootstrap prerequisites are `/etc/uprava/core.env`,
+`/etc/uprava/node.env`, the `uprava` user, Docker/Compose/systemd and the shared
+`platform` network. Mutable Core and Node state remain outside release
+directories and ordinary releases never delete them.

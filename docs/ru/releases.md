@@ -2,7 +2,7 @@
 
 Статус: `active`
 
-Current release baseline: `0.2.2`.
+Current release baseline: `0.2.3`.
 
 Этот ledger фиксирует implementation baselines. Он не заменяет
 [`feature-queue.md`](feature-queue.md), где остается ранжированная очередь
@@ -23,12 +23,13 @@ future work.
 | `0.1.8` | 2026-07-08 | shipped | CI/CD deployment automation and self-hosted Codex execution posture |
 | `0.2.0` | 2026-07-11 | shipped | Protocol v2 quality foundation, durable Core/Node state, workspace workbench and stable deployment paths |
 | `0.2.1` | 2026-07-11 | shipped | Zarya 0.1 Web Control Panel alignment, flat work-sheet shell, system overview, agent work phases and visual regression gates |
-| `0.2.2` | 2026-07-12 | current | Automatic main delivery, bounded CI workspaces, coordinated state epoch reset, scoped Node enrollment and functional production smoke |
+| `0.2.2` | 2026-07-12 | shipped | Automatic main delivery, bounded CI workspaces, coordinated state epoch reset, scoped Node enrollment and functional production smoke |
+| `0.2.3` | 2026-07-12 | current | Clean-bootstrap four-phase CI/CD, containerized prepare, explicit deploy/finalize boundaries and state-neutral delivery |
 
 ## Current Baseline
 
-`0.2.2` включает protocol-v2 baseline `0.2.0`, завершённое Zarya 0.1 Web UI/UX
-alignment и hardened automatic delivery path. Текущая реализация включает
+`0.2.3` включает protocol-v2 baseline `0.2.0`, завершённое Zarya 0.1 Web UI/UX
+alignment и clean-bootstrap four-phase delivery path. Текущая реализация включает
 первый working distributed
 control panel, пять закрытых
 feature queue slices после `0.1.0`, unified audit hardening slice и workspace
@@ -78,8 +79,14 @@ renderer/PTY terminal layer, а также первый deployable self-hosted r
   free-space preflight;
 - digest-pinned Core/Web/Node manifests, temporary registry credentials и
   project-scoped image/release retention;
-- coordinated `0.2.2` Core/Node state epoch reset, scoped automatic enrollment
-  для declared production Node и heartbeat-backed smoke.
+- phase boundaries GitHub Actions `prepare -> build -> deploy -> finalize` с
+  immutable manifest artifact handoff;
+- containerized source checks без Docker socket и host-only execution для
+  build, deploy и finalize;
+- clean host bootstrap из root-owned inputs `/etc/uprava`, state-neutral
+  ordinary deploys и read-only interface Node readiness;
+- отдельный health/SHA/heartbeat/version finalize и bounded Uprava-only
+  retention releases, images и stale runner workspaces.
 
 Новые аудиты и temporary plans должны считать это фактами текущей реализации.
 Они могут ссылаться на `V01`, когда обсуждают исторический первый продуктовый

@@ -1,6 +1,6 @@
 # Дизайн CI/CD
 
-Статус: принятый целевой дизайн; реализация ещё не завершена.
+Статус: реализованный production contract.
 
 CI/CD Uprava состоит из четырёх продуктовых фаз:
 
@@ -64,7 +64,7 @@ production. Он:
 6. публикует manifest как handoff artifact для `deploy`.
 
 Фаза не устанавливает файлы в `/opt`, не вызывает systemd, не сбрасывает state,
-не запускает production smoke и не чистит сервер. Большая clean-state deployment
+не запускает production validation и не чистит сервер. Большая clean-state deployment
 rehearsal не требуется для каждой сборки; достаточно focused image startup tests.
 
 ## Deploy
@@ -140,20 +140,12 @@ ops/                      installed production operations contract
 ## Сброс production state
 
 Обычный delivery никогда не удаляет Core или Node state. Release manifest не
-содержит одноразовую инструкцию `UPRAVA_STATE_EPOCH`, а `deploy` не принимает
-небезопасный переключатель `RESET_STATE=1`.
+содержит одноразовую reset instruction, а `deploy` не принимает небезопасный
+reset switch.
 
-Текущий disposable SQLite state можно один раз сбросить как явную server
-maintenance operation перед включением новой delivery model. Operator
-останавливает Core и Node и удаляет только документированные SQLite, WAL и SHM
-files Core/Node. Это не manual deployment: последующая установка release всё
-равно автоматически запускается из `main`.
-
-Reusable maintenance helper можно добавить позже только с typed confirmation,
-проверкой точных путей и отказом работать при активных services. CI никогда его
-не вызывает. Scoped auto-enrollment для точного production Node name может
-остаться постоянной policy и не зависит от state reset.
-
-Существующие automatic state-reset code и объединённый deploy/smoke/retention
-target являются transitional implementation и должны быть удалены при
-реализации этого дизайна.
+Disposable SQLite state до перехода был один раз удалён при clean rebuild
+production. В обычном CI/CD нет state-reset target, flag или manifest field.
+Любой будущий maintenance reset должен быть отдельным operator workflow с typed
+confirmation и проверкой точных paths и никогда не вызываться CI. Scoped
+auto-enrollment для точного production Node name остаётся независимой постоянной
+bootstrap policy.

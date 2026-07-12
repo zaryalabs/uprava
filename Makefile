@@ -35,14 +35,12 @@ BUILD_TIMESTAMP ?= $(shell date -u "+%Y-%m-%dT%H:%M:%SZ")
 ALLOW_UNRESOLVED_DIGESTS ?= 0
 UPRAVA_RELEASE_FAMILY ?= 0.2.0
 UPRAVA_CORE_STATE_DIR ?= state/core
-UPRAVA_CORE_CONFIG ?= configuration/core.env
+UPRAVA_CORE_CONFIG ?= /etc/uprava/core.env
 UPRAVA_NODE_CONFIG ?= /etc/uprava/node.env
 UPRAVA_NODE_STATE_PATH ?= /var/lib/uprava-node/node.sqlite
-UPRAVA_STATE_EPOCH ?= 0.2.2
 UPRAVA_AUTO_APPROVE_NODE_NAME ?= Zarya Server
-DEPLOY_HOST ?= zsa
-DEPLOY_MODE ?= ssh
 INSTALL_DIR ?= /opt/apps/uprava
+SYSTEMD_UNIT_PATH ?= /etc/systemd/system/uprava-node.service
 SUDO ?=
 
 ifneq (,$(wildcard pnpm-lock.yaml))
@@ -65,7 +63,19 @@ PLAYWRIGHT_RUN ?= $(WEB_RUN)
 help: ## Show available make targets
 	@awk 'BEGIN {FS = ":.*## "}; /^[a-zA-Z0-9_.-]+:.*## / {printf "  %-14s %s\n", $$1, $$2}' $(MAKEFILE_LIST)
 
-prepare: rust-toolchain protocol-check rust-l rust-t web-l web-t web-dl web-e2e ops-config systemd-check scripts-check ## Run CI pre-release checks
+prepare: rust-toolchain protocol-check rust-l rust-t web-l web-t web-dl web-e2e ops-config systemd-check scripts-check ## Run all pre-release checks
+
+ci-prepare: ## Run the prepare phase in the current execution boundary
+	ci/prepare.sh
+
+ci-build: ## Build, verify and publish one immutable release
+	ci/build.sh
+
+ci-deploy: ## Bootstrap and activate one published release on the host
+	ci/deploy.sh
+
+ci-finalize: ## Validate the active release and apply bounded retention
+	ci/finalize.sh
 
 build: ## Build releasable Core/Web images and Node artifact
 	docker build --build-arg UPRAVA_GIT_SHA="$(GIT_SHA)" -t "$(UPRAVA_CORE_IMAGE)" -f Dockerfile.core .
@@ -109,7 +119,6 @@ release-manifest: ## Write builds/releases/<release-id>.env.release
 	UPRAVA_CORE_CONFIG="$(UPRAVA_CORE_CONFIG)" \
 	UPRAVA_NODE_CONFIG="$(UPRAVA_NODE_CONFIG)" \
 	UPRAVA_NODE_STATE_PATH="$(UPRAVA_NODE_STATE_PATH)" \
-	UPRAVA_STATE_EPOCH="$(UPRAVA_STATE_EPOCH)" \
 	UPRAVA_AUTO_APPROVE_NODE_NAME="$(UPRAVA_AUTO_APPROVE_NODE_NAME)" \
 	NODE_ARTIFACT_PATH="$(NODE_ARTIFACT_PATH)" \
 	ALLOW_UNRESOLVED_DIGESTS="$(ALLOW_UNRESOLVED_DIGESTS)" \
@@ -120,26 +129,21 @@ install-release-manifest: ## Install active release manifest into INSTALL_DIR
 	$(SUDO) install -d "$(INSTALL_DIR)/builds/releases"
 	$(SUDO) install -m 644 "$(RELEASE_MANIFEST)" "$(INSTALL_DIR)/builds/releases/$(RELEASE_ID).env.release"
 
-install-ops: ## Install product-owned ops files into INSTALL_DIR
-	$(SUDO) install -d "$(INSTALL_DIR)"
+install-ops: ## Bootstrap product-owned directories and ops files
+	$(SUDO) install -d -o root -g root -m 755 "$(INSTALL_DIR)"
+	$(SUDO) install -d -o root -g root -m 755 "$(INSTALL_DIR)/builds/releases"
 	$(SUDO) install -d -o 10001 -g 10001 -m 750 "$(INSTALL_DIR)/state/core"
-	$(SUDO) install -d "$(INSTALL_DIR)/scripts"
+	$(SUDO) install -d -o root -g root -m 755 "$(INSTALL_DIR)/scripts" "$(INSTALL_DIR)/systemd"
+	$(SUDO) install -d -o uprava -g uprava -m 700 /var/lib/uprava-node
 	$(SUDO) install -m 644 ops/Makefile "$(INSTALL_DIR)/Makefile"
 	$(SUDO) install -m 644 ops/compose.yaml "$(INSTALL_DIR)/compose.yaml"
-	$(SUDO) install -m 755 scripts/reset-state-epoch.sh "$(INSTALL_DIR)/scripts/reset-state-epoch.sh"
-	$(SUDO) install -m 755 scripts/production-smoke.sh "$(INSTALL_DIR)/scripts/production-smoke.sh"
+	$(SUDO) install -m 644 ops/README.md "$(INSTALL_DIR)/README.md"
+	$(SUDO) install -m 644 ops/systemd/uprava-node.service.example "$(INSTALL_DIR)/systemd/uprava-node.service"
+	$(SUDO) install -m 644 ops/systemd/uprava-node.service.example "$(SYSTEMD_UNIT_PATH)"
 	$(SUDO) install -m 755 scripts/prune-uprava-images.sh "$(INSTALL_DIR)/scripts/prune-uprava-images.sh"
 	$(SUDO) install -m 755 scripts/prune-uprava-releases.sh "$(INSTALL_DIR)/scripts/prune-uprava-releases.sh"
 	$(SUDO) install -m 755 scripts/backup-sqlite.sh "$(INSTALL_DIR)/scripts/backup-sqlite.sh"
 	$(SUDO) install -m 755 scripts/verify-sqlite-backup.sh "$(INSTALL_DIR)/scripts/verify-sqlite-backup.sh"
-
-deploy: ## Deploy the selected release through the server installation Makefile
-	RELEASE_ID="$(RELEASE_ID)" \
-	DEPLOY_HOST="$(DEPLOY_HOST)" \
-	DEPLOY_MODE="$(DEPLOY_MODE)" \
-	INSTALL_DIR="$(INSTALL_DIR)" \
-	SUDO="$(SUDO)" \
-	scripts/deploy.sh
 
 init: ## Install local hooks and project dependencies when manifests exist
 	@set -e; \
@@ -235,14 +239,15 @@ scripts-check: ## Run shell syntax checks for product scripts
 	for script in scripts/*.sh; do \
 		sh -n "$$script"; \
 	done; \
+	for script in ci/*.sh; do \
+		bash -n "$$script"; \
+	done; \
 	sh scripts/check-container-runtime-users.sh; \
 	$(PYTHON) scripts/check_logging_policy.py; \
 	sh scripts/check-ci-policy.sh; \
-	sh scripts/check-ops-rollback.sh; \
-	sh scripts/check-deploy-entrypoint.sh; \
 	sh scripts/check-release-manifest.sh; \
-	sh scripts/check-state-epoch.sh; \
-	sh scripts/check-production-smoke.sh; \
+	sh scripts/check-ci-phases.sh; \
+	sh scripts/check-clean-bootstrap-deploy.sh; \
 	sh scripts/check-release-retention.sh; \
 	sh scripts/check-backup-restore.sh
 
@@ -475,4 +480,4 @@ clean: ## Remove common local build and cache artifacts
 	rm -rf target htmlcov coverage .pytest_cache .ruff_cache .mypy_cache .ty
 	rm -rf $(WEB_DIR)/dist $(WEB_DIR)/coverage
 
-.PHONY: help prepare build image-runtime clean-state-restore push release-manifest install-release-manifest deploy init fmt l dl t c pc claw-doctor claw-init claw-map claw-review claw-report claw-ci claw-show claw-fix docs-fmt docs-l web-install ops-config systemd-check scripts-check rust-fmt rust-l rust-dl rust-tools-install rust-t web-r web-fmt web-l web-dl web-t web-e2e core-r node-r dev-up dev-down dev-logs dev-reset dev-smoke compose-up compose-down compose-logs compose-reset compose-smoke codex-smoke clean
+.PHONY: help prepare ci-prepare ci-build ci-deploy ci-finalize build image-runtime clean-state-restore push release-manifest install-release-manifest install-ops init fmt l dl t c pc claw-doctor claw-init claw-map claw-review claw-report claw-ci claw-show claw-fix docs-fmt docs-l web-install ops-config systemd-check scripts-check rust-fmt rust-l rust-dl rust-tools-install rust-t web-r web-fmt web-l web-dl web-t web-e2e core-r node-r dev-up dev-down dev-logs dev-reset dev-smoke compose-up compose-down compose-logs compose-reset compose-smoke codex-smoke clean

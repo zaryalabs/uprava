@@ -61,10 +61,12 @@ until curl -fsS "http://127.0.0.1:$core_port/api/v1/health" >/dev/null; do
     test "$attempt" -lt 30 || { docker logs "$core"; exit 1; }
     sleep 1
 done
-curl_with_retry "http://127.0.0.1:$web_port/health" | grep -qx ok
+web_health=$(curl_with_retry "http://127.0.0.1:$web_port/health")
+printf '%s\n' "$web_health" | grep -qx ok
 version=$(curl_with_retry "http://127.0.0.1:$core_port/api/v1/version")
 printf '%s' "$version" | grep -q "\"release_id\":\"$UPRAVA_RELEASE_SHA\""
-curl_with_retry "http://127.0.0.1:$core_port/api/v1/metrics" | grep -q '^uprava_core_requests_total '
+metrics=$(curl_with_retry "http://127.0.0.1:$core_port/api/v1/metrics")
+printf '%s\n' "$metrics" | grep -q '^uprava_core_requests_total '
 
 docker run -d --name "$node" --network "$network" \
     --read-only --cap-drop ALL --security-opt no-new-privileges \

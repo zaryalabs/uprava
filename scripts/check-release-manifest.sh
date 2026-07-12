@@ -44,10 +44,9 @@ UPRAVA_NODE_IMAGE=ghcr.io/zaryalabs/uprava-node:sha-test \
 UPRAVA_NODE_VERSION=0.2.2 \
 UPRAVA_RELEASE_FAMILY=0.2.0 \
 UPRAVA_CORE_STATE_DIR=state/core \
-UPRAVA_CORE_CONFIG=configuration/core.env \
+UPRAVA_CORE_CONFIG=/etc/uprava/core.env \
 UPRAVA_NODE_CONFIG=/etc/uprava/node.env \
 UPRAVA_NODE_STATE_PATH=/var/lib/uprava-node/node.sqlite \
-UPRAVA_STATE_EPOCH=0.2.2 \
 UPRAVA_AUTO_APPROVE_NODE_NAME='Zarya Server' \
 NODE_ARTIFACT_PATH="$tmp/builds/releases/test/uprava-node" \
     scripts/write_release_manifest.sh >/dev/null
@@ -55,11 +54,11 @@ NODE_ARTIFACT_PATH="$tmp/builds/releases/test/uprava-node" \
 # shellcheck disable=SC1090
 . "$tmp/builds/releases/test.env.release"
 test "$UPRAVA_AUTO_APPROVE_NODE_NAME" = 'Zarya Server'
-test "$UPRAVA_STATE_EPOCH" = 0.2.2
 case "$UPRAVA_CORE_IMAGE:$UPRAVA_WEB_IMAGE:$UPRAVA_NODE_ARTIFACT" in
     *@sha256:*@sha256:*@sha256:*) ;;
     *) echo "Release images are not digest-pinned" >&2; exit 1 ;;
 esac
 test -n "$UPRAVA_NODE_SHA256"
 
-echo "Release manifest is shell-safe and digest-pins every runtime artifact"
+test "$UPRAVA_CORE_CONFIG" = /etc/uprava/core.env
+echo "Release manifest is shell-safe, state-neutral and digest-pins every runtime artifact"

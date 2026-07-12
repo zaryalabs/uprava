@@ -1,226 +1,101 @@
-name: Uprava CI
+name: Uprava CI/CD
 
 on:
   pull_request:
-    branches:
-      - main
+    branches: [main]
   push:
-    branches:
-      - main
+    branches: [main]
+
+permissions:
+  contents: read
 
 concurrency:
-  group: uprava-${{ github.event_name }}-${{ github.ref }}
+  group: uprava-${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
-  check:
-    if: >-
-      github.event_name != 'pull_request' ||
-      github.event.pull_request.head.repo.full_name == github.repository
-    permissions:
-      contents: read
-      packages: read
+  prepare:
+    if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository
     runs-on: [self-hosted, zarya-main, geo-eu, ci]
-    env:
-      RUN_WORKSPACE: ${{ github.workspace }}/.ci-workspace/${{ github.run_id }}-${{ github.run_attempt }}-check
     steps:
-      - name: Prepare bounded workspace
-        run: |
-          set -eu
-          root="${GITHUB_WORKSPACE}/.ci-workspace"
-          test ! -L "${root}"
-          mkdir -p "${root}"
-          find "${root}" -mindepth 1 -maxdepth 1 -type d -mmin +360 -exec rm -rf -- {} +
-          test ! -e "${RUN_WORKSPACE}"
-          mkdir "${RUN_WORKSPACE}"
-          available_kb="$(df -Pk "${root}" | awk 'NR == 2 { print $4 }')"
-          test "${available_kb}" -ge 10485760
-
-      - name: Checkout repository
-        run: |
-          set -eu
-          cd "${RUN_WORKSPACE}"
-          git init .
-          git remote add origin "https://x-access-token:${GITHUB_TOKEN}@github.com/${GITHUB_REPOSITORY}.git"
-          git fetch --depth=1 origin "${CHECKOUT_REF}"
-          git checkout --force --detach FETCH_HEAD
-        env:
-          CHECKOUT_REF: ${{ github.event.pull_request.head.sha || github.sha }}
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        with:
+          persist-credentials: false
       - name: Prepare
-        working-directory: ${{ env.RUN_WORKSPACE }}
-        run: |
-          set -eu
-          rust_cache_dir="${RUN_WORKSPACE}/.ci-cache/rust"
-          mkdir -p "${rust_cache_dir}/cargo" "${rust_cache_dir}/rustup"
-          web_run="docker run --rm --user $(id -u):$(id -g) -e npm_config_cache=/tmp/.npm -v ${RUN_WORKSPACE}/apps/web:/work -w /work node:24-bookworm-slim npm"
-          playwright_run="docker run --rm --user $(id -u):$(id -g) -e HOME=/tmp -e npm_config_cache=/tmp/.npm -v ${RUN_WORKSPACE}/apps/web:/work -w /work mcr.microsoft.com/playwright@sha256:57b65fdc9ceabe0ef613124c7bbe2babcf9362c4d85e382fe3b03604e84b428a npm"
-          cargo_image="docker run --rm --user $(id -u):$(id -g) -e CARGO_HOME=/work/.cache/cargo -e CARGO_TARGET_DIR=/work/target -e RUSTUP_HOME=/work/.cache/rustup -v ${rust_cache_dir}:/work/.cache -v ${RUN_WORKSPACE}:/work -w /work rust:bookworm"
-          make web-install prepare WEB_RUN="${web_run}" PLAYWRIGHT_RUN="${playwright_run}" CARGO="${cargo_image} cargo" RUSTUP="${cargo_image} rustup" RUST_TOOLCHAIN=stable
-
-      - name: Cleanup workspace
-        if: always()
-        run: |
-          chmod -R u+rwX "${RUN_WORKSPACE}" 2>/dev/null || true
-          rm -rf "${RUN_WORKSPACE}"
-
-  msrv:
-    if: >-
-      github.event_name != 'pull_request' ||
-      github.event.pull_request.head.repo.full_name == github.repository
-    permissions:
-      contents: read
-      packages: read
-    runs-on: [self-hosted, zarya-main, geo-eu, ci]
-    env:
-      RUN_WORKSPACE: ${{ github.workspace }}/.ci-workspace/${{ github.run_id }}-${{ github.run_attempt }}-msrv
-    steps:
-      - name: Prepare bounded workspace
-        run: |
-          set -eu
-          root="${GITHUB_WORKSPACE}/.ci-workspace"
-          test ! -L "${root}"
-          mkdir -p "${root}"
-          find "${root}" -mindepth 1 -maxdepth 1 -type d -mmin +360 -exec rm -rf -- {} +
-          test ! -e "${RUN_WORKSPACE}"
-          mkdir "${RUN_WORKSPACE}"
-          available_kb="$(df -Pk "${root}" | awk 'NR == 2 { print $4 }')"
-          test "${available_kb}" -ge 10485760
-
-      - name: Checkout repository
-        run: |
-          set -eu
-          cd "${RUN_WORKSPACE}"
-          git init .
-          git remote add origin "https://x-access-token:${GITHUB_TOKEN}@github.com/${GITHUB_REPOSITORY}.git"
-          git fetch --depth=1 origin "${CHECKOUT_REF}"
-          git checkout --force --detach FETCH_HEAD
         env:
-          CHECKOUT_REF: ${{ github.event.pull_request.head.sha || github.sha }}
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-
-      - name: Check Rust 1.88 MSRV
-        working-directory: ${{ env.RUN_WORKSPACE }}
-        run: |
-          docker run --rm --user "$(id -u):$(id -g)" -e CARGO_TARGET_DIR=/work/target -v "${RUN_WORKSPACE}:/work" -w /work rust:1.88-bookworm cargo check --workspace --all-targets --locked
-
-      - name: Cleanup workspace
+          CI_MAIN: ${{ github.event_name == 'push' && '1' || '0' }}
+        run: ci/run.sh prepare
+      - name: Cleanup
         if: always()
-        run: |
-          chmod -R u+rwX "${RUN_WORKSPACE}" 2>/dev/null || true
-          rm -rf "${RUN_WORKSPACE}"
+        run: ci/run.sh cleanup prepare
 
-  stable:
-    if: >-
-      github.event_name != 'pull_request' ||
-      github.event.pull_request.head.repo.full_name == github.repository
-    permissions:
-      contents: read
-      packages: read
-    runs-on: [self-hosted, zarya-main, geo-eu, ci]
-    env:
-      RUN_WORKSPACE: ${{ github.workspace }}/.ci-workspace/${{ github.run_id }}-${{ github.run_attempt }}-stable
-    steps:
-      - name: Prepare bounded workspace
-        run: |
-          set -eu
-          root="${GITHUB_WORKSPACE}/.ci-workspace"
-          test ! -L "${root}"
-          mkdir -p "${root}"
-          find "${root}" -mindepth 1 -maxdepth 1 -type d -mmin +360 -exec rm -rf -- {} +
-          test ! -e "${RUN_WORKSPACE}"
-          mkdir "${RUN_WORKSPACE}"
-          available_kb="$(df -Pk "${root}" | awk 'NR == 2 { print $4 }')"
-          test "${available_kb}" -ge 10485760
-
-      - name: Checkout repository
-        run: |
-          set -eu
-          cd "${RUN_WORKSPACE}"
-          git init .
-          git remote add origin "https://x-access-token:${GITHUB_TOKEN}@github.com/${GITHUB_REPOSITORY}.git"
-          git fetch --depth=1 origin "${CHECKOUT_REF}"
-          git checkout --force --detach FETCH_HEAD
-        env:
-          CHECKOUT_REF: ${{ github.event.pull_request.head.sha || github.sha }}
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-
-      - name: Check current stable Rust
-        working-directory: ${{ env.RUN_WORKSPACE }}
-        run: |
-          docker run --rm --user "$(id -u):$(id -g)" -e CARGO_TARGET_DIR=/work/target -v "${RUN_WORKSPACE}:/work" -w /work rust:bookworm cargo check --workspace --all-targets --locked
-
-      - name: Cleanup workspace
-        if: always()
-        run: |
-          chmod -R u+rwX "${RUN_WORKSPACE}" 2>/dev/null || true
-          rm -rf "${RUN_WORKSPACE}"
-
-  delivery:
-    needs: [check, msrv, stable]
+  build:
+    needs: prepare
     if: github.event_name == 'push'
     permissions:
       contents: read
       packages: write
     runs-on: [self-hosted, zarya-main, geo-eu, ci]
-    env:
-      RUN_WORKSPACE: ${{ github.workspace }}/.ci-workspace/${{ github.run_id }}-${{ github.run_attempt }}-delivery
-      DOCKER_CONFIG: ${{ github.workspace }}/.ci-workspace/${{ github.run_id }}-${{ github.run_attempt }}-delivery/.docker
     steps:
-      - name: Prepare bounded workspace
-        run: |
-          set -eu
-          root="${GITHUB_WORKSPACE}/.ci-workspace"
-          test ! -L "${root}"
-          mkdir -p "${root}"
-          find "${root}" -mindepth 1 -maxdepth 1 -type d -mmin +360 -exec rm -rf -- {} +
-          test ! -e "${RUN_WORKSPACE}"
-          mkdir "${RUN_WORKSPACE}"
-          available_kb="$(df -Pk "${root}" | awk 'NR == 2 { print $4 }')"
-          test "${available_kb}" -ge 10485760
-
-      - name: Checkout repository
-        run: |
-          set -eu
-          cd "${RUN_WORKSPACE}"
-          git init .
-          git remote add origin "https://x-access-token:${GITHUB_TOKEN}@github.com/${GITHUB_REPOSITORY}.git"
-          git fetch --depth=1 origin "${CHECKOUT_REF}"
-          git checkout --force --detach FETCH_HEAD
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        with:
+          persist-credentials: false
+      - name: Build
         env:
-          CHECKOUT_REF: ${{ github.sha }}
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-
-      - name: Login to GHCR
-        run: |
-          mkdir -p "${DOCKER_CONFIG}"
-          echo "${GITHUB_TOKEN}" | docker login ghcr.io -u "${GITHUB_REPOSITORY_OWNER}" --password-stdin
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-
-      - name: Build and publish immutable release
-        working-directory: ${{ env.RUN_WORKSPACE }}
-        run: |
-          set -eu
-          make build
-          make image-runtime
-          cargo_image="docker run --rm --user $(id -u):$(id -g) -e CARGO_TARGET_DIR=/work/target -v ${RUN_WORKSPACE}:/work -w /work rust:bookworm"
-          make clean-state-restore CARGO="${cargo_image} cargo"
-          make push
-
-      - name: Deploy main release
-        working-directory: ${{ env.RUN_WORKSPACE }}
-        run: |
-          set -eu
-          RELEASE_ID="$(git rev-parse --short=12 HEAD)"
-          make install-ops INSTALL_DIR=/opt/apps/uprava SUDO=sudo
-          make install-release-manifest INSTALL_DIR=/opt/apps/uprava SUDO=sudo RELEASE_ID="${RELEASE_ID}"
-          make deploy INSTALL_DIR=/opt/apps/uprava SUDO=sudo RELEASE_ID="${RELEASE_ID}" DEPLOY_MODE=local
-
-      - name: Cleanup credentials and workspace
+          GHCR_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GHCR_USER: ${{ github.repository_owner }}
+        run: ci/run.sh build
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: uprava-release-${{ github.sha }}
+          path: handoff/uprava-release.env
+          if-no-files-found: error
+          retention-days: 7
+      - name: Cleanup
         if: always()
-        run: |
-          docker logout ghcr.io >/dev/null 2>&1 || true
-          chmod -R u+rwX "${RUN_WORKSPACE}" 2>/dev/null || true
-          rm -rf "${RUN_WORKSPACE}"
+        run: ci/run.sh cleanup build
+
+  deploy:
+    needs: build
+    if: github.event_name == 'push'
+    permissions:
+      contents: read
+      packages: read
+    runs-on: [self-hosted, zarya-main, geo-eu, ci]
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        with:
+          persist-credentials: false
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
+        with:
+          name: uprava-release-${{ github.sha }}
+          path: handoff
+      - name: Deploy
+        env:
+          GHCR_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GHCR_USER: ${{ github.repository_owner }}
+        run: ci/run.sh deploy
+      - name: Cleanup
+        if: always()
+        run: ci/run.sh cleanup deploy
+
+  finalize:
+    needs: deploy
+    if: github.event_name == 'push'
+    permissions:
+      contents: read
+      packages: read
+    runs-on: [self-hosted, zarya-main, geo-eu, ci]
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        with:
+          persist-credentials: false
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
+        with:
+          name: uprava-release-${{ github.sha }}
+          path: handoff
+      - name: Finalize
+        run: ci/run.sh finalize
+      - name: Cleanup
+        if: always()
+        run: ci/run.sh cleanup finalize

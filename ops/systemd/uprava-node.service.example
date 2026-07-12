@@ -11,6 +11,11 @@ WorkingDirectory=/var/lib/uprava
 ExecStart=/opt/apps/uprava/current/uprava-node
 Restart=on-failure
 RestartSec=5s
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true
+ReadWritePaths=/var/lib/uprava /var/lib/uprava-node /srv/uprava-workspaces
 
 [Install]
 WantedBy=multi-user.target

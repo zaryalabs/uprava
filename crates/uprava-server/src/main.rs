@@ -1,21 +1,39 @@
 use std::{
+    env,
     io::{Read, Write},
     net::{SocketAddr, TcpStream, ToSocketAddrs},
     path::Path,
     time::Duration,
 };
 
+use chrono::{DateTime, Utc};
 use sqlx::sqlite::{SqliteConnectOptions, SqlitePoolOptions};
 use uprava_logging::init_tracing;
 use uprava_server::{build_router, shutdown_signal, AppConfig, AppState};
 
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
-    if std::env::args().nth(1).as_deref() == Some("healthcheck") {
-        let address = std::env::args()
-            .nth(2)
-            .unwrap_or_else(|| "127.0.0.1:8080".to_owned());
-        return run_healthcheck(&address);
+    let mut args = env::args().skip(1);
+    match args.next().as_deref() {
+        Some("healthcheck") => {
+            let address = args.next().unwrap_or_else(|| "127.0.0.1:8080".to_owned());
+            return run_healthcheck(&address);
+        }
+        Some("deployment-status") => {
+            let node_name = args
+                .next()
+                .ok_or_else(|| anyhow::anyhow!("deployment-status requires a Node name"))?;
+            let node_version = args
+                .next()
+                .ok_or_else(|| anyhow::anyhow!("deployment-status requires a Node version"))?;
+            let max_age_seconds = args
+                .next()
+                .unwrap_or_else(|| "45".to_owned())
+                .parse::<i64>()?;
+            return run_deployment_status(&node_name, &node_version, max_age_seconds).await;
+        }
+        Some(command) => anyhow::bail!("unknown command: {command}"),
+        None => {}
     }
 
     let _log_path = init_tracing("core", "UPRAVA_CORE_LOG_FILE", ".local/logs/core.log")?;
@@ -82,6 +100,59 @@ async fn main() -> anyhow::Result<()> {
         }
     }
 
+    Ok(())
+}
+
+async fn run_deployment_status(
+    expected_name: &str,
+    expected_version: &str,
+    max_age_seconds: i64,
+) -> anyhow::Result<()> {
+    if max_age_seconds < 0 {
+        anyhow::bail!("maximum heartbeat age must be non-negative");
+    }
+
+    let config = AppConfig::from_env()?;
+    let options = config
+        .database_url
+        .parse::<SqliteConnectOptions>()?
+        .read_only(true);
+    let pool = SqlitePoolOptions::new()
+        .max_connections(1)
+        .connect_with(options)
+        .await?;
+    let node = sqlx::query_as::<_, (String, Option<DateTime<Utc>>, String)>(
+        "select presence, last_heartbeat_at, daemon_version from nodes where display_name = ?1 order by updated_at desc limit 1",
+    )
+    .bind(expected_name)
+    .fetch_optional(&pool)
+    .await?;
+
+    validate_deployment_node(node, expected_version, max_age_seconds, Utc::now())?;
+    println!("Node {expected_name} is ready at version {expected_version}");
+    Ok(())
+}
+
+fn validate_deployment_node(
+    node: Option<(String, Option<DateTime<Utc>>, String)>,
+    expected_version: &str,
+    max_age_seconds: i64,
+    now: DateTime<Utc>,
+) -> anyhow::Result<()> {
+    let Some((presence, heartbeat, version)) = node else {
+        anyhow::bail!("expected production Node is not enrolled");
+    };
+    if presence != "reachable" {
+        anyhow::bail!("production Node is not reachable");
+    }
+    if version != expected_version {
+        anyhow::bail!("Node version mismatch: expected {expected_version}, got {version}");
+    }
+    let heartbeat = heartbeat.ok_or_else(|| anyhow::anyhow!("Node heartbeat is missing"))?;
+    let age = now.signed_duration_since(heartbeat).num_seconds();
+    if age < 0 || age > max_age_seconds {
+        anyhow::bail!("Node heartbeat age {age}s is outside 0..={max_age_seconds}s");
+    }
     Ok(())
 }
 
@@ -170,5 +241,33 @@ mod tests {
         run_healthcheck_addrs([SocketAddr::from(([127, 0, 0, 1], 9)), good_address])
             .expect("second address succeeds");
         server.join().expect("server thread joins");
+    }
+
+    #[test]
+    fn deployment_node_accepts_fresh_matching_heartbeat() {
+        let now = Utc::now();
+        let result = validate_deployment_node(
+            Some(("reachable".to_owned(), Some(now), "0.2.3".to_owned())),
+            "0.2.3",
+            45,
+            now,
+        );
+
+        assert!(result.is_ok(), "matching Node should be ready: {result:?}");
+    }
+
+    #[test]
+    fn deployment_node_rejects_stale_heartbeat() {
+        let now = Utc::now();
+        let heartbeat = now - chrono::Duration::seconds(46);
+        let error = validate_deployment_node(
+            Some(("reachable".to_owned(), Some(heartbeat), "0.2.3".to_owned())),
+            "0.2.3",
+            45,
+            now,
+        )
+        .expect_err("stale Node must fail readiness");
+
+        assert!(error.to_string().contains("heartbeat age"));
     }
 }
