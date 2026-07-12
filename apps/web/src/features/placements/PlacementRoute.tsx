@@ -102,6 +102,13 @@ export function PlacementRoute() {
   const selectedProviderAvailable =
     providerOptions.find((option) => option.id === provider)?.available ??
     false;
+  const startUnavailableReason = startUnavailableReasonFor({
+    canStart,
+    node,
+    placement: placement.data,
+    provider,
+    providerAvailable: selectedProviderAvailable,
+  });
   const showProviderSelector = providerOptions.length > 1;
 
   return (
@@ -183,6 +190,15 @@ export function PlacementRoute() {
       {mutation.isError ? (
         <ErrorNotice error={mutation.error} title="Session start failed" />
       ) : null}
+      {startUnavailableReason ? (
+        <div
+          role="status"
+          className="border-l-2 border-[var(--color-muted)] bg-[var(--color-bg-muted)] p-3 text-sm text-[var(--color-ink)]"
+        >
+          <div className="font-bold">Start unavailable</div>
+          <div className="mt-1 break-words">{startUnavailableReason}</div>
+        </div>
+      ) : null}
       {refreshMutation.isError ? (
         <ErrorNotice
           error={refreshMutation.error}
@@ -260,4 +276,56 @@ function providerCapabilityAvailable(
     return false;
   }
   return capability.value.kind === "provider" && capability.value.available;
+}
+
+export function startUnavailableReasonFor({
+  canStart,
+  node,
+  placement,
+  provider,
+  providerAvailable,
+}: {
+  canStart: boolean;
+  node: NodeSummary | undefined;
+  placement: {
+    state: string;
+    resource_badges: { label: string; severity: string }[];
+  };
+  provider: ProviderId;
+  providerAvailable: boolean;
+}): string | null {
+  if (!canStart) {
+    if (placement.state !== "validated") {
+      return "Validate this workspace before starting Codex.";
+    }
+    const blockers = placement.resource_badges
+      .filter((badge) => badge.severity === "hard_block")
+      .map((badge) => badge.label);
+    if (blockers.length > 0) {
+      return `Clear workspace blockers before starting Codex: ${blockers.join(", ")}.`;
+    }
+  }
+
+  if (providerAvailable) {
+    return null;
+  }
+
+  if (!node) {
+    return "Waiting for the node capability report. Refresh the workspace after the node reconnects.";
+  }
+
+  const capability = node.capabilities.find(
+    (candidate) => candidate.key === `provider.${provider}`,
+  );
+  if (!capability || capability.value.kind !== "provider") {
+    return "This node has not advertised Codex support. Verify that the Node Daemon is connected and refresh the workspace.";
+  }
+
+  if (capability.value.unavailable_reason === "binary_not_found") {
+    return "Codex is not available to the Node Daemon. Install it for the daemon user, or set UPRAVA_CODEX_BINARY to its absolute path, then restart uprava-node.";
+  }
+
+  return capability.value.unavailable_reason
+    ? `Codex is unavailable on this node: ${capability.value.unavailable_reason}.`
+    : "Codex is unavailable on this node. Check the Node Daemon configuration and refresh the workspace.";
 }

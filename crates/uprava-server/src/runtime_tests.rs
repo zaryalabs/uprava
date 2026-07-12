@@ -1984,6 +1984,77 @@ async fn heartbeat_upserts_node_reported_workspace() {
 }
 
 #[tokio::test]
+async fn heartbeat_updates_a_manually_created_workspace_binding() {
+    let state = test_state().await;
+    let claim = enroll_test_node(&state).await;
+    let node_id = claim.node_id.clone().expect("node id returned");
+    let credential = claim.credential.clone();
+    let workspace_path_buf = std::env::temp_dir().join(format!("uprava-test-{}", Uuid::new_v4()));
+    let workspace_path = workspace_path_buf.display().to_string();
+    let existing_placement_id = ProjectPlacementId::new();
+    let existing_project_id = ProjectId::new();
+    let now = Utc::now();
+    std::fs::create_dir_all(&workspace_path_buf).expect("workspace dir creates");
+
+    sqlx::query(
+        r#"
+        insert into projects (project_id, display_name, repo_id, created_at, updated_at)
+        values (?1, 'Manual workspace', null, ?2, ?2)
+        "#,
+    )
+    .bind(existing_project_id.as_str())
+    .bind(now)
+    .execute(&state.pool)
+    .await
+    .expect("manual project inserts");
+    sqlx::query(
+        r#"
+        insert into project_placements (
+            project_placement_id, project_id, node_id, display_name, workspace_path,
+            state, resource_badges_json, last_validated_at, created_at, updated_at
+        ) values (?1, ?2, ?3, 'Manual workspace', ?4, 'pending', '[]', ?5, ?5, ?5)
+        "#,
+    )
+    .bind(existing_placement_id.as_str())
+    .bind(existing_project_id.as_str())
+    .bind(node_id.as_str())
+    .bind(&workspace_path)
+    .bind(now)
+    .execute(&state.pool)
+    .await
+    .expect("manual workspace binding inserts");
+
+    let _ = node_heartbeat(
+        State(state.clone()),
+        credential.as_deref(),
+        Json(NodeHeartbeatRequest {
+            node_id: Some(node_id.clone()),
+            display_name: "Test node".to_owned(),
+            daemon_version: "0.1.0".to_owned(),
+            capabilities: vec![],
+            diagnostics: None,
+            active_runtime_count: 0,
+            sleep_hint: SleepHint::Awake,
+            workspace_summaries: vec![workspace_snapshot_from_request(
+                "Node workspace",
+                &workspace_path,
+                PlacementState::Validated,
+            )],
+        }),
+    )
+    .await
+    .expect("heartbeat accepts an existing workspace binding");
+
+    let placement = load_placement(&state, &existing_placement_id)
+        .await
+        .expect("manual workspace binding remains available");
+    std::fs::remove_dir_all(&workspace_path_buf).expect("workspace dir removes");
+
+    assert_eq!(placement.display_name, "Node workspace");
+    assert_eq!(placement.state, PlacementState::Validated);
+}
+
+#[tokio::test]
 async fn delete_placement_tombstones_node_reported_workspace_until_explicit_validate() {
     let state = test_state().await;
     let claim = enroll_test_node(&state).await;

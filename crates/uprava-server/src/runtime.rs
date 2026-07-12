@@ -6148,10 +6148,9 @@ async fn upsert_heartbeat_workspaces(
                 state, resource_badges_json, last_validated_at, created_at, updated_at
             )
             values (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?8, ?8)
-            on conflict(project_placement_id) do update set
+            on conflict(node_id, workspace_path) do update set
                 project_id = excluded.project_id,
                 display_name = excluded.display_name,
-                workspace_path = excluded.workspace_path,
                 state = excluded.state,
                 resource_badges_json = excluded.resource_badges_json,
                 last_validated_at = excluded.last_validated_at,
