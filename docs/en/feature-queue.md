@@ -36,11 +36,11 @@ That belongs in [v01.md](v01.md).
 
 ## Queue Overview
 
-Current release baseline: `0.2.4`. Done items `0` through `7`, the unified
+Current release baseline: `0.2.5`. Done items `0` through `8`, the unified
 audit hardening release and the `5a` workspace renderer release correspond to
 the shipped versions recorded in [`releases.md`](releases.md). Item `6` spans
 the workbench alignment and the first stable self-hosted deployment path.
-The next planned queue item is Background Jobs and scheduled agent runs.
+The next planned queue item is Causality and trace UX.
 
 | Order | Done | Mechanism / Feature Slice | First Useful Slice | Dependency | Complexity |
 | --- | --- | --- | --- | --- | --- |
@@ -53,7 +53,7 @@ The next planned queue item is Background Jobs and scheduled agent runs.
 | 5a | + | Workspace renderer and PTY terminal layer | Monaco file/diff renderers and xterm-backed interactive PTY sessions | Workspace intervention, Core/Node control channel | High |
 | 6 | + | Daily-use hardening and deployment readiness | Stable panel layout, product polish, server deploy path, CI/CD baseline | `0.1.8` deployable workbench, security baseline | High |
 | 7 | + | Delayed session messages | Durable one-off future turns for an existing session | Runtime/session guards, Core-owned persistence | Medium |
-| 8 | - | Background Jobs and scheduled agent runs | Durable unattended agent-run definitions, schedules and observable runs | Placements, provider runtime, durable events | High |
+| 8 | + | Background Jobs and scheduled agent runs | Durable unattended agent-run definitions, schedules and observable runs | Placements, provider runtime, durable events | High |
 | 9 | - | Causality and trace UX | Coarse source/cause links with raw fallback | Workspace refs, event log | Medium |
 | 10 | - | Git and review basics | Better diff, branch/worktree awareness, check results | Workspace intervention, trace | Medium |
 | 11 | - | Tool Registry v1 | Real tool metadata, permissions, routing, and audit policy | V01 capability model, events | High |
@@ -316,6 +316,15 @@ summaries/evidence, review/PR loops, worktrees, and eventually isolated task
 runtimes. The first slice excludes a visual workflow canvas, arbitrary
 multi-step pipelines, and unlimited backfill. Add restrictions when demonstrated
 necessary; prompt/task description remains the primary behavior contract.
+
+**Delivered in `0.2.5`:** Core persists paused Job definitions and snapshotted
+Job Runs, atomically claims interval/daily/weekly IANA schedule occurrences,
+uses the normal placement/session/runtime path, exposes typed overlap and
+failure outcomes, pauses on error by default, and applies shared quota
+admission with audited force override. The Web Control Panel exposes Job and
+run configuration, history, summary/session evidence links and schedule
+controls. Codex quota remains honestly `unknown` when its CLI has no stable
+machine-readable usage source.
 
 ### 9. Causality and trace UX
 

@@ -26,6 +26,7 @@ export function PlacementRoute() {
   const navigate = useNavigate();
   const queryClient = useQueryClient();
   const [provider, setProvider] = useState<ProviderId>("codex");
+  const [force, setForce] = useState(false);
   const placement = useQuery({
     queryKey: queryKeys.placement(placementId ?? ""),
     queryFn: () => coreApi.placement(placementId ?? ""),
@@ -40,6 +41,7 @@ export function PlacementRoute() {
       runWorkbenchCommand("session.start", {
         placement: placement.data,
         provider,
+        force,
         navigate,
         afterSuccess: async () => {
           await queryClient.invalidateQueries({
@@ -199,6 +201,14 @@ export function PlacementRoute() {
           <div className="mt-1 break-words">{startUnavailableReason}</div>
         </div>
       ) : null}
+      <label className="flex items-center gap-2 text-sm text-[var(--color-muted)]">
+        <input
+          type="checkbox"
+          checked={force}
+          onChange={(event) => setForce(event.target.checked)}
+        />
+        Force start if the provider reports 5% or less quota remaining
+      </label>
       {refreshMutation.isError ? (
         <ErrorNotice
           error={refreshMutation.error}

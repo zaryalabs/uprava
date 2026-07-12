@@ -1,6 +1,6 @@
 # Background Jobs и scheduled agent runs
 
-Статус: `working-position`
+Статус: `implemented-0.2.5`
 
 ## Vision
 
@@ -133,3 +133,20 @@ Job Run создаёт отдельную managed session/runtime execution на
 - quota `unknown` не блокирует запуск;
 - UI показывает summary/output и typed terminal reason.
 
+## Реализовано в 0.2.5
+
+Core теперь хранит paused-by-default Jobs и отдельные Job Runs для каждого
+occurrence, продвигает interval/daily/weekly schedules из явного IANA timezone,
+атомарно claim-ит due occurrences, сохраняет overlap skips и создаёт отдельную
+обычную managed session для каждого provider launch. Конфигурация run
+сохраняется snapshot до запуска; driver связывает runtime/turn completion с
+summary и typed terminal state. Failed start и turn ставят automatic schedule
+на паузу, если не включён `continue_after_error`.
+
+Web Control Panel показывает создание Job, enable/pause и manual run, run
+history, quota override, редактирование конфигурации, terminal reasons,
+snapshots и ссылки на обычную session evidence surface. Codex CLI `0.144.1` не
+предоставляет стабильного machine-readable источника пятичасового и недельного
+quota, поэтому реализованная provider capability честно сообщает `unknown` и
+не блокирует starts. Core всё равно применяет общий порог 5%, когда доступен
+свежий надёжный adapter snapshot, а force overrides пишет в security audit log.

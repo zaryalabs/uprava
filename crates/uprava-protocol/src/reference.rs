@@ -66,6 +66,8 @@ id_type!(ArtifactId);
 id_type!(EvidenceId);
 id_type!(BlockId);
 id_type!(CorrelationId);
+id_type!(JobId);
+id_type!(JobRunId);
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]

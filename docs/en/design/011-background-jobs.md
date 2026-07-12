@@ -1,6 +1,6 @@
 # Background Jobs and scheduled agent runs
 
-Status: `working-position`
+Status: `implemented-0.2.5`
 
 ## Vision
 
@@ -135,3 +135,20 @@ evidence.
 - quota `unknown` does not block start;
 - UI exposes summary/output and a typed terminal reason.
 
+## Implemented in 0.2.5
+
+Core now persists paused-by-default Jobs and per-occurrence Job Runs, advances
+interval/daily/weekly schedules from explicit IANA timezones, atomically claims
+due occurrences, retains overlap skips, and creates a separate normal managed
+session for every provider launch. Run configuration is snapshotted before
+launch; the driver correlates runtime/turn completion back to summary and typed
+terminal state. Failed starts and turns pause automatic schedules unless
+`continue_after_error` is enabled.
+
+The Web Control Panel exposes Job creation, enable/pause and manual-run actions,
+run history, quota override, configuration editing, terminal reasons, snapshots
+and links to the ordinary session evidence surface. Codex CLI `0.144.1` exposes
+no stable machine-readable five-hour and weekly quota source, so the implemented
+provider capability reports `unknown` and does not block starts. Core still
+enforces the shared 5% admission rule when a fresh reliable adapter snapshot is
+available, and force overrides are written to the security audit log.

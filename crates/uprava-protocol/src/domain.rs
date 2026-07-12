@@ -101,6 +101,33 @@ pub enum ScheduledMessageState {
     Cancelled,
 }
 
+/// Lifecycle of one concrete execution of a durable background Job.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum JobRunState {
+    Queued,
+    Starting,
+    Running,
+    Succeeded,
+    Failed,
+    Cancelled,
+    TimedOut,
+    Skipped,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum JobRunTrigger {
+    Manual,
+    Scheduled,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum JobOverlapPolicy {
+    Skip,
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum CommandState {

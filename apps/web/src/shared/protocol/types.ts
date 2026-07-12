@@ -32,6 +32,15 @@ export type ActionCapability = (typeof ACTION_CAPABILITY_VALUES)[number];
 export type MessageRole = (typeof MESSAGE_ROLE_VALUES)[number];
 export type ScheduledMessageState =
   (typeof SCHEDULED_MESSAGE_STATE_VALUES)[number];
+export type JobRunState =
+  | "queued"
+  | "starting"
+  | "running"
+  | "succeeded"
+  | "failed"
+  | "cancelled"
+  | "timed_out"
+  | "skipped";
 export type EnrollmentState =
   | "pending_user_approval"
   | "approved"
@@ -485,6 +494,82 @@ export type CreateSessionRequest = {
   project_placement_id: string;
   title?: string;
   provider: string;
+  force?: boolean;
+};
+
+export type JobSchedule =
+  | { kind: "interval"; minutes: number }
+  | { kind: "daily"; hour: number; minute: number }
+  | { kind: "weekly"; weekday: number; hour: number; minute: number };
+
+export type JobRunSummary = {
+  job_run_id: string;
+  job_id: string;
+  trigger: "manual" | "scheduled";
+  state: JobRunState;
+  scheduled_for: string | null;
+  queued_at: string;
+  started_at: string | null;
+  finished_at: string | null;
+  session_thread_id: string | null;
+  runtime_session_id: string | null;
+  summary: string | null;
+  terminal_reason: ScheduledMessageFailure | null;
+  config_snapshot: unknown;
+  force: boolean;
+};
+
+export type JobSummary = {
+  job_id: string;
+  name: string;
+  project_placement_id: string;
+  placement_name: string;
+  provider: string;
+  enabled: boolean;
+  schedule: JobSchedule | null;
+  timezone: string;
+  overlap_policy: "skip";
+  continue_after_error: boolean;
+  next_run_at: string | null;
+  paused_reason: string | null;
+  latest_run: JobRunSummary | null;
+  created_at: string;
+  updated_at: string;
+};
+
+export type JobDetail = {
+  job: JobSummary;
+  prompt: string;
+  runs: JobRunSummary[];
+};
+
+export type CreateJobRequest = {
+  name: string;
+  project_placement_id: string;
+  prompt: string;
+  provider: string;
+  schedule: JobSchedule | null;
+  timezone: string;
+  continue_after_error?: boolean;
+};
+
+export type UpdateJobRequest = {
+  name?: string;
+  prompt?: string;
+  provider?: string;
+  schedule?: JobSchedule;
+  clear_schedule?: boolean;
+  timezone?: string;
+  continue_after_error?: boolean;
+};
+
+export type ProviderQuotaStatus = {
+  provider: string;
+  state: "available" | "limited" | "unknown";
+  five_hour_remaining_percent: number | null;
+  weekly_remaining_percent: number | null;
+  observed_at: string | null;
+  unavailable_reason: string | null;
 };
 
 export type SendTurnRequest = {

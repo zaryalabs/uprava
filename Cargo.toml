@@ -28,6 +28,7 @@ async-stream = "0.3.6"
 axum = { version = "0.8.1", features = ["ws"] }
 chrono = { version = "0.4.38", features = ["serde"] }
 futures-util = "0.3.30"
+jiff = { version = "0.2.29", features = ["tzdb-bundle-always"] }
 libc = "0.2.186"
 opentelemetry = { version = "0.32.0", features = ["trace"] }
 opentelemetry-otlp = { version = "0.32.0", default-features = false, features = [

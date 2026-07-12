@@ -6,6 +6,7 @@ import type {
   CommandAcceptedResponse,
   CommandState,
   CreatePlacementRequest,
+  CreateJobRequest,
   CreateSessionRequest,
   HealthResponse,
   NodeCredentialRotationResponse,
@@ -18,6 +19,11 @@ import type {
   SendTurnRequest,
   CreateScheduledMessageRequest,
   ScheduledSessionMessage,
+  JobDetail,
+  JobRunSummary,
+  JobSummary,
+  ProviderQuotaStatus,
+  UpdateJobRequest,
   SessionDetail,
   VersionResponse,
   WebAuthLoginRequest,
@@ -252,6 +258,29 @@ export const coreApi = {
   authLogout: () => apiPost<WebAuthResponse>("/auth/logout"),
   inventory: () =>
     apiGet<import("../protocol/types").InventorySnapshot>("/inventory"),
+  jobs: () => apiGet<JobSummary[]>("/jobs"),
+  createJob: (request: CreateJobRequest) =>
+    apiPost<JobDetail>("/jobs", request),
+  job: (jobId: string) =>
+    apiGet<JobDetail>(`/jobs/${encodeURIComponent(jobId)}`),
+  updateJob: (jobId: string, request: UpdateJobRequest) =>
+    apiPatch<JobDetail>(`/jobs/${encodeURIComponent(jobId)}`, request),
+  enableJob: (jobId: string) =>
+    apiPost<JobDetail>(`/jobs/${encodeURIComponent(jobId)}/enable`),
+  disableJob: (jobId: string) =>
+    apiPost<JobDetail>(`/jobs/${encodeURIComponent(jobId)}/disable`),
+  runJob: (jobId: string, force = false) =>
+    apiPost<JobRunSummary>(`/jobs/${encodeURIComponent(jobId)}/runs`, {
+      force,
+    }),
+  jobRun: (jobRunId: string) =>
+    apiGet<JobRunSummary>(`/job-runs/${encodeURIComponent(jobRunId)}`),
+  cancelJobRun: (jobRunId: string) =>
+    apiPost<JobRunSummary>(`/job-runs/${encodeURIComponent(jobRunId)}/cancel`),
+  providerQuota: (provider: string) =>
+    apiGet<ProviderQuotaStatus>(
+      `/provider-quota/${encodeURIComponent(provider)}`,
+    ),
   node: (nodeId: string) =>
     apiGet<import("../protocol/types").NodeSummary>(
       `/nodes/${encodeURIComponent(nodeId)}`,

@@ -21,10 +21,10 @@ Uprava should be a control plane and work surface for agent workloads:
 
 ## Current State
 
-The current repository state is the `0.2.4` delayed-session-message baseline
+The current repository state is the `0.2.5` Background Jobs baseline
 on top of protocol v2, plus product and architecture documentation.
 `V01` names the first product cut that
-shipped as `0.1.0`; the current implementation has moved through six completed
+shipped as `0.1.0`; the current implementation has moved through eight completed
 feature queue slices, one unified audit hardening slice, and one workspace
 renderer/PTY terminal slice plus the first self-hosted CI/CD deploy baseline
 after that cut.
@@ -139,6 +139,9 @@ The `0.1.8` implementation baseline now includes:
   retry semantics, session stream cursors, healthcheck and web error states;
 - Core-owned durable delayed one-off session messages with explicit timezones,
   lifecycle visibility and guarded dispatch through the normal turn path;
+- paused-by-default Background Jobs with manual test runs, interval/daily/weekly
+  IANA schedules, observable per-run sessions, stop-on-error, overlap skipping,
+  retained configuration snapshots and shared provider-quota admission;
 - GitHub Actions release automation, deploy manifests and server activation
   scripts for the self-hosted Core/Web/Node release path;
 - Docker Compose dev profile for Core and Web, plus host Node Daemon run and

@@ -10,6 +10,21 @@ const DashboardRoute = lazy(() =>
     default: module.DashboardRoute,
   })),
 );
+const JobsRoute = lazy(() =>
+  import("../features/jobs/JobsRoute").then((module) => ({
+    default: module.JobsRoute,
+  })),
+);
+const JobDetailRoute = lazy(() =>
+  import("../features/jobs/JobDetailRoute").then((module) => ({
+    default: module.JobDetailRoute,
+  })),
+);
+const JobRunRoute = lazy(() =>
+  import("../features/jobs/JobRunRoute").then((module) => ({
+    default: module.JobRunRoute,
+  })),
+);
 const NodeDetailRoute = lazy(() =>
   import("../features/nodes/NodeDetailRoute").then((module) => ({
     default: module.NodeDetailRoute,
@@ -65,6 +80,30 @@ export function App() {
               element={
                 <LazyRoute>
                   <DashboardRoute />
+                </LazyRoute>
+              }
+            />
+            <Route
+              path="/jobs"
+              element={
+                <LazyRoute>
+                  <JobsRoute />
+                </LazyRoute>
+              }
+            />
+            <Route
+              path="/jobs/:jobId"
+              element={
+                <LazyRoute>
+                  <JobDetailRoute />
+                </LazyRoute>
+              }
+            />
+            <Route
+              path="/job-runs/:jobRunId"
+              element={
+                <LazyRoute>
+                  <JobRunRoute />
                 </LazyRoute>
               }
             />

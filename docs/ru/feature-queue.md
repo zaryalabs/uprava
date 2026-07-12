@@ -37,11 +37,11 @@ dependency, complexity, risk and value. Позиции могут двигать
 
 ## Обзор очереди
 
-Current release baseline: `0.2.4`. Закрытые пункты `0` through `7`, unified
+Current release baseline: `0.2.5`. Закрытые пункты `0` through `8`, unified
 audit hardening release и `5a` workspace renderer release соответствуют shipped
 versions, зафиксированным в [`releases.md`](releases.md). Пункт `6` включает
 workbench alignment и первый стабильный self-hosted deployment path.
-Следующий плановый пункт очереди — Background Jobs и scheduled agent runs.
+Следующий плановый пункт очереди — Causality and trace UX.
 
 | Order | Done | Mechanism / Feature Slice | First Useful Slice | Dependency | Complexity |
 | --- | --- | --- | --- | --- | --- |
@@ -54,7 +54,7 @@ workbench alignment и первый стабильный self-hosted deployment 
 | 5a | + | Workspace renderer and PTY terminal layer | Monaco file/diff renderers and xterm-backed interactive PTY sessions | Workspace intervention, Core/Node control channel | High |
 | 6 | + | Daily-use hardening and deployment readiness | Stable panel layout, product polish, server deploy path, CI/CD baseline | `0.1.8` deployable workbench, security baseline | High |
 | 7 | + | Отложенные сообщения в сессии | Долговечные одноразовые будущие turn существующей сессии | Runtime/session guards, Core-owned persistence | Medium |
-| 8 | - | Background Jobs и scheduled agent runs | Долговечные определения unattended agent work, расписания и наблюдаемые runs | Placements, provider runtime, durable events | High |
+| 8 | + | Background Jobs и scheduled agent runs | Долговечные определения unattended agent work, расписания и наблюдаемые runs | Placements, provider runtime, durable events | High |
 | 9 | - | Causality and trace UX | Coarse source/cause links with raw fallback | Workspace refs, event log | Medium |
 | 10 | - | Git and review basics | Better diff, branch/worktree awareness, check results | Workspace intervention, trace | Medium |
 | 11 | - | Tool Registry v1 | Real tool metadata, permissions, routing and audit policy | V01 capability model, events | High |
@@ -319,6 +319,15 @@ summaries/evidence, review/PR loops, worktrees и затем isolated task runti
 Первый срез исключает visual workflow canvas, arbitrary multi-step pipelines и
 unlimited backfill. Ограничения должны добавляться по подтверждённой
 необходимости; основная task behavior пока задаётся prompt/description.
+
+**Delivered в `0.2.5`:** Core хранит paused Job definitions и Job Runs со
+snapshot конфигурации, атомарно claim-ит interval/daily/weekly IANA schedule
+occurrences, использует обычный placement/session/runtime path, показывает
+typed overlap/failure outcomes, по умолчанию ставит schedule на pause после
+ошибки и применяет общую quota admission с audited force override. Web Control
+Panel показывает конфигурацию Job/run, history, summary, ссылки на session
+evidence и schedule controls. Codex quota честно остаётся `unknown`, когда CLI
+не даёт стабильного machine-readable usage source.
 
 ### 9. Causality and trace UX
 

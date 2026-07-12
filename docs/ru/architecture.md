@@ -13,6 +13,13 @@
 - Protocol v2, Core state slot `0.2.0` и Node state slot `0.2.0` образуют одну
   coordinated breaking boundary. Версия 0.2.0 не открывает retained state 0.1.8
   in place; rollback одновременно выбирает matching binary, config и state.
+- Core владеет durable Background Job schedules и atomic occurrence claim.
+  Каждый Job Run сохраняет snapshot effective configuration и использует
+  отдельную обычную placement-bound session/runtime; Job не представляется
+  бессмертным provider process.
+- Scheduled overlap сохраняется как typed skipped Job Run. Failed start или
+  turn ставят automatic scheduling на паузу, если Job явно не включает
+  continue-after-error.
 
 Статус: `active`
 

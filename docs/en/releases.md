@@ -2,7 +2,7 @@
 
 Status: `active`
 
-Current release baseline: `0.2.4`.
+Current release baseline: `0.2.5`.
 
 This ledger records implementation baselines. It does not replace
 [`feature-queue.md`](feature-queue.md), which remains the ranked list of future
@@ -25,14 +25,15 @@ work.
 | `0.2.1` | 2026-07-11 | shipped | Zarya 0.1 Web Control Panel alignment, flat work-sheet shell, system overview, agent work phases and visual regression gates |
 | `0.2.2` | 2026-07-12 | shipped | Automatic main delivery, bounded CI workspaces, coordinated state epoch reset, scoped Node enrollment and functional production smoke |
 | `0.2.3` | 2026-07-12 | shipped | Clean-bootstrap four-phase CI/CD, containerized prepare, explicit deploy/finalize boundaries and state-neutral delivery |
-| `0.2.4` | 2026-07-12 | current | Delayed session messages: durable Core-owned one-off future turns with guarded dispatch |
+| `0.2.4` | 2026-07-12 | shipped | Delayed session messages: durable Core-owned one-off future turns with guarded dispatch |
+| `0.2.5` | 2026-07-12 | current | Background Jobs and scheduled agent runs with observable per-run sessions and quota admission |
 
 ## Current Baseline
 
-`0.2.4` includes the protocol-v2 `0.2.0` baseline, the completed Zarya 0.1 Web
+`0.2.5` includes the protocol-v2 `0.2.0` baseline, the completed Zarya 0.1 Web
 UI/UX alignment and the clean-bootstrap four-phase delivery path. The current
 implementation includes the first working
-distributed control panel, the six
+distributed control panel, the eight
 completed feature queue slices after `0.1.0`, the unified audit hardening slice,
 the workspace renderer/PTY terminal layer, and the first deployable self-hosted
 release path:
@@ -95,6 +96,17 @@ release path:
   IANA timezone, `scheduled -> sending -> sent | failed | cancelled` lifecycle,
   session-local UI, edit/reschedule/send-now/cancel/retry controls and typed
   guard failures; due dispatch uses the ordinary send-turn admission path.
+- Core-owned paused Job definitions and observable Job Runs with retained
+  effective-configuration snapshots, manual starts and interval/daily/weekly
+  IANA schedules;
+- atomic due-occurrence claim, restart-safe session correlation, one active run
+  per Job with typed overlap skips, and stop-on-error by default;
+- separate ordinary managed sessions for Job Runs, final provider message as
+  summary, typed failures and links to the full session output/evidence;
+- shared chat/Job provider-quota admission at the 5% threshold, audited force
+  override and honest `unknown` when Codex exposes no reliable usage source;
+- Web Job list/detail/run surfaces for creation, editing, schedule control,
+  manual tests, force override, history, summaries and configuration snapshots.
 
 New audits and temporary plans should treat these as current implementation
 facts. They may still refer to `V01` when discussing the historical first

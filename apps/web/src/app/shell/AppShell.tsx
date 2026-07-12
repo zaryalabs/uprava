@@ -1,4 +1,4 @@
-import { LayoutDashboard, Server, Settings } from "lucide-react";
+import { Clock3, LayoutDashboard, Server, Settings } from "lucide-react";
 import type { ReactNode } from "react";
 import { Link, NavLink, Outlet } from "react-router-dom";
 
@@ -68,6 +68,12 @@ export function AppShell() {
               icon={<LayoutDashboard size={15} aria-hidden="true" />}
             >
               Dashboard
+            </SidebarLink>
+            <SidebarLink
+              to="/jobs"
+              icon={<Clock3 size={15} aria-hidden="true" />}
+            >
+              Jobs
             </SidebarLink>
             <SidebarLink
               to="/nodes"

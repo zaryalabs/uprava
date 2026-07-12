@@ -53,6 +53,7 @@ export type WorkbenchCommandContext = {
   placement?: ProjectPlacementSummary;
   placementRequest?: CreatePlacementRequest;
   provider?: string;
+  force?: boolean;
   session?: SessionSummary;
   runtime?: RuntimeSummary;
   turnContent?: string;
@@ -207,6 +208,7 @@ const commands: UiCommand[] = [
           context.provider,
           "session.start requires provider",
         ),
+        force: context.force ?? false,
       });
       await context.afterSuccess?.();
       context.navigate?.(

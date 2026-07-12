@@ -97,6 +97,108 @@ pub struct CreateSessionRequest {
     pub project_placement_id: ProjectPlacementId,
     pub title: Option<String>,
     pub provider: String,
+    #[serde(default)]
+    pub force: bool,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(tag = "kind", rename_all = "snake_case")]
+pub enum JobSchedule {
+    Interval { minutes: u32 },
+    Daily { hour: u8, minute: u8 },
+    Weekly { weekday: u8, hour: u8, minute: u8 },
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct JobSummary {
+    pub job_id: JobId,
+    pub name: String,
+    pub project_placement_id: ProjectPlacementId,
+    pub placement_name: String,
+    pub provider: String,
+    pub enabled: bool,
+    pub schedule: Option<JobSchedule>,
+    pub timezone: String,
+    pub overlap_policy: JobOverlapPolicy,
+    pub continue_after_error: bool,
+    pub next_run_at: Option<DateTime<Utc>>,
+    pub paused_reason: Option<String>,
+    pub latest_run: Option<JobRunSummary>,
+    pub created_at: DateTime<Utc>,
+    pub updated_at: DateTime<Utc>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct JobDetail {
+    pub job: JobSummary,
+    pub prompt: String,
+    pub runs: Vec<JobRunSummary>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct JobRunSummary {
+    pub job_run_id: JobRunId,
+    pub job_id: JobId,
+    pub trigger: JobRunTrigger,
+    pub state: JobRunState,
+    pub scheduled_for: Option<DateTime<Utc>>,
+    pub queued_at: DateTime<Utc>,
+    pub started_at: Option<DateTime<Utc>>,
+    pub finished_at: Option<DateTime<Utc>>,
+    pub session_thread_id: Option<SessionThreadId>,
+    pub runtime_session_id: Option<RuntimeSessionId>,
+    pub summary: Option<String>,
+    pub terminal_reason: Option<ScheduledMessageFailure>,
+    pub config_snapshot: JsonValue,
+    pub force: bool,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct CreateJobRequest {
+    pub name: String,
+    pub project_placement_id: ProjectPlacementId,
+    pub prompt: String,
+    pub provider: String,
+    pub schedule: Option<JobSchedule>,
+    pub timezone: String,
+    #[serde(default)]
+    pub continue_after_error: bool,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct UpdateJobRequest {
+    pub name: Option<String>,
+    pub prompt: Option<String>,
+    pub provider: Option<String>,
+    pub schedule: Option<JobSchedule>,
+    #[serde(default)]
+    pub clear_schedule: bool,
+    pub timezone: Option<String>,
+    pub continue_after_error: Option<bool>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Default)]
+pub struct RunJobRequest {
+    #[serde(default)]
+    pub force: bool,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum ProviderQuotaState {
+    Available,
+    Limited,
+    Unknown,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ProviderQuotaStatus {
+    pub provider: String,
+    pub state: ProviderQuotaState,
+    pub five_hour_remaining_percent: Option<u8>,
+    pub weekly_remaining_percent: Option<u8>,
+    pub observed_at: Option<DateTime<Utc>>,
+    pub unavailable_reason: Option<String>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
