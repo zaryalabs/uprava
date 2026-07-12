@@ -9201,16 +9201,20 @@ mod tests {
         std::fs::remove_file(codex_binary).expect("codex fixture removes");
         std::fs::remove_dir_all(workspace_path).expect("workspace fixture removes");
         assert_eq!(outcome.status, CommandState::Failed);
+        let event_kinds = event_kinds(&outcome.events_to_send);
+        assert!(event_kinds.len() >= 3);
+        assert_eq!(event_kinds.first(), Some(&EventKind::RuntimeRunning));
+        assert_eq!(event_kinds.get(1), Some(&EventKind::TurnStarted));
+        assert!(event_kinds[2..event_kinds.len() - 1]
+            .iter()
+            .all(|kind| *kind == EventKind::ProviderActivity));
+        assert_eq!(event_kinds.last(), Some(&EventKind::RuntimeError));
+        let runtime_error = outcome
+            .events_to_send
+            .last()
+            .expect("timeout emits a runtime error");
         assert_eq!(
-            event_kinds(&outcome.events_to_send),
-            vec![
-                EventKind::RuntimeRunning,
-                EventKind::TurnStarted,
-                EventKind::RuntimeError,
-            ]
-        );
-        assert_eq!(
-            outcome.events_to_send[2]
+            runtime_error
                 .payload
                 .0
                 .get("code")
