@@ -81,6 +81,8 @@
 | F-051 | One-shot vs dialogue mode experiment | Исследовать, когда лучше "1 задача = 1 запрос", а когда диалог. | `docs/ru/uprava-notes.md:57` |
 | F-052 | Иерархический подход к планированию | Двигаться от масштаба к деталям, чтобы снизить когнитивную нагрузку при проектировании. | `docs/ru/uprava-notes.md:78-81` |
 | F-053 | C4 + Activity Diagram + UML State Machine | Использовать C4, activity diagrams и UML state machines для проектирования Uprava и агентских процессов. | `docs/ru/uprava-notes.md:81` |
+| F-054 | Отложенные сообщения в сессии | Долговечный одноразовый будущий turn существующей сессии; он проходит обычную runtime/session admission, а не становится повторяющейся автоматизацией. | User clarification, 2026-07-12 |
+| F-055 | Background Workers и scheduled agent runs | Долговечное Worker definition с revisions, triggers, admission decisions и наблюдаемыми bounded runs для unattended agent work. | User clarification, 2026-07-12 |
 
 ## 4. Developer Workflow
 

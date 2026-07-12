@@ -50,6 +50,8 @@ Persistent Runtime + Node Daemon + Core UI
 - runtime/session hardening;
 - workspace shell and references;
 - Project Workspace Inspector;
+- отложенные сообщения в сессии;
+- Background Workers и scheduled agent runs;
 - causality and trace UX;
 - git and review basics;
 - Tool Registry v1;

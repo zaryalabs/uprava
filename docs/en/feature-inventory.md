@@ -85,6 +85,8 @@ Sources:
 | F-051 | One-shot vs dialogue mode experiment | Research when "1 task = 1 request" is better and when dialogue is better. | `docs/ru/uprava-notes.md:57` |
 | F-052 | Hierarchical planning approach | Move from scale to detail to reduce cognitive load during design. | `docs/ru/uprava-notes.md:78-81` |
 | F-053 | C4 + Activity Diagram + UML State Machine | Use C4, activity diagrams, and UML state machines to design Uprava and agent processes. | `docs/ru/uprava-notes.md:81` |
+| F-054 | Delayed session messages | A durable, one-off future turn for an existing session; it remains subject to normal runtime/session admission rather than becoming a recurring automation. | User clarification, 2026-07-12 |
+| F-055 | Background Workers and scheduled agent runs | A durable Worker definition with revisions, triggers, admission decisions, and observable bounded runs for unattended agent work. | User clarification, 2026-07-12 |
 
 ## 4. Developer Workflow
 

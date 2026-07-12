@@ -54,18 +54,20 @@ slice before new product mechanisms are added.
 | 5a | + | Workspace renderer and PTY terminal layer | Monaco file/diff renderers and xterm-backed interactive PTY sessions | Workspace intervention, Core/Node control channel | High |
 | 6 | - | Daily-use hardening and deployment readiness | Stable panel layout, product polish, server deploy path, CI/CD baseline | `0.1.8` deployable workbench, security baseline | High |
 | 6a | - | Provider-native persistent execution policy | Safe provider defaults, explicit unsafe mode, real approvals and visible effective policy | 0.2.0 quality foundation, provider-native persistent runtime | Very high |
-| 7 | - | Causality and trace UX | Coarse source/cause links with raw fallback | Workspace refs, event log | Medium |
-| 8 | - | Git and review basics | Better diff, branch/worktree awareness, check results | Workspace intervention, trace | Medium |
-| 9 | - | Tool Registry v1 | Real tool metadata, permissions, routing, and audit policy | V01 capability model, events | High |
-| 10 | - | Plugin Registry v1 | Installed plugin metadata, configuration, exposed tools, and artifact types | Tool Registry v1 | High |
-| 11 | - | First external integrations | Git provider and task tracker integration slices | Tool/Plugin Registry | High |
-| 12 | - | Visual artifact system | Test reports, richer diffs, timelines, dashboards/forms as first-class artifacts | Trace, registry contracts | High |
-| 13 | - | Dynamic UI from agents | Schema/tool/plugin-rendered UI with safe fallbacks | Visual artifact system, plugins | High |
-| 14 | - | Task-based sandbox runtime | Bounded run contract, isolated workspace, expected evidence | Runtime, workspace, trace | Very high |
-| 15 | - | Hybrid managed sessions | Persistent session can spawn bounded runs and merge evidence back | Task runtime | Very high |
-| 16 | - | Team/cloud model | Users, roles, shared projects, managed Core/nodes | Mature personal workflow | Very high |
-| 17 | - | Beyond software development | Research, analytics, documents, finance, knowledge workflows | Mature artifact/plugin model | Very high |
-| 18 | - | Audit follow-up refactors | Core/Node module split, generated protocol contracts, async workspace command API | `0.1.6` audit hardening | Medium |
+| 7 | - | Delayed session messages | Durable one-off future turns for an existing session | Runtime/session guards, Core-owned persistence | Medium |
+| 8 | - | Background Workers and scheduled agent runs | Durable unattended agent-run definitions, schedules and observable runs | Persistent runtime policy, placements, trace | High |
+| 9 | - | Causality and trace UX | Coarse source/cause links with raw fallback | Workspace refs, event log | Medium |
+| 10 | - | Git and review basics | Better diff, branch/worktree awareness, check results | Workspace intervention, trace | Medium |
+| 11 | - | Tool Registry v1 | Real tool metadata, permissions, routing, and audit policy | V01 capability model, events | High |
+| 12 | - | Plugin Registry v1 | Installed plugin metadata, configuration, exposed tools, and artifact types | Tool Registry v1 | High |
+| 13 | - | First external integrations | Git provider and task tracker integration slices | Tool/Plugin Registry | High |
+| 14 | - | Visual artifact system | Test reports, richer diffs, timelines, dashboards/forms as first-class artifacts | Trace, registry contracts | High |
+| 15 | - | Dynamic UI from agents | Schema/tool/plugin-rendered UI with safe fallbacks | Visual artifact system, plugins | High |
+| 16 | - | Task-based sandbox runtime | Bounded run contract, isolated workspace, expected evidence | Runtime, workspace, trace | Very high |
+| 17 | - | Hybrid managed sessions | Persistent session can spawn bounded runs and merge evidence back | Task runtime | Very high |
+| 18 | - | Team/cloud model | Users, roles, shared projects, managed Core/nodes | Mature personal workflow | Very high |
+| 19 | - | Beyond software development | Research, analytics, documents, finance, knowledge workflows | Mature artifact/plugin model | Very high |
+| 20 | - | Audit follow-up refactors | Core/Node module split, generated protocol contracts, async workspace command API | `0.1.6` audit hardening | Medium |
 
 ## Queue Details
 
@@ -264,7 +266,52 @@ hostile-workload isolation.
 provider-native persistent runtimes while preserving provider-specific
 enforcement and evidence.
 
-### 7. Causality and trace UX
+### 7. Delayed session messages
+
+**Value:** Lets a person prepare a follow-up turn without interrupting an
+active agent or keeping the browser open. A delayed message is one future turn
+for one existing session, not a recurring automation or a Worker Run.
+
+**Dependency:** Runtime/session admission guards and durable Core persistence;
+the eventual dispatch must use the ordinary send-turn path.
+
+**First useful slice:** Core-owned scheduled-message records with an explicit
+timezone; `scheduled -> sending -> sent | failed | cancelled` lifecycle; a
+session-local list; edit, reschedule, send-now and cancel while still
+scheduled. At its due time, Core evaluates the normal session/runtime guards.
+If the turn cannot be accepted, the record stays visible with a typed reason and
+an explicit retry or reschedule action rather than retrying invisibly.
+
+**Target direction:** Delivery policies such as exact-time versus
+not-before-when-ready, retained history and failure notifications. Recurrence,
+new-session launch, approval bypass and chained automation remain out of scope.
+
+### 8. Background Workers and scheduled agent runs
+
+**Value:** Adds a controlled unattended-work mode for recurring bounded agent
+work, without treating an immortal process or an opaque workflow graph as the
+product model.
+
+**Dependency:** Persistent execution policy, project/workspace placements,
+durable events and trace/evidence. A Worker reuses the normal provider runtime
+path rather than introducing a hidden executor.
+
+**First useful slice:** A paused-by-default Worker definition with immutable
+prompt/execution revisions, one target placement, manual run plus simple
+interval/daily/weekly schedules with an explicit IANA timezone, and a mandatory
+manual test-before-enable flow. Each trigger is evaluated separately from
+admission; the default overlap policy is `skip` and permits at most one active
+run per Worker. The UI exposes Worker configuration, run history, typed skipped
+outcomes, warnings, trace/evidence and an attention inbox for blocked or failed
+runs. Current checkout and optional Git worktree are explicit modes.
+
+**Target direction:** Event and task-tracker triggers, explicit buffering
+policies, budgets, notifications, review/PR loops and eventually isolated task
+runtimes. The first slice excludes a visual workflow canvas, arbitrary
+multi-step pipelines, unlimited backfill and automatic cleanup of unreviewed
+work.
+
+### 9. Causality and trace UX
 
 **Value:** Reduces review cost by connecting result to evidence without dumping
 raw logs into the user interface.
@@ -276,7 +323,7 @@ fallbacks.
 **Target direction:** Richer cause graph and trace timeline once event quality
 and artifact semantics stabilize.
 
-### 8. Git and review basics
+### 10. Git and review basics
 
 **Value:** Developer work needs changed-file awareness and review ergonomics.
 
@@ -286,7 +333,7 @@ check entry points, warning badges for risky workspace state.
 **Target direction:** Git provider integration, PR/MR comment import, review
 queues, CI follow-up loops, and review-ready task outputs.
 
-### 9. Tool Registry v1
+### 11. Tool Registry v1
 
 **Value:** Tools become system capabilities with permissions, routing, schemas,
 UI contracts, and audit policy instead of hidden agent behavior.
@@ -297,7 +344,7 @@ tools and Node capabilities.
 **Target direction:** External providers, MCP/native/hybrid adapters, tool call
 trace, and agent-readable capability discovery.
 
-### 10. Plugin Registry v1
+### 12. Plugin Registry v1
 
 **Value:** Uprava becomes extensible without hardcoding every tool, block, and
 integration inside the workbench.
@@ -308,7 +355,7 @@ requested permissions, exposed tools, artifact types, and compatibility.
 **Target direction:** Plugin-provided commands, renderers, link handlers,
 workflow templates, and governed extension surfaces.
 
-### 11. First external integrations
+### 13. First external integrations
 
 **Value:** Agent work must connect to real development systems without hiding
 integration behavior behind text.
@@ -319,7 +366,7 @@ objects, actions, trace, and permission checks.
 **Target direction:** Native, MCP, Node-local, external-provider, and hybrid
 integration adapters.
 
-### 12. Visual artifact system
+### 14. Visual artifact system
 
 **Value:** Results such as diffs, checks, timelines, reports, diagrams, and
 dashboards should be inspectable UI objects, not only chat text.
@@ -330,7 +377,7 @@ timeline with source references and fallbacks.
 **Target direction:** Artifact gallery, richer visual review, dashboards, UML,
 forms, and embedded external views.
 
-### 13. Dynamic UI from agents
+### 15. Dynamic UI from agents
 
 **Value:** Agents and tools can return structured interactive surfaces where
 text is the wrong shape.
@@ -341,7 +388,7 @@ sanitized snapshots, source refs, permissions, and markdown/table fallback.
 **Target direction:** Plugin-rendered blocks, controlled embeds, generated UI
 sandboxing, and agent-readable UI state.
 
-### 14. Task-based sandbox runtime
+### 16. Task-based sandbox runtime
 
 **Value:** Uprava can run bounded background work with explicit scope,
 isolation, evidence, and review-ready output.
@@ -352,7 +399,7 @@ package, event log, expected evidence, and result package.
 **Target direction:** Durable workflow state, queues, CI/webhook wakeups, PR/MR
 flow, and reproducible review packages.
 
-### 15. Hybrid managed sessions
+### 17. Hybrid managed sessions
 
 **Value:** Live sessions and background tasks become one work loop instead of
 separate products.
@@ -363,7 +410,7 @@ the run's evidence back into the session trace/review model.
 **Target direction:** Orchestrated workflows, semi-deterministic pipelines,
 handoff between live and bounded work, and review debt visibility.
 
-### 16. Team/cloud model
+### 18. Team/cloud model
 
 **Value:** Uprava expands from personal workbench to shared distributed Agent OS.
 
@@ -373,7 +420,7 @@ team audit trail, and managed Core deployment path.
 **Target direction:** Managed cloud nodes, node pools, organization-level
 plugin/integration governance, stronger secrets model, and billing if needed.
 
-### 17. Beyond software development
+### 19. Beyond software development
 
 **Value:** The same node, agent, tool, artifact, trace, and workflow model can
 support broader knowledge work.
@@ -384,7 +431,7 @@ artifact/plugin model is strong enough to transfer.
 **Target direction:** Research, analytics, documents, presentations, finance,
 monitoring, and knowledge-base workflows.
 
-### 18. Audit follow-up refactors
+### 20. Audit follow-up refactors
 
 **Value:** Keeps the `0.1.6` audit fixes reviewable, contract-backed, and ready
 for longer-running tools without mixing broad mechanical work into a behavior

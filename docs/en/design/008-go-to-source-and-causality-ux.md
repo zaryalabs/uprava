@@ -113,6 +113,74 @@ agent answer -> tool results + context refs + user prompt
 Cause links должны быть направленными и typed. Не всякая related link является
 causality.
 
+### Уточнение реализации: trace, evidence и deduction
+
+`Trace` — последовательность наблюдаемых событий. `Evidence` — конкретный
+проверяемый объект. Ни одно из них не обязано восстанавливать внутреннее
+рассуждение агента или доказывать полную причинность.
+
+```text
+user message
+-> assistant turn
+-> command / workspace observation
+-> workspace changed
+-> check
+-> assistant answer
+```
+
+Источники доверия нужно показывать явно: system/node event сильнее provider
+event, а provider event сильнее agent-authored claim.
+
+`Deduction` — отдельный запрошенный пользователем режим объяснения, например
+`/deduction <scope or question>`, а не автоматически восстановленная
+causality. Core формирует специальный запрос к provider с требованием вернуть
+валидный structured result. Такой результат является agent-authored
+interpretation поверх доступного контекста, а не source of truth.
+
+Каждый вывод Deduction должен различать:
+
+- `observed` — подтверждено refs или evidence;
+- `inference` — вывод агента;
+- `assumption` — предположение;
+- `unknown` — известный пробел;
+- `alternative` — другая правдоподобная интерпретация.
+
+Минимальный `DeductionBlock` содержит `scope_ref`, `conclusion`, `steps`,
+`support_refs`, `certainty`, `assumptions`, `unknowns` и `alternatives`.
+Невалидный provider result не становится rich block: UI показывает text/raw
+fallback с причиной validation failure.
+
+### Session trace projection и честная точность
+
+Общая session-wide read model называется `SessionTraceProjection`. Она связывает
+turns, messages, commands, workspace observations, checks и object refs.
+
+```text
+TraceObservation:
+  ref
+  scope_ref
+  turn_ref
+  happened_at
+  kind
+  label
+  object_refs
+  evidence_refs
+  precision: exact | turn_level | snapshot
+```
+
+`precision` обязателен: UI не должен выдавать snapshot или turn-level signal за
+точный edit. Текущий `WorkspaceDiffResponse` — diff состояния workspace по
+запросу, а не diff каждого изменения. Поэтому первый срез честно показывает
+`turn -> workspace changed -> current workspace diff`; exact per-edit diff
+требует before/after snapshots, filesystem audit, VCS checkpoints или
+provider-normalized edit events.
+
+Один inspector/projection обслуживает два UI scope:
+
+- **Turn Activity** — действия и evidence одного assistant turn;
+- **Chat Trace** — история выбранного file, command, check, artifact или
+  message через всю сессию.
+
 ### Главная модель
 
 Любой важный видимый объект Uprava должен иметь stable reference and optional
@@ -266,55 +334,26 @@ chart point
 
 Dynamic UI не должен скрывать причинность за визуальной полировкой.
 
-#### 5. Агент объясняет, что произошло, через Uprava tool
+#### 5. Запрошенный Deduction
 
-Отдельная механика: Uprava может дать агенту skill и tool, которые позволяют
-сформировать structured explanation of work.
-
-Пользователь просит:
-
-```text
-Объясни по шагам, что произошло и что к чему привело.
-```
-
-Агент использует Uprava-facing skill:
+Пользователь выбирает `Explain steps` или задаёт `/deduction <scope or
+question>`. Core добавляет в provider request доступные события и refs, но
+требует отдельный JSON result, а не свободный narrative в обычном ответе.
 
 ```text
-Read available events/refs.
-Do not invent unreferenced steps.
-Group low-level events into review-facing steps.
-Mark assumptions and missing evidence.
-Emit structured steps through Uprava tool.
+deduction.requested
+-> provider structured result
+-> validation
+-> deduction.completed | deduction.invalid
+-> DeductionBlock or text/raw fallback
 ```
 
-И вызывает tool вроде:
-
-```text
-uprava.emit_causality_narrative
-```
-
-Tool принимает структурированный объект:
-
-```text
-CausalityNarrative:
-  title
-  scope_ref
-  steps:
-    - title
-      summary
-      source_refs
-      evidence_refs
-      cause_refs
-      result_refs
-      confidence
-      notes
-```
-
-UI рендерит это как block/artifact with linked steps. Важно: такой narrative
-не становится новым source-of-truth. Это agent-authored interpretation поверх
-событий Uprava. Его ценность в том, что он группирует шумные events в
-понятную цепочку, но каждый существенный шаг должен ссылаться на source,
-evidence or explicitly say that evidence is missing.
+`DeductionBlock` рендерится как linked block/artifact. Он группирует
+низкоуровневые events для review, но не подменяет их: каждый существенный step
+содержит support refs либо явно отмечает uncertainty. Optional tool наподобие
+`uprava.emit_causality_narrative` остаётся способом для agent/tool создать
+сохранённый `CausalityNarrative`, но пользовательский Deduction не зависит от
+этого tool path.
 
 ### Agent-facing сценарии
 
@@ -448,20 +487,25 @@ StepBlock может быть создан:
 - agent-authored causality narrative;
 - human annotation.
 
-#### CausalityNarrative
+#### DeductionBlock и CausalityNarrative
 
-Structured explanation artifact или transient block, который группирует steps.
+`DeductionBlock` — валидированный ответ на явный deduction request. Он может
+быть transient block или сохранён как `CausalityNarrative` artifact, если нужен
+для review/handoff. `CausalityNarrative` также может быть создан agent/tool, но
+всегда сохраняет provenance и не становится system-derived fact.
 
 ```text
-CausalityNarrative:
+DeductionBlock:
   ref
   scope_ref
   title
-  created_by
-  created_from_refs
+  conclusion
   steps
-  unresolved_questions
-  limitations
+  support_refs
+  certainty
+  assumptions
+  unknowns
+  alternatives
 ```
 
 Если narrative влияет на review/handoff, его стоит сохранять как artifact
@@ -474,8 +518,10 @@ Core owns:
 
 - stable refs;
 - event log and trace metadata;
+- `SessionTraceProjection` and its declared precision;
 - system-derived links;
 - permissions for resolving refs;
+- deduction request/result validation and fallback state;
 - storage of narrative artifacts;
 - command routing for source/cause actions.
 
@@ -502,7 +548,7 @@ Web owns:
 
 Agent/tool owns:
 
-- optional structured causality narratives;
+- optional structured narratives and the interpretation inside a Deduction;
 - semantic grouping of steps;
 - explicit uncertainty when links are incomplete;
 - no invention of unreferenced facts.
@@ -570,31 +616,36 @@ Explicitly not required for V01:
 - executable generated UI for explanations;
 - proof-like provenance for every sentence in an answer.
 
-### Structured explanation tool
+### Deduction protocol and structured-explanation tool
 
-The `uprava.emit_causality_narrative` style tool should be designed as a
-review aid, not as a hidden side channel.
+`Deduction` is a review aid, not a hidden side channel or a claim that Uprava
+has reconstructed the agent's reasoning. Core validates the provider result
+against the `DeductionBlock` schema and emits `deduction.requested`,
+`deduction.completed` or `deduction.invalid` events. The last case retains a
+safe text/raw fallback.
 
 Input rules:
 
 - every material step should carry at least one source/evidence/cause/result
   ref;
-- unreferenced claims must be marked as assumptions or interpretations;
+- unreferenced claims must be marked as inference, assumption, alternative or
+  unknown;
 - raw logs should be summarized but remain linked;
-- tool should accept partial narratives;
-- tool should validate refs and permissions;
-- tool should store provenance: model/provider/session/tool version.
+- partial deductions are valid when their limitations are explicit;
+- Core validates refs, permissions and the JSON shape;
+- Core stores provenance: model/provider/session/schema version.
 
 Output behavior:
 
-- create or update a `CausalityNarrative` block/artifact;
-- emit event for the narrative;
-- expose each step as addressable `StepBlock`;
+- create a `DeductionBlock`; persist it as a `CausalityNarrative` only when
+  the user or workflow needs durable review/handoff evidence;
+- expose each step as an addressable `StepBlock`;
 - link steps back to original events and results;
 - render fallback as Markdown/text if rich step renderer is unavailable.
 
-This gives a path from today's coarse trace to tomorrow's agent-readable,
-structured explanation UX without requiring the system to infer perfect
+The optional `uprava.emit_causality_narrative` style tool follows the same
+validation and provenance rules. This gives a path from today's coarse trace to
+an agent-readable explanation UX without requiring the system to infer perfect
 causality automatically.
 
 ### Storage implications
@@ -699,6 +750,10 @@ For structured explanations:
 - Does every material step link to evidence or state that evidence is missing?
 - Are agent-authored interpretations distinguishable from system-derived
   events?
+- Does the block distinguish observed facts, inferences, assumptions, unknowns
+  and alternatives?
+- Does invalid structured output fall back safely instead of appearing as a
+  trusted deduction?
 - Can a reviewer drill down from narrative step to raw event/log/file range?
 - Does the narrative avoid duplicating huge logs?
 - Does updating the narrative preserve version/provenance?
