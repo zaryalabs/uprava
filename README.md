@@ -24,7 +24,7 @@ Uprava should be a control plane and work surface for agent workloads:
 The current repository state is the `0.2.3` clean-bootstrap four-phase CI/CD
 baseline on top of protocol v2, plus product and architecture documentation.
 `V01` names the first product cut that
-shipped as `0.1.0`; the current implementation has moved through five completed
+shipped as `0.1.0`; the current implementation has moved through six completed
 feature queue slices, one unified audit hardening slice, and one workspace
 renderer/PTY terminal slice plus the first self-hosted CI/CD deploy baseline
 after that cut.

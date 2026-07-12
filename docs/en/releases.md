@@ -31,7 +31,7 @@ work.
 `0.2.3` includes the protocol-v2 `0.2.0` baseline, the completed Zarya 0.1 Web
 UI/UX alignment and the clean-bootstrap four-phase delivery path. The current
 implementation includes the first working
-distributed control panel, the five
+distributed control panel, the six
 completed feature queue slices after `0.1.0`, the unified audit hardening slice,
 the workspace renderer/PTY terminal layer, and the first deployable self-hosted
 release path:
@@ -42,6 +42,8 @@ release path:
 - read-only Project Workspace Inspector;
 - workspace intervention layer with text save, bounded command runner, command
   history and diff/check entry points.
+- daily-use hardening and deployment readiness across the sustained-use Web
+  workbench and controlled self-hosted delivery path.
 - quality gate honesty and Rust `1.88` MSRV alignment;
 - Node allow-list enforcement, atomic local state writes, no-follow workspace
   writes and bounded command output during execution;

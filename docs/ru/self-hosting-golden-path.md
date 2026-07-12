@@ -102,7 +102,7 @@ fine-grained permissions and approval handling.
 
 Это accepted audit risk P0-3, а не production-grade hostile-workload
 isolation. Точный follow-up и exit criteria зафиксированы в
-[`feature-queue.md`](feature-queue.md#6a-provider-native-persistent-execution-policy):
+[`feature-queue.md`](feature-queue.md#16a-provider-native-persistent-execution-policy):
 safe-by-default sandboxing, explicit unsafe-mode switch, real approval handling
 и visible effective policy. Quality-foundation work 0.2.0 не меняет текущие
 launch flags.

@@ -36,12 +36,12 @@ That belongs in [v01.md](v01.md).
 
 ## Queue Overview
 
-Current release baseline: `0.1.8`. Done items `0` through `5`, the unified
-audit hardening release, the `5a` workspace renderer release and the first
-self-hosted CI/CD deployment baseline correspond to the shipped versions
-recorded in [`releases.md`](releases.md).
-The next planned queue item is a daily-use hardening and deployment readiness
-slice before new product mechanisms are added.
+Current release baseline: `0.2.3`. Done items `0` through `6`, the unified
+audit hardening release and the `5a` workspace renderer release correspond to
+the shipped versions recorded in [`releases.md`](releases.md). Item `6` spans
+the workbench alignment and the first stable self-hosted deployment path.
+The next planned queue item is delayed session messages before new unattended
+runtime mechanisms are added.
 
 | Order | Done | Mechanism / Feature Slice | First Useful Slice | Dependency | Complexity |
 | --- | --- | --- | --- | --- | --- |
@@ -52,8 +52,7 @@ slice before new product mechanisms are added.
 | 4 | + | Read-only Project Workspace Inspector | File tree, metadata, safe text viewer | Workspace refs, Node file reads | Medium |
 | 5 | + | Workspace intervention layer | Lightweight editor, terminal, command history, diff/check entry points | Read-only inspector, events | High |
 | 5a | + | Workspace renderer and PTY terminal layer | Monaco file/diff renderers and xterm-backed interactive PTY sessions | Workspace intervention, Core/Node control channel | High |
-| 6 | - | Daily-use hardening and deployment readiness | Stable panel layout, product polish, server deploy path, CI/CD baseline | `0.1.8` deployable workbench, security baseline | High |
-| 6a | - | Provider-native persistent execution policy | Safe provider defaults, explicit unsafe mode, real approvals and visible effective policy | 0.2.0 quality foundation, provider-native persistent runtime | Very high |
+| 6 | + | Daily-use hardening and deployment readiness | Stable panel layout, product polish, server deploy path, CI/CD baseline | `0.1.8` deployable workbench, security baseline | High |
 | 7 | - | Delayed session messages | Durable one-off future turns for an existing session | Runtime/session guards, Core-owned persistence | Medium |
 | 8 | - | Background Workers and scheduled agent runs | Durable unattended agent-run definitions, schedules and observable runs | Persistent runtime policy, placements, trace | High |
 | 9 | - | Causality and trace UX | Coarse source/cause links with raw fallback | Workspace refs, event log | Medium |
@@ -64,6 +63,7 @@ slice before new product mechanisms are added.
 | 14 | - | Visual artifact system | Test reports, richer diffs, timelines, dashboards/forms as first-class artifacts | Trace, registry contracts | High |
 | 15 | - | Dynamic UI from agents | Schema/tool/plugin-rendered UI with safe fallbacks | Visual artifact system, plugins | High |
 | 16 | - | Task-based sandbox runtime | Bounded run contract, isolated workspace, expected evidence | Runtime, workspace, trace | Very high |
+| 16a | - | Provider-native persistent execution policy | Safe provider defaults, explicit unsafe mode, real approvals and visible effective policy | Task-based sandbox runtime, provider-native persistent runtime | Very high |
 | 17 | - | Hybrid managed sessions | Persistent session can spawn bounded runs and merge evidence back | Task runtime | Very high |
 | 18 | - | Team/cloud model | Users, roles, shared projects, managed Core/nodes | Mature personal workflow | Very high |
 | 19 | - | Beyond software development | Research, analytics, documents, finance, knowledge workflows | Mature artifact/plugin model | Very high |
@@ -229,6 +229,17 @@ environment settings, reverse-proxy/TLS assumptions, persistent volumes, logs,
 backup/restore expectations, and a CI/CD baseline that runs quality gates and
 can deploy the controlled instance.
 
+**Current implementation note:** The `0.2.1` Zarya Web Control Panel alignment
+delivered the flat work-sheet shell, system overview, phased agent-work surface,
+workspace/session chrome and visual regression coverage. The `0.2.2` and
+`0.2.3` releases completed the deployable server path: automatic immutable
+delivery from `main`, bounded CI workspaces, explicit
+`prepare -> build -> deploy -> finalize` gates, root-owned deployment inputs,
+state-neutral ordinary deploys, production health/SHA/Node finalization and
+bounded release retention. The controlled-instance environment, TLS/reverse
+proxy assumptions, persistent paths, logging and backup/restore operations are
+documented in the deployment and CI/CD guides.
+
 **Risk:** This slice can sprawl into redesigning future surfaces or pretending
 the product is already a multi-user production release. Keep the scope tied to
 the current single-user or controlled deployment and refine the detailed
@@ -237,34 +248,6 @@ checklist from actual daily use.
 **Target direction:** Establish a stable personal/server operating mode that can
 be used continuously while later trace, git/review, registry, plugin, artifact,
 and task-runtime work is built.
-
-### 6a. Provider-native persistent execution policy
-
-**Value:** Makes persistent provider execution safe and understandable without
-mistaking a workspace allow-list or Unix account for a provider sandbox.
-
-**Dependency:** The 0.2.0 quality foundation and a provider-native persistent
-runtime path that can pause for policy and approval decisions.
-
-**First useful slice and exit criteria:** All four conditions are required:
-
-1. sandboxed execution is the safe default;
-2. unrestricted execution is available only through an explicit unsafe-mode
-   switch;
-3. provider approval requests are handled by a real Core/User/Node approval
-   flow before execution continues;
-4. the effective sandbox and approval policy is visible before start and in
-   runtime trace/evidence.
-
-**Accepted risk before delivery:** Audit finding P0-3 remains an accepted risk
-for the controlled deployment. The 0.2.0 quality-foundation release does not
-change the existing Codex launch flags, does not treat the current normalized
-approval events as real enforcement, and does not claim team, cloud or
-hostile-workload isolation.
-
-**Target direction:** Apply the same explicit policy contract to later
-provider-native persistent runtimes while preserving provider-specific
-enforcement and evidence.
 
 ### 7. Delayed session messages
 
@@ -398,6 +381,34 @@ package, event log, expected evidence, and result package.
 
 **Target direction:** Durable workflow state, queues, CI/webhook wakeups, PR/MR
 flow, and reproducible review packages.
+
+### 16a. Provider-native persistent execution policy
+
+**Value:** Makes persistent provider execution safe and understandable without
+mistaking a workspace allow-list or Unix account for a provider sandbox.
+
+**Dependency:** Task-based sandbox runtime and a provider-native persistent
+runtime path that can pause for policy and approval decisions.
+
+**First useful slice and exit criteria:** All four conditions are required:
+
+1. sandboxed execution is the safe default;
+2. unrestricted execution is available only through an explicit unsafe-mode
+   switch;
+3. provider approval requests are handled by a real Core/User/Node approval
+   flow before execution continues;
+4. the effective sandbox and approval policy is visible before start and in
+   runtime trace/evidence.
+
+**Accepted risk before delivery:** Audit finding P0-3 remains an accepted risk
+for the controlled deployment. The 0.2.0 quality-foundation release does not
+change the existing Codex launch flags, does not treat the current normalized
+approval events as real enforcement, and does not claim team, cloud or
+hostile-workload isolation.
+
+**Target direction:** Apply the same explicit policy contract to later
+provider-native persistent runtimes while preserving provider-specific
+enforcement and evidence.
 
 ### 17. Hybrid managed sessions
 

@@ -106,7 +106,7 @@ this with finer-grained permissions and approval handling.
 
 This is accepted audit risk P0-3, not production-grade hostile-workload
 isolation. The exact follow-up and its exit criteria are tracked in
-[`feature-queue.md`](feature-queue.md#6a-provider-native-persistent-execution-policy):
+[`feature-queue.md`](feature-queue.md#16a-provider-native-persistent-execution-policy):
 safe-by-default sandboxing, an explicit unsafe-mode switch, real approval
 handling and visible effective policy. The 0.2.0 quality-foundation work does
 not change the current launch flags.
