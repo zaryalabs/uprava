@@ -8,6 +8,14 @@ manifest=${RELEASE_MANIFEST:-${CI_ARTIFACT_DIR:-handoff}/uprava-release.env}
 sudo_cmd=${SUDO:-sudo}
 retries=${FINALIZE_RETRIES:-60}
 delay=${FINALIZE_DELAY_SECONDS:-2}
+root_helper=${UPRAVA_ROOT_FINALIZE_HELPER:-/usr/local/sbin/uprava-ci-root-finalize}
+
+if [[ ${UPRAVA_ROOT_PHASE:-0} != 1 ]]; then
+  ci_set_stage root-contract
+  sudo -n "$root_helper"
+  ci_set_stage complete
+  exit 0
+fi
 
 test -s "$manifest"
 # shellcheck disable=SC1090

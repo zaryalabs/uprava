@@ -69,7 +69,8 @@ UPRAVA_NODE_VERSION=0.2.3
 UPRAVA_AUTO_APPROVE_NODE_NAME='Zarya Server'
 EOF
 CALLS="$calls" PATH="$tmp/bin:$PATH" MAKE="$tmp/bin/make" SUDO="$tmp/bin/sudo" \
-    INSTALL_DIR="$tmp/install" RELEASE_MANIFEST="$tmp/manifest.env" bash "$repo/ci/deploy.sh" >/dev/null
+    UPRAVA_ROOT_PHASE=1 INSTALL_DIR="$tmp/install" RELEASE_MANIFEST="$tmp/manifest.env" \
+    bash "$repo/ci/deploy.sh" >/dev/null
 grep -q 'make install-ops' "$calls"
 grep -q 'make -C .* deploy RELEASE=test' "$calls"
 
@@ -80,7 +81,11 @@ SH
 cp "$tmp/install/scripts/prune-uprava-releases.sh" "$tmp/install/scripts/prune-uprava-images.sh"
 chmod 755 "$tmp/install/scripts/"*
 CALLS="$calls" PATH="$tmp/bin:$PATH" SUDO="$tmp/bin/sudo" INSTALL_DIR="$tmp/install" \
-    RELEASE_MANIFEST="$tmp/manifest.env" UPRAVA_DOMAIN=example.test FINALIZE_RETRIES=1 \
+    UPRAVA_ROOT_PHASE=1 RELEASE_MANIFEST="$tmp/manifest.env" UPRAVA_DOMAIN=example.test FINALIZE_RETRIES=1 \
     bash "$repo/ci/finalize.sh" >/dev/null
+
+grep -q 'sudo -n.*root_helper' "$repo/ci/deploy.sh"
+grep -q 'sudo -n.*root_helper' "$repo/ci/finalize.sh"
+grep -q 'ls-remote.*refs/heads/main' "$repo/ops/uprava-ci-root"
 
 echo "Focused prepare/build/deploy/finalize script checks passed"

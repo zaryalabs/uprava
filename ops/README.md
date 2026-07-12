@@ -13,3 +13,10 @@ The clean-bootstrap prerequisites are `/etc/uprava/core.env`,
 `/etc/uprava/node.env`, the `uprava` user, Docker/Compose/systemd and the shared
 `platform` network. Mutable Core and Node state remain outside release
 directories and ordinary releases never delete them.
+
+The host administrator also installs this directory's `uprava-ci-root` file as
+both `/usr/local/sbin/uprava-ci-root-deploy` and
+`/usr/local/sbin/uprava-ci-root-finalize`, owned by root and not writable by the
+runner. Sudoers grants `runner` only those two no-argument commands. Each helper
+verifies the phase worktree and manifest against public `origin/main` before it
+executes repository-controlled deployment code as root.

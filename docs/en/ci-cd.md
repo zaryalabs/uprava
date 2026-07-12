@@ -26,7 +26,9 @@ The prepare container must not receive the Docker socket. Production image
 builds use the trusted runner's host Docker engine. Operations that require
 `/opt/apps/uprava`, Compose, systemd or production state are explicitly
 host-only. Docker group access for the trusted self-hosted runner is an accepted
-current risk; further privilege narrowing is separate work.
+current risk. Root-required deploy and finalize operations cross two fixed,
+root-owned no-argument helpers that verify the phase worktree against public
+`origin/main`; the runner has no general passwordless sudo contract.
 
 ## Prepare
 

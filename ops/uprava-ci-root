@@ -1,0 +1,52 @@
+#!/usr/bin/env bash
+set -Eeuo pipefail
+
+runner_checkout=/opt/infra/github-runner/zarya-main/_work/uprava/uprava
+repository=https://github.com/zaryalabs/uprava.git
+command_name=$(basename "$0")
+
+case "$command_name" in
+  uprava-ci-root-deploy) phase=deploy ;;
+  uprava-ci-root-finalize) phase=finalize ;;
+  *) printf 'Unsupported root helper name: %s\n' "$command_name" >&2; exit 2 ;;
+esac
+
+mapfile -t workspaces < <(
+  find "$runner_checkout/.ci-workspace" -mindepth 1 -maxdepth 1 -type d \
+    -name "*-${phase}" -print
+)
+if (( ${#workspaces[@]} != 1 )); then
+  printf 'Expected one %s worktree, found %s\n' "$phase" "${#workspaces[@]}" >&2
+  exit 1
+fi
+
+workspace=${workspaces[0]}
+manifest="$runner_checkout/handoff/uprava-release.env"
+test -s "$manifest"
+test ! -L "$workspace"
+test ! -L "$manifest"
+[[ $(realpath -e "$workspace") == "$runner_checkout/.ci-workspace/"*"-${phase}" ]]
+
+if [[ -n $(/usr/bin/git -C "$workspace" status --porcelain=v1 --untracked-files=all) ]]; then
+  printf 'Refusing dirty %s worktree\n' "$phase" >&2
+  exit 1
+fi
+
+release_sha=$(sed -n 's/^UPRAVA_RELEASE_SHA=//p' "$manifest")
+[[ $release_sha =~ ^[0-9a-f]{40}$ ]] || { printf 'Invalid release SHA\n' >&2; exit 1; }
+
+workspace_sha=$(/usr/bin/git -C "$workspace" rev-parse HEAD)
+remote_sha=$(/usr/bin/git -c protocol.file.allow=never ls-remote "$repository" refs/heads/main | awk 'NR == 1 {print $1}')
+if [[ -z $remote_sha || $workspace_sha != "$release_sha" || $remote_sha != "$release_sha" ]]; then
+  printf 'Refusing unverified %s worktree (workspace=%s release=%s remote=%s)\n' \
+    "$phase" "$workspace_sha" "$release_sha" "${remote_sha:-unavailable}" >&2
+  exit 1
+fi
+
+exec env -i \
+  HOME=/root \
+  PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin \
+  CI_ARTIFACT_DIR="$runner_checkout/handoff" \
+  UPRAVA_ROOT_PHASE=1 \
+  SUDO=/usr/bin/env \
+  "$workspace/ci/$phase.sh"

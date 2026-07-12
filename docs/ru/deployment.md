@@ -18,12 +18,20 @@ Host administrator владеет inputs вне любых release directories:
 Docker, Compose, systemd, TLS и shared platform network
 Unix-пользователь и группа uprava
 GitHub Actions runner с labels self-hosted, zarya-main, geo-eu, ci
+/usr/local/sbin/uprava-ci-root-{deploy,finalize} — root-owned phase gates
+/etc/sudoers.d/uprava-ci-root только с этими двумя командами без аргументов
 ```
 
 `core.env` содержит устойчивые route и Core runtime settings. `node.env`
 содержит Core URL, точное production display name, workspace allow-list,
 logging, provider и stable Node state settings. Значения не копируются в
 repository или CI logs.
+
+Root helpers устанавливаются out of band из `ops/uprava-ci-root`; runner не
+может их заменить. Перед запуском repository-controlled deploy или finalize
+каждый helper требует ровно один worktree нужной фазы и проверяет совпадение SHA
+из manifest, HEAD worktree и публичного `origin/main`. Sudoers разрешает
+`runner` только две точные helper-команды без аргументов и не даёт общего sudo.
 
 ## Product-owned layout
 

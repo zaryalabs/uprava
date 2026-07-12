@@ -18,12 +18,21 @@ The host administrator owns these inputs outside every release directory:
 Docker, Compose, systemd, TLS and the shared platform network
 uprava Unix user and group
 GitHub Actions runner with self-hosted, zarya-main, geo-eu, ci labels
+/usr/local/sbin/uprava-ci-root-{deploy,finalize} root-owned phase gates
+/etc/sudoers.d/uprava-ci-root with only those two no-argument commands
 ```
 
 `core.env` contains stable route and Core runtime settings. `node.env` contains
 the Core URL, exact production display name, workspace allow-list, logging,
 provider and stable Node state settings. Values are never copied into the
 repository or CI logs.
+
+The root helpers are installed out of band from `ops/uprava-ci-root`; the
+runner cannot replace them. Before invoking repository-controlled deploy or
+finalize code, each helper requires exactly one matching phase worktree and
+verifies that its manifest SHA, worktree HEAD and the public `origin/main` SHA
+are identical. The sudoers entry grants `runner` only the two exact helper
+commands, without arguments or general sudo access.
 
 ## Product-Owned Layout
 
