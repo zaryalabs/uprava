@@ -6431,7 +6431,11 @@ fn command_available(binary: &str) -> bool {
     let Some(paths) = std::env::var_os("PATH") else {
         return false;
     };
-    std::env::split_paths(&paths).any(|directory| directory.join(binary).is_file())
+    command_available_in_search_path(binary, &paths)
+}
+
+fn command_available_in_search_path(binary: &str, search_path: &std::ffi::OsStr) -> bool {
+    std::env::split_paths(search_path).any(|directory| directory.join(binary).is_file())
 }
 
 fn validate_workspace(path: &Path) -> WorkspaceSnapshot {
@@ -7343,15 +7347,12 @@ mod tests {
 
     #[test]
     fn command_available_resolves_binary_from_path() {
-        let _lock = env_lock();
-        let _env = EnvGuard::cleared(&["PATH"]);
         let bin_dir = std::env::temp_dir().join(format!("uprava-node-bin-{}", Uuid::new_v4()));
         std::fs::create_dir_all(&bin_dir).expect("bin dir creates");
         let codex_path = bin_dir.join("codex");
         std::fs::write(&codex_path, "").expect("codex fixture writes");
-        std::env::set_var("PATH", &bin_dir);
 
-        let available = command_available("codex");
+        let available = command_available_in_search_path("codex", bin_dir.as_os_str());
         std::fs::remove_dir_all(bin_dir).expect("bin dir removes");
 
         assert!(available);
@@ -8669,7 +8670,12 @@ mod tests {
 
         std::fs::remove_file(codex_binary).expect("codex fixture removes");
         std::fs::remove_dir_all(workspace_path).expect("workspace fixture removes");
-        assert_eq!(outcome.status, CommandState::Completed);
+        assert_eq!(
+            outcome.status,
+            CommandState::Completed,
+            "Codex success fixture returned unexpected events: {:#?}",
+            outcome.events_to_send
+        );
         assert_eq!(
             event_kinds(&outcome.events_to_send),
             vec![
