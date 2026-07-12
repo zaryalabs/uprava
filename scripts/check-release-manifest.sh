@@ -61,4 +61,5 @@ esac
 test -n "$UPRAVA_NODE_SHA256"
 
 test "$UPRAVA_CORE_CONFIG" = /etc/uprava/core.env
+grep -Fq 'UPRAVA_NODE_VERSION ?= $(UPRAVA_NODE_PACKAGE_VERSION)+$(GIT_SHA)' "$repo/Makefile"
 echo "Release manifest is shell-safe, state-neutral and digest-pins every runtime artifact"
