@@ -24,13 +24,13 @@ describe("InventoryTreeContent", () => {
       within(tree).getByRole("link", { name: "Add Node" }),
     ).toHaveAttribute("href", "/nodes/pair");
     expect(
-      within(tree).getByRole("img", { name: "Presence: reachable" }),
+      within(tree).getByRole("img", { name: "Presence: Reachable" }),
     ).toBeVisible();
     expect(
-      within(tree).getByRole("img", { name: "Presence: stale" }),
+      within(tree).getByRole("img", { name: "Presence: Stale" }),
     ).toBeVisible();
     expect(
-      within(tree).getByRole("img", { name: "Presence: offline" }),
+      within(tree).getByRole("img", { name: "Presence: Offline" }),
     ).toBeVisible();
     expect(within(tree).queryByText("Active session")).not.toBeInTheDocument();
     expect(

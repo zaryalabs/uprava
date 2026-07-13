@@ -3,16 +3,15 @@ import { Link, Navigate, useLocation, useParams } from "react-router-dom";
 
 import { coreApi } from "../../shared/api/http-client";
 import { queryKeys } from "../../shared/api/query-keys";
-import { Badge } from "../../shared/ui/badge";
 import { Button } from "../../shared/ui/button";
 import { ErrorNotice } from "../../shared/ui/error-notice";
+import { StatusIndicator } from "../../shared/ui/status-indicator";
 import {
   routeWithSearch,
   workspaceAgentSessionRoute,
   workspaceJobRoute,
   workspaceJobRunRoute,
 } from "../workspaces/routes";
-import { runTone } from "./JobsRoute";
 
 export function JobRunRoute() {
   const { placementId = "", jobId = "", jobRunId } = useParams();
@@ -76,8 +75,18 @@ export function JobRunRoute() {
             Run {detail.job_run_id.slice(0, 8)}
           </h3>
           <div className="mt-2 flex gap-2">
-            <Badge tone={runTone(detail.state)}>{detail.state}</Badge>
-            {detail.force ? <Badge tone="warn">quota override</Badge> : null}
+            <StatusIndicator
+              showDimension
+              dimension="lifecycle"
+              value={detail.state}
+            />
+            {detail.force ? (
+              <StatusIndicator
+                dimension="attention"
+                value="warning"
+                label="Quota override"
+              />
+            ) : null}
           </div>
         </div>
         {active ? (

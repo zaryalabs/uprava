@@ -13,8 +13,8 @@ import {
 import { coreApi } from "../../shared/api/http-client";
 import { queryKeys } from "../../shared/api/query-keys";
 import type { JobSchedule, JobSummary } from "../../shared/protocol/types";
-import { Badge } from "../../shared/ui/badge";
 import { ErrorNotice } from "../../shared/ui/error-notice";
+import { StatusIndicator } from "../../shared/ui/status-indicator";
 import { EmptyState, LoadingState } from "../../shared/ui/system";
 import {
   type WorkspaceOutletContext,
@@ -182,13 +182,12 @@ function JobListLink({
         {formatSchedule(job.schedule, job.timezone)}
       </span>
       <span className="mt-2 flex flex-wrap items-center gap-1">
-        <Badge tone={job.enabled ? "good" : "neutral"}>
-          {job.enabled ? "enabled" : "paused"}
-        </Badge>
+        <StatusIndicator
+          dimension="lifecycle"
+          value={job.enabled ? "enabled" : "paused"}
+        />
         {job.latest_run ? (
-          <Badge tone={runTone(job.latest_run.state)}>
-            {job.latest_run.state}
-          </Badge>
+          <StatusIndicator dimension="lifecycle" value={job.latest_run.state} />
         ) : null}
       </span>
       <span className="mt-2 flex items-center gap-1 text-xs text-[var(--color-muted)]">
@@ -207,13 +206,6 @@ export function formatSchedule(schedule: JobSchedule | null, timezone: string) {
   const time = `${String(schedule.hour).padStart(2, "0")}:${String(schedule.minute).padStart(2, "0")}`;
   if (schedule.kind === "daily") return `daily ${time} ${timezone}`;
   return `${weekdays[schedule.weekday - 1] ?? "weekly"} ${time} ${timezone}`;
-}
-
-export function runTone(state: string): "good" | "bad" | "warn" | "neutral" {
-  if (state === "succeeded") return "good";
-  if (["failed", "timed_out"].includes(state)) return "bad";
-  if (state === "skipped") return "warn";
-  return "neutral";
 }
 
 export function Field({

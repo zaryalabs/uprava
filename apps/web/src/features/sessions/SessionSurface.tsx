@@ -6,9 +6,9 @@ import { Link, useLocation } from "react-router-dom";
 import { coreApi } from "../../shared/api/http-client";
 import { queryKeys } from "../../shared/api/query-keys";
 import { openSessionStream } from "../../shared/api/sse-client";
-import { Badge } from "../../shared/ui/badge";
 import { ErrorNotice } from "../../shared/ui/error-notice";
 import { LoadingState } from "../../shared/ui/system";
+import { StatusIndicator } from "../../shared/ui/status-indicator";
 import {
   canRunCommand,
   runWorkbenchCommand,
@@ -97,7 +97,6 @@ export function SessionSurface({
   }
   if (!session.data) return <LoadingState stage="Loading session" />;
 
-  const isDetached = session.data.session.state === "detached";
   const canSendTurn = canRunCommand("session.sendTurn", {
     session: session.data.session,
     runtime: session.data.session.runtime,
@@ -150,10 +149,19 @@ export function SessionSurface({
             }}
             showCopy={false}
           />
-          <Badge tone={isDetached ? "warn" : "good"}>
-            {session.data.session.state}
-          </Badge>
-          <Badge tone="good">{session.data.session.runtime.state}</Badge>
+          <StatusIndicator
+            showDimension
+            dimension="lifecycle"
+            value={session.data.session.state}
+          />
+          <StatusIndicator
+            showDimension
+            dimension="attention"
+            value={sessionAttention(
+              session.data.session.state,
+              session.data.session.runtime.state,
+            )}
+          />
         </div>
       </header>
 
@@ -216,4 +224,13 @@ export function SessionSurface({
       </div>
     </article>
   );
+}
+
+function sessionAttention(sessionState: string, runtimeState: string) {
+  if (sessionState === "degraded" || runtimeState === "error") {
+    return "degraded";
+  }
+  if (runtimeState === "blocked") return "blocked";
+  if (runtimeState === "stale" || runtimeState === "expired") return "warning";
+  return "clear";
 }

@@ -147,6 +147,37 @@ td,
   border-top: var(--line-hair);
 }
 
+.uprava-status-icon {
+  display: inline-flex;
+  width: 18px;
+  height: 18px;
+  flex: 0 0 auto;
+  align-items: center;
+  justify-content: center;
+  border: 1px solid currentColor;
+  background: var(--color-bg);
+}
+
+.uprava-status-good {
+  color: var(--color-ink);
+}
+
+.uprava-status-warn {
+  color: var(--color-notice);
+}
+
+.uprava-status-bad {
+  color: var(--color-risk);
+}
+
+.uprava-status-info {
+  color: var(--color-notice);
+}
+
+.uprava-status-neutral {
+  color: var(--color-muted);
+}
+
 .zarya-skip-link {
   position: fixed;
   z-index: 100;

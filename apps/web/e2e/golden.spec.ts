@@ -8,6 +8,18 @@ test("renders the control panel shell", async ({ page }) => {
     page.getByRole("link", { name: "Uprava", exact: true }),
   ).toBeVisible();
   await expect(page.getByRole("heading", { name: "Dashboard" })).toBeVisible();
+  const metrics = page.getByRole("region", { name: "System metrics" });
+  await expect(metrics.locator("article")).toHaveCount(4);
+  await expect(metrics.getByText("Core API")).toBeVisible();
+  await expect(metrics.getByText("Reachable Nodes")).toBeVisible();
+  await expect(metrics.getByText("Active Runtimes")).toBeVisible();
+  await expect(metrics.getByText("Running Jobs")).toBeVisible();
+  await expect(
+    page.getByRole("heading", { name: "Recent Activity" }),
+  ).toBeVisible();
+  await expect(
+    page.getByRole("link", { name: /Nightly check/ }),
+  ).toHaveAttribute("href", "/workspaces/placement-1/jobs/job-1/runs/run-1");
   await expect(
     page.getByRole("navigation", { name: "Primary navigation" }),
   ).toBeVisible();
@@ -55,11 +67,18 @@ test("renders warning badges and structured session blocks from snapshots", asyn
 
   await page.goto("/nodes");
   await expect(page.getByText("Local Node").first()).toBeVisible();
-  await expect(page.getByText("stale", { exact: true }).first()).toBeVisible();
+  await expect(page.getByText("Stale", { exact: true }).first()).toBeVisible();
+
+  await page.goto("/nodes/node-1");
+  const nodeMetrics = page.getByRole("region", { name: "Node metrics" });
+  await expect(nodeMetrics.locator("article")).toHaveCount(4);
+  await expect(nodeMetrics.getByText("Running Jobs")).toBeVisible();
+  await expect(page.getByText("last heartbeat stale")).toBeVisible();
+  await expect(page.getByRole("link", { name: "Add Workspace" })).toBeVisible();
 
   await page.goto("/workspaces/placement-1");
   await expect(
-    page.getByRole("img", { name: "Workspace: Dirty workspace" }),
+    page.getByRole("img", { name: "Attention: Dirty workspace" }),
   ).toBeVisible();
   await expect(page.getByRole("heading", { name: "Agent" })).toBeVisible();
   await expect(page.getByRole("button", { name: "Start Codex" })).toBeEnabled();

@@ -43,6 +43,14 @@ describe("App routes", () => {
     expect(
       await screen.findByRole("heading", { name: "Local Node" }),
     ).toBeVisible();
+    const nodeMetrics = screen.getByRole("region", { name: "Node metrics" });
+    expect(within(nodeMetrics).getByText("Last Heartbeat")).toBeVisible();
+    expect(within(nodeMetrics).getByText("Workspaces")).toBeVisible();
+    expect(within(nodeMetrics).getByText("Active Runtimes")).toBeVisible();
+    expect(within(nodeMetrics).getByText("Running Jobs")).toBeVisible();
+    expect(screen.getByRole("heading", { name: "Diagnostics" })).toBeVisible();
+    expect(screen.queryByText("Daemon version")).not.toBeInTheDocument();
+    expect(screen.queryByText("Platform")).not.toBeInTheDocument();
 
     renderApp("/nodes/pair");
 
@@ -75,13 +83,13 @@ describe("App routes", () => {
     const selectedSession = screen.getByRole("link", { name: /Fix issue/ });
     expect(selectedSession).toHaveAttribute("aria-current", "page");
     expect(
-      within(selectedSession).getByText("Lifecycle: active"),
+      within(selectedSession).getByText("Lifecycle: Active"),
     ).toBeVisible();
     expect(
-      within(selectedSession).getByText("Attention: blocked"),
+      within(selectedSession).getByText("Attention: Blocked"),
     ).toBeVisible();
     expect(
-      screen.getByRole("img", { name: "Workspace: Dirty workspace" }),
+      screen.getByRole("img", { name: "Attention: Dirty workspace" }),
     ).toBeVisible();
 
     renderApp("/workspaces/placement-1/workbench");
@@ -306,6 +314,28 @@ describe("App routes", () => {
     ).toBeVisible();
   });
 
+  it("keeps inventory metrics and session activity when Jobs are unavailable", async () => {
+    renderApp("/dashboard", { jobsFail: true });
+
+    expect(
+      await screen.findByRole("heading", { name: "Dashboard" }),
+    ).toBeVisible();
+    const metrics = await screen.findByRole("region", {
+      name: "System metrics",
+    });
+    expect(within(metrics).getByText("Reachable Nodes")).toBeVisible();
+    expect(within(metrics).getByText("1/1")).toBeVisible();
+    expect(within(metrics).getByText("Active Runtimes")).toBeVisible();
+    expect(within(metrics).getByText("Jobs unavailable")).toBeVisible();
+    expect(await screen.findByText("Job activity unavailable")).toBeVisible();
+    expect(screen.getByRole("link", { name: /Fix issue/ })).toHaveAttribute(
+      "href",
+      "/workspaces/placement-1/agent/session-1",
+    );
+    expect(screen.queryByText("System Overview")).not.toBeInTheDocument();
+    expect(screen.queryByText("Runtime Topology")).not.toBeInTheDocument();
+  });
+
   it("keeps shell navigation, sidebar preference, and Inspector state independent", async () => {
     renderApp("/dashboard");
     expect(
@@ -374,13 +404,14 @@ describe("App routes", () => {
   });
 });
 
-function renderApp(path: string) {
+function renderApp(path: string, options: { jobsFail?: boolean } = {}) {
   cleanup();
   vi.unstubAllGlobals();
   createdSession = null;
   lastCreateSessionRequest = null;
   lastCreateJobRequest = null;
   jobsRequests = 0;
+  jobsShouldFail = options.jobsFail ?? false;
   workspaceDiffRequests = 0;
   vi.stubGlobal("fetch", vi.fn(mockFetch));
   vi.stubGlobal("EventSource", MockEventSource);
@@ -439,6 +470,7 @@ let createdSession: typeof session | null = null;
 let lastCreateSessionRequest: unknown = null;
 let lastCreateJobRequest: unknown = null;
 let jobsRequests = 0;
+let jobsShouldFail = false;
 let workspaceDiffRequests = 0;
 
 async function mockFetch(input: RequestInfo | URL, init?: RequestInit) {
@@ -466,6 +498,17 @@ async function mockFetch(input: RequestInfo | URL, init?: RequestInit) {
   }
   if (url.pathname === "/api/v1/jobs") {
     jobsRequests += 1;
+    if (jobsShouldFail) {
+      return new Response(
+        JSON.stringify({
+          error_code: "jobs.unavailable",
+          message: "Jobs are temporarily unavailable",
+          retryable: true,
+          correlation_id: "corr-jobs",
+        }),
+        { status: 503, headers: { "content-type": "application/json" } },
+      );
+    }
   }
   if (url.pathname === "/api/v1/placements/placement-1/workspace/diff") {
     workspaceDiffRequests += 1;

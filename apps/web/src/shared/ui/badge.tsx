@@ -1,7 +1,9 @@
 import type { PropsWithChildren } from "react";
 
+export type BadgeTone = "neutral" | "good" | "warn" | "bad" | "info";
+
 type BadgeProps = PropsWithChildren<{
-  tone?: "neutral" | "good" | "warn" | "bad" | "info";
+  tone?: BadgeTone;
 }>;
 
 const tones = {

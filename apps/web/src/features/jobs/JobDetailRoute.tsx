@@ -9,12 +9,13 @@ import type { JobDetail } from "../../shared/protocol/types";
 import { Badge } from "../../shared/ui/badge";
 import { Button } from "../../shared/ui/button";
 import { ErrorNotice } from "../../shared/ui/error-notice";
+import { StatusIndicator } from "../../shared/ui/status-indicator";
 import {
   routeWithSearch,
   workspaceJobRoute,
   workspaceJobRunRoute,
 } from "../workspaces/routes";
-import { formatSchedule, runTone } from "./JobsRoute";
+import { formatSchedule } from "./JobsRoute";
 
 export function JobDetailRoute() {
   const { placementId = "", jobId = "" } = useParams();
@@ -103,15 +104,21 @@ export function JobDetailRoute() {
       </header>
 
       <div className="flex flex-wrap gap-2">
-        <Badge tone={detail.job.enabled ? "good" : "neutral"}>
-          {detail.job.enabled ? "enabled" : "paused"}
-        </Badge>
+        <StatusIndicator
+          showDimension
+          dimension="lifecycle"
+          value={detail.job.enabled ? "enabled" : "paused"}
+        />
         <Badge tone="neutral">overlap: skip</Badge>
-        <Badge tone={detail.job.continue_after_error ? "warn" : "neutral"}>
-          {detail.job.continue_after_error
-            ? "continue on error"
-            : "stop on error"}
-        </Badge>
+        <StatusIndicator
+          dimension="attention"
+          value={detail.job.continue_after_error ? "warning" : "clear"}
+          label={
+            detail.job.continue_after_error
+              ? "Continue on error"
+              : "Stop on error"
+          }
+        />
       </div>
 
       <div className="grid gap-4 md:grid-cols-3">
@@ -165,7 +172,7 @@ export function JobDetailRoute() {
               )}
               className="grid gap-3 border border-black/20 p-3 hover:bg-[var(--color-bg-muted)] md:grid-cols-[auto_minmax(0,1fr)_auto]"
             >
-              <Badge tone={runTone(candidate.state)}>{candidate.state}</Badge>
+              <StatusIndicator dimension="lifecycle" value={candidate.state} />
               <div className="min-w-0 text-sm">
                 <div>
                   {candidate.summary ??

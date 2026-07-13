@@ -5,8 +5,8 @@ import { Link, Navigate, useLocation, useParams } from "react-router-dom";
 import { coreApi } from "../../shared/api/http-client";
 import { queryKeys } from "../../shared/api/query-keys";
 import type { SessionSummary } from "../../shared/protocol/types";
-import { Badge } from "../../shared/ui/badge";
 import { ErrorNotice } from "../../shared/ui/error-notice";
+import { StatusIndicator } from "../../shared/ui/status-indicator";
 import { EmptyState, LoadingState } from "../../shared/ui/system";
 import { useWorkspaceContext } from "../workspaces/WorkspaceLayout";
 import {
@@ -205,10 +205,16 @@ function SessionListLink({
         </time>
       </span>
       <span className="mt-2 flex flex-wrap gap-1">
-        <Badge tone={session.state === "active" ? "good" : "neutral"}>
-          Lifecycle: {session.state}
-        </Badge>
-        <Badge tone={attention.tone}>Attention: {attention.label}</Badge>
+        <StatusIndicator
+          showDimension
+          dimension="lifecycle"
+          value={session.state}
+        />
+        <StatusIndicator
+          showDimension
+          dimension="attention"
+          value={attention}
+        />
       </span>
     </Link>
   );
@@ -224,19 +230,16 @@ export function orderWorkspaceSessions(sessions: SessionSummary[]) {
   });
 }
 
-function sessionAttention(session: SessionSummary): {
-  label: string;
-  tone: "neutral" | "warn" | "bad";
-} {
+function sessionAttention(session: SessionSummary) {
   if (session.runtime.state === "error" || session.state === "degraded") {
-    return { label: "degraded", tone: "bad" };
+    return "degraded";
   }
   if (
     session.runtime.state === "blocked" ||
     session.runtime.state === "stale" ||
     Boolean(session.runtime.degraded_reason)
   ) {
-    return { label: session.runtime.state, tone: "warn" };
+    return session.runtime.state === "blocked" ? "blocked" : "warning";
   }
-  return { label: "clear", tone: "neutral" };
+  return "clear";
 }

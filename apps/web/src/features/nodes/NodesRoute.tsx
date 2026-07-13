@@ -10,6 +10,7 @@ import { queryKeys } from "../../shared/api/query-keys";
 import { Badge } from "../../shared/ui/badge";
 import { Button } from "../../shared/ui/button";
 import { ErrorNotice } from "../../shared/ui/error-notice";
+import { StatusIndicator } from "../../shared/ui/status-indicator";
 import {
   canRunCommand,
   runWorkbenchCommand,
@@ -66,9 +67,11 @@ export function NodesRoute() {
               <NodeStatusBadge presence={node.presence} />
             </div>
             <div className="mt-3 flex flex-wrap gap-2">
-              <Badge tone={node.active_runtime_count > 0 ? "info" : "neutral"}>
-                {node.active_runtime_count} active sessions
-              </Badge>
+              <StatusIndicator
+                dimension="lifecycle"
+                value={node.active_runtime_count > 0 ? "active" : "idle"}
+                label={`${node.active_runtime_count} active runtimes`}
+              />
               {node.capabilities.map((capability) => (
                 <Badge key={capability.key}>{capability.key}</Badge>
               ))}

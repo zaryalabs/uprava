@@ -2,12 +2,9 @@ import { ChevronDown, ChevronRight, Folder, Monitor, Plus } from "lucide-react";
 import { useEffect, useState } from "react";
 import { Link, useLocation } from "react-router-dom";
 
-import type {
-  InventorySnapshot,
-  NodeSummary,
-  ProjectPlacementSummary,
-} from "../../shared/protocol/types";
+import type { InventorySnapshot } from "../../shared/protocol/types";
 import { ErrorNotice } from "../../shared/ui/error-notice";
+import { StatusIndicator } from "../../shared/ui/status-indicator";
 import { preferredWorkspaceRoute, workspaceRoute } from "../workspaces/routes";
 import { useInventory } from "./api";
 
@@ -136,7 +133,11 @@ export function InventoryTreeContent({
                     <span className="min-w-0 flex-1 truncate">
                       {node.display_name}
                     </span>
-                    <CompactStateMarker {...nodeMarker(node)} />
+                    <StatusIndicator
+                      compact
+                      dimension="presence"
+                      value={node.presence}
+                    />
                   </Link>
                 </div>
                 {expanded ? (
@@ -172,7 +173,33 @@ export function InventoryTreeContent({
                           <span className="min-w-0 flex-1 truncate">
                             {placement.display_name}
                           </span>
-                          <CompactStateMarker {...workspaceMarker(placement)} />
+                          <span className="flex shrink-0 items-center gap-1">
+                            <StatusIndicator
+                              compact
+                              dimension="workspace"
+                              value={placement.state}
+                            />
+                            {placement.resource_badges.some(
+                              (badge) => badge.severity !== "info",
+                            ) ? (
+                              <StatusIndicator
+                                compact
+                                dimension="attention"
+                                label={
+                                  placement.resource_badges.find(
+                                    (badge) => badge.severity !== "info",
+                                  )?.label
+                                }
+                                value={
+                                  placement.resource_badges.some(
+                                    (badge) => badge.severity === "hard_block",
+                                  )
+                                    ? "hard_block"
+                                    : "warning"
+                                }
+                              />
+                            ) : null}
+                          </span>
                         </Link>
                       );
                     })}
@@ -190,73 +217,6 @@ export function InventoryTreeContent({
       </div>
     </nav>
   );
-}
-
-type MarkerTone = "good" | "warn" | "bad" | "neutral";
-
-function CompactStateMarker({
-  label,
-  tone,
-}: {
-  label: string;
-  tone: MarkerTone;
-}) {
-  const toneClass = {
-    good: "border-[var(--color-ink)] bg-[var(--color-ink)]",
-    warn: "border-[var(--color-notice)] bg-[var(--color-notice)]",
-    bad: "border-[var(--color-risk)] bg-[var(--color-risk)]",
-    neutral: "border-[var(--color-muted)] bg-transparent",
-  }[tone];
-  return (
-    <span
-      role="img"
-      aria-label={label}
-      title={label}
-      className={`h-2 w-2 shrink-0 border ${toneClass}`}
-    />
-  );
-}
-
-function nodeMarker(node: NodeSummary): { label: string; tone: MarkerTone } {
-  const tone =
-    node.presence === "reachable"
-      ? "good"
-      : node.presence === "stale"
-        ? "warn"
-        : node.presence === "offline"
-          ? "bad"
-          : "neutral";
-  return { label: `Presence: ${node.presence}`, tone };
-}
-
-function workspaceMarker(placement: ProjectPlacementSummary): {
-  label: string;
-  tone: MarkerTone;
-} {
-  const badge = [...placement.resource_badges].sort(
-    (left, right) => severityRank(right.severity) - severityRank(left.severity),
-  )[0];
-  if (badge) {
-    return {
-      label: `Workspace: ${badge.label}`,
-      tone: badge.severity === "hard_block" ? "bad" : "warn",
-    };
-  }
-  const tone =
-    placement.state === "validated"
-      ? "good"
-      : placement.state === "error" || placement.state === "missing"
-        ? "bad"
-        : placement.state === "read_only"
-          ? "warn"
-          : "neutral";
-  return { label: `Workspace: ${placement.state}`, tone };
-}
-
-function severityRank(severity: string) {
-  if (severity === "hard_block") return 2;
-  if (severity === "warning") return 1;
-  return 0;
 }
 
 function nodeIdForPath(snapshot: InventorySnapshot, pathname: string) {

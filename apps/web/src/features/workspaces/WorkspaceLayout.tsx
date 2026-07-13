@@ -17,8 +17,8 @@ import type {
   ProjectPlacementSummary,
   SessionSummary,
 } from "../../shared/protocol/types";
-import { Badge } from "../../shared/ui/badge";
 import { ErrorNotice } from "../../shared/ui/error-notice";
+import { StatusIndicator } from "../../shared/ui/status-indicator";
 import { LoadingState } from "../../shared/ui/system";
 import { ReferenceActions } from "../../workbench/references/ReferenceActions";
 import { workspaceRefForPlacement } from "../../workbench/references/refs";
@@ -125,28 +125,28 @@ export function WorkspaceLayout() {
           className="mt-4 flex flex-wrap gap-2"
           aria-label="Workspace status"
         >
-          <StatusDimension label="Presence">
-            <Badge tone={node.presence === "reachable" ? "good" : "warn"}>
-              {node.presence}
-            </Badge>
-          </StatusDimension>
-          <StatusDimension label="Lifecycle">
-            <Badge tone={activeSessions > 0 ? "info" : "neutral"}>
-              {activeSessions} active
-            </Badge>
-          </StatusDimension>
-          <StatusDimension label="Attention">
-            <Badge tone={attentionCount > 0 ? "warn" : "neutral"}>
-              {attentionCount > 0 ? `${attentionCount} signals` : "clear"}
-            </Badge>
-          </StatusDimension>
-          <StatusDimension label="Workspace">
-            <Badge
-              tone={placement.data.state === "validated" ? "good" : "warn"}
-            >
-              {placement.data.state}
-            </Badge>
-          </StatusDimension>
+          <StatusIndicator
+            showDimension
+            dimension="presence"
+            value={node.presence}
+          />
+          <StatusIndicator
+            showDimension
+            dimension="lifecycle"
+            value={activeSessions > 0 ? "active" : "idle"}
+            label={activeSessions > 0 ? `${activeSessions} active` : "Idle"}
+          />
+          <StatusIndicator
+            showDimension
+            dimension="attention"
+            value={attentionCount > 0 ? "warning" : "clear"}
+            label={attentionCount > 0 ? `${attentionCount} signals` : "Clear"}
+          />
+          <StatusIndicator
+            showDimension
+            dimension="workspace"
+            value={placement.data.state}
+          />
         </div>
       </header>
 
@@ -214,20 +214,5 @@ function WorkspaceTab({ to, children }: { to: string; children: ReactNode }) {
     >
       {children}
     </NavLink>
-  );
-}
-
-function StatusDimension({
-  label,
-  children,
-}: {
-  label: string;
-  children: ReactNode;
-}) {
-  return (
-    <span className="inline-flex items-center gap-1 text-xs text-[var(--color-muted)]">
-      {label}
-      {children}
-    </span>
   );
 }
