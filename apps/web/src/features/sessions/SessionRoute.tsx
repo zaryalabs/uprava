@@ -16,16 +16,14 @@ import {
 import { sessionEventCursor } from "../../workbench/projection/apply-session-event";
 import { applySessionStreamEventToCache } from "../../workbench/projection/session-stream-cache";
 import { ReferenceActions } from "../../workbench/references/ReferenceActions";
-import {
-  routeForRef,
-  workspaceRefForPlacement,
-} from "../../workbench/references/refs";
+import { workspaceRefForPlacement } from "../../workbench/references/refs";
 import { EvidenceProjection } from "../artifacts/EvidenceProjection";
 import { AgentProjectionPanel } from "../agent-projection/AgentProjectionPanel";
 import { ChatComposer } from "./ChatComposer";
 import { LifecycleControls } from "./LifecycleControls";
 import { SessionTimeline } from "./SessionTimeline";
 import { ScheduledMessagesPanel } from "./ScheduledMessagesPanel";
+import { workspaceAgentRoute } from "../workspaces/routes";
 
 export function SessionRoute() {
   const { sessionThreadId } = useParams();
@@ -97,9 +95,9 @@ export function SessionRoute() {
     availableCommands: agentProjection.data?.available_commands,
   });
   const workspaceRef = workspaceRefForPlacement(session.data.placement);
-  const workspaceRoute =
-    routeForRef(workspaceRef) ??
-    `/workspaces/${session.data.placement.project_placement_id}`;
+  const workspaceRoute = workspaceAgentRoute(
+    session.data.placement.project_placement_id,
+  );
 
   return (
     <section>

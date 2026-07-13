@@ -16,6 +16,7 @@ import {
   routeForRef,
   workspaceRefForPlacement,
 } from "../../workbench/references/refs";
+import { workspaceAgentSessionRoute } from "../workspaces/routes";
 
 export function InventoryTree() {
   const inventory = useInventory();
@@ -144,11 +145,10 @@ export function InventoryTreeContent({
                     </Link>
                     <div className="ml-4 space-y-1">
                       {placementSessions.map((session) => {
-                        const sessionRoute =
-                          routeForRef({
-                            kind: "session",
-                            session_thread_id: session.session_thread_id,
-                          }) ?? `/sessions/${session.session_thread_id}`;
+                        const sessionRoute = workspaceAgentSessionRoute(
+                          placement.project_placement_id,
+                          session.session_thread_id,
+                        );
                         return (
                           <Link
                             key={session.session_thread_id}

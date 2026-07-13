@@ -21,6 +21,7 @@ vi.mock("../features/workspace-inspector/MonacoViews", () => ({
 describe("App routes", () => {
   afterEach(() => {
     vi.unstubAllGlobals();
+    window.localStorage.clear();
   });
 
   it("renders nodes, placement, and session routes from mocked Core snapshots", async () => {
@@ -34,11 +35,15 @@ describe("App routes", () => {
 
     renderApp("/nodes");
 
-    expect(await screen.findByRole("heading", { name: "Nodes" })).toBeVisible();
-    expect((await screen.findAllByText("Local Node")).length).toBeGreaterThan(
-      0,
-    );
-    expect(screen.getByText("Pair Node")).toBeVisible();
+    expect(
+      await screen.findByRole("heading", { name: "Local Node" }),
+    ).toBeVisible();
+
+    renderApp("/nodes/pair");
+
+    expect(
+      await screen.findByRole("heading", { name: "Pair Node", level: 1 }),
+    ).toBeVisible();
     expect(screen.getByText("not production-secure")).toBeVisible();
 
     renderApp("/workspaces/placement-1");
@@ -50,14 +55,25 @@ describe("App routes", () => {
         { timeout: 5_000 },
       ),
     ).toBeVisible();
+    expect(screen.getByRole("link", { name: "Agent" })).toHaveAttribute(
+      "href",
+      "/workspaces/placement-1/agent",
+    );
+    expect(screen.getByRole("link", { name: "Workbench" })).toHaveAttribute(
+      "href",
+      "/workspaces/placement-1/workbench",
+    );
+    expect(await screen.findByRole("heading", { name: "Agent" })).toBeVisible();
     expect(screen.getAllByText("Dirty workspace").length).toBeGreaterThan(0);
-    expect(screen.getByRole("button", { name: "Start Codex" })).toBeEnabled();
 
-    renderApp("/workspaces/placement-1");
+    renderApp("/workspaces/placement-1/workbench");
 
     expect(
       await screen.findByRole("heading", { name: "Uprava" }),
     ).toBeVisible();
+    expect(
+      await screen.findByRole("button", { name: "Start Codex" }),
+    ).toBeEnabled();
     expect(await screen.findByText("Workspace Inspector")).toBeVisible();
     expect((await screen.findAllByText("README.md")).length).toBeGreaterThan(0);
     fireEvent.click(screen.getByRole("treeitem", { name: "README.md" }));
@@ -68,6 +84,11 @@ describe("App routes", () => {
         { timeout: 15_000 },
       ),
     ).toBeVisible();
+
+    renderApp("/workspaces/placement-1");
+    expect(
+      await screen.findByRole("button", { name: "Start Codex" }),
+    ).toBeEnabled();
 
     renderApp("/projects/project-1");
 
@@ -84,7 +105,7 @@ describe("App routes", () => {
     expect(screen.getAllByText("Assistant reply").length).toBeGreaterThan(0);
     expect(screen.getByRole("link", { name: "Workspace" })).toHaveAttribute(
       "href",
-      "/workspaces/placement-1",
+      "/workspaces/placement-1/agent",
     );
     expect(
       (await screen.findAllByText("Session evidence projection"))[0],
@@ -113,6 +134,64 @@ describe("App routes", () => {
     expect(screen.getByText("v2")).toBeVisible();
     expect(screen.getByText("1")).toBeVisible();
   }, 45_000);
+
+  it("opens canonical Jobs routes and resolves legacy deep links", async () => {
+    renderApp("/workspaces/placement-1/jobs");
+    expect(
+      await screen.findByRole("heading", { name: "Background Jobs" }),
+    ).toBeVisible();
+
+    renderApp("/workspaces/placement-1/jobs/new");
+    expect(await screen.findByText("New paused Job")).toBeVisible();
+
+    renderApp("/jobs/job-1?inspect=bad-ref&tab=runs");
+    expect(
+      await screen.findByRole("heading", { name: "Nightly check" }),
+    ).toBeVisible();
+    expect(screen.getByRole("link", { name: "Workbench" })).toHaveAttribute(
+      "href",
+      "/workspaces/placement-1/workbench?inspect=bad-ref&tab=runs",
+    );
+
+    renderApp("/job-runs/run-1?inspect=bad-ref");
+    expect(
+      await screen.findByRole("heading", { name: "Run run-1" }),
+    ).toBeVisible();
+    expect(screen.getByRole("link", { name: "Open Job" })).toHaveAttribute(
+      "href",
+      "/workspaces/placement-1/jobs/job-1",
+    );
+  });
+
+  it("preserves query parameters and corrects mismatched workspace context", async () => {
+    renderApp(
+      "/workspaces/placement-2/agent/session-1?inspect=bad-ref&tab=timeline",
+    );
+
+    expect(
+      await screen.findByRole("heading", { name: "Fix issue" }),
+    ).toBeVisible();
+    expect(screen.getByRole("link", { name: "Workbench" })).toHaveAttribute(
+      "href",
+      "/workspaces/placement-1/workbench?inspect=bad-ref&tab=timeline",
+    );
+
+    renderApp("/workspaces/placement-2/jobs/job-1?inspect=bad-ref");
+    expect(
+      await screen.findByRole("heading", { name: "Nightly check" }),
+    ).toBeVisible();
+    expect(screen.getByRole("link", { name: "Agent" })).toHaveAttribute(
+      "href",
+      "/workspaces/placement-1/agent?inspect=bad-ref",
+    );
+  });
+
+  it("uses Dashboard when the legacy Jobs route has no workspace preference", async () => {
+    renderApp("/jobs");
+    expect(
+      await screen.findByRole("heading", { name: "Dashboard" }),
+    ).toBeVisible();
+  });
 });
 
 function renderApp(path: string) {
@@ -207,6 +286,8 @@ function responseForPath(pathname: string) {
       return [];
     case "/api/v1/placements/placement-1":
       return placement;
+    case "/api/v1/placements/placement-2":
+      return placementTwo;
     case "/api/v1/placements/placement-1/workspace/tree":
       return workspaceTree;
     case "/api/v1/placements/placement-1/workspace/file":
@@ -219,6 +300,20 @@ function responseForPath(pathname: string) {
       return evidenceProjection;
     case "/api/v1/sessions/session-1/agent-projection":
       return agentProjection;
+    case "/api/v1/jobs":
+      return [jobSummary];
+    case "/api/v1/jobs/job-1":
+      return jobDetail;
+    case "/api/v1/job-runs/run-1":
+      return jobRun;
+    case "/api/v1/provider-quota/codex":
+      return {
+        provider: "codex",
+        state: "available",
+        remaining_percent: 80,
+        observed_at: "2026-06-17T00:00:00Z",
+        unavailable_reason: null,
+      };
     default:
       throw new Error(`Unhandled mocked Core path: ${pathname}`);
   }
@@ -244,6 +339,15 @@ const placement = {
     { kind: "dirty_workspace", severity: "warning", label: "Dirty workspace" },
   ],
   last_validated_at: "2026-06-17T00:00:00Z",
+};
+
+const placementTwo = {
+  ...placement,
+  project_placement_id: "placement-2",
+  project_id: "project-2",
+  display_name: "Other workspace",
+  workspace_path: "/workspace/other",
+  resource_badges: [],
 };
 
 const session = {
@@ -282,7 +386,7 @@ const inventory = {
       diagnostics: "ok",
     },
   ],
-  placements: [placement],
+  placements: [placement, placementTwo],
   sessions: [session],
   generated_at: "2026-06-17T00:00:00Z",
 };
@@ -412,4 +516,45 @@ const agentProjection = {
   source_cause_summary: "Known event source refs are preserved",
   resume_context: "Runtime blocked on approval",
   generated_at: "2026-06-17T00:00:00Z",
+};
+
+const jobRun = {
+  job_run_id: "run-1",
+  job_id: "job-1",
+  trigger: "manual",
+  state: "succeeded",
+  scheduled_for: null,
+  queued_at: "2026-06-17T00:00:00Z",
+  started_at: "2026-06-17T00:00:01Z",
+  finished_at: "2026-06-17T00:00:02Z",
+  session_thread_id: "session-1",
+  runtime_session_id: "runtime-1",
+  summary: "Completed",
+  terminal_reason: null,
+  config_snapshot: { provider: "codex" },
+  force: false,
+};
+
+const jobSummary = {
+  job_id: "job-1",
+  name: "Nightly check",
+  project_placement_id: "placement-1",
+  placement_name: "Uprava",
+  provider: "codex",
+  enabled: true,
+  schedule: { kind: "daily", hour: 2, minute: 0 },
+  timezone: "UTC",
+  overlap_policy: "skip",
+  continue_after_error: false,
+  next_run_at: "2026-06-18T02:00:00Z",
+  paused_reason: null,
+  latest_run: jobRun,
+  created_at: "2026-06-16T00:00:00Z",
+  updated_at: "2026-06-17T00:00:02Z",
+};
+
+const jobDetail = {
+  job: jobSummary,
+  prompt: "Run checks",
+  runs: [jobRun],
 };

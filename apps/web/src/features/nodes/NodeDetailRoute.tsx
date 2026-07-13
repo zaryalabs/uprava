@@ -20,6 +20,7 @@ import {
   routeForRef,
   workspaceRefForPlacement,
 } from "../../workbench/references/refs";
+import { rememberNodeRoute } from "../workspaces/routes";
 
 export function NodeDetailRoute() {
   const { nodeId } = useParams();
@@ -36,6 +37,7 @@ export function NodeDetailRoute() {
   );
   useEffect(() => {
     setRotatedCredential(null);
+    if (nodeId) rememberNodeRoute(nodeId);
   }, [nodeId]);
   const revokeNode = useMutation({
     mutationFn: () =>

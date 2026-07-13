@@ -1,13 +1,28 @@
 import { lazy, Suspense } from "react";
 import { Route, Routes } from "react-router-dom";
 
-import { AppShell } from "./shell/AppShell";
 import { AuthGate } from "../features/auth/AuthGate";
 import { WorkspaceDraftProvider } from "../features/workspace-inspector/WorkspaceDrafts";
+import { AppShell } from "./shell/AppShell";
 
 const DashboardRoute = lazy(() =>
   import("../features/dashboard/DashboardRoute").then((module) => ({
     default: module.DashboardRoute,
+  })),
+);
+const JobCompatibilityRoute = lazy(() =>
+  import("../features/jobs/WorkspaceJobRoutes").then((module) => ({
+    default: module.JobCompatibilityRoute,
+  })),
+);
+const JobRunCompatibilityRoute = lazy(() =>
+  import("../features/jobs/WorkspaceJobRoutes").then((module) => ({
+    default: module.JobRunCompatibilityRoute,
+  })),
+);
+const JobsCompatibilityRoute = lazy(() =>
+  import("../features/jobs/WorkspaceJobRoutes").then((module) => ({
+    default: module.JobsCompatibilityRoute,
   })),
 );
 const JobsRoute = lazy(() =>
@@ -15,14 +30,24 @@ const JobsRoute = lazy(() =>
     default: module.JobsRoute,
   })),
 );
-const JobDetailRoute = lazy(() =>
-  import("../features/jobs/JobDetailRoute").then((module) => ({
-    default: module.JobDetailRoute,
+const WorkspaceJobDetailRoute = lazy(() =>
+  import("../features/jobs/WorkspaceJobRoutes").then((module) => ({
+    default: module.WorkspaceJobDetailRoute,
   })),
 );
-const JobRunRoute = lazy(() =>
-  import("../features/jobs/JobRunRoute").then((module) => ({
-    default: module.JobRunRoute,
+const WorkspaceJobRunRoute = lazy(() =>
+  import("../features/jobs/WorkspaceJobRoutes").then((module) => ({
+    default: module.WorkspaceJobRunRoute,
+  })),
+);
+const NodeCompatibilityRoute = lazy(() =>
+  import("../features/nodes/NodeCompatibilityRoutes").then((module) => ({
+    default: module.NodesCompatibilityRoute,
+  })),
+);
+const NodePairRoute = lazy(() =>
+  import("../features/nodes/NodeCompatibilityRoutes").then((module) => ({
+    default: module.NodePairRoute,
   })),
 );
 const NodeDetailRoute = lazy(() =>
@@ -30,17 +55,12 @@ const NodeDetailRoute = lazy(() =>
     default: module.NodeDetailRoute,
   })),
 );
-const NodesRoute = lazy(() =>
-  import("../features/nodes/NodesRoute").then((module) => ({
-    default: module.NodesRoute,
-  })),
-);
 const PlacementNewRoute = lazy(() =>
   import("../features/placements/PlacementNewRoute").then((module) => ({
     default: module.PlacementNewRoute,
   })),
 );
-const PlacementRoute = lazy(() =>
+const WorkspaceWorkbenchRoute = lazy(() =>
   import("../features/placements/PlacementRoute").then((module) => ({
     default: module.PlacementRoute,
   })),
@@ -55,9 +75,29 @@ const RuntimeSettingsRoute = lazy(() =>
     default: module.RuntimeSettingsRoute,
   })),
 );
-const SessionRoute = lazy(() =>
-  import("../features/sessions/SessionRoute").then((module) => ({
-    default: module.SessionRoute,
+const SessionCompatibilityRoute = lazy(() =>
+  import("../features/sessions/WorkspaceAgentRoute").then((module) => ({
+    default: module.SessionCompatibilityRoute,
+  })),
+);
+const WorkspaceAgentRoute = lazy(() =>
+  import("../features/sessions/WorkspaceAgentRoute").then((module) => ({
+    default: module.WorkspaceAgentRoute,
+  })),
+);
+const WorkspaceSessionRoute = lazy(() =>
+  import("../features/sessions/WorkspaceAgentRoute").then((module) => ({
+    default: module.WorkspaceSessionRoute,
+  })),
+);
+const WorkspaceLayout = lazy(() =>
+  import("../features/workspaces/WorkspaceLayout").then((module) => ({
+    default: module.WorkspaceLayout,
+  })),
+);
+const WorkspaceResolverRoute = lazy(() =>
+  import("../features/workspaces/WorkspaceLayout").then((module) => ({
+    default: module.WorkspaceResolverRoute,
   })),
 );
 
@@ -83,11 +123,12 @@ export function App() {
                 </LazyRoute>
               }
             />
+
             <Route
               path="/jobs"
               element={
                 <LazyRoute>
-                  <JobsRoute />
+                  <JobsCompatibilityRoute />
                 </LazyRoute>
               }
             />
@@ -95,7 +136,7 @@ export function App() {
               path="/jobs/:jobId"
               element={
                 <LazyRoute>
-                  <JobDetailRoute />
+                  <JobCompatibilityRoute />
                 </LazyRoute>
               }
             />
@@ -103,7 +144,15 @@ export function App() {
               path="/job-runs/:jobRunId"
               element={
                 <LazyRoute>
-                  <JobRunRoute />
+                  <JobRunCompatibilityRoute />
+                </LazyRoute>
+              }
+            />
+            <Route
+              path="/sessions/:sessionThreadId"
+              element={
+                <LazyRoute>
+                  <SessionCompatibilityRoute />
                 </LazyRoute>
               }
             />
@@ -111,7 +160,16 @@ export function App() {
               path="/nodes"
               element={
                 <LazyRoute>
-                  <NodesRoute />
+                  <NodeCompatibilityRoute />
+                </LazyRoute>
+              }
+            />
+
+            <Route
+              path="/nodes/pair"
+              element={
+                <LazyRoute>
+                  <NodePairRoute />
                 </LazyRoute>
               }
             />
@@ -124,14 +182,6 @@ export function App() {
               }
             />
             <Route
-              path="/projects/:projectId"
-              element={
-                <LazyRoute>
-                  <ProjectRoute />
-                </LazyRoute>
-              }
-            />
-            <Route
               path="/nodes/:nodeId/placements/new"
               element={
                 <LazyRoute>
@@ -140,21 +190,88 @@ export function App() {
               }
             />
             <Route
+              path="/projects/:projectId"
+              element={
+                <LazyRoute>
+                  <ProjectRoute />
+                </LazyRoute>
+              }
+            />
+
+            <Route
               path="/workspaces/:placementId"
               element={
                 <LazyRoute>
-                  <PlacementRoute />
+                  <WorkspaceLayout />
                 </LazyRoute>
               }
-            />
-            <Route
-              path="/sessions/:sessionThreadId"
-              element={
-                <LazyRoute>
-                  <SessionRoute />
-                </LazyRoute>
-              }
-            />
+            >
+              <Route
+                index
+                element={
+                  <LazyRoute>
+                    <WorkspaceResolverRoute />
+                  </LazyRoute>
+                }
+              />
+              <Route
+                path="agent"
+                element={
+                  <LazyRoute>
+                    <WorkspaceAgentRoute />
+                  </LazyRoute>
+                }
+              />
+              <Route
+                path="agent/:sessionThreadId"
+                element={
+                  <LazyRoute>
+                    <WorkspaceSessionRoute />
+                  </LazyRoute>
+                }
+              />
+              <Route
+                path="workbench"
+                element={
+                  <LazyRoute>
+                    <WorkspaceWorkbenchRoute />
+                  </LazyRoute>
+                }
+              />
+              <Route
+                path="jobs"
+                element={
+                  <LazyRoute>
+                    <JobsRoute />
+                  </LazyRoute>
+                }
+              />
+              <Route
+                path="jobs/new"
+                element={
+                  <LazyRoute>
+                    <JobsRoute />
+                  </LazyRoute>
+                }
+              />
+              <Route
+                path="jobs/:jobId"
+                element={
+                  <LazyRoute>
+                    <WorkspaceJobDetailRoute />
+                  </LazyRoute>
+                }
+              />
+              <Route
+                path="jobs/:jobId/runs/:jobRunId"
+                element={
+                  <LazyRoute>
+                    <WorkspaceJobRunRoute />
+                  </LazyRoute>
+                }
+              />
+            </Route>
+
             <Route
               path="/settings/runtime"
               element={

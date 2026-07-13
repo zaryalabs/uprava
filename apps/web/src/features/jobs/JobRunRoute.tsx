@@ -7,9 +7,13 @@ import { Badge } from "../../shared/ui/badge";
 import { Button } from "../../shared/ui/button";
 import { ErrorNotice } from "../../shared/ui/error-notice";
 import { runTone } from "./JobsRoute";
+import {
+  workspaceAgentSessionRoute,
+  workspaceJobRoute,
+} from "../workspaces/routes";
 
 export function JobRunRoute() {
-  const { jobRunId } = useParams();
+  const { placementId = "", jobId = "", jobRunId } = useParams();
   const queryClient = useQueryClient();
   const run = useQuery({
     queryKey: queryKeys.jobRun(jobRunId ?? ""),
@@ -96,13 +100,19 @@ export function JobRunRoute() {
       </div>
 
       <div className="flex flex-wrap gap-3 text-sm">
-        <Link className="underline" to={`/jobs/${detail.job_id}`}>
+        <Link
+          className="underline"
+          to={workspaceJobRoute(placementId, jobId || detail.job_id)}
+        >
           Open Job
         </Link>
         {detail.session_thread_id ? (
           <Link
             className="underline"
-            to={`/sessions/${detail.session_thread_id}`}
+            to={workspaceAgentSessionRoute(
+              placementId,
+              detail.session_thread_id,
+            )}
           >
             Open session output and evidence
           </Link>

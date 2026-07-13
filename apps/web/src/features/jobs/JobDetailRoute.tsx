@@ -10,6 +10,7 @@ import { Button } from "../../shared/ui/button";
 import { ErrorNotice } from "../../shared/ui/error-notice";
 import { formatSchedule, runTone } from "./JobsRoute";
 import type { JobDetail } from "../../shared/protocol/types";
+import { workspaceJobRunRoute } from "../workspaces/routes";
 
 export function JobDetailRoute() {
   const { jobId } = useParams();
@@ -141,7 +142,11 @@ export function JobDetailRoute() {
           {detail.runs.map((candidate) => (
             <Link
               key={candidate.job_run_id}
-              to={`/job-runs/${candidate.job_run_id}`}
+              to={workspaceJobRunRoute(
+                detail.job.project_placement_id,
+                detail.job.job_id,
+                candidate.job_run_id,
+              )}
               className="grid gap-3 border border-black/20 p-3 hover:bg-[var(--color-bg-muted)] md:grid-cols-[auto_minmax(0,1fr)_auto]"
             >
               <Badge tone={runTone(candidate.state)}>{candidate.state}</Badge>

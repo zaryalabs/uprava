@@ -9,6 +9,7 @@ import type { JobSchedule } from "../../shared/protocol/types";
 import { Badge } from "../../shared/ui/badge";
 import { Button } from "../../shared/ui/button";
 import { ErrorNotice } from "../../shared/ui/error-notice";
+import { workspaceJobRoute } from "../workspaces/routes";
 
 export function JobsRoute() {
   const navigate = useNavigate();
@@ -56,7 +57,9 @@ export function JobsRoute() {
       }),
     onSuccess: async (detail) => {
       await queryClient.invalidateQueries({ queryKey: queryKeys.jobs });
-      navigate(`/jobs/${detail.job.job_id}`);
+      navigate(
+        workspaceJobRoute(detail.job.project_placement_id, detail.job.job_id),
+      );
     },
   });
   const placements = inventory.data?.placements ?? [];
@@ -227,7 +230,7 @@ export function JobsRoute() {
         {jobs.data?.map((job) => (
           <Link
             key={job.job_id}
-            to={`/jobs/${job.job_id}`}
+            to={workspaceJobRoute(job.project_placement_id, job.job_id)}
             className="grid gap-3 border border-black/20 p-4 hover:bg-[var(--color-bg-muted)] md:grid-cols-[minmax(0,1fr)_auto]"
           >
             <div className="min-w-0">

@@ -11,6 +11,7 @@ import {
   routeForRef,
   workspaceRefForPlacement,
 } from "../../workbench/references/refs";
+import { workspaceAgentSessionRoute } from "../workspaces/routes";
 
 export function ProjectRoute() {
   const { projectId } = useParams();
@@ -115,12 +116,10 @@ export function ProjectRoute() {
             {sessions.map((session) => (
               <Link
                 key={session.session_thread_id}
-                to={
-                  routeForRef({
-                    kind: "session",
-                    session_thread_id: session.session_thread_id,
-                  }) ?? "#"
-                }
+                to={workspaceAgentSessionRoute(
+                  session.project_placement_id,
+                  session.session_thread_id,
+                )}
                 className="border border-[var(--color-muted)] bg-[var(--color-bg)] p-3 hover:bg-[var(--color-bg-muted)]"
               >
                 <div className="flex flex-wrap items-center justify-between gap-2">

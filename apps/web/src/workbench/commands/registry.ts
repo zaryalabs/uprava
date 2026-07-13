@@ -25,6 +25,7 @@ import type {
   SessionSummary,
 } from "../../shared/protocol/types";
 import { copyReferenceText, routeForRef } from "../references/refs";
+import { workspaceAgentSessionRoute } from "../../features/workspaces/routes";
 
 export type WorkbenchCommandId =
   | "node.createEnrollment"
@@ -212,10 +213,10 @@ const commands: UiCommand[] = [
       });
       await context.afterSuccess?.();
       context.navigate?.(
-        routeForRef({
-          kind: "session",
-          session_thread_id: session.session.session_thread_id,
-        }) ?? `/sessions/${session.session.session_thread_id}`,
+        workspaceAgentSessionRoute(
+          placement.project_placement_id,
+          session.session.session_thread_id,
+        ),
       );
       return session;
     },

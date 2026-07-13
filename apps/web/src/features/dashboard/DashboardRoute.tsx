@@ -16,6 +16,10 @@ import {
   LoadingState,
   PageHeader,
 } from "../../shared/ui/system";
+import {
+  workspaceAgentSessionRoute,
+  workspaceRoute,
+} from "../workspaces/routes";
 
 type Tone = "neutral" | "good" | "warn" | "bad" | "info";
 
@@ -225,7 +229,10 @@ export function DashboardRoute() {
               recentSessions.map((session) => (
                 <Link
                   key={session.session_thread_id}
-                  to={`/sessions/${session.session_thread_id}`}
+                  to={workspaceAgentSessionRoute(
+                    session.project_placement_id,
+                    session.session_thread_id,
+                  )}
                   className="grid min-h-14 min-w-0 gap-2 py-3 hover:bg-[var(--color-bg-muted)] md:grid-cols-[minmax(0,1fr)_auto] md:items-center md:px-2"
                 >
                   <span className="min-w-0">
@@ -446,7 +453,7 @@ function buildAttentionItems(snapshot: InventorySnapshot): AttentionItem[] {
       detail:
         placement.resource_badges.find((badge) => badge.severity !== "info")
           ?.label ?? `Workspace is ${placement.state}`,
-      to: `/workspaces/${placement.project_placement_id}`,
+      to: workspaceRoute(placement.project_placement_id),
       tone:
         placement.state === "error" || placement.state === "missing"
           ? "bad"
@@ -461,7 +468,10 @@ function buildAttentionItems(snapshot: InventorySnapshot): AttentionItem[] {
       key: `session-${session.session_thread_id}`,
       title: session.title,
       detail: `Runtime is ${session.runtime.state}`,
-      to: `/sessions/${session.session_thread_id}`,
+      to: workspaceAgentSessionRoute(
+        session.project_placement_id,
+        session.session_thread_id,
+      ),
       tone: session.runtime.state === "error" ? "bad" : "warn",
     }));
 

@@ -32,7 +32,7 @@ describe("InventoryTreeContent", () => {
     );
     expect(
       screen.getByRole("link", { name: /Active session/ }),
-    ).toHaveAttribute("href", "/sessions/session-1");
+    ).toHaveAttribute("href", "/workspaces/placement-1/agent/session-1");
   });
 
   it("keeps stale inventory links visible when refresh fails", () => {
