@@ -50,27 +50,29 @@ export function WorkspaceFileViewer({
 }) {
   if (!selectedPath) {
     return (
-      <div className="flex min-h-[520px] items-center justify-center text-sm text-[var(--color-muted)]">
+      <div className="flex h-full min-h-48 items-center justify-center text-sm text-[var(--color-muted)]">
         No text file selected
       </div>
     );
   }
   if (error) {
     return (
-      <div className="p-3">
+      <div className="h-full overflow-auto p-3">
         <ErrorNotice error={error} title="File unavailable" />
       </div>
     );
   }
   if (isLoading || !entry) {
     return (
-      <div className="p-3 text-sm text-[var(--color-muted)]">Loading file</div>
+      <div className="h-full p-3 text-sm text-[var(--color-muted)]">
+        Loading file
+      </div>
     );
   }
 
   const canEdit = content !== null && entry.status === "readable";
   return (
-    <div className="flex max-h-[720px] min-h-[520px] flex-col">
+    <div className="flex h-full min-h-0 flex-col">
       <div className="flex flex-wrap items-start justify-between gap-2 border-b border-[var(--color-muted)] px-3 py-2">
         <div className="min-w-0">
           <div className="flex min-w-0 items-center gap-2">
@@ -143,7 +145,7 @@ export function WorkspaceFileViewer({
 
 function Fallback() {
   return (
-    <div className="flex min-h-24 items-center justify-center">
+    <div className="flex min-h-24 flex-1 items-center justify-center">
       Loading editor
     </div>
   );

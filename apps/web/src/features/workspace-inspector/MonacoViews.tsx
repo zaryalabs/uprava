@@ -128,7 +128,9 @@ export function MonacoDiffTextViewer({ value }: { value: string }) {
   return (
     <div
       ref={containerRef}
-      className="h-80 overflow-hidden border border-[#1f2a22]"
+      className="min-h-48 flex-1 overflow-hidden border border-[#1f2a22]"
+      role="region"
+      aria-label="Workspace diff viewer"
     />
   );
 }

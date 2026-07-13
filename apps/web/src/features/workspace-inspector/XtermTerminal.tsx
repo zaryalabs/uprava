@@ -115,7 +115,7 @@ export function XtermTerminalPanel({
   };
 
   return (
-    <div className="overflow-hidden border border-[#111812] bg-[var(--color-ink)]">
+    <div className="flex h-full min-h-0 flex-col overflow-hidden border border-[#111812] bg-[var(--color-ink)]">
       <div className="flex flex-wrap items-center justify-between gap-2 border-b border-[#263128] bg-[#18221b] px-3 py-2">
         <div className="flex min-w-0 items-center gap-2">
           <span className="truncate font-mono text-xs text-[#dce8dd]">
@@ -134,7 +134,12 @@ export function XtermTerminalPanel({
           Close
         </Button>
       </div>
-      <div ref={containerRef} className="h-80 p-2" />
+      <div
+        ref={containerRef}
+        className="min-h-32 flex-1 p-2"
+        role="region"
+        aria-label={`Terminal ${terminal.shell}`}
+      />
     </div>
   );
 }

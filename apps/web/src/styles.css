@@ -290,6 +290,94 @@ td,
   padding: var(--space-4) 0 var(--space-4) var(--space-4);
 }
 
+.uprava-workbench-grid {
+  min-width: 0;
+  height: clamp(600px, calc(100vh - 340px), 860px);
+  display: grid;
+  grid-template-columns: minmax(200px, 240px) minmax(0, 1fr);
+  grid-template-rows: minmax(320px, 1fr) minmax(220px, 0.62fr);
+  overflow: hidden;
+  border: var(--line-strong);
+  background: var(--color-bg-muted);
+}
+
+.uprava-workbench-files,
+.uprava-workbench-editor,
+.uprava-workbench-terminal {
+  min-width: 0;
+  min-height: 0;
+  background: var(--color-bg);
+}
+
+.uprava-workbench-files {
+  display: flex;
+  flex-direction: column;
+  grid-column: 1;
+  grid-row: 1;
+  border-right: var(--line-hair);
+}
+
+.uprava-workbench-editor {
+  display: flex;
+  flex-direction: column;
+  grid-column: 2;
+  grid-row: 1;
+}
+
+.uprava-workbench-terminal {
+  display: flex;
+  flex-direction: column;
+  grid-column: 1 / -1;
+  grid-row: 2;
+  border-top: var(--line-strong);
+}
+
+.uprava-pane-heading,
+.uprava-pane-tabs {
+  min-height: 38px;
+  flex: 0 0 auto;
+  border-bottom: var(--line-hair);
+  background: var(--color-bg-muted);
+}
+
+.uprava-pane-heading {
+  display: flex;
+  align-items: center;
+  padding-inline: var(--space-3);
+  color: var(--color-muted);
+  font-size: var(--text-xs);
+  font-weight: 600;
+  text-transform: uppercase;
+}
+
+.uprava-pane-tabs {
+  display: flex;
+  align-items: stretch;
+  overflow-x: auto;
+}
+
+.uprava-pane-tab {
+  min-width: 104px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: var(--space-2);
+  padding-inline: var(--space-3);
+  border: 0;
+  border-top: 2px solid transparent;
+  border-right: var(--line-hair);
+  background: var(--color-bg-muted);
+  color: var(--color-muted);
+  font-size: var(--text-xs);
+}
+
+.uprava-pane-tab[aria-selected="true"] {
+  border-top-color: var(--color-ink);
+  background: var(--color-bg);
+  color: var(--color-ink);
+  font-weight: 600;
+}
+
 @media (max-width: 1280px) {
   :root {
     --uprava-sidebar-width: 224px;
@@ -360,6 +448,30 @@ td,
 
   .uprava-agent-grid > :last-child {
     padding-left: 0;
+  }
+
+  .uprava-workbench-grid {
+    height: auto;
+    grid-template-columns: minmax(0, 1fr);
+    grid-template-rows: 240px minmax(420px, 65vh) minmax(260px, 50vh);
+    overflow: visible;
+  }
+
+  .uprava-workbench-files {
+    grid-column: 1;
+    grid-row: 1;
+    border-right: 0;
+    border-bottom: var(--line-hair);
+  }
+
+  .uprava-workbench-editor {
+    grid-column: 1;
+    grid-row: 2;
+  }
+
+  .uprava-workbench-terminal {
+    grid-column: 1;
+    grid-row: 3;
   }
 }
 

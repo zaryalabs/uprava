@@ -62,7 +62,10 @@ export function WorkspaceTerminalPanel({
   };
 
   return (
-    <section className="border border-[var(--color-muted)] bg-[var(--color-bg)]">
+    <section
+      className="uprava-workbench-terminal"
+      aria-label="Workspace terminal pane"
+    >
       <div className="flex flex-wrap items-center justify-between gap-2 border-b border-[var(--color-muted)] px-3 py-2">
         <div className="flex items-center gap-2 text-xs font-medium uppercase tracking-normal text-[var(--color-muted)]">
           <SquareTerminal size={15} />
@@ -77,7 +80,7 @@ export function WorkspaceTerminalPanel({
           {openTerminal.isPending ? "Opening" : "New"}
         </Button>
       </div>
-      <div className="space-y-3 p-3">
+      <div className="flex min-h-0 flex-1 flex-col gap-2 overflow-hidden p-2">
         {terminals.error ? (
           <ErrorNotice error={terminals.error} title="Terminals unavailable" />
         ) : null}
@@ -85,12 +88,20 @@ export function WorkspaceTerminalPanel({
           <ErrorNotice error={openTerminal.error} title="Terminal failed" />
         ) : null}
         {terminalList.length > 0 ? (
-          <div className="flex flex-wrap gap-2">
+          <div
+            className="flex shrink-0 gap-1 overflow-x-auto"
+            role="tablist"
+            aria-label="Terminal sessions"
+          >
             {terminalList.map((terminal) => (
               <button
                 key={terminal.terminal_id}
                 type="button"
-                className={`min-h-8 border px-3 text-left font-mono text-xs ${
+                role="tab"
+                aria-selected={
+                  terminal.terminal_id === activeTerminal?.terminal_id
+                }
+                className={`min-h-8 shrink-0 border px-3 text-left font-mono text-xs ${
                   terminal.terminal_id === activeTerminal?.terminal_id
                     ? "border-[var(--color-ink)] bg-[var(--color-bg-muted)] text-[var(--color-muted)]"
                     : "border-[var(--color-muted)] bg-[var(--color-bg-muted)] text-[var(--color-muted)]"
@@ -103,16 +114,18 @@ export function WorkspaceTerminalPanel({
           </div>
         ) : null}
         {activeTerminal ? (
-          <Suspense fallback={<Fallback />}>
-            <XtermTerminalPanel
-              key={activeTerminal.terminal_id}
-              placementId={placementId}
-              terminal={activeTerminal}
-              onStatusChange={refresh}
-            />
-          </Suspense>
+          <div className="min-h-0 flex-1">
+            <Suspense fallback={<Fallback />}>
+              <XtermTerminalPanel
+                key={activeTerminal.terminal_id}
+                placementId={placementId}
+                terminal={activeTerminal}
+                onStatusChange={refresh}
+              />
+            </Suspense>
+          </div>
         ) : (
-          <div className="flex min-h-36 items-center justify-center text-sm text-[var(--color-muted)]">
+          <div className="flex min-h-24 flex-1 items-center justify-center text-sm text-[var(--color-muted)]">
             No terminal open
           </div>
         )}
@@ -132,7 +145,7 @@ function terminalLabel(terminal: WorkspaceTerminalSummary) {
 
 function Fallback() {
   return (
-    <div className="flex min-h-24 items-center justify-center">
+    <div className="flex h-full min-h-24 items-center justify-center">
       Loading terminal
     </div>
   );

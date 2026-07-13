@@ -1,4 +1,4 @@
-import { GitCompare, RefreshCw } from "lucide-react";
+import { RefreshCw } from "lucide-react";
 import { lazy, Suspense } from "react";
 
 import { Badge } from "../../shared/ui/badge";
@@ -29,18 +29,17 @@ export function WorkspaceDiffPanel({
   onRefresh: () => void;
 }) {
   return (
-    <section className="border border-[var(--color-muted)] bg-[var(--color-bg)]">
+    <section className="flex h-full min-h-0 flex-col bg-[var(--color-bg)]">
       <div className="flex flex-wrap items-center justify-between gap-2 border-b border-[var(--color-muted)] px-3 py-2">
-        <div className="flex items-center gap-2 text-xs font-medium uppercase tracking-normal text-[var(--color-muted)]">
-          <GitCompare size={15} />
-          Diff
+        <div className="text-xs text-[var(--color-muted)]">
+          Workspace snapshot
         </div>
         <Button variant="secondary" disabled={isLoading} onClick={onRefresh}>
           <RefreshCw size={15} />
           {isLoading ? "Loading" : "Refresh"}
         </Button>
       </div>
-      <div className="space-y-3 p-3">
+      <div className="flex min-h-0 flex-1 flex-col gap-3 overflow-auto p-3">
         {error ? <ErrorNotice error={error} title="Diff unavailable" /> : null}
         {diff ? (
           <>
@@ -50,7 +49,7 @@ export function WorkspaceDiffPanel({
                 <Badge tone="warn">Truncated</Badge>
               ) : null}
             </div>
-            <pre className="max-h-28 overflow-auto whitespace-pre-wrap bg-[var(--color-bg-muted)] p-3 font-mono text-xs leading-5 text-[var(--color-ink)]">
+            <pre className="max-h-24 shrink-0 overflow-auto whitespace-pre-wrap bg-[var(--color-bg-muted)] p-3 font-mono text-xs leading-5 text-[var(--color-ink)]">
               {diff.summary}
             </pre>
             <Suspense fallback={<Fallback />}>
@@ -69,7 +68,7 @@ export function WorkspaceDiffPanel({
 
 function Fallback() {
   return (
-    <div className="flex min-h-24 items-center justify-center text-sm text-[var(--color-muted)]">
+    <div className="flex min-h-24 flex-1 items-center justify-center text-sm text-[var(--color-muted)]">
       Loading diff
     </div>
   );

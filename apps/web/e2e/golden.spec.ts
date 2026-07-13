@@ -120,11 +120,14 @@ test("renders warning badges and structured session blocks from snapshots", asyn
   await expect.poll(() => core.warningAcknowledged).toBe(true);
 });
 
-test("loads Monaco only after a workspace file is opened", async ({ page }) => {
+test("loads Workbench chunks on demand and refits after shell changes", async ({
+  page,
+}) => {
   test.setTimeout(60_000);
   const resources: string[] = [];
   page.on("response", (response) => resources.push(response.url()));
-  await mockCoreApi(page);
+  const core = await mockCoreApi(page);
+  await page.setViewportSize({ width: 1440, height: 1000 });
 
   await page.goto("/");
   await expect(page.getByRole("heading", { name: "Dashboard" })).toBeVisible();
@@ -135,18 +138,56 @@ test("loads Monaco only after a workspace file is opened", async ({ page }) => {
   await expect(page.getByRole("button", { name: "Start Codex" })).toHaveCount(
     0,
   );
+  await expect(
+    page.getByRole("heading", { name: "Workbench", level: 2 }),
+  ).toBeVisible();
+  await expect(page.getByText("No terminal open")).toBeVisible();
+  expect(core.diffRequests).toBe(0);
   await page.getByRole("treeitem", { name: "README.md" }).click();
   await expect(
     page.getByRole("region", { name: "File editor README.md" }),
   ).toBeVisible({ timeout: 15_000 });
   await expect.poll(() => resources.some(isMonacoResource)).toBe(true);
   expect(resources.some(isXtermResource)).toBe(false);
+
+  await page.getByRole("tab", { name: "Diff" }).click();
+  await expect(
+    page.getByRole("region", { name: "Workspace diff viewer" }),
+  ).toBeVisible({ timeout: 15_000 });
+  expect(core.diffRequests).toBe(1);
+  await page.getByRole("tab", { name: "Source" }).click();
+
+  await page.getByRole("button", { name: "New" }).click();
+  const terminal = page.getByRole("region", { name: "Terminal /bin/zsh" });
+  await expect(terminal).toBeVisible({ timeout: 15_000 });
+  await expect.poll(() => resources.some(isXtermResource)).toBe(true);
+  const initialResizeFrames = await countResizeFrames(page);
+  expect(initialResizeFrames).toBeGreaterThan(0);
+
+  await page.getByRole("button", { name: "Hide navigation" }).click();
+  await expect
+    .poll(() => countResizeFrames(page))
+    .toBeGreaterThan(initialResizeFrames);
+  const collapsedResizeFrames = await countResizeFrames(page);
+  await page
+    .getByRole("button", { name: "Open workspace placement-1 in inspector" })
+    .first()
+    .click();
+  await expect(
+    page.getByRole("complementary", { name: "Context Inspector" }),
+  ).toBeVisible();
+  await expect
+    .poll(() => countResizeFrames(page))
+    .toBeGreaterThan(collapsedResizeFrames);
+  await expect(terminal).toBeVisible();
+  expect(await horizontalOverflow(page)).toBeLessThanOrEqual(1);
 });
 
 test("matches stable Zarya sheets and keeps the mobile session usable", async ({
   page,
 }) => {
   await mockCoreApi(page);
+  await page.clock.setFixedTime(new Date("2026-07-13T13:45:00Z"));
   await page.setViewportSize({ width: 1440, height: 1000 });
   await page.goto("/dashboard");
   await expect(page.getByRole("heading", { name: "Dashboard" })).toBeVisible();
@@ -162,9 +203,35 @@ test("matches stable Zarya sheets and keeps the mobile session usable", async ({
     fullPage: true,
   });
 
-  await page.setViewportSize({ width: 1024, height: 900 });
   await page.goto("/workspaces/placement-1/workbench");
-  await expect(page.getByText("Workspace Inspector")).toBeVisible();
+  await page.getByRole("treeitem", { name: "README.md" }).click();
+  await expect(
+    page.getByRole("region", { name: "File editor README.md" }),
+  ).toBeVisible({ timeout: 15_000 });
+  await page.getByRole("button", { name: "New" }).click();
+  await expect(
+    page.getByRole("region", { name: "Terminal /bin/zsh" }),
+  ).toBeVisible({ timeout: 15_000 });
+  await expect(page).toHaveScreenshot("workspace-workbench-desktop.png", {
+    animations: "disabled",
+    fullPage: true,
+  });
+  await page.getByRole("button", { name: "Hide navigation" }).click();
+  await expect.poll(() => workbenchWidth(page)).toBeGreaterThan(1_200);
+  await expect(page).toHaveScreenshot(
+    "workspace-workbench-collapsed-desktop.png",
+    {
+      animations: "disabled",
+      fullPage: false,
+    },
+  );
+  await page.getByRole("button", { name: "Show navigation" }).click();
+  await expect.poll(() => workbenchWidth(page)).toBeLessThan(1_200);
+
+  await page.setViewportSize({ width: 1024, height: 900 });
+  await expect(
+    page.getByRole("heading", { name: "Workbench", level: 2 }),
+  ).toBeVisible();
   await expect(page).toHaveScreenshot("workspace-zarya-narrow.png", {
     animations: "disabled",
     fullPage: true,
@@ -180,12 +247,7 @@ test("matches stable Zarya sheets and keeps the mobile session usable", async ({
     page.getByRole("textbox", { name: "Delayed turn content" }),
   ).toBeVisible();
   await expect(page.getByRole("button", { name: "Schedule" })).toBeDisabled();
-  const horizontalOverflow = await page.evaluate(
-    () =>
-      document.documentElement.scrollWidth -
-      document.documentElement.clientWidth,
-  );
-  expect(horizontalOverflow).toBeLessThanOrEqual(1);
+  expect(await horizontalOverflow(page)).toBeLessThanOrEqual(1);
 });
 
 test("supports the shell and composer keyboard path", async ({ page }) => {
@@ -207,7 +269,13 @@ test("supports the shell and composer keyboard path", async ({ page }) => {
 });
 
 async function mockCoreApi(page: import("@playwright/test").Page) {
-  const state = { validationAttempts: 0, warningAcknowledged: false };
+  const state = {
+    validationAttempts: 0,
+    warningAcknowledged: false,
+    diffRequests: 0,
+    terminalOpen: false,
+  };
+  await installMockWebSocket(page);
   await mockPublicShellApi(page);
   await page.route("**/api/v1/inventory", async (route) => {
     await route.fulfill({
@@ -230,6 +298,16 @@ async function mockCoreApi(page: import("@playwright/test").Page) {
       await route.fulfill({
         contentType: "application/json",
         body: json(workspaceTree),
+      });
+    },
+  );
+  await page.route(
+    "**/api/v1/placements/placement-1/workspace/diff",
+    async (route) => {
+      state.diffRequests += 1;
+      await route.fulfill({
+        contentType: "application/json",
+        body: json(workspaceDiff),
       });
     },
   );
@@ -258,11 +336,23 @@ async function mockCoreApi(page: import("@playwright/test").Page) {
   await page.route(
     "**/api/v1/placements/placement-1/workspace/terminals",
     async (route) => {
+      if (route.request().method() === "POST") {
+        state.terminalOpen = true;
+        await route.fulfill({
+          contentType: "application/json",
+          body: json({
+            placement_id: "placement-1",
+            terminal: workspaceTerminal,
+            replay: [],
+          }),
+        });
+        return;
+      }
       await route.fulfill({
         contentType: "application/json",
         body: json({
           placement_id: "placement-1",
-          terminals: [],
+          terminals: state.terminalOpen ? [workspaceTerminal] : [],
           generated_at: "2026-06-17T00:00:00Z",
         }),
       });
@@ -332,6 +422,82 @@ async function mockCoreApi(page: import("@playwright/test").Page) {
     });
   });
   return state;
+}
+
+async function installMockWebSocket(page: import("@playwright/test").Page) {
+  await page.addInitScript(() => {
+    const target = window as Window & { __upravaSocketFrames?: string[] };
+    target.__upravaSocketFrames = [];
+    class MockWebSocket extends EventTarget {
+      static readonly CONNECTING = 0;
+      static readonly OPEN = 1;
+      static readonly CLOSING = 2;
+      static readonly CLOSED = 3;
+      readonly url: string;
+      readyState = MockWebSocket.CONNECTING;
+
+      constructor(url: string | URL) {
+        super();
+        this.url = String(url);
+        queueMicrotask(() => {
+          this.readyState = MockWebSocket.OPEN;
+          this.dispatchEvent(new Event("open"));
+          this.dispatchEvent(
+            new MessageEvent("message", {
+              data: JSON.stringify({
+                kind: "output",
+                terminal_id: "terminal-1",
+                seq: 1,
+                data: "uprava@local:/workspace/uprava$ ",
+                sent_at: "2026-06-17T00:00:00Z",
+              }),
+            }),
+          );
+        });
+      }
+
+      send(data: string | ArrayBufferLike | Blob | ArrayBufferView) {
+        if (typeof data === "string") target.__upravaSocketFrames?.push(data);
+      }
+
+      close() {
+        this.readyState = MockWebSocket.CLOSED;
+        this.dispatchEvent(new Event("close"));
+      }
+    }
+    Object.defineProperty(window, "WebSocket", {
+      configurable: true,
+      value: MockWebSocket,
+    });
+  });
+}
+
+async function countResizeFrames(page: import("@playwright/test").Page) {
+  return page.evaluate(() => {
+    const frames = (window as Window & { __upravaSocketFrames?: string[] })
+      .__upravaSocketFrames;
+    return (frames ?? []).filter((frame) => {
+      try {
+        return JSON.parse(frame).kind === "resize";
+      } catch {
+        return false;
+      }
+    }).length;
+  });
+}
+
+async function horizontalOverflow(page: import("@playwright/test").Page) {
+  return page.evaluate(
+    () =>
+      document.documentElement.scrollWidth -
+      document.documentElement.clientWidth,
+  );
+}
+
+async function workbenchWidth(page: import("@playwright/test").Page) {
+  return page
+    .locator(".uprava-workbench-grid")
+    .evaluate((element) => element.getBoundingClientRect().width);
 }
 
 async function mockPublicShellApi(page: import("@playwright/test").Page) {
@@ -425,6 +591,30 @@ const workspaceFile = {
   content: "# Uprava\n",
   truncated: false,
   generated_at: "2026-06-17T00:00:00Z",
+};
+
+const workspaceDiff = {
+  placement_id: "placement-1",
+  diff_id: "diff-1",
+  summary: "README.md | 1 +",
+  diff: "diff --git a/README.md b/README.md\n+# Uprava",
+  summary_truncated: false,
+  diff_truncated: false,
+  generated_at: "2026-06-17T00:00:00Z",
+};
+
+const workspaceTerminal = {
+  placement_id: "placement-1",
+  terminal_id: "terminal-1",
+  title: "Terminal 1",
+  cwd: "/workspace/uprava",
+  shell: "/bin/zsh",
+  cols: 120,
+  rows: 24,
+  state: "running",
+  exit_code: null,
+  created_at: "2026-06-17T00:00:00Z",
+  updated_at: "2026-06-17T00:00:00Z",
 };
 
 const session = {

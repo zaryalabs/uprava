@@ -92,7 +92,16 @@ describe("App routes", () => {
     expect(
       screen.queryByRole("button", { name: "Start Codex" }),
     ).not.toBeInTheDocument();
-    expect(await screen.findByText("Workspace Inspector")).toBeVisible();
+    expect(
+      await screen.findByRole("heading", { name: "Workbench", level: 2 }),
+    ).toBeVisible();
+    expect(workspaceDiffRequests).toBe(0);
+    fireEvent.click(screen.getByRole("tab", { name: "Diff" }));
+    expect(
+      await screen.findByRole("region", { name: "Diff viewer" }),
+    ).toBeVisible();
+    expect(workspaceDiffRequests).toBe(1);
+    expect(screen.queryByText("No commands recorded")).not.toBeInTheDocument();
     expect((await screen.findAllByText("README.md")).length).toBeGreaterThan(0);
     fireEvent.click(screen.getByRole("treeitem", { name: "README.md" }));
     expect(
@@ -104,7 +113,9 @@ describe("App routes", () => {
     ).toBeVisible();
 
     renderApp("/workspaces/placement-1");
-    expect(await screen.findByText("Workspace Inspector")).toBeVisible();
+    expect(
+      await screen.findByRole("heading", { name: "Workbench", level: 2 }),
+    ).toBeVisible();
 
     renderApp("/projects/project-1");
 
@@ -332,6 +343,7 @@ function renderApp(path: string) {
   vi.unstubAllGlobals();
   createdSession = null;
   lastCreateSessionRequest = null;
+  workspaceDiffRequests = 0;
   vi.stubGlobal("fetch", vi.fn(mockFetch));
   vi.stubGlobal("EventSource", MockEventSource);
   MockEventSource.reset();
@@ -387,6 +399,7 @@ class MockEventSource {
 
 let createdSession: typeof session | null = null;
 let lastCreateSessionRequest: unknown = null;
+let workspaceDiffRequests = 0;
 
 async function mockFetch(input: RequestInfo | URL, init?: RequestInit) {
   const url = new URL(input.toString());
@@ -406,6 +419,9 @@ async function mockFetch(input: RequestInfo | URL, init?: RequestInit) {
       },
     };
     return jsonResponse(sessionDetailFor(createdSession, placementTwo));
+  }
+  if (url.pathname === "/api/v1/placements/placement-1/workspace/diff") {
+    workspaceDiffRequests += 1;
   }
   const payload = responseForPath(url.pathname);
   return jsonResponse(payload);
@@ -450,6 +466,8 @@ function responseForPath(pathname: string) {
       return workspaceTree;
     case "/api/v1/placements/placement-1/workspace/file":
       return workspaceFile;
+    case "/api/v1/placements/placement-1/workspace/diff":
+      return workspaceDiff;
     case "/api/v1/placements/placement-1/workspace/terminals":
       return workspaceTerminals;
     case "/api/v1/sessions/session-1":
@@ -618,6 +636,16 @@ const workspaceFile = {
   },
   content: "# Uprava",
   truncated: false,
+  generated_at: "2026-06-17T00:00:00Z",
+};
+
+const workspaceDiff = {
+  placement_id: "placement-1",
+  diff_id: "diff-1",
+  summary: "README.md | 1 +",
+  diff: "diff --git a/README.md b/README.md\n+# Uprava",
+  summary_truncated: false,
+  diff_truncated: false,
   generated_at: "2026-06-17T00:00:00Z",
 };
 
