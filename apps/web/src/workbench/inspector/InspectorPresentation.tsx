@@ -47,15 +47,23 @@ export function InspectorPresentation({
     <section className="space-y-4">
       <div className="flex items-center justify-between gap-2">
         <h2 className="text-xs font-bold text-[var(--color-muted)]">
-          Inspector
+          Context Inspector
         </h2>
         {selected ? (
           <Button
             type="button"
             variant="ghost"
             className="h-7 w-7 px-0"
-            aria-label="Return to Previous Inspector Layer"
-            title="Return to Previous Layer"
+            aria-label={
+              stack.length === 1
+                ? "Close Inspector"
+                : "Return to Previous Inspector Layer"
+            }
+            title={
+              stack.length === 1
+                ? "Close Inspector"
+                : "Return to Previous Layer"
+            }
             onClick={closeTop}
           >
             <Minus size={14} aria-hidden="true" />

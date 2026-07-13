@@ -1,22 +1,15 @@
-import { Folder, Monitor, MessageSquare } from "lucide-react";
+import { ChevronDown, ChevronRight, Folder, Monitor, Plus } from "lucide-react";
+import { useEffect, useState } from "react";
 import { Link, useLocation } from "react-router-dom";
 
-import { useInventory } from "./api";
-import { NodeStatusBadge } from "../nodes/NodeStatusBadge";
 import type {
   InventorySnapshot,
-  PlacementState,
-  RuntimeSessionState,
-  SessionThreadState,
-  WarningSeverity,
+  NodeSummary,
+  ProjectPlacementSummary,
 } from "../../shared/protocol/types";
-import { Badge } from "../../shared/ui/badge";
 import { ErrorNotice } from "../../shared/ui/error-notice";
-import {
-  routeForRef,
-  workspaceRefForPlacement,
-} from "../../workbench/references/refs";
-import { workspaceAgentSessionRoute } from "../workspaces/routes";
+import { preferredWorkspaceRoute, workspaceRoute } from "../workspaces/routes";
+import { useInventory } from "./api";
 
 export function InventoryTree() {
   const inventory = useInventory();
@@ -58,162 +51,224 @@ export function InventoryTreeContent({
   pathname: string;
   refreshError?: unknown;
 }) {
-  const { nodes, placements, sessions } = snapshot;
+  const { nodes, placements } = snapshot;
+  const activeNodeId = nodeIdForPath(snapshot, pathname);
+  const [expandedNodeIds, setExpandedNodeIds] = useState<Set<string>>(
+    () =>
+      new Set(
+        activeNodeId ? [activeNodeId] : nodes[0] ? [nodes[0].node_id] : [],
+      ),
+  );
+
+  useEffect(() => {
+    if (!activeNodeId) return;
+    setExpandedNodeIds((current) => {
+      if (current.has(activeNodeId)) return current;
+      return new Set([...current, activeNodeId]);
+    });
+  }, [activeNodeId]);
 
   return (
-    <nav aria-label="Inventory tree" className="space-y-2">
+    <nav aria-label="Inventory tree" className="flex min-h-0 flex-1 flex-col">
       {refreshError ? (
         <ErrorNotice error={refreshError} title="Inventory refresh failed" />
       ) : null}
-      <div className="px-1 text-xs font-semibold uppercase tracking-normal text-[var(--color-muted)]">
-        Nodes
-      </div>
-      {nodes.length === 0 ? (
-        <div className="border border-[var(--color-muted)] bg-[var(--color-bg-muted)] p-3 text-sm text-[var(--color-muted)]">
-          No nodes registered
+      <section aria-labelledby="nodes-navigation-heading">
+        <div className="mb-1 flex min-h-8 items-center justify-between px-1 text-xs font-semibold uppercase tracking-normal text-[var(--color-muted)]">
+          <span id="nodes-navigation-heading">Nodes</span>
+          <Link
+            to="/nodes/pair"
+            className="inline-flex h-7 w-7 items-center justify-center border border-transparent hover:border-[var(--color-muted)] hover:bg-[var(--color-bg-muted)] hover:text-[var(--color-ink)]"
+            aria-label="Add Node"
+            title="Add Node"
+          >
+            <Plus size={14} aria-hidden="true" />
+          </Link>
         </div>
-      ) : null}
-      {nodes.map((node) => {
-        const nodePlacements = placements.filter(
-          (placement) => placement.node_id === node.node_id,
-        );
-        const nodeRoute =
-          routeForRef({ kind: "node", node_id: node.node_id }) ??
-          `/nodes/${node.node_id}`;
-        return (
-          <div key={node.node_id} className="space-y-1">
-            <Link
-              to={nodeRoute}
-              className={`flex min-h-9 items-center justify-between px-2 text-sm hover:bg-[var(--color-bg-muted)] ${
-                pathname === nodeRoute ? "bg-[var(--color-bg-muted)]" : ""
-              }`}
-            >
-              <span className="flex min-w-0 items-center gap-2">
-                <Monitor size={15} />
-                <span className="truncate">{node.display_name}</span>
-              </span>
-              <span className="flex shrink-0 items-center gap-1">
-                <NodeStatusBadge presence={node.presence} />
-                <Badge
-                  tone={node.active_runtime_count > 0 ? "good" : "neutral"}
-                >
-                  {node.active_runtime_count > 0 ? "active" : "idle"}
-                </Badge>
-                {node.sleep_hint && node.sleep_hint !== "unknown" ? (
-                  <Badge tone="neutral">sleep {node.sleep_hint}</Badge>
-                ) : null}
-              </span>
-            </Link>
-            <div className="ml-4 space-y-1 border-l border-[var(--color-muted)] pl-2">
-              {nodePlacements.map((placement) => {
-                const placementSessions = sessions.filter(
-                  (session) =>
-                    session.project_placement_id ===
-                    placement.project_placement_id,
-                );
-                const workspaceRoute =
-                  routeForRef(workspaceRefForPlacement(placement)) ??
-                  `/workspaces/${placement.project_placement_id}`;
-                return (
-                  <div
-                    key={placement.project_placement_id}
-                    className="space-y-1"
-                  >
-                    <Link
-                      to={workspaceRoute}
-                      className="flex min-h-8 min-w-0 items-center justify-between gap-2 px-2 text-sm hover:bg-[var(--color-bg-muted)]"
-                    >
-                      <span className="flex min-w-0 items-center gap-2">
-                        <Folder size={14} />
-                        <span className="truncate">
-                          {placement.display_name}
-                        </span>
-                      </span>
-                      <span className="flex shrink-0 items-center gap-1">
-                        <Badge tone={placementTone(placement.state)}>
-                          {placement.state}
-                        </Badge>
-                        {placement.resource_badges.slice(0, 2).map((badge) => (
-                          <Badge
-                            key={badge.kind}
-                            tone={resourceTone(badge.severity)}
-                          >
-                            {badge.label}
-                          </Badge>
-                        ))}
-                      </span>
-                    </Link>
-                    <div className="ml-4 space-y-1">
-                      {placementSessions.map((session) => {
-                        const sessionRoute = workspaceAgentSessionRoute(
-                          placement.project_placement_id,
-                          session.session_thread_id,
-                        );
-                        return (
-                          <Link
-                            key={session.session_thread_id}
-                            to={sessionRoute}
-                            className="flex min-h-8 min-w-0 items-center justify-between gap-2 px-2 text-sm text-[var(--color-ink)] hover:bg-[var(--color-bg-muted)]"
-                          >
-                            <span className="flex min-w-0 items-center gap-2">
-                              <MessageSquare size={14} />
-                              <span className="truncate">{session.title}</span>
-                            </span>
-                            <span className="flex shrink-0 items-center gap-1">
-                              <Badge tone={sessionTone(session.state)}>
-                                {session.state}
-                              </Badge>
-                              <Badge tone={runtimeTone(session.runtime.state)}>
-                                {session.runtime.state}
-                              </Badge>
-                            </span>
-                          </Link>
-                        );
-                      })}
-                    </div>
-                  </div>
-                );
-              })}
-            </div>
+        {nodes.length === 0 ? (
+          <div className="border border-[var(--color-muted)] bg-[var(--color-bg-muted)] p-3 text-sm text-[var(--color-muted)]">
+            No nodes registered
           </div>
-        );
-      })}
+        ) : null}
+        <div className="space-y-1">
+          {nodes.map((node, index) => {
+            const nodePlacements = placements.filter(
+              (placement) => placement.node_id === node.node_id,
+            );
+            const nodeRoute = `/nodes/${encodeURIComponent(node.node_id)}`;
+            const expanded = expandedNodeIds.has(node.node_id);
+            const workspaceListId = `node-workspaces-${index}`;
+            return (
+              <div key={node.node_id}>
+                <div
+                  className={`flex min-h-9 items-center border-l ${
+                    activeNodeId === node.node_id
+                      ? "border-[var(--color-ink)] bg-[var(--color-bg-muted)]"
+                      : "border-transparent"
+                  }`}
+                >
+                  <button
+                    type="button"
+                    className="inline-flex h-8 w-7 shrink-0 items-center justify-center text-[var(--color-muted)] hover:bg-[var(--color-bg-muted)] hover:text-[var(--color-ink)]"
+                    aria-controls={workspaceListId}
+                    aria-expanded={expanded}
+                    aria-label={`${expanded ? "Collapse" : "Expand"} ${node.display_name} workspaces`}
+                    onClick={() => {
+                      setExpandedNodeIds((current) => {
+                        const next = new Set(current);
+                        if (next.has(node.node_id)) next.delete(node.node_id);
+                        else next.add(node.node_id);
+                        return next;
+                      });
+                    }}
+                  >
+                    {expanded ? (
+                      <ChevronDown size={14} aria-hidden="true" />
+                    ) : (
+                      <ChevronRight size={14} aria-hidden="true" />
+                    )}
+                  </button>
+                  <Link
+                    to={nodeRoute}
+                    className="flex min-h-9 min-w-0 flex-1 items-center gap-2 pr-2 text-sm hover:bg-[var(--color-bg-muted)]"
+                  >
+                    <Monitor size={14} aria-hidden="true" />
+                    <span className="min-w-0 flex-1 truncate">
+                      {node.display_name}
+                    </span>
+                    <CompactStateMarker {...nodeMarker(node)} />
+                  </Link>
+                </div>
+                {expanded ? (
+                  <div
+                    id={workspaceListId}
+                    className="ml-4 border-l border-[var(--color-muted)] pl-3"
+                  >
+                    {nodePlacements.length === 0 ? (
+                      <div className="px-2 py-2 text-xs text-[var(--color-muted)]">
+                        No workspaces
+                      </div>
+                    ) : null}
+                    {nodePlacements.map((placement) => {
+                      const placementPath = workspaceRoute(
+                        placement.project_placement_id,
+                      );
+                      const active =
+                        pathname === placementPath ||
+                        pathname.startsWith(`${placementPath}/`);
+                      return (
+                        <Link
+                          key={placement.project_placement_id}
+                          to={preferredWorkspaceRoute(
+                            placement.project_placement_id,
+                          )}
+                          className={`flex min-h-8 min-w-0 items-center gap-2 border-l px-2 text-sm hover:bg-[var(--color-bg-muted)] ${
+                            active
+                              ? "border-[var(--color-ink)] bg-[var(--color-bg-muted)] font-bold"
+                              : "border-transparent"
+                          }`}
+                        >
+                          <Folder size={13} aria-hidden="true" />
+                          <span className="min-w-0 flex-1 truncate">
+                            {placement.display_name}
+                          </span>
+                          <CompactStateMarker {...workspaceMarker(placement)} />
+                        </Link>
+                      );
+                    })}
+                  </div>
+                ) : null}
+              </div>
+            );
+          })}
+        </div>
+      </section>
+      <div className="mt-auto px-2 pt-5 text-xs text-[var(--color-muted)]">
+        {nodes.length} {nodes.length === 1 ? "node" : "nodes"} ·{" "}
+        {placements.length}{" "}
+        {placements.length === 1 ? "workspace" : "workspaces"}
+      </div>
     </nav>
   );
 }
 
-function placementTone(state: PlacementState) {
-  if (state === "validated") return "good";
-  if (state === "error" || state === "missing") return "bad";
-  if (state === "read_only") return "warn";
-  return "neutral";
+type MarkerTone = "good" | "warn" | "bad" | "neutral";
+
+function CompactStateMarker({
+  label,
+  tone,
+}: {
+  label: string;
+  tone: MarkerTone;
+}) {
+  const toneClass = {
+    good: "border-[var(--color-ink)] bg-[var(--color-ink)]",
+    warn: "border-[var(--color-notice)] bg-[var(--color-notice)]",
+    bad: "border-[var(--color-risk)] bg-[var(--color-risk)]",
+    neutral: "border-[var(--color-muted)] bg-transparent",
+  }[tone];
+  return (
+    <span
+      role="img"
+      aria-label={label}
+      title={label}
+      className={`h-2 w-2 shrink-0 border ${toneClass}`}
+    />
+  );
 }
 
-function sessionTone(state: SessionThreadState) {
-  if (state === "active") return "good";
-  if (state === "degraded") return "bad";
-  if (state === "detached") return "warn";
-  return "neutral";
+function nodeMarker(node: NodeSummary): { label: string; tone: MarkerTone } {
+  const tone =
+    node.presence === "reachable"
+      ? "good"
+      : node.presence === "stale"
+        ? "warn"
+        : node.presence === "offline"
+          ? "bad"
+          : "neutral";
+  return { label: `Presence: ${node.presence}`, tone };
 }
 
-function runtimeTone(state: RuntimeSessionState) {
-  if (state === "ready" || state === "running") return "good";
-  if (state === "error") return "bad";
-  if (
-    state === "blocked" ||
-    state === "interrupted" ||
-    state === "stale" ||
-    state === "expired" ||
-    state === "stopping"
-  ) {
-    return "warn";
+function workspaceMarker(placement: ProjectPlacementSummary): {
+  label: string;
+  tone: MarkerTone;
+} {
+  const badge = [...placement.resource_badges].sort(
+    (left, right) => severityRank(right.severity) - severityRank(left.severity),
+  )[0];
+  if (badge) {
+    return {
+      label: `Workspace: ${badge.label}`,
+      tone: badge.severity === "hard_block" ? "bad" : "warn",
+    };
   }
-  if (state === "starting" || state === "resuming") return "neutral";
-  return "neutral";
+  const tone =
+    placement.state === "validated"
+      ? "good"
+      : placement.state === "error" || placement.state === "missing"
+        ? "bad"
+        : placement.state === "read_only"
+          ? "warn"
+          : "neutral";
+  return { label: `Workspace: ${placement.state}`, tone };
 }
 
-function resourceTone(severity: WarningSeverity) {
-  if (severity === "hard_block") return "bad";
-  if (severity === "warning") return "warn";
-  return "neutral";
+function severityRank(severity: string) {
+  if (severity === "hard_block") return 2;
+  if (severity === "warning") return 1;
+  return 0;
+}
+
+function nodeIdForPath(snapshot: InventorySnapshot, pathname: string) {
+  const directNode = snapshot.nodes.find((node) => {
+    const route = `/nodes/${encodeURIComponent(node.node_id)}`;
+    return pathname === route || pathname.startsWith(`${route}/`);
+  });
+  if (directNode) return directNode.node_id;
+
+  const placement = snapshot.placements.find((candidate) => {
+    const route = workspaceRoute(candidate.project_placement_id);
+    return pathname === route || pathname.startsWith(`${route}/`);
+  });
+  return placement?.node_id ?? null;
 }

@@ -1,10 +1,12 @@
 import { expect, test } from "@playwright/test";
 
 test("renders the control panel shell", async ({ page }) => {
-  await mockPublicShellApi(page);
+  await mockCoreApi(page);
   await page.goto("/");
 
-  await expect(page.getByRole("link", { name: "Uprava" })).toBeVisible();
+  await expect(
+    page.getByRole("link", { name: "Uprava", exact: true }),
+  ).toBeVisible();
   await expect(page.getByRole("heading", { name: "Dashboard" })).toBeVisible();
   await expect(
     page.getByRole("navigation", { name: "Primary navigation" }),
@@ -12,6 +14,38 @@ test("renders the control panel shell", async ({ page }) => {
   await expect(
     page.getByRole("navigation", { name: "Inventory tree" }),
   ).toBeVisible();
+  const primaryNavigation = page.getByRole("navigation", {
+    name: "Primary navigation",
+  });
+  await expect(primaryNavigation.getByRole("link")).toHaveCount(1);
+  await expect(
+    primaryNavigation.getByRole("link", { name: "Dashboard" }),
+  ).toBeVisible();
+  await expect(page.getByRole("link", { name: "Add Node" })).toHaveAttribute(
+    "href",
+    "/nodes/pair",
+  );
+  await expect(
+    page.getByRole("complementary", { name: "Context Inspector" }),
+  ).toHaveCount(0);
+
+  const hideNavigation = page.getByRole("button", {
+    name: "Hide navigation",
+  });
+  await expect(hideNavigation).toHaveAttribute("aria-expanded", "true");
+  await hideNavigation.click();
+  await expect(
+    page.getByRole("button", { name: "Show navigation" }),
+  ).toHaveAttribute("aria-expanded", "false");
+  await expect(
+    page.getByRole("complementary", {
+      name: "Node and workspace navigation",
+    }),
+  ).toHaveCount(0);
+  await page.reload();
+  await expect(
+    page.getByRole("button", { name: "Show navigation" }),
+  ).toHaveAttribute("aria-expanded", "false");
 });
 
 test("renders warning badges and structured session blocks from snapshots", async ({
@@ -25,9 +59,9 @@ test("renders warning badges and structured session blocks from snapshots", asyn
 
   await page.goto("/workspaces/placement-1");
   await expect(
-    page.getByRole("main").getByText("Dirty workspace"),
+    page.getByRole("img", { name: "Workspace: Dirty workspace" }),
   ).toBeVisible();
-  await expect(page.getByRole("button", { name: /Start/i })).toBeEnabled();
+  await expect(page.getByRole("heading", { name: "Agent" })).toBeVisible();
 
   await page.goto("/nodes/node-1/placements/new");
   await expect(page.getByRole("button", { name: "Validate" })).toBeEnabled();
@@ -41,7 +75,7 @@ test("renders warning badges and structured session blocks from snapshots", asyn
     .getByRole("combobox", { name: "Workspace path" })
     .fill("/workspace/uprava");
   await page.getByRole("button", { name: "Validate" }).click();
-  await expect(page).toHaveURL(/\/workspaces\/placement-1$/);
+  await expect(page).toHaveURL(/\/workspaces\/placement-1\/agent$/);
   await expect.poll(() => core.validationAttempts).toBe(2);
 
   await page.goto("/sessions/session-1");
@@ -62,6 +96,19 @@ test("renders warning badges and structured session blocks from snapshots", asyn
     .getByRole("button", { name: "Open approval approval-1 in inspector" })
     .click();
   await expect(page.getByRole("heading", { name: "approval-1" })).toBeVisible();
+  const inspector = page.getByRole("complementary", {
+    name: "Context Inspector",
+  });
+  await expect(inspector).toBeVisible();
+  expect(
+    await inspector.evaluate((element) => getComputedStyle(element).position),
+  ).toBe("fixed");
+  await page.keyboard.press("Escape");
+  await expect(
+    page.getByRole("heading", { name: "assistant message" }),
+  ).toBeVisible();
+  await page.keyboard.press("Escape");
+  await expect(inspector).toHaveCount(0);
   await expect(page.getByText("session.sendTurn")).toBeVisible();
   await page.getByRole("button", { name: "Acknowledge" }).click();
   await expect.poll(() => core.warningAcknowledged).toBe(true);
@@ -78,7 +125,7 @@ test("loads Monaco only after a workspace file is opened", async ({ page }) => {
   expect(resources.some(isMonacoResource)).toBe(false);
   expect(resources.some(isXtermResource)).toBe(false);
 
-  await page.goto("/workspaces/placement-1");
+  await page.goto("/workspaces/placement-1/workbench");
   await page.getByRole("treeitem", { name: "README.md" }).click();
   await expect(
     page.getByRole("region", { name: "File editor README.md" }),
@@ -100,7 +147,7 @@ test("matches stable Zarya sheets and keeps the mobile session usable", async ({
   });
 
   await page.setViewportSize({ width: 1024, height: 900 });
-  await page.goto("/workspaces/placement-1");
+  await page.goto("/workspaces/placement-1/workbench");
   await expect(page.getByText("Workspace Inspector")).toBeVisible();
   await expect(page).toHaveScreenshot("workspace-zarya-narrow.png", {
     animations: "disabled",

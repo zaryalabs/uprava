@@ -5,11 +5,13 @@ import {
   render,
   screen,
   waitFor,
+  within,
 } from "@testing-library/react";
 import { MemoryRouter } from "react-router-dom";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { App } from "./App";
+import { encodeUpravaRef } from "../workbench/references/refs";
 
 vi.mock("../features/workspace-inspector/MonacoViews", () => ({
   MonacoFileEditor: ({ path }: { path: string }) => (
@@ -31,7 +33,10 @@ describe("App routes", () => {
       await screen.findByRole("heading", { name: "Dashboard" }),
     ).toBeVisible();
     expect(await screen.findByText("Core API")).toBeVisible();
-    expect(screen.getByRole("link", { name: "Nodes" })).toBeVisible();
+    expect(screen.getByRole("link", { name: "Add Node" })).toHaveAttribute(
+      "href",
+      "/nodes/pair",
+    );
 
     renderApp("/nodes");
 
@@ -64,7 +69,9 @@ describe("App routes", () => {
       "/workspaces/placement-1/workbench",
     );
     expect(await screen.findByRole("heading", { name: "Agent" })).toBeVisible();
-    expect(screen.getAllByText("Dirty workspace").length).toBeGreaterThan(0);
+    expect(
+      screen.getByRole("img", { name: "Workspace: Dirty workspace" }),
+    ).toBeVisible();
 
     renderApp("/workspaces/placement-1/workbench");
 
@@ -191,6 +198,73 @@ describe("App routes", () => {
     expect(
       await screen.findByRole("heading", { name: "Dashboard" }),
     ).toBeVisible();
+  });
+
+  it("keeps shell navigation, sidebar preference, and Inspector state independent", async () => {
+    renderApp("/dashboard");
+    expect(
+      await screen.findByRole("heading", { name: "Dashboard" }),
+    ).toBeVisible();
+
+    const primaryNavigation = screen.getByRole("navigation", {
+      name: "Primary Navigation",
+    });
+    expect(within(primaryNavigation).getAllByRole("link")).toHaveLength(1);
+    expect(
+      within(primaryNavigation).getByRole("link", { name: "Dashboard" }),
+    ).toBeVisible();
+    expect(
+      screen.getByRole("link", { name: "Runtime Settings" }),
+    ).toHaveAttribute("href", "/settings/runtime");
+
+    const hideNavigation = screen.getByRole("button", {
+      name: "Hide navigation",
+    });
+    expect(hideNavigation).toHaveAttribute(
+      "aria-controls",
+      "workspace-navigation",
+    );
+    expect(hideNavigation).toHaveAttribute("aria-expanded", "true");
+    fireEvent.click(hideNavigation);
+    expect(
+      screen.getByRole("button", { name: "Show navigation" }),
+    ).toHaveAttribute("aria-expanded", "false");
+    expect(
+      screen.queryByRole("complementary", {
+        name: "Node and workspace navigation",
+      }),
+    ).not.toBeInTheDocument();
+
+    const inspectorReference = encodeURIComponent(
+      encodeUpravaRef({ kind: "node", node_id: "node-1" }),
+    );
+    renderApp(`/dashboard?inspect=${inspectorReference}`);
+    expect(
+      await screen.findByRole("complementary", { name: "Context Inspector" }),
+    ).toBeVisible();
+    expect(
+      screen.getByRole("button", { name: "Show navigation" }),
+    ).toHaveAttribute("aria-expanded", "false");
+
+    fireEvent.keyDown(window, { key: "Escape" });
+    await waitFor(() =>
+      expect(
+        screen.queryByRole("complementary", { name: "Context Inspector" }),
+      ).not.toBeInTheDocument(),
+    );
+    expect(
+      screen.getByRole("button", { name: "Show navigation" }),
+    ).toHaveAttribute("aria-expanded", "false");
+
+    renderApp(`/dashboard?inspect=${inspectorReference}`);
+    fireEvent.click(
+      await screen.findByRole("button", { name: "Close Inspector" }),
+    );
+    await waitFor(() =>
+      expect(
+        screen.queryByRole("complementary", { name: "Context Inspector" }),
+      ).not.toBeInTheDocument(),
+    );
   });
 });
 

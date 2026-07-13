@@ -1,12 +1,15 @@
-import { render, screen } from "@testing-library/react";
+import { fireEvent, render, screen, within } from "@testing-library/react";
 import { MemoryRouter } from "react-router-dom";
-import { describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it } from "vitest";
 
 import type { InventorySnapshot } from "../../shared/protocol/types";
+import { rememberWorkspaceRoute } from "../workspaces/routes";
 import { InventoryTreeContent } from "./InventoryTree";
 
 describe("InventoryTreeContent", () => {
-  it("renders node, placement, session, and runtime states in the tree", () => {
+  afterEach(() => window.localStorage.clear());
+
+  it("separates node disclosure from navigation and only renders workspaces", () => {
     render(
       <MemoryRouter>
         <InventoryTreeContent snapshot={snapshot} pathname="/nodes/node-1" />
@@ -16,23 +19,44 @@ describe("InventoryTreeContent", () => {
     expect(
       screen.getByRole("navigation", { name: "Inventory tree" }),
     ).toBeVisible();
-    expect(screen.getByText("reachable")).toBeVisible();
-    expect(screen.getByText("stale")).toBeVisible();
-    expect(screen.getByText("offline")).toBeVisible();
-    expect(screen.getAllByText("active").length).toBeGreaterThan(0);
-    expect(screen.getAllByText("idle").length).toBeGreaterThan(0);
-    expect(screen.getByText("sleep sleeping")).toBeVisible();
-    expect(screen.getByText("validated")).toBeVisible();
-    expect(screen.getByText("Missing workspace")).toBeVisible();
-    expect(screen.getByText("degraded")).toBeVisible();
-    expect(screen.getByText("error")).toBeVisible();
+    const tree = screen.getByRole("navigation", { name: "Inventory tree" });
+    expect(
+      within(tree).getByRole("link", { name: "Add Node" }),
+    ).toHaveAttribute("href", "/nodes/pair");
+    expect(
+      within(tree).getByRole("img", { name: "Presence: reachable" }),
+    ).toBeVisible();
+    expect(
+      within(tree).getByRole("img", { name: "Presence: stale" }),
+    ).toBeVisible();
+    expect(
+      within(tree).getByRole("img", { name: "Presence: offline" }),
+    ).toBeVisible();
+    expect(within(tree).queryByText("Active session")).not.toBeInTheDocument();
+    expect(
+      within(tree).queryByText("Degraded session"),
+    ).not.toBeInTheDocument();
     expect(screen.getByRole("link", { name: /Uprava/ })).toHaveAttribute(
       "href",
-      "/workspaces/placement-1",
+      "/workspaces/placement-1/agent",
     );
+    const disclosure = within(tree).getByRole("button", {
+      name: "Collapse Local Node workspaces",
+    });
+    expect(disclosure).toHaveAttribute("aria-expanded", "true");
     expect(
-      screen.getByRole("link", { name: /Active session/ }),
-    ).toHaveAttribute("href", "/workspaces/placement-1/agent/session-1");
+      within(tree).getByRole("link", { name: /Local Node/ }),
+    ).toHaveAttribute("href", "/nodes/node-1");
+
+    fireEvent.click(disclosure);
+    expect(
+      within(tree).getByRole("button", {
+        name: "Expand Local Node workspaces",
+      }),
+    ).toHaveAttribute("aria-expanded", "false");
+    expect(
+      within(tree).queryByRole("link", { name: /Uprava/ }),
+    ).not.toBeInTheDocument();
   });
 
   it("keeps stale inventory links visible when refresh fails", () => {
@@ -49,7 +73,22 @@ describe("InventoryTreeContent", () => {
     expect(screen.getByText("Inventory refresh failed")).toBeVisible();
     expect(screen.getByRole("link", { name: /Uprava/ })).toHaveAttribute(
       "href",
-      "/workspaces/placement-1",
+      "/workspaces/placement-1/agent",
+    );
+  });
+
+  it("opens a workspace on its preferred surface", () => {
+    rememberWorkspaceRoute("placement-1", "node-1", "workbench");
+
+    render(
+      <MemoryRouter>
+        <InventoryTreeContent snapshot={snapshot} pathname="/dashboard" />
+      </MemoryRouter>,
+    );
+
+    expect(screen.getByRole("link", { name: /Uprava/ })).toHaveAttribute(
+      "href",
+      "/workspaces/placement-1/workbench",
     );
   });
 });
