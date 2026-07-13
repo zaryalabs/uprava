@@ -110,7 +110,7 @@ export function SessionSurface({
 
   return (
     <article className="min-w-0" aria-labelledby="session-surface-title">
-      <header className="grid gap-4 border-b border-black/10 pb-5 md:grid-cols-[minmax(0,1fr)_auto] md:items-end">
+      <header className="uprava-session-header grid gap-4 border-b border-black/10 pb-5 md:grid-cols-[minmax(0,1fr)_auto] md:items-end">
         <div className="min-w-0">
           <div className="zarya-caption">
             SESSION / {session.data.session.runtime.provider} /{" "}
@@ -165,7 +165,7 @@ export function SessionSurface({
         </div>
       </header>
 
-      <section className="grid gap-4 border-l-2 border-[var(--color-ink)] py-4 pl-4 md:grid-cols-[minmax(0,1fr)_auto] md:items-center">
+      <section className="uprava-session-runtime grid gap-4 border-l-2 border-[var(--color-ink)] py-4 pl-4 md:grid-cols-[minmax(0,1fr)_auto] md:items-center">
         <div>
           <div className="zarya-label">Runtime Context</div>
           <div className="mt-1 text-sm">

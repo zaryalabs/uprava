@@ -163,6 +163,7 @@ export function InventoryTreeContent({
                           to={preferredWorkspaceRoute(
                             placement.project_placement_id,
                           )}
+                          aria-current={active ? "page" : undefined}
                           className={`flex min-h-8 min-w-0 items-center gap-2 border-l px-2 text-sm hover:bg-[var(--color-bg-muted)] ${
                             active
                               ? "border-[var(--color-ink)] bg-[var(--color-bg-muted)] font-bold"

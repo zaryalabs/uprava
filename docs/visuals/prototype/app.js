@@ -192,7 +192,7 @@ const node = `
           <div class="eyebrow">Connection</div>
           <dl class="detail-list">
             <div><dt>Node ID</dt><dd>node_local_01</dd></div>
-            <div><dt>Version</dt><dd>0.2.5</dd></div>
+            <div><dt>Version</dt><dd>0.2.6</dd></div>
             <div><dt>Platform</dt><dd>darwin / arm64</dd></div>
           </dl>
         </section>
@@ -547,7 +547,7 @@ resolver = "2"
 members = ["crates/*"]
 
 [workspace.package]
-version = "0.2.5"
+version = "0.2.6"
 edition = "2024"`,
   "docs/vision.md": `# Vision
 

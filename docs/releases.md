@@ -2,7 +2,7 @@
 
 Статус: `active`
 
-Current release baseline: `0.2.5`.
+Current release baseline: `0.2.6`.
 
 Этот ledger фиксирует implementation baselines. Он не заменяет
 [`feature-queue.md`](product/feature-queue.md), где остается ранжированная очередь
@@ -26,11 +26,12 @@ future work.
 | `0.2.2` | 2026-07-12 | shipped | Automatic main delivery, bounded CI workspaces, coordinated state epoch reset, scoped Node enrollment and functional production smoke |
 | `0.2.3` | 2026-07-12 | shipped | Clean-bootstrap four-phase CI/CD, containerized prepare, explicit deploy/finalize boundaries and state-neutral delivery |
 | `0.2.4` | 2026-07-12 | shipped | Отложенные сообщения в сессии: долговечные Core-owned одноразовые будущие turn с guarded dispatch |
-| `0.2.5` | 2026-07-12 | current | Background Jobs и scheduled agent runs с наблюдаемыми per-run sessions и quota admission |
+| `0.2.5` | 2026-07-12 | shipped | Background Jobs и scheduled agent runs с наблюдаемыми per-run sessions и quota admission |
+| `0.2.6` | 2026-07-13 | current | Workspace-centered Web UI: Node/Workspace navigation и workspace Agent, Workbench, Jobs surfaces |
 
 ## Current Baseline
 
-`0.2.5` включает protocol-v2 baseline `0.2.0`, завершённое Zarya 0.1 Web UI/UX
+`0.2.6` включает protocol-v2 baseline `0.2.0`, завершённое Zarya 0.1 Web UI/UX
 alignment и clean-bootstrap four-phase delivery path. Текущая реализация включает
 первый working distributed
 control panel, восемь закрытых
@@ -106,6 +107,19 @@ renderer/PTY terminal layer, а также первый deployable self-hosted r
   override и честным `unknown`, когда Codex не даёт надёжного usage source;
 - Web surfaces Job list/detail/run для create/edit, schedule control, manual
   tests, force override, history, summaries и configuration snapshots.
+- workspace-centered navigation с единственным глобальным Dashboard, деревом
+  `Nodes -> Workspaces`, агрегированным Node Overview и независимым sidebar
+  toggle;
+- canonical workspace routes и compatibility redirects для session, Job и Job
+  Run deep links с ownership guards и сохранением Inspector query;
+- workspace Agent с session list, start flow и прежним lifecycle, Workbench с
+  IDE-like grid `file tree | editor/diff` над PTY terminal и workspace-scoped
+  Jobs list/create/detail/run;
+- условный Context Inspector, который не резервирует колонку без reference и
+  переходит в drawer на узком desktop;
+- четыре Dashboard metrics, честная Recent Activity projection, единые status
+  dimensions и unit/component/Playwright golden coverage desktop, narrow и
+  mobile regression states.
 
 Новые аудиты и temporary plans должны считать это фактами текущей реализации.
 Они могут ссылаться на `V01`, когда обсуждают исторический первый продуктовый

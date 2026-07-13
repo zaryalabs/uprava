@@ -1,6 +1,6 @@
 # Background Jobs и scheduled agent runs
 
-Статус: `implemented-0.2.5`
+Статус: `implemented-0.2.5; workspace-ui-0.2.6`
 
 ## Vision
 
@@ -112,6 +112,13 @@ provider/session link, failure reason и доступный output/log stream. R
 Summary берётся из финального provider result. Если структурированного summary
 нет, UI показывает terminal assistant output или отсутствие summary, не запуская
 скрытый второй agent call.
+
+В Web baseline `0.2.6` Jobs являются placement/workspace-scoped surface рядом с
+Agent и Workbench. List, create, detail и nested run history всегда используют
+placement из canonical workspace route; create form не предлагает второй выбор
+workspace. При этом Core `/jobs` остаётся глобальным read endpoint, а Web
+фильтрует его по `project_placement_id`. Это UI/navigation boundary, не изменение
+authority, scheduler или persisted Job model.
 
 ### Reuse текущего runtime path
 

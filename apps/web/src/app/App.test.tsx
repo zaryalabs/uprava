@@ -256,6 +256,17 @@ describe("App routes", () => {
       "href",
       "/workspaces/placement-1/agent?inspect=bad-ref",
     );
+
+    renderApp(
+      "/workspaces/placement-2/jobs/job-2/runs/run-1?inspect=bad-ref&tab=summary",
+    );
+    expect(
+      await screen.findByRole("heading", { name: "Run run-1" }),
+    ).toBeVisible();
+    expect(screen.getByRole("link", { name: "Jobs" })).toHaveAttribute(
+      "href",
+      "/workspaces/placement-1/jobs?inspect=bad-ref&tab=summary",
+    );
   });
 
   it("starts and selects the first session from an empty workspace Agent surface", async () => {

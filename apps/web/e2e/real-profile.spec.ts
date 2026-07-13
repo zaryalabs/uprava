@@ -62,6 +62,11 @@ test.describe("real local profile", () => {
     await waitForRuntimeState(request, sessionUrl, "ready");
 
     await page.goto(`/sessions/${sessionId}`);
+    await expect
+      .poll(() => new URL(page.url()).pathname)
+      .toBe(
+        `/workspaces/${encodeURIComponent(placementId)}/agent/${encodeURIComponent(sessionId)}`,
+      );
     await expect(
       page.getByRole("heading", { name: sessionTitle }),
     ).toBeVisible();

@@ -37,11 +37,13 @@ dependency, complexity, risk and value. Позиции могут двигать
 
 ## Обзор очереди
 
-Current release baseline: `0.2.5`. Закрытые пункты `0` through `8`, unified
+Current release baseline: `0.2.6`. Закрытые пункты `0` through `8`, unified
 audit hardening release и `5a` workspace renderer release соответствуют shipped
 versions, зафиксированным в [`releases.md`](../releases.md). Пункт `6` включает
-workbench alignment и первый стабильный self-hosted deployment path.
-Следующий плановый пункт очереди — Causality and trace UX.
+workbench alignment, первый стабильный self-hosted deployment path и
+workspace-centered UI follow-up `0.2.6`. Следующий плановый пункт очереди —
+Causality and trace UX; навигационный follow-up не закрывает пункт `9` и не
+подменяет будущий глобальный event/causality projection.
 
 | Order | Done | Mechanism / Feature Slice | First Useful Slice | Dependency | Complexity |
 | --- | --- | --- | --- | --- | --- |
@@ -243,6 +245,12 @@ bounded release retention. Environment controlled instance, TLS/reverse-proxy
 assumptions, persistent paths, logging и backup/restore operations описаны в
 deployment и CI/CD guides.
 
+UI follow-up `0.2.6` заменил глобальные Nodes/Jobs экраны на workspace-centered
+навигацию: sidebar хранит `Nodes -> Workspaces`, workspace содержит известные
+поверхности `Agent / Workbench / Jobs`, а Context Inspector появляется только
+для выбранного reference. Workbench использует IDE-like file/editor/terminal
+композицию, сохраняя Core/Node authority и lazy Monaco/xterm loading.
+
 **Risk:** Этот срез легко расползается в redesign будущих поверхностей или в
 притворство, что продукт уже является multi-user production release. Scope
 нужно держать вокруг текущего single-user or controlled deployment, а детальный
@@ -328,6 +336,11 @@ typed overlap/failure outcomes, по умолчанию ставит schedule н
 Panel показывает конфигурацию Job/run, history, summary, ссылки на session
 evidence и schedule controls. Codex quota честно остаётся `unknown`, когда CLI
 не даёт стабильного machine-readable usage source.
+
+**UI follow-up в `0.2.6`:** Jobs показываются и создаются внутри текущего
+workspace. Web фильтрует глобальный Core `/jobs` read endpoint по
+`project_placement_id`; Core API и scheduler semantics не менялись. Legacy Job
+и Job Run links разрешаются в nested workspace routes с ownership guards.
 
 ### 9. Causality and trace UX
 

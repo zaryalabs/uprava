@@ -12,7 +12,10 @@ describe("InventoryTreeContent", () => {
   it("separates node disclosure from navigation and only renders workspaces", () => {
     render(
       <MemoryRouter>
-        <InventoryTreeContent snapshot={snapshot} pathname="/nodes/node-1" />
+        <InventoryTreeContent
+          snapshot={snapshot}
+          pathname="/workspaces/placement-1/agent/session-1"
+        />
       </MemoryRouter>,
     );
 
@@ -36,10 +39,12 @@ describe("InventoryTreeContent", () => {
     expect(
       within(tree).queryByText("Degraded session"),
     ).not.toBeInTheDocument();
-    expect(screen.getByRole("link", { name: /Uprava/ })).toHaveAttribute(
+    const activeWorkspace = screen.getByRole("link", { name: /Uprava/ });
+    expect(activeWorkspace).toHaveAttribute(
       "href",
       "/workspaces/placement-1/agent",
     );
+    expect(activeWorkspace).toHaveAttribute("aria-current", "page");
     const disclosure = within(tree).getByRole("button", {
       name: "Collapse Local Node workspaces",
     });

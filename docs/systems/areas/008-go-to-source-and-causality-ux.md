@@ -585,6 +585,12 @@ Permissions
 The default view should be compact and readable. Raw trace should stay one
 click deeper unless the object itself is raw output.
 
+В Web baseline `0.2.6` общий Context Inspector закрыт по умолчанию и вообще не
+монтируется при пустом reference stack. Он резервирует отдельную колонку только
+для выбранного reference на широком desktop, а на узком desktop открывается как
+drawer. Sidebar state и Inspector stack независимы; последний pop или `Escape`
+полностью освобождает место основной surface.
+
 ### Minimum V01 readiness model
 
 V01 does not need perfect causality or the full workspace inspector. It needs

@@ -30,10 +30,31 @@ IDE/workbench shell
 
 `A-010 Project Workspace Surface` является конкретной post-V01 workbench
 поверхностью внутри этой модели: file tree, file viewer/editor, terminal/PTY,
-command history, diff/check entry points and workspace refs. `A-004` отвечает за общий
+diff/check entry points and workspace refs. `A-004` отвечает за общий
 workbench-shell, commands/contributions and extension points; `A-010` отвечает
 за workspace-specific lifecycle, file editing, terminal access, Node/Core
 boundary, permissions and traceability.
+
+### Реализованный workspace-centered shell 0.2.6
+
+Web Control Panel использует устойчивую иерархию:
+
+```text
+Dashboard
+Nodes sidebar
+  Node Overview
+    Workspace
+      Agent
+      Workbench
+      Jobs
+```
+
+`Dashboard` остаётся единственным глобальным product route. Sidebar содержит
+только Nodes и Workspaces и скрывается независимо от main surface. `Agent`,
+`Workbench` и `Jobs` являются известными placement-scoped surfaces с canonical
+routes, а не plugin-controlled layout. Общий Context Inspector монтируется
+только при непустом reference stack: без выбранного reference он не резервирует
+место, на широком desktop занимает колонку, на узком становится drawer.
 
 ## Базовые сущности
 
@@ -625,6 +646,14 @@ external plugin ecosystem:
 
 Главная цель V01: сам Uprava должен быть написан так, будто он уже
 расширяемый, даже если пользовательские plugins еще не подключаются.
+
+### Текущий Web baseline 0.2.6
+
+Workspace-centered shell делает internal extension architecture видимой через
+три стабильные workspace surfaces, общий query-addressable Inspector stack,
+workspace-aware links и единые status dimensions. Monaco и xterm загружаются
+только внутри Workbench; session SSE живёт только в выбранной Agent session, а
+Jobs polling — только в активной Jobs surface.
 
 ### Feature queue baseline
 

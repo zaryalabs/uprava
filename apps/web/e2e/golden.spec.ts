@@ -283,6 +283,17 @@ test("matches stable Zarya sheets and keeps the mobile session usable", async ({
     animations: "disabled",
     fullPage: true,
   });
+  await page
+    .getByRole("button", { name: "Open session session-1 in inspector" })
+    .click();
+  await expect(
+    page.getByRole("complementary", { name: "Context Inspector" }),
+  ).toBeVisible();
+  await expect(page).toHaveScreenshot("workspace-agent-inspector-desktop.png", {
+    animations: "disabled",
+    fullPage: true,
+  });
+  await page.getByRole("button", { name: "Close Inspector" }).click();
 
   await page.goto("/workspaces/placement-1/jobs");
   await expect(page.getByRole("link", { name: /Nightly check/ })).toBeVisible();
@@ -319,6 +330,21 @@ test("matches stable Zarya sheets and keeps the mobile session usable", async ({
     animations: "disabled",
     fullPage: true,
   });
+  await page
+    .getByRole("button", { name: "Open workspace placement-1 in inspector" })
+    .first()
+    .click();
+  await expect(
+    page.getByRole("complementary", { name: "Context Inspector" }),
+  ).toBeVisible();
+  await expect(page).toHaveScreenshot(
+    "workspace-workbench-inspector-desktop.png",
+    {
+      animations: "disabled",
+      fullPage: true,
+    },
+  );
+  await page.getByRole("button", { name: "Close Inspector" }).click();
   await page.getByRole("button", { name: "Hide navigation" }).click();
   await expect.poll(() => workbenchWidth(page)).toBeGreaterThan(1_200);
   await expect(page).toHaveScreenshot(
@@ -364,9 +390,47 @@ test("supports the shell and composer keyboard path", async ({ page }) => {
   await page.keyboard.press("Enter");
   await expect(page.getByRole("main")).toBeFocused();
 
+  const hideNavigation = page.getByRole("button", { name: "Hide navigation" });
+  await hideNavigation.focus();
+  await page.keyboard.press("Enter");
+  await expect(
+    page.getByRole("button", { name: "Show navigation" }),
+  ).toBeFocused();
+  await page.keyboard.press("Enter");
+  await expect(
+    page.getByRole("button", { name: "Hide navigation" }),
+  ).toBeFocused();
+
   await page.goto("/sessions/session-1");
+  await expect(page).toHaveURL(/\/workspaces\/placement-1\/agent\/session-1$/);
+  const workbenchTab = page.getByRole("link", { name: "Workbench" });
+  await workbenchTab.focus();
+  await page.keyboard.press("Enter");
+  await expect(
+    page.getByRole("heading", { name: "Workbench", level: 2 }),
+  ).toBeVisible();
+  const agentTab = page.getByRole("link", { name: "Agent" });
+  await agentTab.focus();
+  await page.keyboard.press("Enter");
+  await expect(page.getByRole("heading", { name: "Fix issue" })).toBeVisible();
+
+  const inspectSession = page.getByRole("button", {
+    name: "Open session session-1 in inspector",
+  });
+  await inspectSession.focus();
+  await page.keyboard.press("Enter");
+  const closeInspector = page.getByRole("button", { name: "Close Inspector" });
+  await expect(closeInspector).toBeVisible();
+  await closeInspector.focus();
+  await page.keyboard.press("Enter");
+  await expect(
+    page.getByRole("complementary", { name: "Context Inspector" }),
+  ).toHaveCount(0);
+
   const composer = page.getByRole("textbox", { name: "Next Agent Turn" });
   await expect(composer).toBeVisible();
+  await composer.focus();
+  await expect(composer).toBeFocused();
   await composer.fill("Inspect the failed runtime event");
   await expect(page.getByText("Draft not sent")).toBeVisible();
 });

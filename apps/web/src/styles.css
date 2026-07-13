@@ -321,6 +321,12 @@ td,
   padding: var(--space-4) 0 var(--space-4) var(--space-4);
 }
 
+.inspector-open .uprava-session-header,
+.inspector-open .uprava-session-runtime {
+  grid-template-columns: minmax(0, 1fr);
+  align-items: start;
+}
+
 .uprava-jobs-grid {
   min-width: 0;
   display: grid;

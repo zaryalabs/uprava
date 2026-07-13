@@ -1,6 +1,6 @@
 # VDR-001: Workspace-centered navigation
 
-Статус: `accepted-for-prototype`
+Статус: `implemented-0.2.6`
 
 Дата: `2026-07-13`
 
@@ -29,7 +29,7 @@ Node
 
 ### Информационная архитектура
 
-Прототип использует следующую иерархию:
+Реализация `0.2.6` использует следующую иерархию:
 
 ```text
 Dashboard
@@ -53,7 +53,7 @@ Nodes
 
 ### Названия поверхностей workspace
 
-Для прототипа выбраны:
+Для production Web Control Panel выбраны:
 
 - **Agent** — sessions, timeline, runtime state, approvals и composer;
 - **Workbench** — file tree, editor/diff и terminal;
@@ -154,11 +154,11 @@ Dashboard сокращается до четырёх операционных п
 - полный accessibility и copy polish;
 - resizable/dockable panels;
 - полноценная IDE, LSP и debugger;
-- перенос решения в `apps/web/`.
+- полный mobile navigation redesign.
 
 ## Проверка решения
 
-Прототип должен позволять визуально пройти сценарии:
+Реализация позволяет визуально пройти сценарии:
 
 1. открыть Dashboard и увидеть четыре global metrics;
 2. выбрать Node и увидеть Node Overview;
@@ -166,3 +166,9 @@ Dashboard сокращается до четырёх операционных п
 4. переключиться между Agent, Workbench и Jobs без смены workspace context;
 5. открыть source/evidence/cause в контекстном Inspector;
 6. выполнить визуальный переход из Recent Activity к связанному объекту.
+
+Решение проверено 13 июля 2026 года unit/component tests, mocked Playwright E2E,
+desktop golden snapshots `1440x1000`, narrow desktop `1024x900`, mobile
+regression `390x844` и keyboard path. Real-profile smoke остаётся отдельной
+дополнительной проверкой при доступном controlled-development Core/Node/Codex
+профиле.
