@@ -1,27 +1,33 @@
-# Contributing
+# Участие в разработке
 
-This repository is moving from product and architecture design into implementation. The rules below keep the project easy to build, review, and extend while the codebase is still taking shape.
+Репозиторий перешёл от продуктового и архитектурного проектирования к
+реализации. Эти правила помогают сохранить проект удобным для сборки, review и
+расширения.
 
-## Canonical Sources
+## Канонические источники
 
-- `README.md` explains the product direction.
-- `docs/en/` is the canonical documentation tree.
-- `docs/ru/` contains drafts, notes, and Russian-language working material.
-- `AGENTS.md` contains short operational instructions for agents and contributors.
-- `Makefile` is the gateway to local tooling.
+- `README.md` описывает направление продукта.
+- `docs/` — каноническое русскоязычное дерево документации.
+- `docs/systems/architecture.md` содержит общую архитектуру, а
+  `docs/systems/areas/` — отдельные системные направления.
+- `docs/polish/` и `docs/tmp-plans/` — временные рабочие разделы, которые могут
+  оставаться на английском.
+- `AGENTS.md` содержит короткие операционные инструкции.
+- `Makefile` — основная точка входа в локальные инструменты.
 
-When a technical or product decision changes, update the relevant document in `docs/en/`.
+При изменении технического или продуктового решения обновляйте соответствующий
+документ в `docs/`.
 
-## Development Flow
+## Процесс разработки
 
-1. Start from the current main branch.
-2. Create a short-lived branch for the change.
-3. Read the code and docs around the area you will touch.
-4. Make a focused change.
-5. Run the relevant local checks.
-6. Run `make c` before commit, PR, or handoff.
+1. Начинайте с актуальной ветки `main`.
+2. Создавайте короткоживущую ветку под конкретное изменение.
+3. Читайте связанный код и документы до начала правок.
+4. Не смешивайте задачу с несвязанным рефакторингом.
+5. Запускайте релевантные локальные проверки.
+6. Перед коммитом, PR или handoff запускайте `make c`.
 
-Use branch names that make the work obvious:
+Примеры имён веток:
 
 ```text
 feat/core-node-registry
@@ -31,9 +37,9 @@ docs/architecture-boundaries
 chore/tooling-precommit
 ```
 
-## Commit Style
+## Коммиты и Git
 
-Use focused commits with concise Conventional Commit-style subjects:
+Используйте сфокусированные коммиты с короткими Conventional Commit subjects:
 
 ```text
 feat: add node heartbeat model
@@ -42,46 +48,47 @@ docs: clarify control-plane boundaries
 chore: add pre-commit quality gate
 ```
 
-Prefer a body when the reason is not obvious from the diff. Explain tradeoffs, migration notes, or follow-up work there.
+Добавляйте body, если причина изменения не очевидна из diff. Описывайте там
+компромиссы, миграцию и последующую работу.
 
-## Lightweight Git Flow
+- Держите ветки достаточно маленькими для review.
+- Не смешивайте широкие рефакторинги с фичами.
+- Не коммитьте кэши, локальные секреты и машинно-зависимые файлы.
+- Не используйте `--no-verify` без явного разрешения.
+- Выбирайте rebase или merge исходя из ясности истории текущей работы.
 
-- Keep branches small enough to review.
-- Do not mix broad refactors with feature work.
-- Do not commit generated caches, local secrets, or machine-specific files.
-- Do not use `--no-verify` unless explicitly approved.
-- Rebase or merge only when it keeps history clearer for the current collaboration.
+## Архитектурные принципы
 
-## Architecture Principles
+Uprava следует domain-first архитектуре. Framework и transport поддерживают
+продуктовую модель, но не определяют её.
 
-Uprava follows a domain-first architecture. Frameworks and transports support the product model; they should not define it.
+Основные границы:
 
-Core domain boundaries:
+- Core Backend — control plane.
+- Node Daemon — data plane.
+- Web Control Panel — клиент Core.
+- Tool Registry и Plugin Registry принадлежат Core.
+- Выполнение на конкретной ноде принадлежит Node Daemon.
+- Trace, events, artifacts, permissions и routing — системные понятия первого
+  уровня.
 
-- Core Backend is the control plane.
-- Node Daemon is the data plane.
-- Web Control Panel is a client of Core.
-- Tool Registry and Plugin Registry live in Core.
-- Node-local execution lives in Node Daemon.
-- Trace, events, artifacts, permissions, and routing must be first-class system concepts.
+Рекомендации по реализации:
 
-Implementation guidance:
+- Не связывайте domain types и behavior с HTTP handlers, database rows и UI
+  components.
+- Делайте transport contracts явными и версионируемыми.
+- Скрывайте persistence details за repository/service boundaries.
+- Держите process, PTY и file operations в node-side модулях.
+- Предпочитайте небольшие модули с ясным владением generic utility layers.
+- Добавляйте абстракции, когда они устраняют реальное дублирование или защищают
+  реальную границу.
 
-- Keep domain types and behavior independent from HTTP handlers, database rows, and UI components.
-- Keep transport contracts explicit and versionable.
-- Keep persistence details behind repository/service boundaries.
-- Keep process/PTY/file operations inside node-side modules.
-- Prefer small modules with clear ownership over generic utility layers.
-- Add abstractions only when they reduce real duplication or protect a real boundary.
-
-## Planned Repository Shape
-
-The initial implementation should grow toward this shape:
+## Структура репозитория
 
 ```text
 crates/
-  uprava-domain/      domain model shared by Core, Node, and CLI
-  uprava-protocol/    API/event contracts between Core, clients, and nodes
+  uprava-domain/      общая доменная модель Core, Node и CLI
+  uprava-protocol/    API/event contracts между Core, клиентами и нодами
   uprava-core/        Core Backend
   uprava-node/        Node Daemon
   uprava-cli/         CLI
@@ -90,11 +97,12 @@ apps/
 docs/
 ```
 
-Names can change when implementation starts, but the control-plane/data-plane split should remain.
+Имена могут развиваться, но разделение control plane и data plane должно
+сохраняться.
 
-## Rust Standards
+## Rust
 
-Expected baseline once the Rust workspace exists:
+Базовые проверки:
 
 ```text
 cargo fmt --all -- --check
@@ -102,69 +110,45 @@ cargo clippy --workspace --all-targets -- -D warnings
 cargo test --workspace
 ```
 
-Preferred deeper tooling:
+Для глубоких проверок используются `cargo-nextest`, `cargo audit`, `cargo deny`
+и `taplo-cli`. В обычной работе запускайте их через цели `make`.
 
-- `cargo-nextest` for workspace tests.
-- `cargo audit` for vulnerability checks.
-- `cargo deny` for dependency policy.
-- `taplo-cli` for TOML formatting/linting.
+## Frontend
 
-Use `make` targets instead of calling these directly in routine workflows.
+Web-приложение следует [описанному стеку](docs/development/tech-stack.md): React 19,
+TypeScript, Vite, Tailwind CSS v4, локальные компоненты по соглашениям shadcn/ui,
+lucide-react, TanStack Query/Table, React Hook Form, Zod и Vitest.
 
-## Frontend Standards
+Проверки frontend должны покрывать formatting, linting, TypeScript, тесты и
+production build.
 
-The web app should follow `docs/en/tech-stack.md`:
+## Тестирование
 
-- React 19 + TypeScript + Vite.
-- Tailwind CSS v4.
-- shadcn/ui conventions with local component ownership.
-- lucide-react icons.
-- TanStack Query for server state.
-- TanStack Table for table-heavy views.
-- React Hook Form + Zod for forms and validation.
-- Vitest for unit/component logic.
+Соотносите глубину тестов с риском:
 
-Frontend checks should eventually cover:
+- domain logic требует сфокусированных unit tests;
+- protocol и persistence — integration tests;
+- взаимодействие Core и Node — contract или integration coverage;
+- UI logic — component/unit tests;
+- критические пользовательские сценарии — Playwright coverage.
 
-- formatting;
-- linting;
-- TypeScript;
-- tests;
-- production build.
+Тест должен доказывать поведение на той границе, где находится риск, а не просто
+повторять детали реализации.
 
-## Testing Expectations
+## Документация
 
-Match test scope to risk:
+Обновляйте документацию при изменении архитектуры, поведения продукта, setup,
+локального workflow, команд, API/protocol contracts или quality gates.
+Долговечные решения фиксируются на русском в `docs/`; английский допустим в
+рабочих `polish` и `tmp-plans`.
 
-- Domain logic needs focused unit tests.
-- Protocol and persistence behavior need integration tests.
-- Core-to-Node behavior needs contract or integration coverage.
-- UI logic needs component/unit tests.
-- Critical user workflows should eventually get Playwright coverage.
+## Локальный quality gate
 
-Tests should prove behavior at the boundary where the risk exists. Avoid tests that only mirror implementation details.
-
-## Documentation Expectations
-
-Update docs when a change affects:
-
-- architecture;
-- product behavior;
-- setup or local workflow;
-- command names;
-- API/protocol contracts;
-- quality gates.
-
-Keep English docs canonical. Use Russian docs for drafting when useful, then stabilize the result in `docs/en/`.
-
-## Local Quality Gate
-
-Run:
+Перед коммитом, PR или handoff после изменений запускайте:
 
 ```text
 make c
 ```
 
-before commit, PR, or handoff after code changes.
-
-The gate should stay strict for implemented stacks and explicit about skipped stacks. During early setup, a target may no-op only when the corresponding files do not exist yet.
+Gate должен оставаться строгим для реализованных стеков и явно сообщать о
+пропущенных. No-op допустим только когда соответствующий стек ещё не создан.

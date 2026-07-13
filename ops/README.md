@@ -1,22 +1,24 @@
-# Uprava Server Ops
+# Серверные операции Uprava
 
-These files are installed from scratch by the automatic `main` pipeline.
-Production releases are never built or activated manually on the server.
+Эти файлы устанавливаются с нуля автоматическим pipeline ветки `main`.
+Production-релизы не собираются и не активируются на сервере вручную.
 
-`deploy` validates stable host inputs in `/etc/uprava`, activates the
-digest-pinned manifest, pulls Core/Web, verifies the extracted Node checksum,
-starts Compose and restarts the product-owned systemd unit. It does not inspect
-health, reset state, prune artifacts or roll back. The separate `finalize`
-phase owns operational readiness checks and bounded Uprava-only retention.
+Фаза `deploy` проверяет стабильные host inputs в `/etc/uprava`, активирует
+manifest с закреплёнными digest, загружает Core/Web, проверяет checksum
+извлечённого Node, запускает Compose и перезапускает принадлежащий продукту
+systemd unit. Она не проверяет health, не сбрасывает состояние, не удаляет
+артефакты и не выполняет rollback. За operational readiness и ограниченное
+удержание только артефактов Uprava отвечает отдельная фаза `finalize`.
 
-The clean-bootstrap prerequisites are `/etc/uprava/core.env`,
-`/etc/uprava/node.env`, the `uprava` user, Docker/Compose/systemd and the shared
-`platform` network. Mutable Core and Node state remain outside release
-directories and ordinary releases never delete them.
+Для чистой установки нужны `/etc/uprava/core.env`, `/etc/uprava/node.env`,
+пользователь `uprava`, Docker/Compose/systemd и общая сеть `platform`.
+Изменяемое состояние Core и Node хранится вне директорий релизов и не удаляется
+обычными релизами.
 
-The host administrator also installs this directory's `uprava-ci-root` file as
-both `/usr/local/sbin/uprava-ci-root-deploy` and
-`/usr/local/sbin/uprava-ci-root-finalize`, owned by root and not writable by the
-runner. Sudoers grants `runner` only those two no-argument commands. Each helper
-verifies the phase worktree and manifest against public `origin/main` before it
-executes repository-controlled deployment code as root.
+Администратор хоста также устанавливает файл `uprava-ci-root` из этой директории
+как `/usr/local/sbin/uprava-ci-root-deploy` и
+`/usr/local/sbin/uprava-ci-root-finalize`. Оба файла принадлежат `root` и
+недоступны runner для записи. Sudoers разрешает пользователю `runner` только эти
+две команды без аргументов. Каждый helper сверяет worktree фазы и manifest с
+публичным `origin/main`, прежде чем выполнить управляемый репозиторием deploy-код
+от имени `root`.

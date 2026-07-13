@@ -1,78 +1,90 @@
 # AGENTS.md
 
-Quick guide for agents working in this repository.
+Краткое руководство для агентов, работающих в этом репозитории.
 
 > [!IMPORTANT]
-> If `./.local/context/` exists, read `./.local/context/README.md` before starting work. `.local/` is private local context and is not committed.
+> Если существует `./.local/context/`, перед началом работы прочитайте
+> `./.local/context/README.md`. `.local/` содержит приватный локальный контекст и
+> не коммитится.
 
-## Start Here
+## С чего начать
 
-- Read `README.md` first.
-- Treat `docs/en/` as the canonical product and architecture documentation.
-- Use `docs/ru/` for drafts, source notes, and Russian-language thinking when useful.
-- Keep architecture and process decisions in `docs/`; keep this file short and operational.
+- Сначала прочитайте `README.md`.
+- Считайте `docs/` канонической русскоязычной продуктовой и процессной
+  документацией.
+- Общая архитектура находится в `docs/systems/architecture.md`, отдельные
+  системные направления — в `docs/systems/areas/`.
+- `docs/polish/` и `docs/tmp-plans/` — рабочие исключения и при необходимости
+  могут оставаться на английском.
+- Архитектурные и процессные решения фиксируйте в `docs/`; этот файл должен
+  оставаться коротким и операционным.
 
-## Commands
+## Команды
 
-- Use `make` for routine project operations.
-- Run `make help` to see available commands.
-- Run `make c` before commits or handoff after code changes.
-- Run `make l` for a faster local check while iterating.
+- Для обычных операций используйте `make`.
+- Доступные команды показывает `make help`.
+- Перед коммитом или handoff после изменений кода запускайте `make c`.
+- Для быстрой итерационной проверки используйте `make l`.
 
-## Versioning
+## Версионирование
 
-- Follow SemVer rules in `docs/en/versioning.md` and keep the Russian mirror in
-  `docs/ru/versioning.md` synchronized.
-- After a large completed work block, check whether the current implementation
-  version should be bumped, even if the work is not a named feature queue item.
-- When bumping the version, update package metadata, `docs/en/releases.md`,
-  `docs/ru/releases.md`, and any temporary plans that reference the previous
-  baseline.
+- Следуйте правилам SemVer из `docs/versioning.md`.
+- После завершения большого блока работы проверяйте, нужен ли bump текущей
+  implementation version, даже если работа не была отдельным пунктом feature
+  queue.
+- При bump обновляйте package metadata, `docs/releases.md` и временные планы,
+  которые ссылаются на предыдущий baseline.
 
-## Project Shape
+## Структура проекта
 
-- `docs/` - product, architecture, roadmap, and stack documentation.
-- `crates/` - planned Rust workspace crates.
-- `apps/web/` - planned React + TypeScript + Vite web control panel.
-- `Makefile` - gateway to local tooling.
-- `.pre-commit-config.yaml` - commit-time quality gates.
+- `docs/` — продуктовая, системная, roadmap- и stack-документация.
+- `crates/` — Rust workspace crates.
+- `apps/web/` — control panel на React, TypeScript и Vite.
+- `Makefile` — единая точка входа в локальные инструменты.
+- `.pre-commit-config.yaml` — commit-time quality gates.
 
-The repository is currently in the transition from documentation/design to implementation. Tooling must tolerate missing code directories until the implementation scaffold exists.
+Репозиторий уже перешёл от документации и проектирования к реализации. При этом
+инструменты должны корректно обрабатывать ещё не созданные части scaffold.
 
-## Technical Direction
+## Техническое направление
 
-Follow the stack documented in `docs/en/tech-stack.md`:
+Следуйте стеку из `docs/development/tech-stack.md`:
 
-- Rust workspace for Core Backend, Node Daemon, CLI, domain, and protocol code.
-- Axum/Tokio for backend services.
-- SQLite first, with Postgres-compatible architecture later.
-- React 19 + TypeScript + Vite for the web control panel.
-- Tailwind CSS v4, shadcn/ui conventions, lucide-react.
-- TanStack Query/Table, React Hook Form, Zod, Vitest.
+- Rust workspace для Core Backend, Node Daemon, CLI, domain и protocol кода.
+- Axum/Tokio для backend services.
+- Сначала SQLite с Postgres-compatible архитектурой в перспективе.
+- React 19, TypeScript и Vite для web control panel.
+- Tailwind CSS v4, соглашения shadcn/ui и lucide-react.
+- TanStack Query/Table, React Hook Form, Zod и Vitest.
 
-## Architecture Rules
+## Архитектурные правила
 
-- Core Backend is the control plane.
-- Node Daemon is the data plane.
-- Clients talk to Core; Core routes commands and state to nodes.
-- Core owns projects, nodes, sessions, event log, trace metadata, Tool Registry, Plugin Registry, permissions, and routing.
-- Node Daemon owns local workspaces, files, PTY/process lifecycle, local tool execution, and agent process management.
-- Do not make the web client depend on direct access to every node.
-- Prefer DDD style in code;
-- Do not hide integration behavior behind untraced agent text when it should become a tool, event, artifact, or visual block.
+- Core Backend — control plane.
+- Node Daemon — data plane.
+- Клиенты работают с Core; Core направляет команды и состояние на ноды.
+- Core владеет projects, nodes, sessions, event log, trace metadata, Tool
+  Registry, Plugin Registry, permissions и routing.
+- Node Daemon владеет локальными workspace, файлами, lifecycle PTY/process,
+  выполнением локальных tools и управлением agent processes.
+- Не связывайте web client с прямым доступом ко всем нодам.
+- В коде предпочитайте DDD-подход.
+- Не скрывайте integration behavior в нетрассируемом тексте агента, если оно
+  должно быть tool, event, artifact или visual block.
 
-## Code Conventions
+## Соглашения по коду
 
-- Prefer explicit domain boundaries over framework-driven structure.
-- Keep transport, persistence, UI, and domain logic separated.
-- Keep changes focused; avoid unrelated refactors.
-- Update docs when architecture, workflow, or product behavior changes.
-- Do not bypass pre-commit hooks with `--no-verify` unless explicitly instructed.
+- Предпочитайте явные domain boundaries структуре, задаваемой framework.
+- Разделяйте transport, persistence, UI и domain logic.
+- Делайте сфокусированные изменения и избегайте несвязанных рефакторингов.
+- Обновляйте документацию при изменении архитектуры, workflow или поведения
+  продукта.
+- Не обходите pre-commit hooks через `--no-verify` без явного указания.
 
-## Quality Gate
+## Quality gate
 
-Before commit or handoff:
+Перед коммитом или handoff:
 
-1. Run `make c`.
-2. Fix failures instead of weakening checks.
-3. If a check cannot run because the relevant stack is not scaffolded yet, leave the Makefile target as a clear no-op with a message.
+1. Запустите `make c`.
+2. Исправляйте ошибки, а не ослабляйте проверки.
+3. Если проверка не может выполниться, потому что соответствующий stack ещё не
+   создан, оставьте цель Makefile явным no-op с понятным сообщением.

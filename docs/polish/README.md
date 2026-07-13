@@ -26,18 +26,18 @@ and canonical documents are linked rather than copied.
 
 Canonical product and operational context:
 
-- [Architecture](../en/architecture.md)
-- [2026-07-09 audit](../en/audit/audit-2026-07-09.md)
-- [Feature queue](../en/feature-queue.md)
-- [Tech stack](../en/tech-stack.md)
-- [Versioning](../en/versioning.md)
-- [Release ledger](../en/releases.md)
-- [Local development runbook](../en/runbooks/v01-local-dev.md)
-- [Deployment](../en/deployment.md)
-- [Deployment observability](../en/deployment-observability.md)
+- [Architecture](../systems/architecture.md)
+- [2026-07-09 audit](../audit/audit-2026-07-09.md)
+- [Feature queue](../product/feature-queue.md)
+- [Tech stack](../development/tech-stack.md)
+- [Versioning](../versioning.md)
+- [Release ledger](../releases.md)
+- [Local development runbook](../runbooks/v01-local-dev.md)
+- [Deployment](../deploy/deployment.md)
+- [Deployment observability](../deploy/deployment-observability.md)
 
-The Russian canonical mirrors live at the equivalent paths under
-[`docs/ru`](../ru/README.md).
+The canonical product and architecture documentation is maintained in Russian
+under [`docs/`](../README.md).
 
 ## What moved out of ignored local context
 
@@ -58,7 +58,7 @@ The following ignored files are intentionally not copied:
 - older audit drafts under `.local/history/` are superseded by the tracked
   2026-07-09 audit and quality-foundation plan;
 - local protocol, Playwright and Codex notes are represented by the current
-  code, tests, canonical design docs and the implementation ledger.
+  code, tests, canonical system-direction docs and the implementation ledger.
 
 Do not add credentials, runtime databases, logs, provider transcripts or
 machine-specific release artifacts to this directory.
@@ -66,6 +66,6 @@ machine-specific release artifacts to this directory.
 ## Maintenance rule
 
 Update the portable handoff and implementation ledger at meaningful milestone
-boundaries. Keep detailed future work in the completion plan and durable
-product/architecture decisions in synchronized `docs/en` and `docs/ru`
-documents.
+boundaries. Keep detailed future work in the completion plan and promote
+durable product/architecture decisions into the canonical Russian documents
+under `docs/`.

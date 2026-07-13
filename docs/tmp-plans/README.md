@@ -19,10 +19,10 @@ coordination document.
 - Temporary plans can be written in the working language that is most useful to
   the team at that stage.
 - If a temporary plan records a durable product, architecture or process
-  decision, that decision must be promoted into canonical documentation under
-  `docs/en` and `docs/ru`.
+  decision, that decision must be promoted into the canonical Russian
+  documentation under `docs/`.
 - Do not use this section as the final roadmap. Long-lived sequencing should
-  stay in `docs/en/feature-queue.md` and `docs/ru/feature-queue.md`.
+  stay in `docs/product/feature-queue.md`.
 - After a slice ships or is superseded, archive, replace or delete its
   temporary plan.
 

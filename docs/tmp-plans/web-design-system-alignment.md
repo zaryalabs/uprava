@@ -16,11 +16,11 @@ Scope: привести production Web Control Panel к локальной Zarya
   intentionally absent from clean CI checkouts).
 - Local visual reference: `../../.local/context/design/prototype/` (`Dashboard`
   and `Agent Chat`).
-- [A-004 Modular UI and Work Surface](../en/design/004-modular-ui-work-surface.md).
-- [A-008 Go to Source and Causality UX](../en/design/008-go-to-source-and-causality-ux.md).
-- [A-009 Human-Agent Dual Interface](../en/design/009-human-agent-dual-interface.md).
-- [A-010 Project Workspace Surface](../en/design/010-project-workspace-surface.md).
-- [Feature Inventory](../en/feature-inventory.md), especially `F-067`,
+- [A-004 Modular UI and Work Surface](../systems/areas/004-modular-ui-work-surface.md).
+- [A-008 Go to Source and Causality UX](../systems/areas/008-go-to-source-and-causality-ux.md).
+- [A-009 Human-Agent Dual Interface](../systems/areas/009-human-agent-dual-interface.md).
+- [A-010 Project Workspace Surface](../systems/areas/010-project-workspace-surface.md).
+- [Feature Inventory](../product/feature-inventory.md), especially `F-067`,
   `F-080`-`F-096`, `F-120`-`F-121`, and `F-140`-`F-142`.
 
 The private design-system repository remains the authority for visual DNA,
@@ -315,7 +315,7 @@ Deliverables:
   behavior.
 - Extend `make l` for fast frontend token/type/test checks and keep `make c` as
   the final handoff gate.
-- Update canonical English/Russian docs only for durable product or interaction
+- Update canonical Russian docs only for durable product or interaction
   decisions; keep this file tactical.
 
 Exit criteria:
@@ -366,4 +366,4 @@ This plan is complete when:
 6. raw style literals are blocked by tooling except documented domain-specific
    editor/terminal palettes;
 7. `make c` passes and release/version impact has been reviewed under
-   [Versioning](../en/versioning.md).
+   [Versioning](../versioning.md).
