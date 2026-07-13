@@ -20,6 +20,8 @@
 - [`versioning.md`](versioning.md) — правила SemVer и текущий release baseline.
 - [`releases.md`](releases.md) — ledger выпущенных implementation slices.
 - [`runbooks/`](runbooks/) — операционные инструкции.
+- [`visuals/`](visuals/) — статический UI/UX-прототип и связанные визуальные
+  решения.
 - [`audit/audit-2026-07-09.md`](audit/audit-2026-07-09.md) — единый аудит
   архитектуры, качества кода, reliability, security и delivery для baseline
   `0.1.8`.

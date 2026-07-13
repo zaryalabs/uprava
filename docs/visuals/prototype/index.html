@@ -1,0 +1,106 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta
+      name="description"
+      content="Static UI/UX prototype of the Uprava control panel"
+    />
+    <title>Uprava — UI prototype</title>
+    <link rel="stylesheet" href="styles.css" />
+  </head>
+  <body>
+    <a class="skip-link" href="#main-content">Skip to Main Content</a>
+
+    <div class="app-shell">
+      <header class="topbar">
+        <a class="brand" href="#dashboard" data-route="dashboard">
+          <span class="brand-mark" aria-hidden="true">У</span>
+          <strong>Uprava</strong>
+        </a>
+        <div class="topbar-status">
+          <span class="product-context">Control Plane / Work Surface</span>
+          <span
+            ><i class="status-dot" aria-hidden="true"></i> API Connected</span
+          >
+        </div>
+        <button class="settings-link" type="button" data-route="settings">
+          <span aria-hidden="true">⚙</span> Settings
+        </button>
+      </header>
+
+      <div class="profile-banner">
+        <span aria-hidden="true">♙</span>
+        controlled_dev profile · local auth and CSRF enabled
+      </div>
+
+      <div class="shell-grid">
+        <aside class="sidebar" aria-label="Workspace Navigation">
+          <nav class="primary-nav" aria-label="Primary Navigation">
+            <button type="button" data-route="dashboard">
+              <span aria-hidden="true">⌘</span> Dashboard
+            </button>
+            <button type="button" data-route="jobs">
+              <span aria-hidden="true">◷</span> Jobs
+            </button>
+            <button type="button" data-route="nodes">
+              <span aria-hidden="true">▤</span> Nodes
+            </button>
+          </nav>
+
+          <nav class="inventory" aria-label="Inventory tree">
+            <div class="eyebrow">Nodes</div>
+            <button class="tree-row node-row" type="button" data-route="nodes">
+              <span class="tree-label"
+                ><span aria-hidden="true">▣</span> Local Node</span
+              >
+              <span class="badges"
+                ><span class="badge dashed">stale</span
+                ><span class="badge">active</span></span
+              >
+            </button>
+            <div class="tree-branch">
+              <button class="tree-row" type="button" data-route="workspace">
+                <span class="tree-label"
+                  ><span aria-hidden="true">□</span> Uprava</span
+                >
+                <span class="badges"
+                  ><span class="badge">validated</span
+                  ><span class="badge dashed">Dirty workspace</span></span
+                >
+              </button>
+              <button
+                class="tree-row tree-child"
+                type="button"
+                data-route="session"
+              >
+                <span class="tree-label"
+                  ><span aria-hidden="true">▱</span> Fix issue</span
+                >
+                <span class="badges"
+                  ><span class="badge">active</span
+                  ><span class="badge dashed">blocked</span></span
+                >
+              </button>
+            </div>
+          </nav>
+        </aside>
+
+        <main id="main-content" tabindex="-1"></main>
+
+        <aside class="inspector" aria-label="Inspector">
+          <div class="eyebrow">Inspector</div>
+          <div id="inspector-content">
+            <p>
+              Select a source, cause, or evidence reference to inspect it here.
+            </p>
+          </div>
+        </aside>
+      </div>
+    </div>
+
+    <div id="toast" class="toast" role="status" aria-live="polite"></div>
+    <script src="app.js"></script>
+  </body>
+</html>
