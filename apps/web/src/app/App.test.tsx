@@ -168,9 +168,45 @@ describe("App routes", () => {
     expect(
       await screen.findByRole("heading", { name: "Background Jobs" }),
     ).toBeVisible();
+    expect(
+      await screen.findByRole("link", { name: /Nightly check/ }),
+    ).toBeVisible();
+    expect(screen.queryByText("Other workspace Job")).not.toBeInTheDocument();
+    expect(screen.getByText("Select a Job")).toBeVisible();
+    expect(jobsRequests).toBe(1);
+
+    renderApp("/workspaces/placement-3/jobs");
+    expect(await screen.findByText("No Jobs yet")).toBeVisible();
+    expect(
+      screen.getAllByRole("link", { name: "Create Job" })[0],
+    ).toHaveAttribute("href", "/workspaces/placement-3/jobs/new");
 
     renderApp("/workspaces/placement-1/jobs/new");
     expect(await screen.findByText("New paused Job")).toBeVisible();
+    expect(
+      screen.queryByRole("combobox", { name: "Workspace" }),
+    ).not.toBeInTheDocument();
+    fireEvent.change(screen.getByRole("textbox", { name: "Name" }), {
+      target: { value: "Created check" },
+    });
+    fireEvent.change(
+      screen.getByRole("textbox", { name: "Prompt / task contract" }),
+      { target: { value: "Inspect workspace" } },
+    );
+    fireEvent.click(screen.getByRole("button", { name: "Create paused Job" }));
+    expect(
+      await screen.findByRole("heading", { name: "Created check" }),
+    ).toBeVisible();
+    expect(lastCreateJobRequest).toEqual(
+      expect.objectContaining({
+        name: "Created check",
+        project_placement_id: "placement-1",
+        prompt: "Inspect workspace",
+        provider: "codex",
+        schedule: { kind: "interval", minutes: 60 },
+        continue_after_error: false,
+      }),
+    );
 
     renderApp("/jobs/job-1?inspect=bad-ref&tab=runs");
     expect(
@@ -343,6 +379,8 @@ function renderApp(path: string) {
   vi.unstubAllGlobals();
   createdSession = null;
   lastCreateSessionRequest = null;
+  lastCreateJobRequest = null;
+  jobsRequests = 0;
   workspaceDiffRequests = 0;
   vi.stubGlobal("fetch", vi.fn(mockFetch));
   vi.stubGlobal("EventSource", MockEventSource);
@@ -399,6 +437,8 @@ class MockEventSource {
 
 let createdSession: typeof session | null = null;
 let lastCreateSessionRequest: unknown = null;
+let lastCreateJobRequest: unknown = null;
+let jobsRequests = 0;
 let workspaceDiffRequests = 0;
 
 async function mockFetch(input: RequestInfo | URL, init?: RequestInit) {
@@ -419,6 +459,13 @@ async function mockFetch(input: RequestInfo | URL, init?: RequestInit) {
       },
     };
     return jsonResponse(sessionDetailFor(createdSession, placementTwo));
+  }
+  if (url.pathname === "/api/v1/jobs" && init?.method === "POST") {
+    lastCreateJobRequest = JSON.parse(String(init.body));
+    return jsonResponse(createdJobDetail);
+  }
+  if (url.pathname === "/api/v1/jobs") {
+    jobsRequests += 1;
   }
   if (url.pathname === "/api/v1/placements/placement-1/workspace/diff") {
     workspaceDiffRequests += 1;
@@ -462,6 +509,8 @@ function responseForPath(pathname: string) {
       return placement;
     case "/api/v1/placements/placement-2":
       return placementTwo;
+    case "/api/v1/placements/placement-3":
+      return placementThree;
     case "/api/v1/placements/placement-1/workspace/tree":
       return workspaceTree;
     case "/api/v1/placements/placement-1/workspace/file":
@@ -493,9 +542,11 @@ function responseForPath(pathname: string) {
         runtime_summary: createdSession?.runtime ?? runtime,
       };
     case "/api/v1/jobs":
-      return [jobSummary];
+      return [jobSummary, otherWorkspaceJob];
     case "/api/v1/jobs/job-1":
       return jobDetail;
+    case "/api/v1/jobs/job-created":
+      return createdJobDetail;
     case "/api/v1/job-runs/run-1":
       return jobRun;
     case "/api/v1/provider-quota/codex":
@@ -549,6 +600,14 @@ const placementTwo = {
   resource_badges: [],
 };
 
+const placementThree = {
+  ...placementTwo,
+  project_placement_id: "placement-3",
+  project_id: "project-3",
+  display_name: "Empty workspace",
+  workspace_path: "/workspace/empty",
+};
+
 const session = {
   session_thread_id: "session-1",
   project_placement_id: "placement-1",
@@ -585,7 +644,7 @@ const inventory = {
       diagnostics: "ok",
     },
   ],
-  placements: [placement, placementTwo],
+  placements: [placement, placementTwo, placementThree],
   sessions: [session],
   generated_at: "2026-06-17T00:00:00Z",
 };
@@ -779,4 +838,26 @@ const jobDetail = {
   job: jobSummary,
   prompt: "Run checks",
   runs: [jobRun],
+};
+
+const otherWorkspaceJob = {
+  ...jobSummary,
+  job_id: "job-other",
+  name: "Other workspace Job",
+  project_placement_id: "placement-2",
+  placement_name: "Other workspace",
+  latest_run: null,
+};
+
+const createdJobDetail = {
+  job: {
+    ...jobSummary,
+    job_id: "job-created",
+    name: "Created check",
+    enabled: false,
+    latest_run: null,
+    next_run_at: null,
+  },
+  prompt: "Inspect workspace",
+  runs: [],
 };

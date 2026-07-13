@@ -1,295 +1,204 @@
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { useQuery } from "@tanstack/react-query";
 import { Clock3, Plus } from "lucide-react";
-import { useState } from "react";
-import { Link, useNavigate } from "react-router-dom";
+import type { ReactNode } from "react";
+import {
+  Link,
+  NavLink,
+  Outlet,
+  useLocation,
+  useOutletContext,
+  useParams,
+} from "react-router-dom";
 
 import { coreApi } from "../../shared/api/http-client";
 import { queryKeys } from "../../shared/api/query-keys";
-import type { JobSchedule } from "../../shared/protocol/types";
+import type { JobSchedule, JobSummary } from "../../shared/protocol/types";
 import { Badge } from "../../shared/ui/badge";
-import { Button } from "../../shared/ui/button";
 import { ErrorNotice } from "../../shared/ui/error-notice";
-import { workspaceJobRoute } from "../workspaces/routes";
+import { EmptyState, LoadingState } from "../../shared/ui/system";
+import {
+  type WorkspaceOutletContext,
+  useWorkspaceContext,
+} from "../workspaces/WorkspaceLayout";
+import {
+  routeWithSearch,
+  workspaceJobNewRoute,
+  workspaceJobRoute,
+} from "../workspaces/routes";
+
+type WorkspaceJobsOutletContext = WorkspaceOutletContext & {
+  jobs: JobSummary[];
+};
 
 export function JobsRoute() {
-  const navigate = useNavigate();
-  const queryClient = useQueryClient();
+  const workspace = useWorkspaceContext();
+  const location = useLocation();
+  const { jobId } = useParams();
+  const placementId = workspace.placement.project_placement_id;
   const jobs = useQuery({
     queryKey: queryKeys.jobs,
     queryFn: coreApi.jobs,
     refetchInterval: 2_000,
   });
-  const inventory = useQuery({
-    queryKey: queryKeys.inventory,
-    queryFn: coreApi.inventory,
-  });
-  const [name, setName] = useState("");
-  const [placementId, setPlacementId] = useState("");
-  const [prompt, setPrompt] = useState("");
-  const [timezone, setTimezone] = useState(
-    Intl.DateTimeFormat().resolvedOptions().timeZone || "UTC",
-  );
-  const [scheduleKind, setScheduleKind] = useState<ScheduleKind>("interval");
-  const [intervalMinutes, setIntervalMinutes] = useState(60);
-  const [hour, setHour] = useState(2);
-  const [minute, setMinute] = useState(0);
-  const [weekday, setWeekday] = useState(1);
-  const [continueAfterError, setContinueAfterError] = useState(false);
-  const create = useMutation({
-    mutationFn: () =>
-      coreApi.createJob({
-        name,
-        project_placement_id:
-          placementId ||
-          inventory.data?.placements[0]?.project_placement_id ||
-          "",
-        prompt,
-        provider: "codex",
-        schedule: scheduleFor({
-          kind: scheduleKind,
-          intervalMinutes,
-          hour,
-          minute,
-          weekday,
-        }),
-        timezone,
-        continue_after_error: continueAfterError,
-      }),
-    onSuccess: async (detail) => {
-      await queryClient.invalidateQueries({ queryKey: queryKeys.jobs });
-      navigate(
-        workspaceJobRoute(detail.job.project_placement_id, detail.job.job_id),
-      );
-    },
-  });
-  const placements = inventory.data?.placements ?? [];
-  const selectedPlacementId =
-    placementId || placements[0]?.project_placement_id || "";
-  const canCreate =
-    Boolean(name.trim() && prompt.trim() && selectedPlacementId && timezone) &&
-    !create.isPending;
+  const workspaceJobs = filterJobsByPlacement(jobs.data ?? [], placementId);
+  const context: WorkspaceJobsOutletContext = {
+    ...workspace,
+    jobs: workspaceJobs,
+  };
 
   return (
-    <section className="space-y-8">
-      <header>
-        <div className="zarya-caption">AUTOMATION / DURABLE WORK</div>
-        <h1 className="mt-2 text-2xl font-semibold">Background Jobs</h1>
-        <p className="mt-2 max-w-3xl text-sm text-[var(--color-muted)]">
-          Each run gets its own managed session in the selected workspace. Jobs
-          start paused so you can test them manually before enabling a schedule.
-        </p>
+    <section className="space-y-4" aria-labelledby="workspace-jobs-title">
+      <header className="flex flex-wrap items-end justify-between gap-3">
+        <div>
+          <div className="zarya-caption">WORKSPACE AUTOMATION</div>
+          <h2 id="workspace-jobs-title" className="mt-1 text-xl font-bold">
+            Background Jobs
+          </h2>
+          <p className="mt-1 max-w-2xl text-sm text-[var(--color-muted)]">
+            Durable scheduled and manual agent work for this workspace.
+          </p>
+        </div>
+        <Link
+          className="inline-flex h-9 items-center justify-center gap-2 border border-[var(--color-ink)] bg-[var(--color-ink)] px-3 text-sm font-medium text-[var(--color-bg)] hover:opacity-80"
+          to={routeWithSearch(
+            workspaceJobNewRoute(placementId),
+            location.search,
+          )}
+        >
+          <Plus size={16} aria-hidden="true" />
+          Create Job
+        </Link>
       </header>
 
-      <form
-        className="grid gap-4 border border-[var(--color-muted)] p-4"
-        onSubmit={(event) => {
-          event.preventDefault();
-          create.mutate();
-        }}
-      >
-        <div className="flex items-center gap-2 font-bold">
-          <Plus size={16} aria-hidden="true" /> New paused Job
-        </div>
-        <div className="grid gap-3 md:grid-cols-2">
-          <Field label="Name">
-            <input
-              className={inputClass}
-              value={name}
-              onChange={(event) => setName(event.target.value)}
-              required
-            />
-          </Field>
-          <Field label="Workspace">
-            <select
-              className={inputClass}
-              value={selectedPlacementId}
-              onChange={(event) => setPlacementId(event.target.value)}
-              required
-            >
-              {placements.map((placement) => (
-                <option
-                  key={placement.project_placement_id}
-                  value={placement.project_placement_id}
-                >
-                  {placement.display_name}
-                </option>
-              ))}
-            </select>
-          </Field>
-        </div>
-        <Field label="Prompt / task contract">
-          <textarea
-            className={`${inputClass} min-h-32 resize-y`}
-            value={prompt}
-            onChange={(event) => setPrompt(event.target.value)}
-            required
-          />
-        </Field>
-        <div className="grid gap-3 md:grid-cols-4">
-          <Field label="Schedule">
-            <select
-              className={inputClass}
-              value={scheduleKind}
-              onChange={(event) =>
-                setScheduleKind(event.target.value as ScheduleKind)
-              }
-            >
-              <option value="interval">Interval</option>
-              <option value="daily">Daily</option>
-              <option value="weekly">Weekly</option>
-              <option value="manual">Manual only</option>
-            </select>
-          </Field>
-          {scheduleKind === "interval" ? (
-            <Field label="Every, minutes">
-              <input
-                className={inputClass}
-                type="number"
-                min={1}
-                value={intervalMinutes}
-                onChange={(event) =>
-                  setIntervalMinutes(event.target.valueAsNumber)
-                }
-              />
-            </Field>
-          ) : null}
-          {scheduleKind === "weekly" ? (
-            <Field label="Weekday">
-              <select
-                className={inputClass}
-                value={weekday}
-                onChange={(event) => setWeekday(Number(event.target.value))}
-              >
-                {weekdays.map((label, index) => (
-                  <option key={label} value={index + 1}>
-                    {label}
-                  </option>
-                ))}
-              </select>
-            </Field>
-          ) : null}
-          {scheduleKind === "daily" || scheduleKind === "weekly" ? (
-            <Field label="Local time">
-              <div className="grid grid-cols-2 gap-2">
-                <input
-                  aria-label="Hour"
-                  className={inputClass}
-                  type="number"
-                  min={0}
-                  max={23}
-                  value={hour}
-                  onChange={(event) => setHour(event.target.valueAsNumber)}
-                />
-                <input
-                  aria-label="Minute"
-                  className={inputClass}
-                  type="number"
-                  min={0}
-                  max={59}
-                  value={minute}
-                  onChange={(event) => setMinute(event.target.valueAsNumber)}
-                />
-              </div>
-            </Field>
-          ) : null}
-          <Field label="IANA timezone">
-            <input
-              className={inputClass}
-              value={timezone}
-              onChange={(event) => setTimezone(event.target.value)}
-              required
-            />
-          </Field>
-        </div>
-        <label className="flex items-center gap-2 text-sm">
-          <input
-            type="checkbox"
-            checked={continueAfterError}
-            onChange={(event) => setContinueAfterError(event.target.checked)}
-          />
-          Keep automatic schedule enabled after a failed run
-        </label>
-        {create.isError ? (
-          <ErrorNotice error={create.error} title="Job creation failed" />
-        ) : null}
-        <div>
-          <Button
-            type="submit"
-            variant="primary"
-            disabled={!canCreate || placements.length === 0}
-          >
-            Create paused Job
-          </Button>
-        </div>
-      </form>
-
-      {jobs.isError ? (
-        <ErrorNotice error={jobs.error} title="Jobs load failed" />
-      ) : null}
-      <div className="grid gap-3">
-        {jobs.data?.map((job) => (
-          <Link
-            key={job.job_id}
-            to={workspaceJobRoute(job.project_placement_id, job.job_id)}
-            className="grid gap-3 border border-black/20 p-4 hover:bg-[var(--color-bg-muted)] md:grid-cols-[minmax(0,1fr)_auto]"
-          >
-            <div className="min-w-0">
-              <div className="font-bold">{job.name}</div>
-              <div className="mt-1 text-sm text-[var(--color-muted)]">
-                {job.placement_name} ·{" "}
-                {formatSchedule(job.schedule, job.timezone)}
-              </div>
-              <div className="mt-2 flex flex-wrap gap-2">
-                <Badge tone={job.enabled ? "good" : "neutral"}>
-                  {job.enabled ? "enabled" : "paused"}
-                </Badge>
-                {job.latest_run ? (
-                  <Badge tone={runTone(job.latest_run.state)}>
-                    latest: {job.latest_run.state}
-                  </Badge>
-                ) : null}
-              </div>
-            </div>
-            <div className="flex items-center gap-2 text-xs text-[var(--color-muted)]">
-              <Clock3 size={14} aria-hidden="true" />
-              {job.next_run_at
-                ? new Date(job.next_run_at).toLocaleString()
-                : "No next start"}
-            </div>
-          </Link>
-        ))}
-        {jobs.data?.length === 0 ? (
-          <div className="border border-dashed border-[var(--color-muted)] p-6 text-sm text-[var(--color-muted)]">
-            No Jobs yet. Create one above and run a manual test.
+      <div className="uprava-jobs-grid">
+        <aside className="uprava-jobs-list" aria-label="Workspace Jobs">
+          <div className="flex items-center justify-between gap-3 border-b border-black/10 pb-3">
+            <div className="zarya-label">JOBS</div>
+            <span className="text-xs text-[var(--color-muted)]">
+              {workspaceJobs.length}
+            </span>
           </div>
-        ) : null}
+          {jobs.isError ? (
+            <ErrorNotice error={jobs.error} title="Jobs load failed" />
+          ) : null}
+          {jobs.isPending ? <LoadingState stage="Loading Jobs" /> : null}
+          {workspaceJobs.length > 0 ? (
+            <nav className="mt-3" aria-label="Jobs">
+              <ul className="space-y-1">
+                {workspaceJobs.map((job) => (
+                  <li key={job.job_id}>
+                    <JobListLink
+                      job={job}
+                      selected={job.job_id === jobId}
+                      to={routeWithSearch(
+                        workspaceJobRoute(placementId, job.job_id),
+                        location.search,
+                      )}
+                    />
+                  </li>
+                ))}
+              </ul>
+            </nav>
+          ) : jobs.isSuccess ? (
+            <div className="py-5 text-xs text-[var(--color-muted)]">
+              No Jobs in this workspace.
+            </div>
+          ) : null}
+        </aside>
+        <div className="uprava-jobs-content">
+          <Outlet context={context} />
+        </div>
       </div>
     </section>
   );
 }
 
-type ScheduleKind = "manual" | "interval" | "daily" | "weekly";
+export function WorkspaceJobsIndexRoute() {
+  const { jobs, placement } = useWorkspaceJobsContext();
+  const location = useLocation();
 
-function scheduleFor(input: {
-  kind: ScheduleKind;
-  intervalMinutes: number;
-  hour: number;
-  minute: number;
-  weekday: number;
-}): JobSchedule | null {
-  if (input.kind === "manual") return null;
-  if (input.kind === "interval") {
-    return { kind: "interval", minutes: input.intervalMinutes };
+  if (jobs.length === 0) {
+    return (
+      <div className="grid min-h-80 place-items-center border border-dashed border-black/20 p-8 text-center">
+        <div>
+          <EmptyState
+            title="No Jobs yet"
+            detail="Create a paused Job, run a manual test, then enable its schedule when the result is ready."
+          />
+          <Link
+            className="mt-2 inline-flex h-9 items-center justify-center gap-2 border border-[var(--color-ink)] bg-[var(--color-ink)] px-3 text-sm font-medium text-[var(--color-bg)] hover:opacity-80"
+            to={routeWithSearch(
+              workspaceJobNewRoute(placement.project_placement_id),
+              location.search,
+            )}
+          >
+            <Plus size={16} aria-hidden="true" />
+            Create Job
+          </Link>
+        </div>
+      </div>
+    );
   }
-  if (input.kind === "daily") {
-    return { kind: "daily", hour: input.hour, minute: input.minute };
-  }
-  return {
-    kind: "weekly",
-    weekday: input.weekday,
-    hour: input.hour,
-    minute: input.minute,
-  };
+
+  return (
+    <div className="grid min-h-80 place-items-center border border-dashed border-black/20 p-8 text-center">
+      <EmptyState
+        title="Select a Job"
+        detail="Choose a Job to inspect its configuration and run history, or create a new paused Job."
+      />
+    </div>
+  );
+}
+
+export function useWorkspaceJobsContext() {
+  return useOutletContext<WorkspaceJobsOutletContext>();
+}
+
+export function filterJobsByPlacement(jobs: JobSummary[], placementId: string) {
+  return jobs.filter((job) => job.project_placement_id === placementId);
+}
+
+function JobListLink({
+  job,
+  selected,
+  to,
+}: {
+  job: JobSummary;
+  selected: boolean;
+  to: string;
+}) {
+  return (
+    <NavLink
+      to={to}
+      aria-current={selected ? "page" : undefined}
+      className={`block border p-3 ${
+        selected
+          ? "border-[var(--color-ink)] bg-[var(--color-bg)]"
+          : "border-transparent hover:border-black/20 hover:bg-[var(--color-bg)]"
+      }`}
+    >
+      <span className="block truncate text-sm font-medium">{job.name}</span>
+      <span className="mt-1 block text-xs text-[var(--color-muted)]">
+        {formatSchedule(job.schedule, job.timezone)}
+      </span>
+      <span className="mt-2 flex flex-wrap items-center gap-1">
+        <Badge tone={job.enabled ? "good" : "neutral"}>
+          {job.enabled ? "enabled" : "paused"}
+        </Badge>
+        {job.latest_run ? (
+          <Badge tone={runTone(job.latest_run.state)}>
+            {job.latest_run.state}
+          </Badge>
+        ) : null}
+      </span>
+      <span className="mt-2 flex items-center gap-1 text-xs text-[var(--color-muted)]">
+        <Clock3 size={13} aria-hidden="true" />
+        {job.next_run_at
+          ? new Date(job.next_run_at).toLocaleString()
+          : "No next start"}
+      </span>
+    </NavLink>
+  );
 }
 
 export function formatSchedule(schedule: JobSchedule | null, timezone: string) {
@@ -307,12 +216,12 @@ export function runTone(state: string): "good" | "bad" | "warn" | "neutral" {
   return "neutral";
 }
 
-function Field({
+export function Field({
   label,
   children,
 }: {
   label: string;
-  children: React.ReactNode;
+  children: ReactNode;
 }) {
   return (
     <label className="grid gap-1 text-sm">
@@ -324,9 +233,10 @@ function Field({
   );
 }
 
-const inputClass =
+export const jobInputClass =
   "min-h-10 w-full border border-[var(--color-muted)] bg-[var(--color-bg)] px-3 py-2 text-sm text-[var(--color-ink)]";
-const weekdays = [
+
+export const weekdays = [
   "Monday",
   "Tuesday",
   "Wednesday",

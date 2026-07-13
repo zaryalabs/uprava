@@ -290,6 +290,30 @@ td,
   padding: var(--space-4) 0 var(--space-4) var(--space-4);
 }
 
+.uprava-jobs-grid {
+  min-width: 0;
+  display: grid;
+  grid-template-columns: minmax(220px, 280px) minmax(0, 1fr);
+  align-items: start;
+  border-top: var(--line-hair);
+}
+
+.uprava-jobs-list {
+  min-width: 0;
+  max-height: calc(100vh - 250px);
+  position: sticky;
+  top: calc(var(--uprava-topbar-height) + var(--space-4));
+  overflow: auto;
+  border-right: var(--line-hair);
+  background: color-mix(in srgb, var(--color-ink) 2%, var(--color-bg));
+  padding: var(--space-4);
+}
+
+.uprava-jobs-content {
+  min-width: 0;
+  padding: var(--space-4) 0 var(--space-4) var(--space-4);
+}
+
 .uprava-workbench-grid {
   min-width: 0;
   height: clamp(600px, calc(100vh - 340px), 860px);
@@ -439,6 +463,10 @@ td,
     grid-template-columns: minmax(0, 1fr);
   }
 
+  .uprava-jobs-grid {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
   .uprava-agent-sessions {
     max-height: none;
     position: static;
@@ -447,6 +475,17 @@ td,
   }
 
   .uprava-agent-grid > :last-child {
+    padding-left: 0;
+  }
+
+  .uprava-jobs-list {
+    max-height: none;
+    position: static;
+    border-right: 0;
+    border-bottom: var(--line-hair);
+  }
+
+  .uprava-jobs-content {
     padding-left: 0;
   }
 

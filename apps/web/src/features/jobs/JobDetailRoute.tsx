@@ -1,24 +1,29 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Pause, Play, RotateCcw } from "lucide-react";
-import { Link, useParams } from "react-router-dom";
+import { Link, Navigate, useLocation, useParams } from "react-router-dom";
 import { useState } from "react";
 
 import { coreApi } from "../../shared/api/http-client";
 import { queryKeys } from "../../shared/api/query-keys";
+import type { JobDetail } from "../../shared/protocol/types";
 import { Badge } from "../../shared/ui/badge";
 import { Button } from "../../shared/ui/button";
 import { ErrorNotice } from "../../shared/ui/error-notice";
+import {
+  routeWithSearch,
+  workspaceJobRoute,
+  workspaceJobRunRoute,
+} from "../workspaces/routes";
 import { formatSchedule, runTone } from "./JobsRoute";
-import type { JobDetail } from "../../shared/protocol/types";
-import { workspaceJobRunRoute } from "../workspaces/routes";
 
 export function JobDetailRoute() {
-  const { jobId } = useParams();
+  const { placementId = "", jobId = "" } = useParams();
+  const location = useLocation();
   const queryClient = useQueryClient();
   const [force, setForce] = useState(false);
   const job = useQuery({
-    queryKey: queryKeys.job(jobId ?? ""),
-    queryFn: () => coreApi.job(jobId ?? ""),
+    queryKey: queryKeys.job(jobId),
+    queryFn: () => coreApi.job(jobId),
     enabled: Boolean(jobId),
     refetchInterval: 1_500,
   });
@@ -29,20 +34,20 @@ export function JobDetailRoute() {
   });
   const refresh = async () => {
     await Promise.all([
-      queryClient.invalidateQueries({ queryKey: queryKeys.job(jobId ?? "") }),
+      queryClient.invalidateQueries({ queryKey: queryKeys.job(jobId) }),
       queryClient.invalidateQueries({ queryKey: queryKeys.jobs }),
       queryClient.invalidateQueries({ queryKey: queryKeys.inventory }),
     ]);
   };
   const run = useMutation({
-    mutationFn: () => coreApi.runJob(jobId ?? "", force),
+    mutationFn: () => coreApi.runJob(jobId, force),
     onSuccess: refresh,
   });
   const toggle = useMutation({
     mutationFn: () =>
       job.data?.job.enabled
-        ? coreApi.disableJob(jobId ?? "")
-        : coreApi.enableJob(jobId ?? ""),
+        ? coreApi.disableJob(jobId)
+        : coreApi.enableJob(jobId),
     onSuccess: refresh,
   });
 
@@ -51,6 +56,17 @@ export function JobDetailRoute() {
   if (!job.data)
     return <div className="text-sm text-[var(--color-muted)]">Loading Job</div>;
   const detail = job.data;
+  if (detail.job.project_placement_id !== placementId) {
+    return (
+      <Navigate
+        replace
+        to={routeWithSearch(
+          workspaceJobRoute(detail.job.project_placement_id, jobId),
+          location.search,
+        )}
+      />
+    );
+  }
 
   return (
     <section className="space-y-7">
@@ -59,7 +75,7 @@ export function JobDetailRoute() {
           <div className="zarya-caption">
             BACKGROUND JOB / {detail.job.provider}
           </div>
-          <h1 className="mt-2 text-2xl font-semibold">{detail.job.name}</h1>
+          <h3 className="mt-2 text-2xl font-semibold">{detail.job.name}</h3>
           <div className="mt-2 text-sm text-[var(--color-muted)]">
             {detail.job.placement_name} ·{" "}
             {formatSchedule(detail.job.schedule, detail.job.timezone)}

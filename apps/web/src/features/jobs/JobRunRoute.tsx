@@ -1,19 +1,22 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { Link, useParams } from "react-router-dom";
+import { Link, Navigate, useLocation, useParams } from "react-router-dom";
 
 import { coreApi } from "../../shared/api/http-client";
 import { queryKeys } from "../../shared/api/query-keys";
 import { Badge } from "../../shared/ui/badge";
 import { Button } from "../../shared/ui/button";
 import { ErrorNotice } from "../../shared/ui/error-notice";
-import { runTone } from "./JobsRoute";
 import {
+  routeWithSearch,
   workspaceAgentSessionRoute,
   workspaceJobRoute,
+  workspaceJobRunRoute,
 } from "../workspaces/routes";
+import { runTone } from "./JobsRoute";
 
 export function JobRunRoute() {
   const { placementId = "", jobId = "", jobRunId } = useParams();
+  const location = useLocation();
   const queryClient = useQueryClient();
   const run = useQuery({
     queryKey: queryKeys.jobRun(jobRunId ?? ""),
@@ -21,6 +24,12 @@ export function JobRunRoute() {
     enabled: Boolean(jobRunId),
     refetchInterval: (query) =>
       query.state.data && isTerminal(query.state.data.state) ? false : 1_000,
+  });
+  const actualJobId = run.data?.job_id ?? "";
+  const job = useQuery({
+    queryKey: queryKeys.job(actualJobId),
+    queryFn: () => coreApi.job(actualJobId),
+    enabled: Boolean(actualJobId),
   });
   const cancel = useMutation({
     mutationFn: () => coreApi.cancelJobRun(jobRunId ?? ""),
@@ -33,11 +42,29 @@ export function JobRunRoute() {
 
   if (run.isError)
     return <ErrorNotice error={run.error} title="Job Run load failed" />;
-  if (!run.data)
+  if (job.isError)
+    return <ErrorNotice error={job.error} title="Job load failed" />;
+  if (!run.data || !job.data)
     return (
       <div className="text-sm text-[var(--color-muted)]">Loading Job Run</div>
     );
   const detail = run.data;
+  const actualPlacementId = job.data.job.project_placement_id;
+  if (actualPlacementId !== placementId || actualJobId !== jobId) {
+    return (
+      <Navigate
+        replace
+        to={routeWithSearch(
+          workspaceJobRunRoute(
+            actualPlacementId,
+            actualJobId,
+            detail.job_run_id,
+          ),
+          location.search,
+        )}
+      />
+    );
+  }
   const active = ["queued", "starting", "running"].includes(detail.state);
 
   return (
@@ -45,9 +72,9 @@ export function JobRunRoute() {
       <header className="flex flex-wrap items-start justify-between gap-4">
         <div>
           <div className="zarya-caption">JOB RUN / {detail.trigger}</div>
-          <h1 className="mt-2 text-2xl font-semibold">
+          <h3 className="mt-2 text-2xl font-semibold">
             Run {detail.job_run_id.slice(0, 8)}
-          </h1>
+          </h3>
           <div className="mt-2 flex gap-2">
             <Badge tone={runTone(detail.state)}>{detail.state}</Badge>
             {detail.force ? <Badge tone="warn">quota override</Badge> : null}
@@ -102,7 +129,7 @@ export function JobRunRoute() {
       <div className="flex flex-wrap gap-3 text-sm">
         <Link
           className="underline"
-          to={workspaceJobRoute(placementId, jobId || detail.job_id)}
+          to={workspaceJobRoute(actualPlacementId, actualJobId)}
         >
           Open Job
         </Link>
@@ -110,7 +137,7 @@ export function JobRunRoute() {
           <Link
             className="underline"
             to={workspaceAgentSessionRoute(
-              placementId,
+              actualPlacementId,
               detail.session_thread_id,
             )}
           >

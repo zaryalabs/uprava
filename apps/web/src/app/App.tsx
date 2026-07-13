@@ -30,14 +30,24 @@ const JobsRoute = lazy(() =>
     default: module.JobsRoute,
   })),
 );
+const WorkspaceJobsIndexRoute = lazy(() =>
+  import("../features/jobs/JobsRoute").then((module) => ({
+    default: module.WorkspaceJobsIndexRoute,
+  })),
+);
+const JobCreateRoute = lazy(() =>
+  import("../features/jobs/JobCreateRoute").then((module) => ({
+    default: module.JobCreateRoute,
+  })),
+);
 const WorkspaceJobDetailRoute = lazy(() =>
-  import("../features/jobs/WorkspaceJobRoutes").then((module) => ({
-    default: module.WorkspaceJobDetailRoute,
+  import("../features/jobs/JobDetailRoute").then((module) => ({
+    default: module.JobDetailRoute,
   })),
 );
 const WorkspaceJobRunRoute = lazy(() =>
-  import("../features/jobs/WorkspaceJobRoutes").then((module) => ({
-    default: module.WorkspaceJobRunRoute,
+  import("../features/jobs/JobRunRoute").then((module) => ({
+    default: module.JobRunRoute,
   })),
 );
 const NodeCompatibilityRoute = lazy(() =>
@@ -245,31 +255,40 @@ export function App() {
                     <JobsRoute />
                   </LazyRoute>
                 }
-              />
-              <Route
-                path="jobs/new"
-                element={
-                  <LazyRoute>
-                    <JobsRoute />
-                  </LazyRoute>
-                }
-              />
-              <Route
-                path="jobs/:jobId"
-                element={
-                  <LazyRoute>
-                    <WorkspaceJobDetailRoute />
-                  </LazyRoute>
-                }
-              />
-              <Route
-                path="jobs/:jobId/runs/:jobRunId"
-                element={
-                  <LazyRoute>
-                    <WorkspaceJobRunRoute />
-                  </LazyRoute>
-                }
-              />
+              >
+                <Route
+                  index
+                  element={
+                    <LazyRoute>
+                      <WorkspaceJobsIndexRoute />
+                    </LazyRoute>
+                  }
+                />
+                <Route
+                  path="new"
+                  element={
+                    <LazyRoute>
+                      <JobCreateRoute />
+                    </LazyRoute>
+                  }
+                />
+                <Route
+                  path=":jobId"
+                  element={
+                    <LazyRoute>
+                      <WorkspaceJobDetailRoute />
+                    </LazyRoute>
+                  }
+                />
+                <Route
+                  path=":jobId/runs/:jobRunId"
+                  element={
+                    <LazyRoute>
+                      <WorkspaceJobRunRoute />
+                    </LazyRoute>
+                  }
+                />
+              </Route>
             </Route>
 
             <Route

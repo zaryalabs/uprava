@@ -183,6 +183,68 @@ test("loads Workbench chunks on demand and refits after shell changes", async ({
   expect(await horizontalOverflow(page)).toBeLessThanOrEqual(1);
 });
 
+test("keeps Jobs scoped to the workspace through create, detail, and run", async ({
+  page,
+}) => {
+  const core = await mockCoreApi(page);
+
+  await page.goto("/workspaces/placement-1/jobs");
+  await expect(
+    page.getByRole("heading", { name: "Background Jobs" }),
+  ).toBeVisible();
+  await expect(page.getByRole("link", { name: /Nightly check/ })).toBeVisible();
+  await expect(page.getByText("Other workspace Job")).toHaveCount(0);
+  expect(core.jobsRequests).toBe(1);
+
+  await page.getByRole("link", { name: "Create Job" }).first().click();
+  await expect(
+    page.getByRole("heading", { name: "New paused Job" }),
+  ).toBeVisible();
+  await expect(page.getByRole("combobox", { name: "Workspace" })).toHaveCount(
+    0,
+  );
+  await page.getByRole("textbox", { name: "Name" }).fill("Created check");
+  await page
+    .getByRole("textbox", { name: "Prompt / task contract" })
+    .fill("Inspect workspace");
+  await page.getByRole("button", { name: "Create paused Job" }).click();
+  await expect(
+    page.getByRole("heading", { name: "Created check" }),
+  ).toBeVisible();
+  expect(core.createdJobRequest).toMatchObject({
+    name: "Created check",
+    project_placement_id: "placement-1",
+    prompt: "Inspect workspace",
+    provider: "codex",
+    schedule: { kind: "interval", minutes: 60 },
+    continue_after_error: false,
+  });
+
+  await page.goto("/workspaces/placement-1/jobs/job-1");
+  await expect(
+    page.getByRole("heading", { name: "Nightly check" }),
+  ).toBeVisible();
+  await page.getByRole("link", { name: /Completed/ }).click();
+  await expect(page.getByRole("heading", { name: "Run run-1" })).toBeVisible();
+  await expect(
+    page.getByRole("link", { name: "Open session output and evidence" }),
+  ).toHaveAttribute("href", "/workspaces/placement-1/agent/session-1");
+
+  await page.goto("/job-runs/run-1?inspect=bad-ref");
+  await expect(page).toHaveURL(
+    /\/workspaces\/placement-1\/jobs\/job-1\/runs\/run-1\?inspect=bad-ref$/,
+  );
+
+  await page.setViewportSize({ width: 1024, height: 900 });
+  expect(await horizontalOverflow(page)).toBeLessThanOrEqual(1);
+  await page.setViewportSize({ width: 390, height: 844 });
+  await page.goto("/workspaces/placement-1/jobs/job-1");
+  await expect(
+    page.getByRole("heading", { name: "Nightly check" }),
+  ).toBeVisible();
+  expect(await horizontalOverflow(page)).toBeLessThanOrEqual(1);
+});
+
 test("matches stable Zarya sheets and keeps the mobile session usable", async ({
   page,
 }) => {
@@ -201,6 +263,28 @@ test("matches stable Zarya sheets and keeps the mobile session usable", async ({
   await expect(page).toHaveScreenshot("workspace-agent-desktop.png", {
     animations: "disabled",
     fullPage: true,
+  });
+
+  await page.goto("/workspaces/placement-1/jobs");
+  await expect(page.getByRole("link", { name: /Nightly check/ })).toBeVisible();
+  await expect(page).toHaveScreenshot("workspace-jobs-desktop.png", {
+    animations: "disabled",
+    fullPage: true,
+  });
+  await page.getByRole("link", { name: /Nightly check/ }).click();
+  await expect(
+    page.getByRole("heading", { name: "Nightly check" }),
+  ).toBeVisible();
+  await expect(page).toHaveScreenshot("workspace-job-detail-desktop.png", {
+    animations: "disabled",
+    fullPage: true,
+  });
+  await page.getByRole("link", { name: /Completed/ }).click();
+  await expect(page.getByRole("heading", { name: "Run run-1" })).toBeVisible();
+  await page.getByRole("main").focus();
+  await expect(page).toHaveScreenshot("workspace-job-run-desktop.png", {
+    animations: "disabled",
+    fullPage: false,
   });
 
   await page.goto("/workspaces/placement-1/workbench");
@@ -274,6 +358,8 @@ async function mockCoreApi(page: import("@playwright/test").Page) {
     warningAcknowledged: false,
     diffRequests: 0,
     terminalOpen: false,
+    jobsRequests: 0,
+    createdJobRequest: null as Record<string, unknown> | null,
   };
   await installMockWebSocket(page);
   await mockPublicShellApi(page);
@@ -285,6 +371,55 @@ async function mockCoreApi(page: import("@playwright/test").Page) {
   });
   await page.route("**/api/v1/node-enrollments", async (route) => {
     await route.fulfill({ contentType: "application/json", body: json([]) });
+  });
+  await page.route("**/api/v1/jobs", async (route) => {
+    if (route.request().method() === "POST") {
+      state.createdJobRequest = route.request().postDataJSON() as Record<
+        string,
+        unknown
+      >;
+      await route.fulfill({
+        contentType: "application/json",
+        body: json(createdJobDetail),
+      });
+      return;
+    }
+    state.jobsRequests += 1;
+    await route.fulfill({
+      contentType: "application/json",
+      body: json([jobSummary, otherWorkspaceJob]),
+    });
+  });
+  await page.route("**/api/v1/jobs/job-1", async (route) => {
+    await route.fulfill({
+      contentType: "application/json",
+      body: json(jobDetail),
+    });
+  });
+  await page.route("**/api/v1/jobs/job-created", async (route) => {
+    await route.fulfill({
+      contentType: "application/json",
+      body: json(createdJobDetail),
+    });
+  });
+  await page.route("**/api/v1/job-runs/run-1", async (route) => {
+    await route.fulfill({
+      contentType: "application/json",
+      body: json(jobRun),
+    });
+  });
+  await page.route("**/api/v1/provider-quota/codex", async (route) => {
+    await route.fulfill({
+      contentType: "application/json",
+      body: json({
+        provider: "codex",
+        state: "available",
+        five_hour_remaining_percent: 80,
+        weekly_remaining_percent: 75,
+        observed_at: "2026-06-17T00:00:00Z",
+        unavailable_reason: null,
+      }),
+    });
   });
   await page.route("**/api/v1/placements/placement-1", async (route) => {
     await route.fulfill({
@@ -779,4 +914,67 @@ const agentProjection = {
   source_cause_summary: "Known event source refs are preserved",
   resume_context: "Runtime blocked on approval",
   generated_at: "2026-06-17T00:00:00Z",
+};
+
+const jobRun = {
+  job_run_id: "run-1",
+  job_id: "job-1",
+  trigger: "manual",
+  state: "succeeded",
+  scheduled_for: null,
+  queued_at: "2026-06-17T00:00:00Z",
+  started_at: "2026-06-17T00:00:01Z",
+  finished_at: "2026-06-17T00:00:02Z",
+  session_thread_id: "session-1",
+  runtime_session_id: "runtime-1",
+  summary: "Completed",
+  terminal_reason: null,
+  config_snapshot: { provider: "codex", prompt: "Run checks" },
+  force: false,
+};
+
+const jobSummary = {
+  job_id: "job-1",
+  name: "Nightly check",
+  project_placement_id: "placement-1",
+  placement_name: "Uprava",
+  provider: "codex",
+  enabled: true,
+  schedule: { kind: "daily", hour: 2, minute: 0 },
+  timezone: "UTC",
+  overlap_policy: "skip",
+  continue_after_error: false,
+  next_run_at: "2026-06-18T02:00:00Z",
+  paused_reason: null,
+  latest_run: jobRun,
+  created_at: "2026-06-16T00:00:00Z",
+  updated_at: "2026-06-17T00:00:02Z",
+};
+
+const jobDetail = {
+  job: jobSummary,
+  prompt: "Run checks",
+  runs: [jobRun],
+};
+
+const otherWorkspaceJob = {
+  ...jobSummary,
+  job_id: "job-other",
+  name: "Other workspace Job",
+  project_placement_id: "placement-2",
+  placement_name: "Other workspace",
+  latest_run: null,
+};
+
+const createdJobDetail = {
+  job: {
+    ...jobSummary,
+    job_id: "job-created",
+    name: "Created check",
+    enabled: false,
+    latest_run: null,
+    next_run_at: null,
+  },
+  prompt: "Inspect workspace",
+  runs: [],
 };
