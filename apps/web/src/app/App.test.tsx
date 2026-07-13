@@ -70,6 +70,17 @@ describe("App routes", () => {
     );
     expect(await screen.findByRole("heading", { name: "Agent" })).toBeVisible();
     expect(
+      await screen.findByRole("button", { name: "Start Codex" }),
+    ).toBeEnabled();
+    const selectedSession = screen.getByRole("link", { name: /Fix issue/ });
+    expect(selectedSession).toHaveAttribute("aria-current", "page");
+    expect(
+      within(selectedSession).getByText("Lifecycle: active"),
+    ).toBeVisible();
+    expect(
+      within(selectedSession).getByText("Attention: blocked"),
+    ).toBeVisible();
+    expect(
       screen.getByRole("img", { name: "Workspace: Dirty workspace" }),
     ).toBeVisible();
 
@@ -79,8 +90,8 @@ describe("App routes", () => {
       await screen.findByRole("heading", { name: "Uprava" }),
     ).toBeVisible();
     expect(
-      await screen.findByRole("button", { name: "Start Codex" }),
-    ).toBeEnabled();
+      screen.queryByRole("button", { name: "Start Codex" }),
+    ).not.toBeInTheDocument();
     expect(await screen.findByText("Workspace Inspector")).toBeVisible();
     expect((await screen.findAllByText("README.md")).length).toBeGreaterThan(0);
     fireEvent.click(screen.getByRole("treeitem", { name: "README.md" }));
@@ -93,9 +104,7 @@ describe("App routes", () => {
     ).toBeVisible();
 
     renderApp("/workspaces/placement-1");
-    expect(
-      await screen.findByRole("button", { name: "Start Codex" }),
-    ).toBeEnabled();
+    expect(await screen.findByText("Workspace Inspector")).toBeVisible();
 
     renderApp("/projects/project-1");
 
@@ -114,6 +123,7 @@ describe("App routes", () => {
       "href",
       "/workspaces/placement-1/agent",
     );
+    fireEvent.click(screen.getByText("Session details"));
     expect(
       (await screen.findAllByText("Session evidence projection"))[0],
     ).toBeVisible();
@@ -191,6 +201,55 @@ describe("App routes", () => {
       "href",
       "/workspaces/placement-1/agent?inspect=bad-ref",
     );
+  });
+
+  it("starts and selects the first session from an empty workspace Agent surface", async () => {
+    renderApp("/workspaces/placement-2/agent?inspect=bad-ref");
+
+    expect(
+      await screen.findByText("Start a session", { selector: ".font-medium" }),
+    ).toBeVisible();
+    const forceStart = screen.getByRole("checkbox", {
+      name: "Force start at 5% or less provider quota",
+    });
+    fireEvent.click(forceStart);
+    fireEvent.click(screen.getByRole("button", { name: "Start Codex" }));
+
+    expect(
+      await screen.findByRole("heading", { name: "Started session" }),
+    ).toBeVisible();
+    expect(
+      screen.getByRole("link", { name: /Started session/ }),
+    ).toHaveAttribute("aria-current", "page");
+    expect(
+      screen.getByRole("link", { name: /Started session/ }),
+    ).toHaveAttribute(
+      "href",
+      "/workspaces/placement-2/agent/session-created?inspect=bad-ref",
+    );
+    expect(lastCreateSessionRequest).toEqual({
+      project_placement_id: "placement-2",
+      provider: "codex",
+      force: true,
+    });
+  });
+
+  it("keeps one stream through shell rerenders and closes it on another surface", async () => {
+    renderApp("/workspaces/placement-1/agent/session-1");
+
+    expect(
+      await screen.findByRole("heading", { name: "Fix issue" }),
+    ).toBeVisible();
+    await waitFor(() => expect(MockEventSource.created).toBe(1));
+    fireEvent.click(screen.getByRole("button", { name: "Hide navigation" }));
+    expect(MockEventSource.created).toBe(1);
+
+    fireEvent.click(screen.getByRole("link", { name: "Jobs" }));
+    expect(
+      await screen.findByRole("heading", { name: "Background Jobs" }),
+    ).toBeVisible();
+    expect(MockEventSource.created).toBe(1);
+    expect(MockEventSource.closed).toBe(1);
   });
 
   it("uses Dashboard when the legacy Jobs route has no workspace preference", async () => {
@@ -271,6 +330,8 @@ describe("App routes", () => {
 function renderApp(path: string) {
   cleanup();
   vi.unstubAllGlobals();
+  createdSession = null;
+  lastCreateSessionRequest = null;
   vi.stubGlobal("fetch", vi.fn(mockFetch));
   vi.stubGlobal("EventSource", MockEventSource);
   MockEventSource.reset();
@@ -293,6 +354,7 @@ function renderApp(path: string) {
 
 class MockEventSource {
   static created = 0;
+  static closed = 0;
   static latest: MockEventSource | null = null;
   onerror: (() => void) | null = null;
   private listeners = new Map<string, (event: MessageEvent) => void>();
@@ -312,21 +374,41 @@ class MockEventSource {
     } as MessageEvent);
   }
 
-  close() {}
+  close() {
+    MockEventSource.closed += 1;
+  }
 
   static reset() {
     MockEventSource.created = 0;
+    MockEventSource.closed = 0;
     MockEventSource.latest = null;
   }
 }
 
-async function mockFetch(input: RequestInfo | URL) {
+let createdSession: typeof session | null = null;
+let lastCreateSessionRequest: unknown = null;
+
+async function mockFetch(input: RequestInfo | URL, init?: RequestInit) {
   const url = new URL(input.toString());
+  if (url.pathname === "/api/v1/sessions" && init?.method === "POST") {
+    lastCreateSessionRequest = JSON.parse(String(init.body));
+    createdSession = {
+      ...session,
+      session_thread_id: "session-created",
+      project_placement_id: "placement-2",
+      runtime_session_id: "runtime-created",
+      title: "Started session",
+      updated_at: "2026-06-18T00:00:00Z",
+      runtime: {
+        ...runtime,
+        runtime_session_id: "runtime-created",
+        state: "ready",
+      },
+    };
+    return jsonResponse(sessionDetailFor(createdSession, placementTwo));
+  }
   const payload = responseForPath(url.pathname);
-  return new Response(JSON.stringify(payload), {
-    status: 200,
-    headers: { "content-type": "application/json" },
-  });
+  return jsonResponse(payload);
 }
 
 function responseForPath(pathname: string) {
@@ -355,7 +437,9 @@ function responseForPath(pathname: string) {
         profile: "controlled_dev",
       };
     case "/api/v1/inventory":
-      return inventory;
+      return createdSession
+        ? { ...inventory, sessions: [...inventory.sessions, createdSession] }
+        : inventory;
     case "/api/v1/node-enrollments":
       return [];
     case "/api/v1/placements/placement-1":
@@ -374,6 +458,22 @@ function responseForPath(pathname: string) {
       return evidenceProjection;
     case "/api/v1/sessions/session-1/agent-projection":
       return agentProjection;
+    case "/api/v1/sessions/session-created":
+      return createdSession
+        ? sessionDetailFor(createdSession, placementTwo)
+        : sessionDetail;
+    case "/api/v1/sessions/session-created/evidence-projection":
+      return {
+        ...evidenceProjection,
+        session_thread_id: "session-created",
+      };
+    case "/api/v1/sessions/session-created/agent-projection":
+      return {
+        ...agentProjection,
+        session_thread_id: "session-created",
+        project_placement: placementTwo,
+        runtime_summary: createdSession?.runtime ?? runtime,
+      };
     case "/api/v1/jobs":
       return [jobSummary];
     case "/api/v1/jobs/job-1":
@@ -391,6 +491,13 @@ function responseForPath(pathname: string) {
     default:
       throw new Error(`Unhandled mocked Core path: ${pathname}`);
   }
+}
+
+function jsonResponse(payload: unknown) {
+  return new Response(JSON.stringify(payload), {
+    status: 200,
+    headers: { "content-type": "application/json" },
+  });
 }
 
 const runtime = {
@@ -559,6 +666,19 @@ const sessionDetail = {
   ],
   events: [messageEvent],
 };
+
+function sessionDetailFor(
+  nextSession: typeof session,
+  nextPlacement: typeof placement,
+) {
+  return {
+    ...sessionDetail,
+    session: nextSession,
+    placement: nextPlacement,
+    messages: [],
+    events: [],
+  };
+}
 
 const evidenceProjection = {
   session_thread_id: "session-1",

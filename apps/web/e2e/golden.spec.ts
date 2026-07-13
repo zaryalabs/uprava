@@ -62,6 +62,11 @@ test("renders warning badges and structured session blocks from snapshots", asyn
     page.getByRole("img", { name: "Workspace: Dirty workspace" }),
   ).toBeVisible();
   await expect(page.getByRole("heading", { name: "Agent" })).toBeVisible();
+  await expect(page.getByRole("button", { name: "Start Codex" })).toBeEnabled();
+  await expect(page.getByRole("link", { name: /Fix issue/ })).toHaveAttribute(
+    "aria-current",
+    "page",
+  );
 
   await page.goto("/nodes/node-1/placements/new");
   await expect(page.getByRole("button", { name: "Validate" })).toBeEnabled();
@@ -75,7 +80,7 @@ test("renders warning badges and structured session blocks from snapshots", asyn
     .getByRole("combobox", { name: "Workspace path" })
     .fill("/workspace/uprava");
   await page.getByRole("button", { name: "Validate" }).click();
-  await expect(page).toHaveURL(/\/workspaces\/placement-1\/agent$/);
+  await expect(page).toHaveURL(/\/workspaces\/placement-1\/agent\/session-1$/);
   await expect.poll(() => core.validationAttempts).toBe(2);
 
   await page.goto("/sessions/session-1");
@@ -87,6 +92,7 @@ test("renders warning badges and structured session blocks from snapshots", asyn
   await expect(main.getByText("Allow command?")).toBeVisible();
   await expect(main.getByRole("button", { name: "Approve" })).toBeVisible();
   await expect(main.getByText("runtime.error")).toBeVisible();
+  await page.getByText("Session details").click();
   await expect(main.getByText("Session-local index").first()).toBeVisible();
   await page.getByRole("button", { name: "Inspect Assistant reply" }).click();
   await expect(
@@ -126,6 +132,9 @@ test("loads Monaco only after a workspace file is opened", async ({ page }) => {
   expect(resources.some(isXtermResource)).toBe(false);
 
   await page.goto("/workspaces/placement-1/workbench");
+  await expect(page.getByRole("button", { name: "Start Codex" })).toHaveCount(
+    0,
+  );
   await page.getByRole("treeitem", { name: "README.md" }).click();
   await expect(
     page.getByRole("region", { name: "File editor README.md" }),
@@ -142,6 +151,13 @@ test("matches stable Zarya sheets and keeps the mobile session usable", async ({
   await page.goto("/dashboard");
   await expect(page.getByRole("heading", { name: "Dashboard" })).toBeVisible();
   await expect(page).toHaveScreenshot("dashboard-zarya-desktop.png", {
+    animations: "disabled",
+    fullPage: true,
+  });
+
+  await page.goto("/workspaces/placement-1/agent/session-1");
+  await expect(page.getByRole("heading", { name: "Fix issue" })).toBeVisible();
+  await expect(page).toHaveScreenshot("workspace-agent-desktop.png", {
     animations: "disabled",
     fullPage: true,
   });

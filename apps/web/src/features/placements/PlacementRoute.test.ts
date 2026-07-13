@@ -4,7 +4,7 @@ import type { NodeSummary } from "../../shared/protocol/types";
 import {
   providerChoiceOptions,
   startUnavailableReasonFor,
-} from "./PlacementRoute";
+} from "../sessions/StartSessionControl";
 
 describe("providerChoiceOptions", () => {
   it("enables Codex only when the node advertises an available provider capability", () => {

@@ -1,69 +1,51 @@
 import { useQuery } from "@tanstack/react-query";
+import type { ReactNode } from "react";
 import { Link, Navigate, useLocation, useParams } from "react-router-dom";
 
 import { coreApi } from "../../shared/api/http-client";
 import { queryKeys } from "../../shared/api/query-keys";
+import type { SessionSummary } from "../../shared/protocol/types";
 import { Badge } from "../../shared/ui/badge";
 import { ErrorNotice } from "../../shared/ui/error-notice";
-import { EmptyState, LoadingState, PageHeader } from "../../shared/ui/system";
+import { EmptyState, LoadingState } from "../../shared/ui/system";
 import { useWorkspaceContext } from "../workspaces/WorkspaceLayout";
 import {
   routeWithSearch,
   workspaceAgentSessionRoute,
 } from "../workspaces/routes";
-import { SessionRoute } from "./SessionRoute";
+import { SessionSurface } from "./SessionSurface";
+import { StartSessionControl } from "./StartSessionControl";
 
 export function WorkspaceAgentRoute() {
   const { placement, sessions } = useWorkspaceContext();
   const location = useLocation();
-  const orderedSessions = [...sessions].sort((left, right) =>
-    right.updated_at.localeCompare(left.updated_at),
-  );
+  const orderedSessions = orderWorkspaceSessions(sessions);
+  const latestSession = orderedSessions[0];
+
+  if (latestSession) {
+    return (
+      <Navigate
+        replace
+        to={routeWithSearch(
+          workspaceAgentSessionRoute(
+            placement.project_placement_id,
+            latestSession.session_thread_id,
+          ),
+          location.search,
+        )}
+      />
+    );
+  }
 
   return (
-    <section>
-      <PageHeader
-        title="Agent"
-        description="Managed sessions in this workspace. Session controls remain unchanged while the workspace navigation is introduced."
-        meta="WORKSPACE / AGENT"
-      />
-      <div className="grid gap-2">
-        {orderedSessions.map((session) => (
-          <Link
-            key={session.session_thread_id}
-            to={routeWithSearch(
-              workspaceAgentSessionRoute(
-                placement.project_placement_id,
-                session.session_thread_id,
-              ),
-              location.search,
-            )}
-            className="grid gap-2 border border-black/20 p-3 hover:bg-[var(--color-bg-muted)] md:grid-cols-[minmax(0,1fr)_auto] md:items-center"
-          >
-            <span className="min-w-0">
-              <span className="block truncate font-medium">
-                {session.title}
-              </span>
-              <span className="mt-1 block text-xs text-[var(--color-muted)]">
-                Updated {new Date(session.updated_at).toLocaleString()}
-              </span>
-            </span>
-            <span className="flex gap-1">
-              <Badge tone={session.state === "active" ? "good" : "neutral"}>
-                {session.state}
-              </Badge>
-              <Badge tone="neutral">{session.runtime.state}</Badge>
-            </span>
-          </Link>
-        ))}
-        {orderedSessions.length === 0 ? (
-          <EmptyState
-            title="No sessions in this workspace"
-            detail="Session creation remains available from the existing Workbench screen until the Agent surface is completed."
-          />
-        ) : null}
+    <WorkspaceAgentSurface selectedSessionThreadId={null}>
+      <div className="grid min-h-72 place-items-center border border-dashed border-black/20 p-8 text-center">
+        <EmptyState
+          title="Start a session"
+          detail="This workspace has no managed sessions yet. Use Start Codex in the session list to begin an Agent runtime."
+        />
       </div>
-    </section>
+    </WorkspaceAgentSurface>
   );
 }
 
@@ -92,7 +74,12 @@ export function WorkspaceSessionRoute() {
       />
     );
   }
-  return <SessionRoute />;
+
+  return (
+    <WorkspaceAgentSurface selectedSessionThreadId={sessionThreadId}>
+      <SessionSurface sessionThreadId={sessionThreadId} />
+    </WorkspaceAgentSurface>
+  );
 }
 
 export function SessionCompatibilityRoute() {
@@ -120,4 +107,136 @@ export function SessionCompatibilityRoute() {
       )}
     />
   );
+}
+
+function WorkspaceAgentSurface({
+  children,
+  selectedSessionThreadId,
+}: {
+  children: ReactNode;
+  selectedSessionThreadId: string | null;
+}) {
+  const { node, placement, sessions } = useWorkspaceContext();
+  const location = useLocation();
+  const orderedSessions = orderWorkspaceSessions(sessions);
+
+  return (
+    <section className="space-y-4" aria-labelledby="workspace-agent-title">
+      <header className="flex flex-wrap items-end justify-between gap-3">
+        <div>
+          <div className="zarya-caption">WORKSPACE AGENT</div>
+          <h2 id="workspace-agent-title" className="mt-1 text-xl font-bold">
+            Agent
+          </h2>
+        </div>
+        <div className="text-xs text-[var(--color-muted)]">
+          {orderedSessions.length}{" "}
+          {orderedSessions.length === 1 ? "session" : "sessions"}
+        </div>
+      </header>
+      <div className="uprava-agent-grid">
+        <aside
+          className="uprava-agent-sessions"
+          aria-label="Workspace sessions"
+        >
+          <StartSessionControl node={node} placement={placement} />
+          <nav className="mt-4" aria-label="Sessions">
+            <div className="zarya-label mb-2">RECENT SESSIONS</div>
+            {orderedSessions.length > 0 ? (
+              <ul className="space-y-1">
+                {orderedSessions.map((session) => (
+                  <li key={session.session_thread_id}>
+                    <SessionListLink
+                      session={session}
+                      selected={
+                        session.session_thread_id === selectedSessionThreadId
+                      }
+                      to={routeWithSearch(
+                        workspaceAgentSessionRoute(
+                          placement.project_placement_id,
+                          session.session_thread_id,
+                        ),
+                        location.search,
+                      )}
+                    />
+                  </li>
+                ))}
+              </ul>
+            ) : (
+              <p className="py-3 text-xs text-[var(--color-muted)]">
+                No sessions yet.
+              </p>
+            )}
+          </nav>
+        </aside>
+        <div className="min-w-0">{children}</div>
+      </div>
+    </section>
+  );
+}
+
+function SessionListLink({
+  selected,
+  session,
+  to,
+}: {
+  selected: boolean;
+  session: SessionSummary;
+  to: string;
+}) {
+  const attention = sessionAttention(session);
+
+  return (
+    <Link
+      to={to}
+      aria-current={selected ? "page" : undefined}
+      className={`block border p-3 ${
+        selected
+          ? "border-[var(--color-ink)] bg-[var(--color-bg)]"
+          : "border-transparent hover:border-black/20 hover:bg-[var(--color-bg)]"
+      }`}
+    >
+      <span className="block truncate text-sm font-medium">
+        {session.title}
+      </span>
+      <span className="mt-1 block text-xs text-[var(--color-muted)]">
+        <time dateTime={session.updated_at}>
+          {new Date(session.updated_at).toLocaleString()}
+        </time>
+      </span>
+      <span className="mt-2 flex flex-wrap gap-1">
+        <Badge tone={session.state === "active" ? "good" : "neutral"}>
+          Lifecycle: {session.state}
+        </Badge>
+        <Badge tone={attention.tone}>Attention: {attention.label}</Badge>
+      </span>
+    </Link>
+  );
+}
+
+export function orderWorkspaceSessions(sessions: SessionSummary[]) {
+  return [...sessions].sort((left, right) => {
+    const byUpdatedAt = right.updated_at.localeCompare(left.updated_at);
+    return (
+      byUpdatedAt ||
+      left.session_thread_id.localeCompare(right.session_thread_id)
+    );
+  });
+}
+
+function sessionAttention(session: SessionSummary): {
+  label: string;
+  tone: "neutral" | "warn" | "bad";
+} {
+  if (session.runtime.state === "error" || session.state === "degraded") {
+    return { label: "degraded", tone: "bad" };
+  }
+  if (
+    session.runtime.state === "blocked" ||
+    session.runtime.state === "stale" ||
+    Boolean(session.runtime.degraded_reason)
+  ) {
+    return { label: session.runtime.state, tone: "warn" };
+  }
+  return { label: "clear", tone: "neutral" };
 }
