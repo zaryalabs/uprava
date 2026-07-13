@@ -20,19 +20,21 @@ python3 -m http.server 4173 --directory docs/visuals/prototype
 
 Прототип воспроизводит UI web control panel из implementation baseline `0.2.5`:
 
-- общий shell с profile banner, навигацией, inventory tree и inspector;
-- dashboard с system overview, метриками и runtime topology;
-- workspace inspector с файлами, редактором, терминалом, command, diff и
-  history;
-- session surface с runtime context, timeline, approval, error, composer и
-  projections;
-- базовые экраны Jobs, Nodes и Runtime Settings;
-- responsive-представление для узкого viewport.
+- общий shell с деревом `Nodes -> Workspaces` и контекстным inspector;
+- dashboard с четырьмя global metrics и Recent Activity;
+- Node Overview вместо отдельного глобального экрана Nodes;
+- workspace-поверхности `Agent`, `Workbench` и `Jobs`;
+- IDE-like Workbench с file tree, editor/diff и terminal;
+- Agent surface с sessions, runtime context, timeline, approval и composer;
+- workspace-scoped Jobs с расписаниями и run history.
+
+Текущая visual information architecture зафиксирована в
+[`VDR-001: Workspace-centered navigation`](vdr/001-workspace-centered-navigation.md).
 
 Интеракции являются заглушками. Навигация переключает статические экраны,
-inspector показывает локальные карточки, а действия вроде запуска команды,
-открытия файла или approval только меняют состояние страницы. Никакие запросы и
-записи за пределами страницы не выполняются.
+inspector показывает локальные карточки, а действия вроде запуска session,
+открытия файла или approval только меняют состояние страницы. Никакие запросы
+и записи за пределами страницы не выполняются.
 
 Визуальным источником текущего baseline служат implementation-компоненты в
 `apps/web/src/`, дизайн-токены в `apps/web/src/styles.css` и golden snapshots в

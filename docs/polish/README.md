@@ -1,13 +1,14 @@
 # Uprava 0.2.0 polish handoff
 
-Status: active
+Status: historical
 
-Updated: 2026-07-10
+Updated: 2026-07-13
 
-This directory is the tracked, portable context package for continuing the
-`0.2.0` quality-foundation work on another machine. It contains only context
-that was previously unique to ignored `.local/` files. Existing tracked plans
-and canonical documents are linked rather than copied.
+This directory is the tracked, portable historical context package for the
+completed `0.2.0` quality-foundation work. It contains context that was
+previously unique to ignored `.local/` files. Temporary plans used during the
+release were removed after shipping; durable outcomes now live in canonical
+documents and the release ledger.
 
 ## Read order
 
@@ -16,13 +17,11 @@ and canonical documents are linked rather than copied.
    constraints and resume procedure.
 3. [M7 checkpoint handoff](0.2.0-checkpoint-2026-07-10-m7.md) for the current
    pause point and next recommended implementation slice.
-4. [Completion plan](../tmp-plans/0.2.0-completion-from-current.md) for the
-   sequential implementation order from the current state to final `0.2.0`.
-5. [Implementation ledger](0.2.0-implementation-ledger.md) when a milestone
+4. [Implementation ledger](0.2.0-implementation-ledger.md) when a milestone
    needs historical rationale, commit evidence or its accepted residuals.
-6. [Quality-foundation plan](../tmp-plans/0.2.0-quality-foundation.md) for the
-   authoritative scope, finding matrix, non-goals and final release criteria.
-7. [RC checklist](../tmp-plans/0.2.0-rc-checklist.md) for release evidence.
+5. [2026-07-09 audit](../audit/audit-2026-07-09.md) for the original quality
+   rationale and finding baseline.
+6. [Release ledger](../releases.md) for the shipped result.
 
 Canonical product and operational context:
 
@@ -44,7 +43,7 @@ under [`docs/`](../README.md).
 | Ignored source | Tracked replacement |
 | --- | --- |
 | `.local/0.2.0-handoff.md` | [Portable handoff](0.2.0-handoff.md) |
-| `.local/context/0.2.0-execution.md` | [Implementation ledger](0.2.0-implementation-ledger.md) plus the [completion plan](../tmp-plans/0.2.0-completion-from-current.md) |
+| `.local/context/0.2.0-execution.md` | [Implementation ledger](0.2.0-implementation-ledger.md) and [portable handoff](0.2.0-handoff.md) |
 | `.local/context/README.md` | The only relevant instruction was to read private context when requested; this tracked index replaces that routing for `0.2.0` |
 
 The following ignored files are intentionally not copied:
@@ -56,7 +55,7 @@ The following ignored files are intentionally not copied:
 - `.local/history/v0.1-*` is superseded by the tracked release ledger,
   canonical docs and Git history;
 - older audit drafts under `.local/history/` are superseded by the tracked
-  2026-07-09 audit and quality-foundation plan;
+  2026-07-09 audit and release ledger;
 - local protocol, Playwright and Codex notes are represented by the current
   code, tests, canonical system-direction docs and the implementation ledger.
 
@@ -65,7 +64,7 @@ machine-specific release artifacts to this directory.
 
 ## Maintenance rule
 
-Update the portable handoff and implementation ledger at meaningful milestone
-boundaries. Keep detailed future work in the completion plan and promote
-durable product/architecture decisions into the canonical Russian documents
-under `docs/`.
+Do not resume this package as an active plan. Current future work belongs in the
+feature queue and current temporary plans. Update these files only to preserve
+historical accuracy or repair references; durable product and architecture
+decisions belong in the canonical Russian documents under `docs/`.

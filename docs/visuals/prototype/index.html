@@ -15,87 +15,138 @@
 
     <div class="app-shell">
       <header class="topbar">
-        <a class="brand" href="#dashboard" data-route="dashboard">
-          <span class="brand-mark" aria-hidden="true">У</span>
-          <strong>Uprava</strong>
-        </a>
-        <div class="topbar-status">
-          <span class="product-context">Control Plane / Work Surface</span>
-          <span
-            ><i class="status-dot" aria-hidden="true"></i> API Connected</span
+        <div class="brand-area">
+          <button
+            class="icon-button sidebar-toggle"
+            id="toggle-sidebar"
+            type="button"
+            data-action="toggle-sidebar"
+            aria-label="Hide navigation"
+            aria-controls="sidebar"
+            aria-expanded="true"
           >
+            <span aria-hidden="true">☰</span>
+          </button>
+          <a class="brand" href="#dashboard" data-route="dashboard">
+            <span class="brand-mark" aria-hidden="true">У</span>
+            <strong>Uprava</strong>
+          </a>
         </div>
-        <button class="settings-link" type="button" data-route="settings">
-          <span aria-hidden="true">⚙</span> Settings
-        </button>
+
+        <div class="topbar-context">
+          <span>Control Plane</span>
+          <span class="context-divider" aria-hidden="true">/</span>
+          <span id="topbar-location">Dashboard</span>
+        </div>
+
+        <div class="topbar-actions">
+          <span class="environment-chip">controlled_dev</span>
+          <span class="connection-state">
+            <i class="status-dot online" aria-hidden="true"></i>
+            API Connected
+          </span>
+          <button class="icon-button" type="button" data-route="settings">
+            <span aria-hidden="true">⚙</span>
+            <span class="sr-only">Settings</span>
+          </button>
+        </div>
       </header>
 
-      <div class="profile-banner">
-        <span aria-hidden="true">♙</span>
-        controlled_dev profile · local auth and CSRF enabled
-      </div>
-
-      <div class="shell-grid">
-        <aside class="sidebar" aria-label="Workspace Navigation">
-          <nav class="primary-nav" aria-label="Primary Navigation">
-            <button type="button" data-route="dashboard">
-              <span aria-hidden="true">⌘</span> Dashboard
-            </button>
-            <button type="button" data-route="jobs">
-              <span aria-hidden="true">◷</span> Jobs
-            </button>
-            <button type="button" data-route="nodes">
-              <span aria-hidden="true">▤</span> Nodes
-            </button>
+      <div id="shell-grid" class="shell-grid">
+        <aside
+          class="sidebar"
+          id="sidebar"
+          aria-label="Node and workspace navigation"
+        >
+          <nav class="global-nav" aria-label="Global navigation">
+            <a href="#dashboard" data-route="dashboard">
+              <span aria-hidden="true">⌘</span>
+              Dashboard
+            </a>
           </nav>
 
-          <nav class="inventory" aria-label="Inventory tree">
-            <div class="eyebrow">Nodes</div>
-            <button class="tree-row node-row" type="button" data-route="nodes">
-              <span class="tree-label"
-                ><span aria-hidden="true">▣</span> Local Node</span
-              >
-              <span class="badges"
-                ><span class="badge dashed">stale</span
-                ><span class="badge">active</span></span
-              >
-            </button>
-            <div class="tree-branch">
-              <button class="tree-row" type="button" data-route="workspace">
-                <span class="tree-label"
-                  ><span aria-hidden="true">□</span> Uprava</span
-                >
-                <span class="badges"
-                  ><span class="badge">validated</span
-                  ><span class="badge dashed">Dirty workspace</span></span
-                >
-              </button>
-              <button
-                class="tree-row tree-child"
-                type="button"
-                data-route="session"
-              >
-                <span class="tree-label"
-                  ><span aria-hidden="true">▱</span> Fix issue</span
-                >
-                <span class="badges"
-                  ><span class="badge">active</span
-                  ><span class="badge dashed">blocked</span></span
-                >
+          <section class="node-navigation" aria-labelledby="nodes-heading">
+            <div class="sidebar-heading">
+              <span id="nodes-heading">Nodes</span>
+              <button class="bare-button" type="button" data-action="add-node">
+                <span aria-hidden="true">＋</span>
+                <span class="sr-only">Add Node</span>
               </button>
             </div>
-          </nav>
+
+            <div class="node-group expanded">
+              <a
+                class="node-link"
+                href="#node"
+                data-route="node"
+                data-nav-context="local-node"
+              >
+                <span class="tree-disclosure" aria-hidden="true">⌄</span>
+                <span class="node-icon" aria-hidden="true">▣</span>
+                <span class="nav-label">Local Node</span>
+                <span class="presence-dot stale" title="stale"></span>
+              </a>
+
+              <div class="workspace-list">
+                <a
+                  class="workspace-link"
+                  href="#agent"
+                  data-route="agent"
+                  data-nav-context="uprava"
+                >
+                  <span aria-hidden="true">◇</span>
+                  <span class="nav-label">Uprava</span>
+                  <span class="workspace-mark dirty" title="dirty"></span>
+                </a>
+                <button
+                  class="workspace-link muted-row"
+                  type="button"
+                  data-action="prototype-only"
+                >
+                  <span aria-hidden="true">◇</span>
+                  <span class="nav-label">Research Lab</span>
+                </button>
+              </div>
+            </div>
+
+            <div class="node-group">
+              <a
+                class="node-link"
+                href="#node-zarya"
+                data-route="node-zarya"
+                data-nav-context="zarya-node"
+              >
+                <span class="tree-disclosure" aria-hidden="true">›</span>
+                <span class="node-icon" aria-hidden="true">▣</span>
+                <span class="nav-label">Zarya Server</span>
+                <span class="presence-dot online" title="online"></span>
+              </a>
+            </div>
+          </section>
+
+          <div class="sidebar-foot">
+            <span class="caption">2 nodes · 3 workspaces</span>
+          </div>
         </aside>
 
         <main id="main-content" tabindex="-1"></main>
 
-        <aside class="inspector" aria-label="Inspector">
-          <div class="eyebrow">Inspector</div>
-          <div id="inspector-content">
-            <p>
-              Select a source, cause, or evidence reference to inspect it here.
-            </p>
-          </div>
+        <aside class="inspector" aria-label="Context Inspector">
+          <header class="inspector-head">
+            <div>
+              <div class="eyebrow">Context Inspector</div>
+              <div class="caption">Source · Evidence · Cause</div>
+            </div>
+            <button
+              class="icon-button"
+              id="close-inspector"
+              type="button"
+              aria-label="Close Inspector"
+            >
+              ×
+            </button>
+          </header>
+          <div id="inspector-content"></div>
         </aside>
       </div>
     </div>
