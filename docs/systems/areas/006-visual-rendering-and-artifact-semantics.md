@@ -26,6 +26,15 @@ viewers, editors or previews:
 Поэтому `A-006` нужно понимать как слой **visual semantics**, а не как ownership
 над каждым renderer implementation.
 
+Implementation direction для Visual Artifact System — plugin-first. Base
+Uprava владеет generic artifact identity/storage, refs, permissions, renderer
+isolation, contribution validation and fallback. Конкретные artifact types,
+renderers, viewers and actions поставляются как bundled first-party plugins
+через Plugin Registry/Extension Host и затем могут добавляться внешними
+plugins через тот же versioned contract. A-006 не превращает каждый visual
+object в plugin, но не допускает hardcoded privileged path для новых artifact
+families.
+
 Документ намеренно не делит направление на версии поставки. Scope конкретных
 итераций должен определяться отдельно. Здесь фиксируется общая модель, чтобы
 Markdown rendering, editor previews, terminal/diff views, artifacts, dynamic UI
@@ -786,6 +795,14 @@ permissions
 trust level
 ```
 
+Первый Visual Artifact System slice должен активировать эти возможности как
+реальные manifest contributions (`artifact_types`, `block_renderers`, artifact
+viewers and actions), а не только добавить встроенные React components. Его
+bundled artifact plugins должны проходить обычные enable/disable,
+compatibility, permissions, isolation and fallback paths. Получившийся contract
+должен позволять следующему plugin добавить новый artifact type без изменения
+базового Web shell.
+
 Tool Registry should be able to connect:
 
 ```text
@@ -866,3 +883,8 @@ A-006 does not own every renderer implementation. It defines the rules that
 renderers should follow so Markdown diagrams, code editor previews, terminal
 segments, diff markers, test reports, charts, dashboards, generated artifacts
 and external previews behave like coherent Uprava visual objects.
+
+Пользовательская реализация этих правил развивается через first-party artifact
+plugins, а generic semantics and host contracts остаются частью небольшой
+базовой системы. Каждый новый artifact slice должен одновременно улучшать
+visual review и расширять переиспользуемые возможности plugin platform.

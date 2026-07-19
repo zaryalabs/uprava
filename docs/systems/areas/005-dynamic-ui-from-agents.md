@@ -15,6 +15,15 @@ detail views, commands, contributions and renderers. `A-005` отвечает з
 tool-а или plugin-а, но монтируется в те же Uprava surfaces и живет по тем же
 правилам permissions, trace, fallback and review.
 
+Implementation direction для этого направления — bundled first-party plugin,
+а не новый hardcoded subsystem в основном React tree. Base Uprava предоставляет
+generic proposal/artifact contracts, validation, persistence, permissions,
+command/event routing, sandbox boundary and fallback. Dynamic UI plugin
+предоставляет component catalogs, renderers and related contributions через
+общий Plugin Registry/Extension Host contract. По мере развития A-005 этот
+contract должен становиться пригодным для local/team/community plugins, как в
+extension ecosystems Obsidian и VS Code.
+
 Документ намеренно не описывает, что попадет в первую или вторую версию
 продукта. Scope конкретных итераций должен определяться отдельно. Здесь
 проектируется целое направление: какие формы dynamic UI нужны Uprava, как они
@@ -987,6 +996,12 @@ If a tool can create visual output, that visual output should be registered and
 traceable. If a plugin adds a generated artifact type, it should register
 renderer, fallback and permission model.
 
+Первый A-005 slice должен одновременно доказать полезный bundled dynamic UI
+plugin и расширить общую plugin platform: versioned component-catalog and
+dynamic-renderer contributions, permissioned action bridge, configuration/
+context keys, isolation and disable/failure fallback. Ни один из этих contracts
+не должен быть приватным API только для bundled package.
+
 ### Relationship with A-006 Visual Rendering and Artifact Semantics
 
 A-005 and A-006 are related but not identical.
@@ -1137,6 +1152,10 @@ approved contracts. Core validates and stores it. Web renders it through known
 renderers, declarative component catalogs or sandbox runtimes. User actions
 return as commands/events. Every important UI object has trace refs and a safe
 fallback.
+
+Первая поставка этой механики является bundled first-party plugin. Последующие
+plugins могут добавлять новые form/dashboard families через те же versioned
+contributions, не изменяя App Shell и не обходя Core authorization.
 
 Главная граница: dynamic UI должен увеличивать способность пользователя
 понимать, проверять and управлять агентской работой, не превращая Uprava в

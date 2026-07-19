@@ -45,7 +45,7 @@ workspace-centered UI follow-up `0.2.6` и Causality/Trace/Deduction slice
 `0.2.7`. Runtime boundary refactor зафиксирован implementation baseline
 `0.2.9`. Git and review basics зафиксирован implementation baseline `0.2.10`,
 Agent Tooling and Tool Registry v1 — `0.2.11`, Plugin Registry v1 — `0.2.12`.
-Следующий плановый пункт очереди — Visual artifact system.
+Следующий плановый пункт очереди — `13 Visual artifact system as plugins`.
 
 | Order | Done | Mechanism / Feature Slice | First Useful Slice | Dependency | Complexity |
 | --- | --- | --- | --- | --- | --- |
@@ -63,14 +63,14 @@ Agent Tooling and Tool Registry v1 — `0.2.11`, Plugin Registry v1 — `0.2.12`
 | 10 | + | Git and review basics | Better diff, branch/worktree awareness, check results | Workspace intervention, trace | Medium |
 | 11 | + | Agent Tooling and Tool Registry v1 | Uprava MCP, progressive discovery, ToolHive runtime, scoped registry and trace | V01 capability model, events | High |
 | 12 | + | Plugin Registry v1 | Core registry, manifest-driven Web Extension Host and bundled Dark Theme plugin | Stable workbench shell, design tokens | High |
-| 14 | - | Visual artifact system | Test reports, richer diffs, timelines, dashboards/forms as first-class artifacts | Trace, registry contracts | High |
-| 15 | - | Dynamic UI from agents | Schema/tool/plugin-rendered UI with safe fallbacks | Visual artifact system, plugins | High |
-| 16 | - | Task-based sandbox runtime | Bounded run contract, isolated workspace, expected evidence | Runtime, workspace, trace | Very high |
-| 16a | - | Provider-native persistent execution policy | Safe provider defaults, explicit unsafe mode, real approvals and visible effective policy | Task-based sandbox runtime, provider-native persistent runtime | Very high |
-| 17 | - | Hybrid managed sessions | Persistent session can spawn bounded runs and merge evidence back | Task runtime | Very high |
-| 18 | - | Team/cloud model | Users, roles, shared projects, managed Core/nodes | Mature personal workflow | Very high |
-| 19 | - | Beyond software development | Research, analytics, documents, finance, knowledge workflows | Mature artifact/plugin model | Very high |
-| 20 | - | Audit follow-up refactors | Core/Node module split, generated protocol contracts, async workspace command API | `0.1.6` audit hardening | Medium |
+| 13 | - | Visual artifact system as plugins | Bundled artifact plugins for test reports, richer diffs and timelines over generic artifact contracts | Trace, Plugin Registry v1 | High |
+| 14 | - | Dynamic UI from agents as plugins | Bundled schema-driven UI plugin with safe fallbacks and permissioned actions | Plugin-delivered visual artifact system | High |
+| 15 | - | Task-based sandbox runtime | Bounded run contract, isolated workspace, expected evidence | Runtime, workspace, trace | Very high |
+| 15a | - | Provider-native persistent execution policy | Safe provider defaults, explicit unsafe mode, real approvals and visible effective policy | Task-based sandbox runtime, provider-native persistent runtime | Very high |
+| 16 | - | Hybrid managed sessions | Persistent session can spawn bounded runs and merge evidence back | Task runtime | Very high |
+| 17 | - | Team/cloud model | Users, roles, shared projects, managed Core/nodes | Mature personal workflow | Very high |
+| 18 | - | Beyond software development | Research, analytics, documents, finance, knowledge workflows | Mature artifact/plugin model | Very high |
+| 19 | - | Audit follow-up refactors | Core/Node module split, generated protocol contracts, async workspace command API | `0.1.6` audit hardening | Medium |
 
 ## Детали очереди
 
@@ -296,7 +296,7 @@ agent work, не объявляя бессмертный process или непр
 
 **Dependency:** Project/workspace placements, обычный provider runtime path и
 durable Core events. Job не вводит отдельный скрытый executor. Provider-native
-sandboxing и более строгая execution policy из пункта `16a` не блокируют этот
+sandboxing и более строгая execution policy из пункта `15a` не блокируют этот
 срез: для текущего controlled deployment сознательно принимается изоляция
 отдельным OS user и/или VM вместе с рисками unrestricted provider execution.
 
@@ -453,31 +453,72 @@ versioned preference с безопасным light fallback. `uprava.theme-dark@
 installation, signed catalogs, activation/context keys, plugin-provided
 commands, Workbench views/tabs, Inspector aspects, renderers, link handlers,
 artifact types, workflow templates, services and governed sandboxed extension
-surfaces. Следующий functional bundled plugin candidate — Git Review.
+surfaces. Следующие функциональные направления должны расширять Uprava как
+bundled first-party plugins через те же versioned contracts, которые позже
+будут доступны внешним plugins. После data-only theme следующими доказательствами
+платформы становятся artifact plugins и dynamic UI plugin; Git Review остаётся
+кандидатом отдельного functional bundled plugin.
 
-### 14. Visual artifact system
+### 13. Visual artifact system as plugins
 
 **Value:** Results such as diffs, checks, timelines, reports, diagrams and
 dashboards должны быть inspectable UI objects, а не только chat text.
 
-**First useful slice:** First-class artifacts for diff/check reports and trace
-timeline with source references and fallbacks.
+**Delivery rule:** Пользовательская функциональность поставляется как один или
+несколько bundled first-party plugins поверх Plugin Registry and Web Extension
+Host. Базовая система владеет generic artifact identity, storage, refs,
+permissions, contribution validation, renderer isolation and fallback, но не
+hardcode-ит каждый artifact type или его UI. Bundled plugins используют тот же
+versioned extension contract, который предназначен для будущих local/team/
+community plugins.
+
+**First useful slice:** Generic artifact contract плюс bundled plugin для
+diff/check reports and trace timeline with source references, artifact viewers
+and readable fallbacks. Plugin можно disable или сделать incompatible без
+поломки App Shell и без потери доступа к raw metadata/evidence.
+
+**Plugin platform increment:** Активировать manifest contributions для
+`artifact_types`, `block_renderers`, artifact viewers, commands/actions and
+related context keys; провести их через Core-owned lifecycle, compatibility,
+permissions and effective projection. Acceptance требует одновременно полезной
+artifact-функции и переиспользуемого контракта, на котором следующий plugin
+может добавить свой artifact type без изменения базового Web shell.
 
 **Target direction:** Artifact gallery, richer visual review, dashboards, UML,
-forms and embedded external views.
+forms and embedded external views, предоставляемые first-party и внешними
+plugins. Новые artifact families должны преимущественно добавляться packages,
+а generic artifact kernel и Extension Host оставаться небольшими и стабильными.
 
-### 15. Dynamic UI from agents
+### 14. Dynamic UI from agents as plugins
 
 **Value:** Agents and tools могут возвращать structured interactive surfaces там,
 где text имеет неправильную форму.
 
-**First useful slice:** Schema-driven or registered renderer blocks with
-sanitized snapshots, source refs, permissions and markdown/table fallback.
+**Delivery rule:** Dynamic UI реализуется как bundled first-party plugin поверх
+artifact и renderer contracts пункта `13`, а не как привилегированная ветка
+основного React tree. Базовая система владеет validation, persistence,
+permissions, command/event routing, sandbox boundary and fallback. Plugin
+предоставляет declarative component catalog, renderers and UI-specific
+contributions через общие extension points.
+
+**First useful slice:** Bundled schema-driven UI plugin с registered renderer
+blocks, sanitized snapshots, source refs, permissions and markdown/table
+fallback. Его disable, version mismatch или render failure оставляют
+reviewable artifact and fallback вместо broken surface.
+
+**Plugin platform increment:** Добавить versioned contributions для
+declarative component catalogs and dynamic renderers, permissioned action
+bridge, plugin-owned configuration/context keys and, когда потребуется,
+sandboxed renderer runtime. Acceptance требует, чтобы другой plugin мог
+переиспользовать эти contracts для нового form/dashboard family без изменения
+App Shell или обхода Core authorization.
 
 **Target direction:** Plugin-rendered blocks, controlled embeds, generated UI
-sandboxing and agent-readable UI state.
+sandboxing and agent-readable UI state. Каждый новый dynamic UI family должен
+одновременно улучшать пользовательскую функцию и приближать package lifecycle,
+extension points, isolation and interoperability к уровню Obsidian/VS Code.
 
-### 16. Task-based sandbox runtime
+### 15. Task-based sandbox runtime
 
 **Value:** Uprava может запускать bounded background work with explicit scope,
 isolation, evidence and review-ready output.
@@ -488,7 +529,7 @@ package, event log, expected evidence and result package.
 **Target direction:** Durable workflow state, queues, CI/webhook wakeups, PR/MR
 flow and reproducible review packages.
 
-### 16a. Provider-native persistent execution policy
+### 15a. Provider-native persistent execution policy
 
 **Value:** Делает persistent provider execution безопасной и понятной, не
 подменяя provider sandbox workspace allow-list или Unix account.
@@ -514,7 +555,7 @@ path, способный остановиться для policy and approval dec
 provider-native persistent runtimes, сохраняя provider-specific enforcement and
 evidence.
 
-### 17. Hybrid managed sessions
+### 16. Hybrid managed sessions
 
 **Value:** Live sessions and background tasks становятся одним work loop вместо
 отдельных продуктов.
@@ -525,7 +566,7 @@ evidence back into session trace/review model.
 **Target direction:** Orchestrated workflows, semi-deterministic pipelines,
 handoff between live and bounded work and review debt visibility.
 
-### 18. Team/cloud model
+### 17. Team/cloud model
 
 **Value:** Uprava расширяется от personal workbench до shared distributed Agent
 OS.
@@ -536,7 +577,7 @@ audit trail and managed Core deployment path.
 **Target direction:** Managed cloud nodes, node pools, organization-level
 plugin/integration governance, stronger secrets model and billing if needed.
 
-### 19. Beyond software development
+### 18. Beyond software development
 
 **Value:** Та же node, agent, tool, artifact, trace and workflow model может
 поддерживать broader knowledge work.
@@ -547,7 +588,7 @@ developer artifact/plugin model станет достаточно сильной
 **Target direction:** Research, analytics, documents, presentations, finance,
 monitoring and knowledge-base workflows.
 
-### 20. Audit follow-up refactors
+### 19. Audit follow-up refactors
 
 **Value:** Сохраняет `0.1.6` audit fixes reviewable, contract-backed and ready
 for longer-running tools, не смешивая broad mechanical work с behavior

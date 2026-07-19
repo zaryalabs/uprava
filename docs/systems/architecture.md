@@ -418,6 +418,16 @@ JavaScript, global CSS injection and direct DOM mutation не допускают
 последующие executable plugins требуют trusted bundled boundary или отдельный
 sandbox.
 
+Последующие функциональные UI-направления развиваются plugin-first. Visual
+Artifact System и Dynamic UI from Agents поставляются как bundled first-party
+plugins поверх общих versioned contributions, а base system владеет только
+generic contracts, lifecycle, persistence, permissions, isolation and
+fallback. Каждый slice обязан не только реализовать пользовательскую функцию,
+но и расширить переиспользуемый Plugin Registry/Extension Host API. Bundled
+plugin не получает скрытого hardcoded пути: enable/disable, compatibility,
+effective projection and failure fallback проходят через общую package model,
+приближая платформу к extension ecosystems Obsidian и VS Code.
+
 Полный contribution, activation, trust and theme contract определен в
 [`A-004 Modular UI and Work Surface`](areas/004-modular-ui-work-surface.md#plugin-registry-и-extension-host).
 
