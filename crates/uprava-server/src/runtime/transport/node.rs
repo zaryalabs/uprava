@@ -1,5 +1,7 @@
 //! Node HTTP/control ingress and WebSocket terminal transport.
 
+use uprava_protocol::ObservedCapability;
+
 use super::super::*;
 
 pub(crate) async fn inventory(
@@ -334,6 +336,16 @@ pub(crate) async fn node_heartbeat(
     let daemon_version = request.daemon_version;
     let active_runtime_count = request.active_runtime_count;
     let capabilities = request.capabilities;
+    let observed_capabilities = request.observed_capabilities;
+    if observed_capabilities
+        .iter()
+        .any(|capability| capability.node_id != node_id)
+    {
+        return Err(AppError::bad_request(
+            "node.observed_capability_owner_mismatch",
+            "Observed capability belongs to another Node",
+        ));
+    }
     let diagnostics = request
         .diagnostics
         .filter(|value| !value.trim().is_empty())
@@ -372,6 +384,7 @@ pub(crate) async fn node_heartbeat(
     .await?;
 
     replace_node_capabilities(&state, &node_id, &capabilities, now).await?;
+    replace_observed_capabilities(&state, &node_id, &observed_capabilities).await?;
     upsert_heartbeat_workspaces(&state, &node_id, workspace_summaries).await?;
     let open_control_channel = should_open_control_channel(&state, &node_id).await?;
     tracing::debug!(
@@ -387,6 +400,31 @@ pub(crate) async fn node_heartbeat(
         open_control_channel,
         server_time: now,
     }))
+}
+
+pub(crate) async fn replace_observed_capabilities(
+    state: &AppState,
+    node_id: &NodeId,
+    capabilities: &[ObservedCapability],
+) -> Result<(), AppError> {
+    let mut transaction = state.pool.begin().await?;
+    sqlx::query("delete from observed_capabilities where node_id = ?1")
+        .bind(node_id.as_str())
+        .execute(&mut *transaction)
+        .await?;
+    for capability in capabilities {
+        sqlx::query(
+            "insert into observed_capabilities (node_id, capability_key, capability_json, observed_at) values (?1, ?2, ?3, ?4)",
+        )
+        .bind(node_id.as_str())
+        .bind(&capability.capability_key)
+        .bind(serde_json::to_string(capability)?)
+        .bind(capability.observed_at)
+        .execute(&mut *transaction)
+        .await?;
+    }
+    transaction.commit().await?;
+    Ok(())
 }
 
 pub(crate) async fn node_control(
@@ -535,6 +573,7 @@ pub(crate) async fn handle_node_control_frame(
                 },
             )
             .await;
+            dispatch_dependency_desired_snapshots(state, node_id).await?;
             dispatch_pending_commands(state, node_id).await
         }
         ControlFrame::CommandAck {
@@ -567,6 +606,15 @@ pub(crate) async fn handle_node_control_frame(
                 .fetch_add(1, Ordering::Relaxed);
             update_command_result(state, &command_id, status, &payload).await?;
             project_deduction_command_result(state, &command_id, status, &payload).await?;
+            let project_terminal_call = !command_waiter_exists(state, &command_id)?;
+            project_tooling_command_result(
+                state,
+                &command_id,
+                status,
+                &payload,
+                project_terminal_call,
+            )
+            .await?;
             let notice = CommandResultNotice {
                 command_id,
                 status,

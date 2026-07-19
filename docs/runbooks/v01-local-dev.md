@@ -192,6 +192,31 @@ rejects future heartbeats from that node. Rotating a node credential returns a
 new credential once; update the Node state before restarting that daemon or the
 old credential will be rejected.
 
+## Node ToolHive runtime
+
+Node probes ToolHive and observed native CLI capabilities on heartbeat. The
+default ToolHive executable is `thv`; override it only with an explicitly
+installed pinned binary:
+
+```sh
+export UPRAVA_TOOLHIVE_BINARY=/absolute/path/to/thv
+export UPRAVA_TOOLHIVE_START_TIMEOUT_SECONDS=300
+```
+
+The 0.2.11 compatibility baseline is ToolHive `0.40.0`. Missing ToolHive is a
+supported diagnostic state: external definitions remain in Core, availability
+becomes false with `toolhive_missing`, and Node does not call Linear directly.
+Node accepts only the pinned `https://mcp.linear.app/mcp` upstream in this
+slice. Desired dependency state is kept in the private Node state slot and is
+reconciled after control-channel reconnect. ToolHive process output, discovered
+metadata/schemas and MCP results are bounded before they cross the Node/Core
+boundary.
+
+Real Linear connect/reconnect remains disabled until the OAuth acceptance gate
+in `docs/tmp-plans/0.2.11-toolhive-linear-spike.md` can be completed in an
+allowed workspace. Disconnect is safe and immediate on the Core side, then
+requests best-effort local ToolHive cleanup.
+
 ## Control Channel
 
 After enrollment, Core asks Node to open `/api/v1/node/control` when pending

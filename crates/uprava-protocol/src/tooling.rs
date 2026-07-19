@@ -503,6 +503,9 @@ pub enum ToolingCommandPayloadV1 {
         integration_id: IntegrationId,
         desired_state: IntegrationDesiredState,
         credential_ref: Option<String>,
+        upstream_url: String,
+        workload_name: String,
+        tool_namespace: String,
     },
 }
 

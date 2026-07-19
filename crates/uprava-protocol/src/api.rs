@@ -412,6 +412,8 @@ pub struct NodeHeartbeatRequest {
     pub daemon_version: String,
     pub capabilities: Vec<CapabilitySummary>,
     #[serde(default)]
+    pub observed_capabilities: Vec<ObservedCapability>,
+    #[serde(default)]
     pub diagnostics: Option<String>,
     pub active_runtime_count: i64,
     pub sleep_hint: SleepHint,

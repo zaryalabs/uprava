@@ -9,24 +9,32 @@ use sha2::{Digest, Sha256};
 use sqlx::{Row, Sqlite, Transaction};
 use uprava_protocol::{
     compute_tool_schema_hash, ExecuteToolRequest, ExecuteToolResponse, InspectToolRequest,
-    InspectToolResponse, IntegrationId, McpAccessLeaseClaims, McpAccessLeaseId,
-    McpDependencyInstanceId, PolicyDecision, SearchToolsRequest, SearchToolsResponse,
-    ToolAvailability, ToolAvailabilityResponse, ToolAvailabilityState, ToolCallDetail, ToolCallId,
-    ToolCallState, ToolCallSummary, ToolCallsResponse, ToolDefinition, ToolDefinitionState,
+    InspectToolResponse, IntegrationAuthState, IntegrationConnectionSummary,
+    IntegrationConnectionsResponse, IntegrationDesiredState, IntegrationDisconnectRequest,
+    IntegrationDisconnectResponse, IntegrationId, McpAccessLeaseClaims, McpAccessLeaseId,
+    McpDependencyActualState, McpDependencyInstanceId, McpDependencyStatus,
+    McpDependencyStatusesResponse, ObservedCapabilitiesResponse, ObservedCapability,
+    PolicyDecision, SearchToolsRequest, SearchToolsResponse, ToolAvailability,
+    ToolAvailabilityResponse, ToolAvailabilityState, ToolCallDetail, ToolCallId, ToolCallState,
+    ToolCallSummary, ToolCallsResponse, ToolDefinition, ToolDefinitionState,
     ToolDefinitionsResponse, ToolExecutionError, ToolExecutionErrorCode, ToolExecutionKind, ToolId,
     ToolInvocationMode, ToolRedactionPolicy, ToolResultEnvelope, ToolRiskLevel, ToolScope,
-    ToolSearchResult, ToolSourceId, ToolSourceKind, ToolUnavailableReason, TOOL_RESULT_MAX_BYTES,
-    TOOL_SEARCH_DEFAULT_LIMIT, TOOL_SEARCH_MAX_LIMIT, UPRAVA_MCP_LEASE_AUDIENCE,
+    ToolSearchResult, ToolSourceId, ToolSourceKind, ToolUnavailableReason, ToolingCommandPayloadV1,
+    ToolingCommandV1, ToolingEventPayloadV1, ToolingEventV1, TOOLING_CONTRACT_VERSION_V1,
+    TOOL_RESULT_MAX_BYTES, TOOL_SEARCH_DEFAULT_LIMIT, TOOL_SEARCH_MAX_LIMIT,
+    UPRAVA_MCP_LEASE_AUDIENCE,
 };
 
 use super::super::*;
 
 const NATIVE_SOURCE_ID: &str = "uprava-native";
 const MOCK_SOURCE_ID: &str = "mock-external";
+const LINEAR_SOURCE_ID: &str = "linear-remote-mcp";
 const TOOL_POLICY_VERSION: &str = "uprava-tool-policy-v1";
 const MCP_LEASE_TTL_MINUTES: i64 = 10;
 const TOOL_SUMMARY_MAX_BYTES: usize = 2_048;
 const TOOL_SEARCH_CURSOR_TTL_SECONDS: i64 = 300;
+const EXTERNAL_TOOL_TIMEOUT: Duration = Duration::from_secs(35);
 
 type HmacSha256 = Hmac<Sha256>;
 
@@ -55,6 +63,26 @@ pub(crate) async fn seed_uprava_native_tools(state: &AppState) -> Result<(), App
         &definitions,
     )
     .await
+}
+
+pub(crate) async fn seed_external_tool_sources(state: &AppState) -> Result<(), AppError> {
+    let now = Utc::now();
+    sqlx::query(
+        r#"
+        insert into tool_sources (source_id, source_kind, display_name, enabled, created_at, updated_at)
+        values (?1, 'external_mcp', 'Linear remote MCP', 1, ?2, ?2)
+        on conflict(source_id) do update set
+            source_kind = excluded.source_kind,
+            display_name = excluded.display_name,
+            enabled = excluded.enabled,
+            updated_at = excluded.updated_at
+        "#,
+    )
+    .bind(LINEAR_SOURCE_ID)
+    .bind(now)
+    .execute(&state.pool)
+    .await?;
+    Ok(())
 }
 
 pub(crate) async fn register_tool_definitions(
@@ -409,7 +437,8 @@ pub(crate) async fn execute_tool(
     }
     persist_session_tool_snapshot(state, &request.scope, &definition).await?;
     mark_tool_call_started(state, &tool_call_id).await?;
-    let execution = execute_tool_route(state, &definition, request).await;
+    let execution =
+        execute_tool_route(state, &tool_call_id, &correlation_id, &definition, request).await;
     match execution {
         Ok((mut result, result_refs)) => {
             result.content.0 = redact_json(
@@ -459,6 +488,8 @@ pub(crate) async fn execute_tool(
 
 async fn execute_tool_route(
     state: &AppState,
+    tool_call_id: &ToolCallId,
+    correlation_id: &CorrelationId,
     definition: &ToolDefinition,
     request: &ExecuteToolRequest,
 ) -> Result<(ToolResultEnvelope, Vec<UpravaRef>), ToolExecutionError> {
@@ -540,6 +571,12 @@ async fn execute_tool_route(
             }
             (json!({"backend": "mock", "arguments": arguments}), vec![])
         }
+        _ if definition.execution_kind == ToolExecutionKind::ToolhiveMcp => {
+            let result =
+                execute_external_tool(state, tool_call_id, correlation_id, definition, request)
+                    .await?;
+            return Ok((result, vec![]));
+        }
         _ => {
             return Err(tool_error(
                 ToolExecutionErrorCode::BackendFailed,
@@ -574,6 +611,250 @@ async fn inspect_capabilities(
         })
         .collect::<Result<Vec<_>, _>>()?;
     Ok(json!({"node_id": node_id, "items": items}))
+}
+
+#[derive(Debug, Deserialize)]
+struct ExternalToolCommandResult {
+    status: Option<McpDependencyStatus>,
+    #[serde(default)]
+    definitions: Vec<ToolDefinition>,
+    event: Option<ToolingEventV1>,
+}
+
+#[derive(Debug)]
+struct ExternalToolRoute {
+    integration_id: IntegrationId,
+    dependency_instance_id: McpDependencyInstanceId,
+    node_id: NodeId,
+}
+
+async fn execute_external_tool(
+    state: &AppState,
+    tool_call_id: &ToolCallId,
+    correlation_id: &CorrelationId,
+    definition: &ToolDefinition,
+    request: &ExecuteToolRequest,
+) -> Result<ToolResultEnvelope, ToolExecutionError> {
+    let route = load_external_tool_route(state, definition, &request.scope)
+        .await
+        .map_err(app_tool_error)?;
+    ensure_node_commandable(state, &route.node_id)
+        .await
+        .map_err(|_| tool_error(ToolExecutionErrorCode::Unavailable, "Node is offline", true))?;
+    let command_id = CommandId::new();
+    let (result_sender, result_receiver) = oneshot::channel();
+    lock_command_waiters(state)
+        .map_err(app_tool_error)?
+        .insert(command_id.to_string(), result_sender);
+    let _waiter_guard = CommandWaiterGuard::new(state, command_id.clone());
+    sqlx::query(
+        "update tool_calls set command_id = ?1, integration_id = ?2, dependency_instance_id = ?3, route = 'node-toolhive' where tool_call_id = ?4",
+    )
+    .bind(command_id.as_str())
+    .bind(route.integration_id.as_str())
+    .bind(route.dependency_instance_id.as_str())
+    .bind(tool_call_id.as_str())
+    .execute(&state.pool)
+    .await
+    .map_err(internal_tool_error)?;
+    let target = match request.scope.project_placement_id.clone() {
+        Some(project_placement_id) => CommandTarget::Placement {
+            node_id: route.node_id.clone(),
+            project_placement_id,
+        },
+        None => CommandTarget::Node {
+            node_id: route.node_id.clone(),
+        },
+    };
+    let command = CommandEnvelope {
+        command_id: command_id.clone(),
+        kind: CommandKind::Tooling,
+        target,
+        actor_ref: request.scope.actor_ref.clone(),
+        source_refs: vec![UpravaRef::ToolCall {
+            tool_call_id: tool_call_id.to_string(),
+        }],
+        cause_refs: request
+            .scope
+            .session_thread_id
+            .clone()
+            .map(|session_thread_id| UpravaRef::Session { session_thread_id })
+            .into_iter()
+            .collect(),
+        issued_at: Utc::now(),
+        correlation_id: correlation_id.clone(),
+        payload: CommandPayload::Tooling {
+            command: Box::new(ToolingCommandV1 {
+                contract_version: TOOLING_CONTRACT_VERSION_V1,
+                payload: ToolingCommandPayloadV1::ExecuteExternalTool {
+                    tool_call_id: tool_call_id.clone(),
+                    tool_id: definition.tool_id.clone(),
+                    schema_hash: definition.schema_hash.clone(),
+                    integration_id: route.integration_id.clone(),
+                    dependency_instance_id: route.dependency_instance_id.clone(),
+                    scope: Box::new(request.scope.clone()),
+                    arguments: request.arguments.clone(),
+                    deadline_at: Utc::now()
+                        + ChronoDuration::from_std(EXTERNAL_TOOL_TIMEOUT)
+                            .map_err(internal_tool_error)?,
+                    max_result_bytes: TOOL_RESULT_MAX_BYTES,
+                },
+            }),
+        },
+    };
+    record_and_dispatch_command(state, command)
+        .await
+        .map_err(app_tool_error)?;
+    let result =
+        match wait_for_command_result(state, result_receiver, &command_id, EXTERNAL_TOOL_TIMEOUT)
+            .await
+        {
+            Ok(result) => result,
+            Err(_) => {
+                dispatch_tool_call_cancel(
+                    state,
+                    &route,
+                    tool_call_id,
+                    correlation_id,
+                    "core_timeout",
+                )
+                .await;
+                return Err(tool_error(
+                    ToolExecutionErrorCode::Timeout,
+                    "Timed out waiting for the external tool",
+                    true,
+                ));
+            }
+        };
+    if result.status != CommandState::Completed {
+        return Err(tool_error(
+            ToolExecutionErrorCode::BackendFailed,
+            "Node ToolHive bridge failed",
+            true,
+        ));
+    }
+    let result: ExternalToolCommandResult =
+        serde_json::from_value(result.payload.0).map_err(internal_tool_error)?;
+    if result.status.is_some() || !result.definitions.is_empty() {
+        return Err(tool_error(
+            ToolExecutionErrorCode::BackendFailed,
+            "Node returned an unexpected tooling result",
+            false,
+        ));
+    }
+    let event = result.event.ok_or_else(|| {
+        tool_error(
+            ToolExecutionErrorCode::BackendFailed,
+            "Node returned no terminal tool event",
+            false,
+        )
+    })?;
+    if event.contract_version != TOOLING_CONTRACT_VERSION_V1 {
+        return Err(tool_error(
+            ToolExecutionErrorCode::BackendFailed,
+            "Node returned an incompatible tooling event",
+            false,
+        ));
+    }
+    match event.payload {
+        ToolingEventPayloadV1::ToolCallCompleted {
+            tool_call_id: returned_id,
+            result,
+            ..
+        } if returned_id == *tool_call_id => Ok(result),
+        ToolingEventPayloadV1::ToolCallFailed {
+            tool_call_id: returned_id,
+            error,
+            ..
+        }
+        | ToolingEventPayloadV1::ToolCallDenied {
+            tool_call_id: returned_id,
+            error,
+            ..
+        } if returned_id == *tool_call_id => Err(error),
+        _ => Err(tool_error(
+            ToolExecutionErrorCode::BackendFailed,
+            "Node tool result identity did not match the call",
+            false,
+        )),
+    }
+}
+
+async fn dispatch_tool_call_cancel(
+    state: &AppState,
+    route: &ExternalToolRoute,
+    tool_call_id: &ToolCallId,
+    correlation_id: &CorrelationId,
+    reason: &str,
+) {
+    let command = CommandEnvelope {
+        command_id: CommandId::new(),
+        kind: CommandKind::Tooling,
+        target: CommandTarget::Node {
+            node_id: route.node_id.clone(),
+        },
+        actor_ref: ActorRef::System,
+        source_refs: vec![UpravaRef::ToolCall {
+            tool_call_id: tool_call_id.to_string(),
+        }],
+        cause_refs: vec![],
+        issued_at: Utc::now(),
+        correlation_id: correlation_id.clone(),
+        payload: CommandPayload::Tooling {
+            command: Box::new(ToolingCommandV1 {
+                contract_version: TOOLING_CONTRACT_VERSION_V1,
+                payload: ToolingCommandPayloadV1::CancelToolCall {
+                    tool_call_id: tool_call_id.clone(),
+                    reason: Some(reason.to_owned()),
+                },
+            }),
+        },
+    };
+    if let Err(error) = record_and_dispatch_command(state, command).await {
+        tracing::warn!(error = %error, "tool call cancellation dispatch failed");
+    }
+}
+
+async fn load_external_tool_route(
+    state: &AppState,
+    definition: &ToolDefinition,
+    scope: &ToolScope,
+) -> Result<ExternalToolRoute, AppError> {
+    let node_id = scope
+        .node_id
+        .clone()
+        .ok_or_else(|| AppError::bad_request("tool.node_required", "Tool scope requires a Node"))?;
+    let row: Option<(String, String, String, String)> = sqlx::query_as(
+        r#"
+        select ic.integration_id, ic.auth_state, mdi.dependency_instance_id, mdi.actual_state
+        from integration_connections ic
+        join mcp_dependency_instances mdi on mdi.integration_id = ic.integration_id
+        where ic.source_id = ?1 and mdi.node_id = ?2 and ic.desired_state = 'enabled'
+        order by ic.updated_at desc
+        limit 1
+        "#,
+    )
+    .bind(definition.source_id.as_str())
+    .bind(node_id.as_str())
+    .fetch_optional(&state.pool)
+    .await?;
+    let Some((integration_id, auth_state, dependency_instance_id, actual_state)) = row else {
+        return Err(AppError::bad_request(
+            "tool.dependency_missing",
+            "External tool dependency is not configured",
+        ));
+    };
+    if auth_state != "connected" || actual_state != "running" {
+        return Err(AppError::bad_request(
+            "tool.dependency_unavailable",
+            "External tool dependency is not ready",
+        ));
+    }
+    Ok(ExternalToolRoute {
+        integration_id: IntegrationId::from(integration_id),
+        dependency_instance_id: McpDependencyInstanceId::from(dependency_instance_id),
+        node_id,
+    })
 }
 
 fn normalize_tool_result(
@@ -673,6 +954,374 @@ pub(crate) async fn tool_call_detail_route(
     load_tool_call_detail(&state, &ToolCallId::from(tool_call_id))
         .await
         .map(Json)
+}
+
+pub(crate) async fn observed_capabilities_route(
+    State(state): State<Arc<AppState>>,
+    Path(node_id): Path<String>,
+) -> Result<Json<ObservedCapabilitiesResponse>, AppError> {
+    let node_id = NodeId::from(node_id);
+    let rows = sqlx::query(
+        "select capability_json from observed_capabilities where node_id = ?1 order by capability_key",
+    )
+    .bind(node_id.as_str())
+    .fetch_all(&state.pool)
+    .await?;
+    let items = rows
+        .into_iter()
+        .map(|row| {
+            serde_json::from_str::<ObservedCapability>(
+                &row.try_get::<String, _>("capability_json")?,
+            )
+            .map_err(AppError::from)
+        })
+        .collect::<Result<Vec<_>, _>>()?;
+    Ok(Json(ObservedCapabilitiesResponse {
+        items,
+        generated_at: Utc::now(),
+    }))
+}
+
+pub(crate) async fn integration_connections_route(
+    State(state): State<Arc<AppState>>,
+) -> Result<Json<IntegrationConnectionsResponse>, AppError> {
+    let rows = sqlx::query(
+        "select connection_json from integration_connections order by updated_at desc, integration_id",
+    )
+    .fetch_all(&state.pool)
+    .await?;
+    let items = rows
+        .into_iter()
+        .map(|row| {
+            serde_json::from_str::<IntegrationConnectionSummary>(
+                &row.try_get::<String, _>("connection_json")?,
+            )
+            .map_err(AppError::from)
+        })
+        .collect::<Result<Vec<_>, _>>()?;
+    Ok(Json(IntegrationConnectionsResponse { items }))
+}
+
+pub(crate) async fn disconnect_integration_route(
+    State(state): State<Arc<AppState>>,
+    Path(integration_id): Path<String>,
+    Json(_request): Json<IntegrationDisconnectRequest>,
+) -> Result<Json<IntegrationDisconnectResponse>, AppError> {
+    let integration_id = IntegrationId::from(integration_id);
+    let raw: String = sqlx::query_scalar(
+        "select connection_json from integration_connections where integration_id = ?1",
+    )
+    .bind(integration_id.as_str())
+    .fetch_optional(&state.pool)
+    .await?
+    .ok_or_else(|| AppError::not_found("integration.not_found", "Integration not found"))?;
+    let mut connection: IntegrationConnectionSummary = serde_json::from_str(&raw)?;
+    connection.desired_state = IntegrationDesiredState::Disabled;
+    connection.auth_state = IntegrationAuthState::Disconnected;
+    connection.authenticated_actor_label = None;
+    connection.error_code = None;
+    connection.updated_at = Utc::now();
+    let mut transaction = state.pool.begin().await?;
+    sqlx::query(
+        "update integration_connections set desired_state = 'disabled', auth_state = 'disconnected', connection_json = ?1, credential_generation = credential_generation + 1, updated_at = ?2 where integration_id = ?3",
+    )
+    .bind(serde_json::to_string(&connection)?)
+    .bind(connection.updated_at)
+    .bind(integration_id.as_str())
+    .execute(&mut *transaction)
+    .await?;
+    sqlx::query(
+        "update mcp_dependency_instances set desired_state = 'disabled', updated_at = ?1 where integration_id = ?2",
+    )
+    .bind(connection.updated_at)
+    .bind(integration_id.as_str())
+    .execute(&mut *transaction)
+    .await?;
+    transaction.commit().await?;
+    if let Some(node_id) = connection.node_id.as_ref() {
+        dispatch_dependency_desired_snapshots(&state, node_id).await?;
+    }
+    audit_security_event(
+        &state,
+        "integration.disconnected",
+        connection.node_id.as_ref(),
+        None,
+        "accepted",
+        JsonValue(json!({"integration_id": integration_id})),
+    )
+    .await?;
+    Ok(Json(IntegrationDisconnectResponse {
+        connection,
+        remote_revocation_confirmed: false,
+    }))
+}
+
+pub(crate) async fn mcp_dependency_statuses_route(
+    State(state): State<Arc<AppState>>,
+) -> Result<Json<McpDependencyStatusesResponse>, AppError> {
+    let rows = sqlx::query(
+        "select status_json from mcp_dependency_instances order by updated_at desc, dependency_instance_id",
+    )
+    .fetch_all(&state.pool)
+    .await?;
+    let items = rows
+        .into_iter()
+        .map(|row| {
+            serde_json::from_str::<McpDependencyStatus>(&row.try_get::<String, _>("status_json")?)
+                .map_err(AppError::from)
+        })
+        .collect::<Result<Vec<_>, _>>()?;
+    Ok(Json(McpDependencyStatusesResponse {
+        items,
+        generated_at: Utc::now(),
+    }))
+}
+
+pub(crate) async fn project_tooling_command_result(
+    state: &AppState,
+    command_id: &CommandId,
+    status: CommandState,
+    payload: &JsonValue,
+    project_terminal_call: bool,
+) -> Result<(), AppError> {
+    let command_json: Option<String> =
+        sqlx::query_scalar("select command_json from commands where command_id = ?1")
+            .bind(command_id.as_str())
+            .fetch_optional(&state.pool)
+            .await?;
+    let Some(command_json) = command_json else {
+        return Ok(());
+    };
+    let command: CommandEnvelope = serde_json::from_str(&command_json)?;
+    if command.kind != CommandKind::Tooling || status != CommandState::Completed {
+        return Ok(());
+    }
+    let result: ExternalToolCommandResult = serde_json::from_value(payload.0.clone())?;
+    if let Some(mut dependency_status) = result.status {
+        dependency_status.node_id = command.target.node_id().clone();
+        persist_dependency_status(state, &dependency_status).await?;
+    }
+    if !result.definitions.is_empty() {
+        if result.definitions.iter().any(|definition| {
+            definition.source_id.as_str() != LINEAR_SOURCE_ID
+                || definition.source_kind != ToolSourceKind::ExternalMcp
+                || definition.execution_kind != ToolExecutionKind::ToolhiveMcp
+        }) {
+            return Err(AppError::bad_request(
+                "tool.definition_source_invalid",
+                "Node returned an invalid external tool definition",
+            ));
+        }
+        register_tool_definitions(
+            state,
+            LINEAR_SOURCE_ID,
+            ToolSourceKind::ExternalMcp,
+            "Linear remote MCP",
+            &result.definitions,
+        )
+        .await?;
+    }
+    if project_terminal_call {
+        if let Some(event) = result.event {
+            project_terminal_tooling_event(state, event).await?;
+        }
+    }
+    Ok(())
+}
+
+pub(crate) async fn persist_dependency_status(
+    state: &AppState,
+    status: &McpDependencyStatus,
+) -> Result<(), AppError> {
+    sqlx::query(
+        r#"
+        insert into mcp_dependency_instances (
+            dependency_instance_id, integration_id, node_id, desired_state,
+            actual_state, status_json, updated_at
+        ) values (?1, ?2, ?3, ?4, ?5, ?6, ?7)
+        on conflict(dependency_instance_id) do update set
+            integration_id = excluded.integration_id,
+            node_id = excluded.node_id,
+            desired_state = excluded.desired_state,
+            actual_state = excluded.actual_state,
+            status_json = excluded.status_json,
+            updated_at = excluded.updated_at
+        "#,
+    )
+    .bind(status.dependency_instance_id.as_str())
+    .bind(status.integration_id.as_str())
+    .bind(status.node_id.as_str())
+    .bind(format_integration_desired_state(status.desired_state))
+    .bind(format_dependency_actual_state(status.actual_state))
+    .bind(serde_json::to_string(status)?)
+    .bind(status.observed_at)
+    .execute(&state.pool)
+    .await?;
+    update_connection_from_dependency_status(state, status).await?;
+    Ok(())
+}
+
+async fn update_connection_from_dependency_status(
+    state: &AppState,
+    status: &McpDependencyStatus,
+) -> Result<(), AppError> {
+    let raw: Option<String> = sqlx::query_scalar(
+        "select connection_json from integration_connections where integration_id = ?1",
+    )
+    .bind(status.integration_id.as_str())
+    .fetch_optional(&state.pool)
+    .await?;
+    let Some(raw) = raw else {
+        return Ok(());
+    };
+    let mut connection: IntegrationConnectionSummary = serde_json::from_str(&raw)?;
+    connection.updated_at = status.observed_at;
+    connection.error_code = status.error_code.clone();
+    connection.auth_state = match status.actual_state {
+        McpDependencyActualState::Running => {
+            connection.connected_at.get_or_insert(status.observed_at);
+            IntegrationAuthState::Connected
+        }
+        McpDependencyActualState::MissingAuth => IntegrationAuthState::Disconnected,
+        McpDependencyActualState::Failed => IntegrationAuthState::Error,
+        McpDependencyActualState::ToolhiveMissing
+        | McpDependencyActualState::Installing
+        | McpDependencyActualState::Starting
+        | McpDependencyActualState::Degraded
+        | McpDependencyActualState::Stopped => connection.auth_state,
+    };
+    sqlx::query(
+        "update integration_connections set auth_state = ?1, connection_json = ?2, updated_at = ?3 where integration_id = ?4",
+    )
+    .bind(format_integration_auth_state(connection.auth_state))
+    .bind(serde_json::to_string(&connection)?)
+    .bind(connection.updated_at)
+    .bind(status.integration_id.as_str())
+    .execute(&state.pool)
+    .await?;
+    Ok(())
+}
+
+async fn project_terminal_tooling_event(
+    state: &AppState,
+    event: ToolingEventV1,
+) -> Result<(), AppError> {
+    if event.contract_version != TOOLING_CONTRACT_VERSION_V1 {
+        return Err(AppError::bad_request(
+            "tool.event_version_invalid",
+            "Node tooling event version is incompatible",
+        ));
+    }
+    match event.payload {
+        ToolingEventPayloadV1::ToolCallCompleted {
+            tool_call_id,
+            result,
+            ..
+        } => {
+            finish_tool_call(
+                state,
+                &tool_call_id,
+                ToolCallState::Completed,
+                Some(&result),
+                None,
+                result.artifact_refs.clone(),
+            )
+            .await?;
+        }
+        ToolingEventPayloadV1::ToolCallFailed {
+            tool_call_id,
+            error,
+            ..
+        } => {
+            let terminal_state = match error.code {
+                ToolExecutionErrorCode::Cancelled => ToolCallState::Cancelled,
+                ToolExecutionErrorCode::Timeout => ToolCallState::TimedOut,
+                _ => ToolCallState::Failed,
+            };
+            finish_tool_call(
+                state,
+                &tool_call_id,
+                terminal_state,
+                None,
+                Some(&error),
+                vec![],
+            )
+            .await?;
+        }
+        ToolingEventPayloadV1::ToolCallDenied {
+            tool_call_id,
+            error,
+            ..
+        } => {
+            finish_tool_call(
+                state,
+                &tool_call_id,
+                ToolCallState::Denied,
+                None,
+                Some(&error),
+                vec![],
+            )
+            .await?;
+        }
+        _ => {}
+    }
+    Ok(())
+}
+
+pub(crate) async fn dispatch_dependency_desired_snapshots(
+    state: &AppState,
+    node_id: &NodeId,
+) -> Result<(), AppError> {
+    let rows = sqlx::query(
+        r#"
+        select mdi.dependency_instance_id, mdi.integration_id, mdi.desired_state,
+               ic.auth_state
+        from mcp_dependency_instances mdi
+        join integration_connections ic on ic.integration_id = mdi.integration_id
+        where mdi.node_id = ?1
+        order by mdi.dependency_instance_id
+        "#,
+    )
+    .bind(node_id.as_str())
+    .fetch_all(&state.pool)
+    .await?;
+    for row in rows {
+        let dependency_instance_id =
+            McpDependencyInstanceId::from(row.try_get::<String, _>("dependency_instance_id")?);
+        let integration_id = IntegrationId::from(row.try_get::<String, _>("integration_id")?);
+        let desired_state =
+            parse_integration_desired_state(&row.try_get::<String, _>("desired_state")?);
+        let auth_state: String = row.try_get("auth_state")?;
+        let command = CommandEnvelope {
+            command_id: CommandId::new(),
+            kind: CommandKind::Tooling,
+            target: CommandTarget::Node {
+                node_id: node_id.clone(),
+            },
+            actor_ref: ActorRef::System,
+            source_refs: vec![],
+            cause_refs: vec![],
+            issued_at: Utc::now(),
+            correlation_id: CorrelationId::new(),
+            payload: CommandPayload::Tooling {
+                command: Box::new(ToolingCommandV1 {
+                    contract_version: TOOLING_CONTRACT_VERSION_V1,
+                    payload: ToolingCommandPayloadV1::UpdateDependencyDesiredState {
+                        dependency_instance_id,
+                        integration_id,
+                        desired_state,
+                        credential_ref: (auth_state == "connected")
+                            .then(|| "toolhive:managed-linear".to_owned()),
+                        upstream_url: "https://mcp.linear.app/mcp".to_owned(),
+                        workload_name: "uprava-linear".to_owned(),
+                        tool_namespace: "linear".to_owned(),
+                    },
+                }),
+            },
+        };
+        record_and_dispatch_command(state, command).await?;
+    }
+    Ok(())
 }
 
 pub(crate) async fn get_tool_definition(
@@ -939,6 +1588,8 @@ async fn effective_tool_availability(
 ) -> Result<ToolAvailability, AppError> {
     let mut availability_state = ToolAvailabilityState::Available;
     let mut reason = None;
+    let mut backend_ref = None;
+    let mut dependency_instance_id = None;
     if definition.state != ToolDefinitionState::Active {
         availability_state = ToolAvailabilityState::Unavailable;
         reason = Some(ToolUnavailableReason::PolicyBlocked);
@@ -953,25 +1604,95 @@ async fn effective_tool_availability(
         });
     } else if definition.approval_policy == PolicyDecision::RequireApproval {
         availability_state = ToolAvailabilityState::ApprovalRequired;
+    } else if definition.execution_kind == ToolExecutionKind::ToolhiveMcp {
+        backend_ref = Some("node-toolhive".to_owned());
+        let Some(node_id) = scope.node_id.as_ref() else {
+            availability_state = ToolAvailabilityState::Unavailable;
+            reason = Some(ToolUnavailableReason::DependencyMissing);
+            return Ok(ToolAvailability {
+                tool_id: definition.tool_id.clone(),
+                scope: scope.clone(),
+                state: availability_state,
+                reason,
+                backend_ref,
+                dependency_instance_id,
+                schema_hash: definition.schema_hash.clone(),
+                policy_version: TOOL_POLICY_VERSION.to_owned(),
+                observed_at: Utc::now(),
+            });
+        };
+        match effective_node_presence(state, node_id).await? {
+            NodePresence::Offline | NodePresence::Revoked => {
+                availability_state = ToolAvailabilityState::Unavailable;
+                reason = Some(ToolUnavailableReason::NodeOffline);
+            }
+            NodePresence::Reachable | NodePresence::Stale => {
+                let row: Option<(String, String, String)> = sqlx::query_as(
+                    r#"
+                    select ic.auth_state, mdi.dependency_instance_id, mdi.actual_state
+                    from integration_connections ic
+                    join mcp_dependency_instances mdi on mdi.integration_id = ic.integration_id
+                    where ic.source_id = ?1 and mdi.node_id = ?2 and ic.desired_state = 'enabled'
+                    order by ic.updated_at desc
+                    limit 1
+                    "#,
+                )
+                .bind(definition.source_id.as_str())
+                .bind(node_id.as_str())
+                .fetch_optional(&state.pool)
+                .await?;
+                match row {
+                    None => {
+                        availability_state = ToolAvailabilityState::Unavailable;
+                        reason = Some(ToolUnavailableReason::DependencyMissing);
+                    }
+                    Some((auth_state, dependency_id, actual_state)) => {
+                        dependency_instance_id = Some(McpDependencyInstanceId::from(dependency_id));
+                        if auth_state != "connected" {
+                            availability_state = ToolAvailabilityState::Unavailable;
+                            reason = Some(ToolUnavailableReason::NotAuthenticated);
+                        } else {
+                            match actual_state.as_str() {
+                                "running" => {}
+                                "toolhive_missing" => {
+                                    availability_state = ToolAvailabilityState::Unavailable;
+                                    reason = Some(ToolUnavailableReason::ToolhiveMissing);
+                                }
+                                "degraded" => {
+                                    availability_state = ToolAvailabilityState::Degraded;
+                                    reason = Some(ToolUnavailableReason::DependencyUnhealthy);
+                                }
+                                _ => {
+                                    availability_state = ToolAvailabilityState::Unavailable;
+                                    reason = Some(ToolUnavailableReason::DependencyUnhealthy);
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
     }
     Ok(ToolAvailability {
         tool_id: definition.tool_id.clone(),
         scope: scope.clone(),
         state: availability_state,
         reason,
-        backend_ref: Some(
-            match definition.execution_kind {
-                ToolExecutionKind::CoreNative => "core-native",
-                ToolExecutionKind::ExternalProvider
-                    if definition.source_id.as_str() == MOCK_SOURCE_ID =>
-                {
-                    "mock-external"
+        backend_ref: backend_ref.or_else(|| {
+            Some(
+                match definition.execution_kind {
+                    ToolExecutionKind::CoreNative => "core-native",
+                    ToolExecutionKind::ExternalProvider
+                        if definition.source_id.as_str() == MOCK_SOURCE_ID =>
+                    {
+                        "mock-external"
+                    }
+                    _ => "unavailable",
                 }
-                _ => "unavailable",
-            }
-            .to_owned(),
-        ),
-        dependency_instance_id: None,
+                .to_owned(),
+            )
+        }),
+        dependency_instance_id,
         schema_hash: definition.schema_hash.clone(),
         policy_version: TOOL_POLICY_VERSION.to_owned(),
         observed_at: Utc::now(),
@@ -1665,6 +2386,43 @@ fn format_tool_call_state(value: ToolCallState) -> &'static str {
         ToolCallState::Denied => "denied",
         ToolCallState::Cancelled => "cancelled",
         ToolCallState::TimedOut => "timed_out",
+    }
+}
+
+fn format_integration_desired_state(value: IntegrationDesiredState) -> &'static str {
+    match value {
+        IntegrationDesiredState::Enabled => "enabled",
+        IntegrationDesiredState::Disabled => "disabled",
+    }
+}
+
+fn format_integration_auth_state(value: IntegrationAuthState) -> &'static str {
+    match value {
+        IntegrationAuthState::Disconnected => "disconnected",
+        IntegrationAuthState::Connecting => "connecting",
+        IntegrationAuthState::Connected => "connected",
+        IntegrationAuthState::Expired => "expired",
+        IntegrationAuthState::Error => "error",
+    }
+}
+
+fn parse_integration_desired_state(value: &str) -> IntegrationDesiredState {
+    match value {
+        "enabled" => IntegrationDesiredState::Enabled,
+        _ => IntegrationDesiredState::Disabled,
+    }
+}
+
+fn format_dependency_actual_state(value: McpDependencyActualState) -> &'static str {
+    match value {
+        McpDependencyActualState::ToolhiveMissing => "toolhive_missing",
+        McpDependencyActualState::MissingAuth => "missing_auth",
+        McpDependencyActualState::Installing => "installing",
+        McpDependencyActualState::Starting => "starting",
+        McpDependencyActualState::Running => "running",
+        McpDependencyActualState::Degraded => "degraded",
+        McpDependencyActualState::Failed => "failed",
+        McpDependencyActualState::Stopped => "stopped",
     }
 }
 

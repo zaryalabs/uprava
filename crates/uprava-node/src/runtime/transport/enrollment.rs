@@ -167,11 +167,16 @@ pub(crate) async fn send_heartbeat(
         .core_url
         .join("/api/v1/node/heartbeat")
         .context("heartbeat URL should be valid")?;
+    let node_id = local_state
+        .node_id
+        .clone()
+        .context("local node id missing")?;
     let request = NodeHeartbeatRequest {
-        node_id: local_state.node_id.clone(),
+        node_id: Some(node_id.clone()),
         display_name: config.display_name.clone(),
         daemon_version: daemon_version(),
         capabilities: capabilities(config),
+        observed_capabilities: observed_capabilities(config, &node_id).await,
         diagnostics: Some(node_diagnostics(local_state)),
         active_runtime_count: active_runtime_count(local_state),
         sleep_hint: SleepHint::Awake,

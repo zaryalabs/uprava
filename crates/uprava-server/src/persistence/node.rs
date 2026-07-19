@@ -731,7 +731,8 @@ pub(crate) fn ensure_runtime_accepts_command(
         | CommandKind::ResizeWorkspaceTerminal
         | CommandKind::WriteWorkspaceTerminal
         | CommandKind::CloseWorkspaceTerminal
-        | CommandKind::CancelDeduction => true,
+        | CommandKind::CancelDeduction
+        | CommandKind::Tooling => true,
         CommandKind::Extension => false,
     };
     if accepts {

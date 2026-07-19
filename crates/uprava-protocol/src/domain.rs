@@ -190,6 +190,7 @@ pub enum CommandKind {
     CloseWorkspaceTerminal,
     RequestDeduction,
     CancelDeduction,
+    Tooling,
     Extension,
 }
 

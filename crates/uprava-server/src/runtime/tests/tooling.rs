@@ -1,6 +1,9 @@
 use uprava_protocol::{
-    compute_tool_schema_hash, ExecuteToolRequest, InspectToolRequest, SearchToolsRequest,
-    ToolCallState, ToolExecutionErrorCode, ToolId, ToolScope, ToolSearchFilters, ToolSourceKind,
+    compute_tool_schema_hash, ExecuteToolRequest, InspectToolRequest, IntegrationAuthState,
+    IntegrationConnectionSummary, IntegrationDesiredState, IntegrationId, McpDependencyActualState,
+    McpDependencyInstanceId, McpDependencyStatus, SearchToolsRequest, ToolAvailabilityState,
+    ToolCallState, ToolExecutionErrorCode, ToolExecutionKind, ToolId, ToolScope, ToolSearchFilters,
+    ToolSourceId, ToolSourceKind, ToolUnavailableReason,
 };
 
 use super::*;
@@ -13,6 +16,100 @@ fn scope_for(node_id: &NodeId, detail: &SessionDetail, actor_ref: ActorRef) -> T
         project_placement_id: Some(detail.placement.project_placement_id.clone()),
         session_thread_id: Some(detail.session.session_thread_id.clone()),
     }
+}
+
+#[tokio::test]
+async fn external_availability_uses_node_auth_and_dependency_actual_state() {
+    let state = test_state().await;
+    let (node_id, detail, workspace_path) = create_test_session(&state).await;
+    let mut definition = mock_external_definition();
+    definition.tool_id = ToolId::from("linear.search_issues");
+    definition.source_id = ToolSourceId::from("linear-remote-mcp");
+    definition.source_tool_name = "search_issues".to_owned();
+    definition.execution_kind = ToolExecutionKind::ToolhiveMcp;
+    register_tool_definitions(
+        &state,
+        "linear-remote-mcp",
+        ToolSourceKind::ExternalMcp,
+        "Linear remote MCP",
+        std::slice::from_ref(&definition),
+    )
+    .await
+    .expect("linear definition registers");
+    let now = Utc::now();
+    let integration_id = IntegrationId::from("integration-linear-test");
+    let dependency_id = McpDependencyInstanceId::from("dependency-linear-test");
+    let connection = IntegrationConnectionSummary {
+        integration_id: integration_id.clone(),
+        source_id: ToolSourceId::from("linear-remote-mcp"),
+        provider: "linear".to_owned(),
+        display_name: "Linear".to_owned(),
+        desired_state: IntegrationDesiredState::Enabled,
+        auth_state: IntegrationAuthState::Connected,
+        node_id: Some(node_id.clone()),
+        authenticated_actor_label: None,
+        connected_at: Some(now),
+        updated_at: now,
+        error_code: None,
+    };
+    sqlx::query(
+        "insert into integration_connections (integration_id, source_id, provider, desired_state, auth_state, node_id, connection_json, credential_generation, created_at, updated_at) values (?1, 'linear-remote-mcp', 'linear', 'enabled', 'connected', ?2, ?3, 1, ?4, ?4)",
+    )
+    .bind(integration_id.as_str())
+    .bind(node_id.as_str())
+    .bind(serde_json::to_string(&connection).expect("connection serializes"))
+    .bind(now)
+    .execute(&state.pool)
+    .await
+    .expect("connection inserts");
+    let status = McpDependencyStatus {
+        dependency_instance_id: dependency_id,
+        integration_id,
+        node_id: node_id.clone(),
+        desired_state: IntegrationDesiredState::Enabled,
+        actual_state: McpDependencyActualState::Running,
+        runtime_name: "toolhive".to_owned(),
+        runtime_version: Some("0.40.0".to_owned()),
+        upstream_identity: Some("linear-remote-mcp".to_owned()),
+        schema_set_hash: Some("sha256:fixture".to_owned()),
+        error_code: None,
+        observed_at: now,
+    };
+    persist_dependency_status(&state, &status)
+        .await
+        .expect("dependency status persists");
+    let inspected = inspect_tool(
+        &state,
+        &InspectToolRequest {
+            scope: scope_for(&node_id, &detail, ActorRef::local_user()),
+            tool_id: definition.tool_id,
+        },
+    )
+    .await
+    .expect("external tool inspects");
+    assert_eq!(
+        inspected.availability.state,
+        ToolAvailabilityState::Available
+    );
+
+    sqlx::query("update integration_connections set auth_state = 'disconnected'")
+        .execute(&state.pool)
+        .await
+        .expect("connection disconnects");
+    let unavailable = inspect_tool(
+        &state,
+        &InspectToolRequest {
+            scope: scope_for(&node_id, &detail, ActorRef::local_user()),
+            tool_id: ToolId::from("linear.search_issues"),
+        },
+    )
+    .await
+    .expect("disconnected tool remains inspectable");
+    assert_eq!(
+        unavailable.availability.reason,
+        Some(ToolUnavailableReason::NotAuthenticated)
+    );
+    let _ = std::fs::remove_dir_all(workspace_path);
 }
 
 #[tokio::test]

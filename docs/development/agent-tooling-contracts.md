@@ -4,13 +4,15 @@
 
 Целевой срез: `0.2.11`
 
-Реализация Core baseline: Epic 1 завершён 2026-07-19. Контракты обслуживаются
-SQLite migration `12`, application services Registry/Search/Inspect/Execute и
-Uprava MCP Streamable HTTP endpoint `/mcp` на pinned `rmcp 2.2.0`. Доступ к MCP
-требует short-lived session lease; Web read routes для definitions,
-availability и calls используют те же application services. External
-ToolHive/Linear execution и integration mutations остаются последующими
-эпиками.
+Реализация Core baseline: Epic 1 завершён 2026-07-19. Локальная реализация
+Node/ToolHive runtime эпика 2 добавлена 2026-07-19. Контракты обслуживаются
+SQLite migration `12`, application services Registry/Search/Inspect/Execute,
+Uprava MCP Streamable HTTP endpoint `/mcp` на pinned `rmcp 2.2.0` и typed
+durable `CommandKind::Tooling` path до Node. Доступ к MCP требует short-lived
+session lease; Web read routes для definitions, observed capabilities,
+dependency state, availability и calls используют те же application services.
+Реальный Linear OAuth acceptance остаётся заблокирован внешним gate из spike;
+production path не подменяет его mock credential или direct upstream fallback.
 
 Этот документ фиксирует общий язык Core, Node, Uprava MCP и Web до начала
 реализации отдельных эпиков. Канонические Rust-типы находятся в
@@ -288,6 +290,25 @@ Events:
 typed compatibility error; он не десериализуется как Extension. Command
 duplicate определяется outer `command_id`, tool execution duplicate —
 `tool_call_id`.
+
+### Реализованный Node runtime baseline
+
+- heartbeat репортит typed observed inventory для ToolHive, `git`, `gh` и
+  `glab`; auth status ограничен значениями `authenticated | not_authenticated`;
+- Core повторно отправляет desired dependency snapshot после Node reconnect, а
+  Node сохраняет его в private local state;
+- ToolHive CLI boundary принимает только pinned Linear upstream и безопасные
+  workload/namespace identifiers;
+- local MCP bridge выполняет `initialize`, `notifications/initialized`,
+  `tools/list` и `tools/call`, проверяет current schema hash перед вызовом и
+  ограничивает metadata, schema, process output и MCP result;
+- timeout и cancel используют общий Node cancellation registry, duplicate outer
+  command возвращает сохранённый terminal result;
+- Core проецирует actual status и discovered definitions, вычисляет
+  Node/auth/dependency-specific availability и восстанавливает terminal
+  tool-call state из durable command result при потере process-local waiter;
+- disconnect немедленно закрывает Core availability, увеличивает credential
+  generation и отправляет disabled desired state для ToolHive cleanup.
 
 ## Authentication и policy
 

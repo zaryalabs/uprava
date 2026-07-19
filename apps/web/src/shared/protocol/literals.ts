@@ -99,6 +99,7 @@ export const COMMAND_KIND_VALUES = [
   "CloseWorkspaceTerminal",
   "RequestDeduction",
   "CancelDeduction",
+  "Tooling",
   "Extension",
 ] as const;
 

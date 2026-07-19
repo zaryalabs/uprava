@@ -53,9 +53,13 @@ Native agent tools remain native.
   summaries, hashes, refs и session tool snapshots;
 - Web-authenticated Core read routes для definitions, availability и calls.
 
-External MCP execution, ToolHive desired/actual reconciliation, integration
-OAuth и Web management остаются границами эпиков 2–3. Незавершённый внешний
-Linear gate не включён в production fallback и не меняет Core contract.
+Локальный baseline эпика 2 реализует observed Node inventory, durable typed
+Tooling commands, desired/actual reconciliation после reconnect, pinned
+ToolHive CLI boundary, bounded local MCP bridge, external availability и
+terminal trace recovery. Реальный Linear OAuth, `tools/list`, read-only call и
+remote revocation по-прежнему требуют разрешённого acceptance workspace;
+незавершённый внешний gate не включён в production fallback и не меняет Core
+contract. Web management и provider delivery остаются границей эпика 3.
 
 ## Vision
 

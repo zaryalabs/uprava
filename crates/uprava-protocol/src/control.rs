@@ -89,6 +89,9 @@ pub enum CommandPayload {
     CancelDeduction {
         deduction_id: DeductionId,
     },
+    Tooling {
+        command: Box<ToolingCommandV1>,
+    },
     Extension {
         name: String,
         value: serde_json_value::JsonValue,
@@ -156,6 +159,7 @@ impl CommandPayload {
                 )
                 | (CommandKind::RequestDeduction, Self::RequestDeduction { .. })
                 | (CommandKind::CancelDeduction, Self::CancelDeduction { .. })
+                | (CommandKind::Tooling, Self::Tooling { .. })
                 | (CommandKind::Extension, Self::Extension { .. })
         )
     }

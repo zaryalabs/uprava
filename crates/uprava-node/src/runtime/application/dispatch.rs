@@ -227,6 +227,10 @@ pub(crate) fn is_priority_cancellation_command(command: &CommandEnvelope) -> boo
     matches!(
         command.kind,
         CommandKind::InterruptRuntime | CommandKind::StopRuntime | CommandKind::CancelDeduction
+    ) || matches!(
+        &command.payload,
+        CommandPayload::Tooling { command }
+            if matches!(command.payload, ToolingCommandPayloadV1::CancelToolCall { .. })
     )
 }
 
@@ -243,6 +247,12 @@ pub(crate) fn execution_cancellation_key(command: &CommandEnvelope) -> Option<St
         (CommandKind::RequestDeduction, CommandPayload::RequestDeduction { package }) => {
             Some(deduction_cancellation_key(&package.deduction_id))
         }
+        (CommandKind::Tooling, CommandPayload::Tooling { command }) => match &command.payload {
+            ToolingCommandPayloadV1::ExecuteExternalTool { tool_call_id, .. } => {
+                Some(tool_call_cancellation_key(tool_call_id))
+            }
+            _ => None,
+        },
         _ => None,
     }
 }
@@ -257,11 +267,32 @@ pub(crate) fn cancellation_signal(command: &CommandEnvelope) -> Option<(String, 
         (CommandKind::CancelDeduction, CommandPayload::CancelDeduction { deduction_id }) => {
             Some((deduction_cancellation_key(deduction_id), true))
         }
+        (CommandKind::Tooling, CommandPayload::Tooling { command }) => match &command.payload {
+            ToolingCommandPayloadV1::CancelToolCall { tool_call_id, .. } => {
+                Some((tool_call_cancellation_key(tool_call_id), true))
+            }
+            _ => None,
+        },
         _ => None,
     }
 }
 
 pub(crate) fn command_execution_key(command: &CommandEnvelope) -> String {
+    if let CommandPayload::Tooling { command } = &command.payload {
+        return match &command.payload {
+            ToolingCommandPayloadV1::UpdateDependencyDesiredState {
+                dependency_instance_id,
+                ..
+            }
+            | ToolingCommandPayloadV1::ExecuteExternalTool {
+                dependency_instance_id,
+                ..
+            } => format!("tool-dependency:{}", dependency_instance_id.as_str()),
+            ToolingCommandPayloadV1::CancelToolCall { tool_call_id, .. } => {
+                tool_call_cancellation_key(tool_call_id)
+            }
+        };
+    }
     command
         .target
         .runtime_session_id()

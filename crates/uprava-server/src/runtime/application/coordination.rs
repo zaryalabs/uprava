@@ -418,7 +418,16 @@ pub(crate) async fn should_open_control_channel(
     .bind(node_id.as_str())
     .fetch_one(&state.pool)
     .await?;
-    Ok(pending > 0)
+    if pending > 0 {
+        return Ok(true);
+    }
+    let desired_tool_dependencies: i64 = sqlx::query_scalar(
+        "select count(*) from mcp_dependency_instances where node_id = ?1 and desired_state = 'enabled'",
+    )
+    .bind(node_id.as_str())
+    .fetch_one(&state.pool)
+    .await?;
+    Ok(desired_tool_dependencies > 0)
 }
 
 pub(crate) async fn update_command_state(

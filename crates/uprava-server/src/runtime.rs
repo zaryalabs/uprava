@@ -221,6 +221,7 @@ impl AppState {
         state.migrate().await?;
         revoke_all_mcp_leases_for_credential_rotation(&state).await?;
         seed_uprava_native_tools(&state).await?;
+        seed_external_tool_sources(&state).await?;
         recover_interrupted_scheduled_messages(&state).await?;
         spawn_scheduled_message_dispatcher(Arc::downgrade(&state));
         recover_job_runs(&state).await?;

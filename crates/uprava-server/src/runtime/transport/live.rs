@@ -64,6 +64,13 @@ pub(crate) fn lock_command_waiters(
     })
 }
 
+pub(crate) fn command_waiter_exists(
+    state: &AppState,
+    command_id: &CommandId,
+) -> Result<bool, AppError> {
+    Ok(lock_command_waiters(state)?.contains_key(command_id.as_str()))
+}
+
 impl TerminalHub {
     pub(crate) fn new() -> Self {
         Self {

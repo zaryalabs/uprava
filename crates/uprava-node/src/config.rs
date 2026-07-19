@@ -16,6 +16,8 @@ pub(crate) struct NodeConfig {
     pub(crate) codex_binary: String,
     pub(crate) codex_ignore_user_config: bool,
     pub(crate) codex_timeout: Duration,
+    pub(crate) toolhive_binary: String,
+    pub(crate) toolhive_start_timeout: Duration,
 }
 
 impl NodeConfig {
@@ -37,6 +39,10 @@ impl NodeConfig {
         let codex_ignore_user_config = parse_env_bool("UPRAVA_CODEX_IGNORE_USER_CONFIG", false)?;
         let codex_timeout =
             parse_env_duration_seconds("UPRAVA_CODEX_TIMEOUT_SECONDS", 24 * 60 * 60)?;
+        let toolhive_binary =
+            std::env::var("UPRAVA_TOOLHIVE_BINARY").unwrap_or_else(|_| "thv".to_owned());
+        let toolhive_start_timeout =
+            parse_env_duration_seconds("UPRAVA_TOOLHIVE_START_TIMEOUT_SECONDS", 5 * 60)?;
 
         Ok(Self {
             core_url,
@@ -47,6 +53,8 @@ impl NodeConfig {
             codex_binary,
             codex_ignore_user_config,
             codex_timeout,
+            toolhive_binary,
+            toolhive_start_timeout,
         })
     }
 }

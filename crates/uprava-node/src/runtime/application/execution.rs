@@ -219,6 +219,20 @@ pub(crate) async fn prepare_command_dispatch_with_live_socket(
                 state_changed: true,
             };
         }
+        CommandKind::Tooling => {
+            let CommandPayload::Tooling { command: tooling } = &command.payload else {
+                unreachable!("command payload kind was validated before dispatch")
+            };
+            let (status, payload) =
+                execute_tooling_command(config, local_state, tooling, cancellation).await;
+            record_command_result_payload(local_state, command, status, &payload);
+            return CommandDispatchOutcome {
+                status,
+                events_to_send: vec![],
+                result_payload: payload,
+                state_changed: true,
+            };
+        }
         _ => {
             let provider_key =
                 provider_for_command(local_state, command).unwrap_or_else(|| "unknown".to_owned());

@@ -47,18 +47,24 @@ use uprava_protocol::{
     CommandState, ControlFrame, CorrelationId, DeductionInputPackage, DeductionProviderOutput,
     DeductionProviderResult, EnrollmentId, EventEnvelope, EventId, EventKind, EventPayload,
     GitChangeKind, GitChangedFile, GitHeadState, GitOperation, GitRepositoryState,
-    GitWorkspaceSnapshot, GitWorktreeKind, NodeEnrollmentClaimRequest, NodeEnrollmentClaimResponse,
-    NodeEnrollmentRequest, NodeEnrollmentRequestedResponse, NodeHeartbeatRequest,
-    NodeHeartbeatResponse, NodeId, PlacementState, ProjectPlacementId, ResourceBadge,
-    RuntimeSessionId, RuntimeSessionState, ScopeRef, SessionThreadId, SleepHint, TerminalId,
-    TextRange, TurnId, UpravaRef, WarningSeverity, WorkspaceCommandIntent,
-    WorkspaceCommandRunRequest, WorkspaceCommandRunResponse, WorkspaceDiffHunk,
-    WorkspaceDiffRequest, WorkspaceDiffResponse, WorkspaceDiffScope, WorkspaceEntry,
-    WorkspaceEntryClassification, WorkspaceEntryKind, WorkspaceEntryStatus,
-    WorkspaceFileContentResponse, WorkspaceFileWriteRequest, WorkspaceFileWriteResponse,
-    WorkspaceSnapshot, WorkspaceTerminalOpenRequest, WorkspaceTerminalOpenResponse,
-    WorkspaceTerminalOutputFrame, WorkspaceTerminalState, WorkspaceTerminalSummary,
-    WorkspaceTreeResponse, CURRENT_PROTOCOL_VERSION as API_VERSION,
+    GitWorkspaceSnapshot, GitWorktreeKind, IntegrationDesiredState, IntegrationId,
+    McpDependencyActualState, McpDependencyInstanceId, McpDependencyStatus,
+    NodeEnrollmentClaimRequest, NodeEnrollmentClaimResponse, NodeEnrollmentRequest,
+    NodeEnrollmentRequestedResponse, NodeHeartbeatRequest, NodeHeartbeatResponse, NodeId,
+    ObservedCapability, ObservedCapabilityState, PlacementState, PolicyDecision,
+    ProjectPlacementId, ResourceBadge, RuntimeSessionId, RuntimeSessionState, ScopeRef,
+    SessionThreadId, SleepHint, TerminalId, TextRange, ToolCallId, ToolDefinition,
+    ToolDefinitionState, ToolExecutionError, ToolExecutionErrorCode, ToolExecutionKind, ToolId,
+    ToolRedactionPolicy, ToolResultEnvelope, ToolRiskLevel, ToolSourceId, ToolSourceKind,
+    ToolingCommandPayloadV1, ToolingCommandV1, ToolingEventPayloadV1, ToolingEventV1, TurnId,
+    UpravaRef, WarningSeverity, WorkspaceCommandIntent, WorkspaceCommandRunRequest,
+    WorkspaceCommandRunResponse, WorkspaceDiffHunk, WorkspaceDiffRequest, WorkspaceDiffResponse,
+    WorkspaceDiffScope, WorkspaceEntry, WorkspaceEntryClassification, WorkspaceEntryKind,
+    WorkspaceEntryStatus, WorkspaceFileContentResponse, WorkspaceFileWriteRequest,
+    WorkspaceFileWriteResponse, WorkspaceSnapshot, WorkspaceTerminalOpenRequest,
+    WorkspaceTerminalOpenResponse, WorkspaceTerminalOutputFrame, WorkspaceTerminalState,
+    WorkspaceTerminalSummary, WorkspaceTreeResponse, CURRENT_PROTOCOL_VERSION as API_VERSION,
+    TOOLING_CONTRACT_VERSION_V1, TOOL_RESULT_MAX_BYTES,
 };
 use uuid::Uuid;
 
@@ -72,6 +78,7 @@ mod persistence;
 mod provider;
 mod support;
 mod terminal;
+mod tool_runtime;
 mod transport;
 mod workspace;
 
@@ -80,6 +87,7 @@ use persistence::*;
 use provider::*;
 use support::*;
 use terminal::*;
+use tool_runtime::*;
 use transport::*;
 use workspace::*;
 

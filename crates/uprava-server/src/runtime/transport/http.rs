@@ -124,6 +124,16 @@ pub fn build_router(state: Arc<AppState>) -> Router {
         .route("/tool-definitions", get(tool_definitions_route))
         .route("/tool-definitions/{tool_id}", get(tool_definition_route))
         .route("/tool-availability", get(tool_availability_route))
+        .route(
+            "/nodes/{node_id}/observed-capabilities",
+            get(observed_capabilities_route),
+        )
+        .route("/integrations", get(integration_connections_route))
+        .route(
+            "/integrations/{integration_id}/disconnect",
+            post(disconnect_integration_route),
+        )
+        .route("/mcp-dependencies", get(mcp_dependency_statuses_route))
         .route("/tool-calls", get(tool_calls_route))
         .route("/tool-calls/{tool_call_id}", get(tool_call_detail_route))
         .route("/references/resolve", post(resolve_reference_route))

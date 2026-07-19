@@ -13,6 +13,8 @@ const NODE_CONFIG_ENV_VARS: &[&str] = &[
     "UPRAVA_CODEX_BINARY",
     "UPRAVA_CODEX_IGNORE_USER_CONFIG",
     "UPRAVA_CODEX_TIMEOUT_SECONDS",
+    "UPRAVA_TOOLHIVE_BINARY",
+    "UPRAVA_TOOLHIVE_START_TIMEOUT_SECONDS",
 ];
 
 #[cfg(unix)]
@@ -212,6 +214,8 @@ fn config_fixture_with_codex_binary(codex_binary: impl Into<String>) -> NodeConf
         codex_binary: codex_binary.into(),
         codex_ignore_user_config: false,
         codex_timeout: Duration::from_secs(5),
+        toolhive_binary: "missing-toolhive-fixture".to_owned(),
+        toolhive_start_timeout: Duration::from_secs(1),
     }
 }
 

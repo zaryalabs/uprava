@@ -35,6 +35,8 @@ pub(crate) struct NodeLocalState {
     #[serde(default)]
     pub(crate) cancelled_deductions: HashSet<String>,
     #[serde(default)]
+    pub(crate) tool_dependencies: HashMap<String, ToolDependencyDesired>,
+    #[serde(default)]
     pub(crate) placement_seqs: HashMap<String, i64>,
     #[serde(default)]
     pub(crate) reconnect_attempts: u64,
@@ -78,6 +80,7 @@ impl Default for NodeLocalState {
             runtime_transcripts: HashMap::new(),
             runtime_provider_resume_refs: HashMap::new(),
             cancelled_deductions: HashSet::new(),
+            tool_dependencies: HashMap::new(),
             placement_seqs: HashMap::new(),
             reconnect_attempts: 0,
             dropped_event_count: 0,
@@ -125,6 +128,7 @@ impl std::fmt::Debug for NodeLocalState {
                 &runtime_provider_resume_ref_count,
             )
             .field("cancelled_deductions", &self.cancelled_deductions)
+            .field("tool_dependency_count", &self.tool_dependencies.len())
             .field("placement_seqs", &self.placement_seqs)
             .field("reconnect_attempts", &self.reconnect_attempts)
             .field("dropped_event_count", &self.dropped_event_count)
@@ -440,6 +444,7 @@ impl NodeLocalState {
             schema_version: self.schema_version,
             daemon_installation_id: self.daemon_installation_id.clone(),
             cancelled_deductions: self.cancelled_deductions.clone(),
+            tool_dependencies: self.tool_dependencies.clone(),
             ..Self::default()
         }
     }
@@ -555,6 +560,11 @@ impl NodeLocalState {
         {
             self.cancelled_deductions.remove(deduction_id);
         }
+        merge_changed_map(
+            &mut self.tool_dependencies,
+            &baseline.tool_dependencies,
+            &command_state.tool_dependencies,
+        );
         for (placement_id, seq) in &command_state.placement_seqs {
             if baseline.placement_seqs.get(placement_id) != Some(seq) {
                 let current = self.placement_seqs.entry(placement_id.clone()).or_default();

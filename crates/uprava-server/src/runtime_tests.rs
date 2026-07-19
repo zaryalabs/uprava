@@ -307,6 +307,7 @@ async fn heartbeat_node(
                 key: "provider.codex".to_owned(),
                 value: CapabilityValue::provider(true),
             }],
+            observed_capabilities: vec![],
             diagnostics: None,
             active_runtime_count,
             sleep_hint,
