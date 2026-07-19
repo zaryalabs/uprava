@@ -37,14 +37,15 @@ dependency, complexity, risk and value. Позиции могут двигать
 
 ## Обзор очереди
 
-Current release baseline: `0.2.10`. Закрытые пункты `0` through `10`, unified
+Current release baseline: `0.2.11`. Закрытые пункты `0` through `11`, unified
 audit hardening release и `5a` workspace renderer release соответствуют shipped
 versions, зафиксированным в [`releases.md`](../releases.md). Пункт `6` включает
 workbench alignment, первый стабильный self-hosted deployment path и
 workspace-centered UI follow-up `0.2.6` и Causality/Trace/Deduction slice
 `0.2.7`. Runtime boundary refactor зафиксирован implementation baseline
-`0.2.9`. Git and review basics зафиксирован implementation baseline `0.2.10`.
-Следующий плановый пункт очереди — Agent Tooling and Tool Registry v1.
+`0.2.9`. Git and review basics зафиксирован implementation baseline `0.2.10`,
+Agent Tooling and Tool Registry v1 — `0.2.11`. Следующий плановый пункт очереди —
+Plugin Registry v1.
 
 | Order | Done | Mechanism / Feature Slice | First Useful Slice | Dependency | Complexity |
 | --- | --- | --- | --- | --- | --- |
@@ -60,7 +61,7 @@ workspace-centered UI follow-up `0.2.6` и Causality/Trace/Deduction slice
 | 8 | + | Background Jobs и scheduled agent runs | Долговечные определения unattended agent work, расписания и наблюдаемые runs | Placements, provider runtime, durable events | High |
 | 9 | + | Causality and trace UX | Coarse source/cause links with raw fallback | Workspace refs, event log | Medium |
 | 10 | + | Git and review basics | Better diff, branch/worktree awareness, check results | Workspace intervention, trace | Medium |
-| 11 | - | Agent Tooling and Tool Registry v1 | Uprava MCP, progressive discovery, ToolHive runtime, scoped registry and trace | V01 capability model, events | High |
+| 11 | + | Agent Tooling and Tool Registry v1 | Uprava MCP, progressive discovery, ToolHive runtime, scoped registry and trace | V01 capability model, events | High |
 | 12 | - | Plugin Registry v1 | Installed plugin metadata, configuration, exposed tools and artifact types | Agent Tooling and Tool Registry v1 | High |
 | 14 | - | Visual artifact system | Test reports, richer diffs, timelines, dashboards/forms as first-class artifacts | Trace, registry contracts | High |
 | 15 | - | Dynamic UI from agents | Schema/tool/plugin-rendered UI with safe fallbacks | Visual artifact system, plugins | High |
@@ -405,6 +406,14 @@ Provider-native и Node-local инструменты (`bash`, file tools, `git`,
 `glab`) не оборачиваются и не проксируются без отдельной продуктовой причины.
 Uprava сообщает их version, health and safe authentication status как observed
 capabilities, а агент вызывает native CLI напрямую.
+
+**Current implementation note:** `0.2.11` добавляет Core-owned scoped registry,
+permission-first `Search -> Inspect -> Execute`, Streamable HTTP Uprava MCP с
+краткоживущими session leases, Node inventory и desired/actual reconciliation,
+pinned ToolHive bridge к официальному Linear MCP, Web connect/reconnect/
+disconnect и redacted tool-call trace. Linear authorization URL существует
+только в эфемерном ответе текущему Web-клиенту; OAuth callback, discovery и
+read-only execution подтверждены opt-in E2E.
 
 **Target direction:** Более богатый MCP catalog, dynamic server selection,
 programmatic tool calling/code mode, дополнительные runtime providers,

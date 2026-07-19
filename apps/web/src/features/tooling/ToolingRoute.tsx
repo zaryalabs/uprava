@@ -33,9 +33,6 @@ import { ReferenceActions } from "../../workbench/references/ReferenceActions";
 import { useInventory } from "../inventory/api";
 import { workspaceAgentSessionRoute } from "../workspaces/routes";
 
-const CONNECT_GATE_MESSAGE =
-  "Linear connect and reconnect remain disabled until the real ToolHive OAuth acceptance gate is completed.";
-
 export function ToolingRoute() {
   const inventory = useInventory();
   const [searchParams, setSearchParams] = useSearchParams();
@@ -43,6 +40,11 @@ export function ToolingRoute() {
   const [pendingDisconnect, setPendingDisconnect] = useState<string | null>(
     null,
   );
+  const [authorization, setAuthorization] = useState<{
+    integrationId: string;
+    url: string;
+    expiresAt: string;
+  } | null>(null);
   const placement = selectedPlacement(
     inventory.data?.placements ?? [],
     searchParams.get("placement"),
@@ -65,10 +67,22 @@ export function ToolingRoute() {
   const integrations = useQuery({
     queryKey: queryKeys.integrationConnections,
     queryFn: coreApi.integrationConnections,
+    refetchInterval: (query) =>
+      query.state.data?.items.some(
+        (connection) => connection.auth_state === "connecting",
+      )
+        ? 2_000
+        : false,
   });
   const dependencies = useQuery({
     queryKey: queryKeys.mcpDependencies,
     queryFn: coreApi.mcpDependencies,
+    refetchInterval: (query) =>
+      query.state.data?.items.some((dependency) =>
+        ["installing", "starting"].includes(dependency.actual_state),
+      )
+        ? 2_000
+        : false,
   });
   const availability = useQuery({
     queryKey: queryKeys.toolAvailability(session?.session_thread_id ?? "none"),
@@ -127,6 +141,34 @@ export function ToolingRoute() {
       ]);
     },
   });
+  const connect = useMutation({
+    mutationFn: coreApi.connectIntegration,
+    onSuccess: async (response) => {
+      setAuthorization({
+        integrationId: response.connection.integration_id,
+        url: response.authorization_url,
+        expiresAt: response.expires_at,
+      });
+      await Promise.all([
+        queryClient.invalidateQueries({
+          queryKey: queryKeys.integrationConnections,
+        }),
+        queryClient.invalidateQueries({ queryKey: queryKeys.mcpDependencies }),
+        queryClient.invalidateQueries({
+          queryKey: ["tooling", "availability"],
+        }),
+      ]);
+    },
+  });
+
+  const requestConnect = (integrationId: string, nodeId: string) => {
+    setAuthorization(null);
+    connect.mutate({
+      integration_id: integrationId,
+      project_id: placement?.project_id ?? null,
+      node_id: nodeId,
+    });
+  };
 
   const setParam = (name: string, value: string | null) => {
     const next = new URLSearchParams(searchParams);
@@ -179,7 +221,15 @@ export function ToolingRoute() {
           ) : !integrations.data || !dependencies.data ? (
             <LoadingState stage="Loading integration state" />
           ) : integrations.data.items.length === 0 ? (
-            <UnconfiguredLinearCard />
+            <UnconfiguredLinearCard
+              nodeId={placement?.node_id ?? null}
+              connecting={connect.isPending}
+              error={connect.error}
+              authorization={authorization}
+              onConnect={(nodeId) =>
+                requestConnect("integration-linear", nodeId)
+              }
+            />
           ) : (
             <div className="divide-y divide-black/10">
               {integrations.data.items.map((connection) => (
@@ -200,9 +250,29 @@ export function ToolingRoute() {
                     disconnect.variables === connection.integration_id
                   }
                   error={
-                    disconnect.variables === connection.integration_id
+                    (disconnect.variables === connection.integration_id
                       ? disconnect.error
+                      : null) ??
+                    (connect.variables?.integration_id ===
+                    connection.integration_id
+                      ? connect.error
+                      : null)
+                  }
+                  connecting={
+                    connect.isPending &&
+                    connect.variables?.integration_id ===
+                      connection.integration_id
+                  }
+                  authorization={
+                    authorization?.integrationId === connection.integration_id
+                      ? authorization
                       : null
+                  }
+                  onConnect={() =>
+                    requestConnect(
+                      connection.integration_id,
+                      connection.node_id ?? placement?.node_id ?? "",
+                    )
                   }
                   onRequestDisconnect={() =>
                     setPendingDisconnect(connection.integration_id)
@@ -526,7 +596,19 @@ function SectionHeading({
   );
 }
 
-function UnconfiguredLinearCard() {
+function UnconfiguredLinearCard({
+  nodeId,
+  connecting,
+  error,
+  authorization,
+  onConnect,
+}: {
+  nodeId: string | null;
+  connecting: boolean;
+  error: unknown;
+  authorization: AuthorizationPrompt | null;
+  onConnect: (nodeId: string) => void;
+}) {
   return (
     <article className="border border-dashed border-[var(--color-muted)] p-4">
       <div className="flex flex-wrap items-center justify-between gap-2">
@@ -537,19 +619,39 @@ function UnconfiguredLinearCard() {
         </span>
       </div>
       <p className="mt-3 text-sm text-[var(--color-muted)]">
-        {CONNECT_GATE_MESSAGE}
+        Start the pinned ToolHive OAuth flow on the selected Node. Uprava keeps
+        the authorization URL ephemeral and never stores its state parameter.
       </p>
       <Button
         type="button"
         className="mt-4"
-        disabled
-        title={CONNECT_GATE_MESSAGE}
+        disabled={!nodeId || connecting}
+        onClick={() => {
+          if (nodeId) onConnect(nodeId);
+        }}
       >
-        Connect Linear
+        {connecting ? "Starting authorization…" : "Connect Linear"}
       </Button>
+      {!nodeId ? (
+        <p className="mt-2 text-xs text-[var(--color-risk)]">
+          Select a workspace with a reachable Node first.
+        </p>
+      ) : null}
+      {error ? (
+        <div className="mt-3">
+          <ErrorNotice error={error} title="Linear connect failed" />
+        </div>
+      ) : null}
+      <AuthorizationLink authorization={authorization} />
     </article>
   );
 }
+
+type AuthorizationPrompt = {
+  integrationId: string;
+  url: string;
+  expiresAt: string;
+};
 
 export function IntegrationCard({
   connection,
@@ -557,7 +659,10 @@ export function IntegrationCard({
   node,
   pendingDisconnect,
   disconnecting,
+  connecting,
+  authorization,
   error,
+  onConnect,
   onRequestDisconnect,
   onCancelDisconnect,
   onDisconnect,
@@ -567,7 +672,10 @@ export function IntegrationCard({
   node?: NodeSummary;
   pendingDisconnect: boolean;
   disconnecting: boolean;
+  connecting: boolean;
+  authorization: AuthorizationPrompt | null;
   error: unknown;
+  onConnect: () => void;
   onRequestDisconnect: () => void;
   onCancelDisconnect: () => void;
   onDisconnect: () => void;
@@ -629,12 +737,20 @@ export function IntegrationCard({
       </p>
       {error ? (
         <div className="mt-3">
-          <ErrorNotice error={error} title="Disconnect failed" />
+          <ErrorNotice error={error} title="Integration action failed" />
         </div>
       ) : null}
       <div className="mt-4 flex flex-wrap gap-2">
-        <Button type="button" disabled title={CONNECT_GATE_MESSAGE}>
-          {disconnected ? "Connect" : "Reconnect"}
+        <Button
+          type="button"
+          disabled={!connection.node_id || connecting || pendingDisconnect}
+          onClick={onConnect}
+        >
+          {connecting
+            ? "Starting authorization…"
+            : disconnected
+              ? "Connect"
+              : "Reconnect"}
         </Button>
         {pendingDisconnect ? (
           <>
@@ -664,11 +780,38 @@ export function IntegrationCard({
       {pendingDisconnect ? (
         <p className="mt-2 text-xs text-[var(--color-risk)]" role="status">
           Disconnect immediately disables effective availability. Remote OAuth
-          revocation remains unconfirmed until the Linear acceptance gate is
-          completed.
+          revocation is reported separately from local ToolHive cleanup.
         </p>
       ) : null}
+      <AuthorizationLink authorization={authorization} />
     </article>
+  );
+}
+
+function AuthorizationLink({
+  authorization,
+}: {
+  authorization: AuthorizationPrompt | null;
+}) {
+  if (!authorization) return null;
+  return (
+    <div
+      className="mt-4 border-l-2 border-[var(--color-notice)] pl-3 text-xs"
+      role="status"
+    >
+      <a
+        href={authorization.url}
+        target="_blank"
+        rel="noreferrer noopener"
+        className="font-bold underline underline-offset-4"
+      >
+        Continue authorization in Linear
+      </a>
+      <p className="mt-1 text-[var(--color-muted)]">
+        This one-time link expires {formatDateTime(authorization.expiresAt)}.
+        Connection status refreshes automatically after consent.
+      </p>
+    </div>
   );
 }
 

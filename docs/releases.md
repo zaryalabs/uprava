@@ -2,7 +2,7 @@
 
 Статус: `active`
 
-Current release baseline: `0.2.10`.
+Current release baseline: `0.2.11`.
 
 Этот ledger фиксирует implementation baselines. Он не заменяет
 [`feature-queue.md`](product/feature-queue.md), где остается ранжированная очередь
@@ -31,16 +31,28 @@ future work.
 | `0.2.7` | 2026-07-19 | shipped | Causality/Trace UX, raw event/ref resolution и isolated structured Deduction |
 | `0.2.8` | 2026-07-19 | shipped | Модульные Core/Node runtime boundaries, capability-oriented tests и автоматический architecture gate |
 | `0.2.9` | 2026-07-19 | shipped | Прозрачный agent timeline: Conversation/Trace modes, сгруппированные live-события и stalled activity state |
-| `0.2.10` | 2026-07-19 | current | Git-aware Review: branch/worktree snapshots, scoped diffs, risk signals и traceable check results |
+| `0.2.10` | 2026-07-19 | shipped | Git-aware Review: branch/worktree snapshots, scoped diffs, risk signals и traceable check results |
+| `0.2.11` | 2026-07-19 | current | Agent Tooling and Tool Registry v1: progressive Uprava MCP, scoped registry, ToolHive-backed Linear integration и traceable execution |
 
 ## Current Baseline
 
-`0.2.10` включает protocol-v2 baseline `0.2.0`, завершённое Zarya 0.1 Web UI/UX
+`0.2.11` включает protocol-v2 baseline `0.2.0`, завершённое Zarya 0.1 Web UI/UX
 alignment и clean-bootstrap four-phase delivery path. Текущая реализация включает
 первый working distributed
-control panel, десять закрытых
+control panel, одиннадцать закрытых
 feature queue slices после `0.1.0`, unified audit hardening slice и workspace
 renderer/PTY terminal layer, а также первый deployable self-hosted release path:
+
+- Core-owned Tool Registry, permission-first progressive discovery
+  `Search -> Inspect -> Execute` и session-scoped Uprava MCP leases;
+- Node-owned observed capability inventory, desired/actual ToolHive
+  reconciliation и bounded Linear MCP execution bridge;
+- Web management для integration lifecycle, availability и redacted tool-call
+  trace; Linear OAuth URL передаётся только эфемерно и не сохраняется в durable
+  state, audit или logs;
+- подтверждённый opt-in Linear E2E для OAuth callback, discovery, read-only call
+  и disconnect/revoke acceptance при сохранении консервативного локального
+  `remote_revocation_confirmed = false` без upstream proof;
 
 - coarse session trace с precision markers и типизированными
   source/evidence/cause/result/raw links;

@@ -346,6 +346,16 @@ pub(crate) async fn node_heartbeat(
             "Observed capability belongs to another Node",
         ));
     }
+    let dependency_statuses = request.dependency_statuses;
+    if dependency_statuses
+        .iter()
+        .any(|status| status.node_id != node_id)
+    {
+        return Err(AppError::bad_request(
+            "node.dependency_status_owner_mismatch",
+            "Dependency status belongs to another Node",
+        ));
+    }
     let diagnostics = request
         .diagnostics
         .filter(|value| !value.trim().is_empty())
@@ -385,8 +395,23 @@ pub(crate) async fn node_heartbeat(
 
     replace_node_capabilities(&state, &node_id, &capabilities, now).await?;
     replace_observed_capabilities(&state, &node_id, &observed_capabilities).await?;
+    let mut refresh_definitions = false;
+    for dependency_status in dependency_statuses {
+        let previous_state: Option<String> = sqlx::query_scalar(
+            "select actual_state from mcp_dependency_instances where dependency_instance_id = ?1",
+        )
+        .bind(dependency_status.dependency_instance_id.as_str())
+        .fetch_optional(&state.pool)
+        .await?;
+        refresh_definitions |= dependency_status.actual_state == McpDependencyActualState::Running
+            && previous_state.as_deref() != Some("running");
+        persist_dependency_status(&state, &dependency_status).await?;
+    }
     upsert_heartbeat_workspaces(&state, &node_id, workspace_summaries).await?;
     let open_control_channel = should_open_control_channel(&state, &node_id).await?;
+    if refresh_definitions {
+        dispatch_dependency_desired_snapshots(&state, &node_id).await?;
+    }
     tracing::debug!(
         active_runtime_count,
         workspace_count,
@@ -686,7 +711,8 @@ pub(crate) async fn handle_node_control_frame(
             ..
         } => {
             require_active_generation(state, context).await?;
-            validate_command_result(state, node_id, &command_id, status, &payload).await?;
+            let durable_payload = durable_command_result_payload(&payload);
+            validate_command_result(state, node_id, &command_id, status, &durable_payload).await?;
             tracing::info!(
                 command_state = ?status,
                 "node command result received"
@@ -695,29 +721,33 @@ pub(crate) async fn handle_node_control_frame(
                 .core_metrics
                 .command_results
                 .fetch_add(1, Ordering::Relaxed);
-            update_command_result(state, &command_id, status, &payload).await?;
-            project_deduction_command_result(state, &command_id, status, &payload).await?;
+            update_command_result(state, &command_id, status, &durable_payload).await?;
+            project_deduction_command_result(state, &command_id, status, &durable_payload).await?;
             let project_terminal_call = !command_waiter_exists(state, &command_id)?;
             project_tooling_command_result(
                 state,
                 &command_id,
                 status,
-                &payload,
+                &durable_payload,
                 project_terminal_call,
             )
             .await?;
-            let notice = CommandResultNotice {
-                command_id,
+            let durable_notice = CommandResultNotice {
+                command_id: command_id.clone(),
                 status,
-                payload,
+                payload: durable_payload,
             };
-            let _ = state.command_result_tx.send(notice.clone());
+            let _ = state.command_result_tx.send(durable_notice.clone());
             let waiter = {
                 let mut waiters = lock_command_waiters(state)?;
-                waiters.remove(notice.command_id.as_str())
+                waiters.remove(durable_notice.command_id.as_str())
             };
             if let Some(waiter) = waiter {
-                let _ = waiter.send(notice);
+                let _ = waiter.send(CommandResultNotice {
+                    command_id,
+                    status,
+                    payload,
+                });
             }
             Ok(())
         }
@@ -834,6 +864,14 @@ pub(crate) async fn handle_node_control_frame(
         }
         _ => Ok(()),
     }
+}
+
+pub(crate) fn durable_command_result_payload(payload: &JsonValue) -> JsonValue {
+    let mut value = payload.0.clone();
+    if let Some(object) = value.as_object_mut() {
+        object.remove("authorization_url");
+    }
+    JsonValue(value)
 }
 
 pub(crate) fn validate_control_frame_limits(frame: &ControlFrame) -> Result<(), AppError> {

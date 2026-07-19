@@ -26,6 +26,8 @@ import type {
   JobDetail,
   JobRunSummary,
   JobSummary,
+  IntegrationConnectRequest,
+  IntegrationConnectResponse,
   IntegrationConnectionsResponse,
   IntegrationDisconnectResponse,
   McpDependencyStatusesResponse,
@@ -76,6 +78,7 @@ import {
   workspaceTerminalListResponseSchema,
   workspaceTerminalOpenResponseSchema,
   integrationConnectionsResponseSchema,
+  integrationConnectResponseSchema,
   integrationDisconnectResponseSchema,
   mcpDependencyStatusesResponseSchema,
   observedCapabilitiesResponseSchema,
@@ -324,6 +327,12 @@ export const coreApi = {
     apiGet<IntegrationConnectionsResponse>(
       "/integrations",
       integrationConnectionsResponseSchema,
+    ),
+  connectIntegration: (request: IntegrationConnectRequest) =>
+    apiPost<IntegrationConnectResponse>(
+      "/integrations",
+      request,
+      integrationConnectResponseSchema,
     ),
   disconnectIntegration: (integrationId: string) =>
     apiPost<IntegrationDisconnectResponse>(

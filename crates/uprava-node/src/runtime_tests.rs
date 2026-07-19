@@ -357,6 +357,8 @@ mod reliability;
 mod state;
 #[path = "runtime/tests/terminal.rs"]
 mod terminal;
+#[path = "runtime/tests/tooling.rs"]
+mod tooling;
 #[path = "runtime/tests/transport.rs"]
 mod transport;
 #[path = "runtime/tests/workspace.rs"]

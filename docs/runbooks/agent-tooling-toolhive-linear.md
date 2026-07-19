@@ -1,15 +1,14 @@
 # Эксплуатация Agent Tooling, ToolHive и Linear
 
-Статус: `local-runtime-ready-external-acceptance-blocked`
+Статус: `active`
 
 Этот runbook описывает локально реализованный baseline `0.2.11`: Uprava MCP,
 Tool Registry, выдачу MCP-доступа Codex-сессиям, Node Tool Runtime и
 человеческую поверхность `/settings/tooling`.
 
-Реальный Linear OAuth consent, `tools/list`, read-only call и remote revoke пока
-не прошли приёмку: действующая browser policy запрещает `linear.app`. Нельзя
-обходить этот gate ручным token, другим браузером или фиктивным состоянием
-`connected`.
+Opt-in Linear OAuth callback, `tools/list`, read-only call и disconnect/revoke
+scenario прошли приёмку `2026-07-19`. Authorization URL, verifier и tokens в
+acceptance evidence не сохранялись.
 
 ## Проверка компонентов
 
@@ -66,9 +65,17 @@ Codex authentication при этом продолжает использоват
 
 ## Подключение и отключение Linear
 
-До завершения внешнего gate кнопки Connect/Reconnect намеренно disabled. Это
-не означает отсутствие backend: desired/actual reconciliation, discovery,
-execution bridge и safe disconnect уже реализованы.
+Connect/Reconnect запускает Core-to-Node authorization command. Node поднимает
+pinned ToolHive workload в foreground, извлекает только валидированный HTTPS
+Linear authorization URL и возвращает его текущему Web-клиенту. URL существует
+только в памяти запроса, открывается пользователем в браузере и не попадает в
+durable command/result, audit metadata, event payload или logs. Heartbeat после
+callback переводит dependency в `running`, после чего Core обновляет discovery
+и effective availability.
+
+Reconnect использует тот же Node, что и существующая connection. Если окно URL
+истекло или callback не завершён, повторите Reconnect: новый запуск получает
+новые OAuth state и PKCE material.
 
 Disconnect доступен для существующей connection и выполняет две операции
 атомарно в Core:
@@ -77,20 +84,22 @@ Disconnect доступен для существующей connection и вып
 2. немедленно закрывает effective availability и отправляет новый desired
    snapshot на Node.
 
-UI отдельно сообщает, что `remote_revocation_confirmed = false`, пока реальный
-Linear OAuth revoke не прошёл acceptance. Не считайте локальный disconnect
-подтверждением удаления remote grant.
+UI отдельно сообщает `remote_revocation_confirmed`. Текущий ToolHive boundary
+не предоставляет машинно проверяемого upstream revoke receipt, поэтому Core
+консервативно возвращает `false`, даже когда внешний acceptance scenario
+подтвердил корректный disconnect/revoke. Не считайте локальное удаление workload
+само по себе доказательством удаления remote grant.
 
 ## Диагностика состояний
 
 | Состояние | Значение | Действие |
 | --- | --- | --- |
 | `toolhive_missing` | Node не нашёл pinned ToolHive binary | Установить `0.40.0` или задать `UPRAVA_TOOLHIVE_BINARY`, затем перезапустить Node |
-| `missing_auth` | Runtime запущен без usable Linear authorization | Завершить разрешённый OAuth flow после открытия acceptance gate |
+| `missing_auth` | Runtime запущен без usable Linear authorization | Нажать Connect/Reconnect и завершить OAuth flow по эфемерной ссылке |
 | `starting` / `installing` | Reconciler ещё не получил terminal actual state | Проверить heartbeat и дождаться следующего dependency report |
 | `degraded` | Runtime отвечает, но health/schema path ненадёжен | Проверить Node logs и безопасный ToolHive status без credential material |
 | `failed` | Reconciliation или bounded MCP call завершились ошибкой | Сопоставить `error_code`, Node command и tool-call trace |
-| `stopped` | Desired state отключён | Включить connection только через разрешённый Connect/Reconnect flow |
+| `stopped` | Desired state отключён | Включить connection через Connect/Reconnect |
 | `node_offline` | Core закрыл availability по heartbeat | Восстановить Node/control channel; не подменять actual state вручную |
 | `policy_blocked` / `permission_denied` | Core policy запретила visibility или Execute | Проверить scope, actor, risk и approval policy |
 | `schema_changed` | Schema hash изменился после Inspect | Повторить Inspect и только затем Execute |
@@ -119,7 +128,6 @@ make l
 make c
 ```
 
-Для будущего release closure дополнительно обязательны clean migration from
-`0.2.10`, dependency license/advisory review, threat-model review и реальный
-opt-in ToolHive + Linear E2E. До успешного E2E нельзя менять implementation
-version на `0.2.11` или добавлять release в shipped ledger.
+Release `0.2.11` закрыт после clean migration from `0.2.10`, offline gates,
+dependency license/advisory review, threat-model review и подтверждённого
+opt-in ToolHive + Linear E2E.

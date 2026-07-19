@@ -9,20 +9,20 @@ use sha2::{Digest, Sha256};
 use sqlx::{Row, Sqlite, Transaction};
 use uprava_protocol::{
     compute_tool_schema_hash, ExecuteToolRequest, ExecuteToolResponse, InspectToolRequest,
-    InspectToolResponse, IntegrationAuthState, IntegrationConnectionSummary,
-    IntegrationConnectionsResponse, IntegrationDesiredState, IntegrationDisconnectRequest,
-    IntegrationDisconnectResponse, IntegrationId, McpAccessLeaseClaims, McpAccessLeaseId,
-    McpDependencyActualState, McpDependencyInstanceId, McpDependencyStatus,
-    McpDependencyStatusesResponse, ObservedCapabilitiesResponse, ObservedCapability,
-    PolicyDecision, SearchToolsRequest, SearchToolsResponse, ToolAvailability,
-    ToolAvailabilityResponse, ToolAvailabilityState, ToolCallDetail, ToolCallId, ToolCallState,
-    ToolCallSummary, ToolCallsResponse, ToolDefinition, ToolDefinitionState,
-    ToolDefinitionsResponse, ToolExecutionError, ToolExecutionErrorCode, ToolExecutionKind, ToolId,
-    ToolInvocationMode, ToolRedactionPolicy, ToolResultEnvelope, ToolRiskLevel, ToolScope,
-    ToolSearchResult, ToolSourceId, ToolSourceKind, ToolUnavailableReason, ToolingCommandPayloadV1,
-    ToolingCommandV1, ToolingEventPayloadV1, ToolingEventV1, TOOLING_CONTRACT_VERSION_V1,
-    TOOL_RESULT_MAX_BYTES, TOOL_SEARCH_DEFAULT_LIMIT, TOOL_SEARCH_MAX_LIMIT,
-    UPRAVA_MCP_LEASE_AUDIENCE,
+    InspectToolResponse, IntegrationAuthState, IntegrationConnectRequest,
+    IntegrationConnectResponse, IntegrationConnectionSummary, IntegrationConnectionsResponse,
+    IntegrationDesiredState, IntegrationDisconnectRequest, IntegrationDisconnectResponse,
+    IntegrationId, McpAccessLeaseClaims, McpAccessLeaseId, McpDependencyActualState,
+    McpDependencyInstanceId, McpDependencyStatus, McpDependencyStatusesResponse,
+    ObservedCapabilitiesResponse, ObservedCapability, PolicyDecision, SearchToolsRequest,
+    SearchToolsResponse, ToolAvailability, ToolAvailabilityResponse, ToolAvailabilityState,
+    ToolCallDetail, ToolCallId, ToolCallState, ToolCallSummary, ToolCallsResponse, ToolDefinition,
+    ToolDefinitionState, ToolDefinitionsResponse, ToolExecutionError, ToolExecutionErrorCode,
+    ToolExecutionKind, ToolId, ToolInvocationMode, ToolRedactionPolicy, ToolResultEnvelope,
+    ToolRiskLevel, ToolScope, ToolSearchResult, ToolSourceId, ToolSourceKind,
+    ToolUnavailableReason, ToolingCommandPayloadV1, ToolingCommandV1, ToolingEventPayloadV1,
+    ToolingEventV1, TOOLING_CONTRACT_VERSION_V1, TOOL_RESULT_MAX_BYTES, TOOL_SEARCH_DEFAULT_LIMIT,
+    TOOL_SEARCH_MAX_LIMIT, UPRAVA_MCP_LEASE_AUDIENCE,
 };
 
 use super::super::*;
@@ -30,11 +30,16 @@ use super::super::*;
 const NATIVE_SOURCE_ID: &str = "uprava-native";
 const MOCK_SOURCE_ID: &str = "mock-external";
 const LINEAR_SOURCE_ID: &str = "linear-remote-mcp";
+const LINEAR_INTEGRATION_ID: &str = "integration-linear";
+const LINEAR_UPSTREAM_URL: &str = "https://mcp.linear.app/mcp";
+const LINEAR_WORKLOAD_NAME: &str = "uprava-linear";
+const LINEAR_TOOL_NAMESPACE: &str = "linear";
 const TOOL_POLICY_VERSION: &str = "uprava-tool-policy-v1";
 const MCP_LEASE_TTL_MINUTES: i64 = 10;
 const TOOL_SUMMARY_MAX_BYTES: usize = 2_048;
 const TOOL_SEARCH_CURSOR_TTL_SECONDS: i64 = 300;
 const EXTERNAL_TOOL_TIMEOUT: Duration = Duration::from_secs(35);
+const INTEGRATION_AUTHORIZATION_URL_TIMEOUT: Duration = Duration::from_secs(50);
 
 type HmacSha256 = Hmac<Sha256>;
 
@@ -643,6 +648,10 @@ struct ExternalToolCommandResult {
     #[serde(default)]
     definitions: Vec<ToolDefinition>,
     event: Option<ToolingEventV1>,
+    #[serde(default)]
+    authorization_url: Option<String>,
+    #[serde(default)]
+    authorization_expires_at: Option<DateTime<Utc>>,
 }
 
 #[derive(Debug)]
@@ -1059,6 +1068,258 @@ pub(crate) async fn integration_connections_route(
         })
         .collect::<Result<Vec<_>, _>>()?;
     Ok(Json(IntegrationConnectionsResponse { items }))
+}
+
+pub(crate) async fn connect_integration_route(
+    State(state): State<Arc<AppState>>,
+    Json(request): Json<IntegrationConnectRequest>,
+) -> Result<Json<IntegrationConnectResponse>, AppError> {
+    if request.integration_id.as_str() != LINEAR_INTEGRATION_ID {
+        return Err(AppError::bad_request(
+            "integration.provider_unsupported",
+            "Only the pinned Linear integration is supported",
+        ));
+    }
+    ensure_node_commandable(&state, &request.node_id).await?;
+    let existing: Option<(String, i64)> = sqlx::query_as(
+        "select connection_json, credential_generation from integration_connections where integration_id = ?1",
+    )
+    .bind(request.integration_id.as_str())
+    .fetch_optional(&state.pool)
+    .await?;
+    if let Some((raw, _)) = existing.as_ref() {
+        let connection: IntegrationConnectionSummary = serde_json::from_str(raw)?;
+        if connection.node_id.as_ref() != Some(&request.node_id) {
+            return Err(AppError::bad_request(
+                "integration.node_change_unsupported",
+                "Reconnect Linear on its existing Node",
+            ));
+        }
+    }
+    let dependency_instance_id = sqlx::query_scalar::<_, String>(
+        "select dependency_instance_id from mcp_dependency_instances where integration_id = ?1 and node_id = ?2",
+    )
+    .bind(request.integration_id.as_str())
+    .bind(request.node_id.as_str())
+    .fetch_optional(&state.pool)
+    .await?
+    .map(McpDependencyInstanceId::from)
+    .unwrap_or_default();
+    let now = Utc::now();
+    let connection = IntegrationConnectionSummary {
+        integration_id: request.integration_id.clone(),
+        source_id: ToolSourceId::from(LINEAR_SOURCE_ID),
+        provider: "linear".to_owned(),
+        display_name: "Linear".to_owned(),
+        desired_state: IntegrationDesiredState::Enabled,
+        auth_state: IntegrationAuthState::Connecting,
+        node_id: Some(request.node_id.clone()),
+        authenticated_actor_label: None,
+        connected_at: None,
+        updated_at: now,
+        error_code: None,
+    };
+    let dependency_status = McpDependencyStatus {
+        dependency_instance_id: dependency_instance_id.clone(),
+        integration_id: request.integration_id.clone(),
+        node_id: request.node_id.clone(),
+        desired_state: IntegrationDesiredState::Enabled,
+        actual_state: McpDependencyActualState::Starting,
+        runtime_name: "toolhive".to_owned(),
+        runtime_version: None,
+        upstream_identity: Some(LINEAR_SOURCE_ID.to_owned()),
+        schema_set_hash: None,
+        error_code: None,
+        observed_at: now,
+    };
+    let credential_generation = existing
+        .as_ref()
+        .map_or(1_i64, |(_, generation)| generation.saturating_add(1));
+    let mut transaction = state.pool.begin().await?;
+    sqlx::query(
+        r#"
+        insert into integration_connections (
+            integration_id, source_id, provider, desired_state, auth_state,
+            node_id, connection_json, credential_generation, created_at, updated_at
+        ) values (?1, ?2, 'linear', 'enabled', 'connecting', ?3, ?4, ?5, ?6, ?6)
+        on conflict(integration_id) do update set
+            desired_state = 'enabled', auth_state = 'connecting', node_id = excluded.node_id,
+            connection_json = excluded.connection_json,
+            credential_generation = excluded.credential_generation, updated_at = excluded.updated_at
+        "#,
+    )
+    .bind(request.integration_id.as_str())
+    .bind(LINEAR_SOURCE_ID)
+    .bind(request.node_id.as_str())
+    .bind(serde_json::to_string(&connection)?)
+    .bind(credential_generation)
+    .bind(now)
+    .execute(&mut *transaction)
+    .await?;
+    sqlx::query(
+        r#"
+        insert into mcp_dependency_instances (
+            dependency_instance_id, integration_id, node_id, desired_state,
+            actual_state, status_json, updated_at
+        ) values (?1, ?2, ?3, 'enabled', 'starting', ?4, ?5)
+        on conflict(dependency_instance_id) do update set
+            integration_id = excluded.integration_id, node_id = excluded.node_id,
+            desired_state = 'enabled', actual_state = 'starting',
+            status_json = excluded.status_json, updated_at = excluded.updated_at
+        "#,
+    )
+    .bind(dependency_instance_id.as_str())
+    .bind(request.integration_id.as_str())
+    .bind(request.node_id.as_str())
+    .bind(serde_json::to_string(&dependency_status)?)
+    .bind(now)
+    .execute(&mut *transaction)
+    .await?;
+    transaction.commit().await?;
+
+    let command_id = CommandId::new();
+    let (result_sender, result_receiver) = oneshot::channel();
+    lock_command_waiters(&state)?.insert(command_id.to_string(), result_sender);
+    let _waiter_guard = CommandWaiterGuard::new(&state, command_id.clone());
+    let command = CommandEnvelope {
+        command_id: command_id.clone(),
+        kind: CommandKind::Tooling,
+        target: CommandTarget::Node {
+            node_id: request.node_id.clone(),
+        },
+        actor_ref: ActorRef::System,
+        source_refs: vec![],
+        cause_refs: vec![],
+        issued_at: now,
+        correlation_id: CorrelationId::new(),
+        payload: CommandPayload::Tooling {
+            command: Box::new(ToolingCommandV1 {
+                contract_version: TOOLING_CONTRACT_VERSION_V1,
+                payload: ToolingCommandPayloadV1::BeginIntegrationAuthorization {
+                    dependency_instance_id,
+                    integration_id: request.integration_id.clone(),
+                    upstream_url: LINEAR_UPSTREAM_URL.to_owned(),
+                    workload_name: LINEAR_WORKLOAD_NAME.to_owned(),
+                    tool_namespace: LINEAR_TOOL_NAMESPACE.to_owned(),
+                },
+            }),
+        },
+    };
+    if let Err(error) = record_and_dispatch_command(&state, command).await {
+        mark_integration_authorization_error(&state, &request.integration_id).await?;
+        return Err(error);
+    }
+    let result = match wait_for_command_result(
+        &state,
+        result_receiver,
+        &command_id,
+        INTEGRATION_AUTHORIZATION_URL_TIMEOUT,
+    )
+    .await
+    {
+        Ok(result) if result.status == CommandState::Completed => result,
+        Ok(_) => {
+            mark_integration_authorization_error(&state, &request.integration_id).await?;
+            return Err(AppError::bad_request(
+                "integration.authorization_failed",
+                "Node could not begin Linear authorization",
+            ));
+        }
+        Err(error) => {
+            mark_integration_authorization_error(&state, &request.integration_id).await?;
+            return Err(error);
+        }
+    };
+    let result: ExternalToolCommandResult = serde_json::from_value(result.payload.0)?;
+    let authorization_url = result.authorization_url.ok_or_else(|| {
+        AppError::bad_request(
+            "integration.authorization_url_missing",
+            "Node did not return a Linear authorization URL",
+        )
+    })?;
+    let expires_at = result.authorization_expires_at.ok_or_else(|| {
+        AppError::bad_request(
+            "integration.authorization_expiry_missing",
+            "Node did not return an authorization expiry",
+        )
+    })?;
+    validate_linear_authorization_url(&authorization_url, expires_at)?;
+    audit_security_event(
+        &state,
+        "integration.authorization_started",
+        Some(&request.node_id),
+        None,
+        "accepted",
+        JsonValue(json!({
+            "integration_id": request.integration_id,
+            "project_id": request.project_id,
+            "expires_at": expires_at,
+        })),
+    )
+    .await?;
+    Ok(Json(IntegrationConnectResponse {
+        connection,
+        authorization_url,
+        expires_at,
+    }))
+}
+
+async fn mark_integration_authorization_error(
+    state: &AppState,
+    integration_id: &IntegrationId,
+) -> Result<(), AppError> {
+    let raw: Option<String> = sqlx::query_scalar(
+        "select connection_json from integration_connections where integration_id = ?1",
+    )
+    .bind(integration_id.as_str())
+    .fetch_optional(&state.pool)
+    .await?;
+    let Some(raw) = raw else {
+        return Ok(());
+    };
+    let mut connection: IntegrationConnectionSummary = serde_json::from_str(&raw)?;
+    connection.auth_state = IntegrationAuthState::Error;
+    connection.error_code = Some("authorization_start_failed".to_owned());
+    connection.updated_at = Utc::now();
+    sqlx::query(
+        "update integration_connections set auth_state = 'error', connection_json = ?1, updated_at = ?2 where integration_id = ?3",
+    )
+    .bind(serde_json::to_string(&connection)?)
+    .bind(connection.updated_at)
+    .bind(integration_id.as_str())
+    .execute(&state.pool)
+    .await?;
+    Ok(())
+}
+
+pub(crate) fn validate_linear_authorization_url(
+    authorization_url: &str,
+    expires_at: DateTime<Utc>,
+) -> Result<(), AppError> {
+    let url = authorization_url.parse::<axum::http::Uri>().map_err(|_| {
+        AppError::bad_request(
+            "integration.authorization_url_invalid",
+            "Node returned an invalid authorization URL",
+        )
+    })?;
+    let host_allowed = url
+        .host()
+        .is_some_and(|host| host == "linear.app" || host.ends_with(".linear.app"));
+    let has_state = url
+        .query()
+        .is_some_and(|query| query.split('&').any(|part| part.starts_with("state=")));
+    if url.scheme_str() != Some("https")
+        || !host_allowed
+        || !has_state
+        || expires_at <= Utc::now()
+        || expires_at > Utc::now() + ChronoDuration::minutes(10)
+    {
+        return Err(AppError::bad_request(
+            "integration.authorization_url_invalid",
+            "Node returned an invalid authorization URL",
+        ));
+    }
+    Ok(())
 }
 
 pub(crate) async fn disconnect_integration_route(

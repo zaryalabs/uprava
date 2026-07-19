@@ -284,7 +284,11 @@ pub(crate) fn cancellation_signal(command: &CommandEnvelope) -> Option<(String, 
 pub(crate) fn command_execution_key(command: &CommandEnvelope) -> String {
     if let CommandPayload::Tooling { command } = &command.payload {
         return match &command.payload {
-            ToolingCommandPayloadV1::UpdateDependencyDesiredState {
+            ToolingCommandPayloadV1::BeginIntegrationAuthorization {
+                dependency_instance_id,
+                ..
+            }
+            | ToolingCommandPayloadV1::UpdateDependencyDesiredState {
                 dependency_instance_id,
                 ..
             }

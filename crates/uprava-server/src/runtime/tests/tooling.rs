@@ -61,6 +61,45 @@ fn tool_call_scope_filter_does_not_leak_other_sessions() {
     assert!(!tool_call_matches_query(&summary, &foreign));
 }
 
+#[test]
+fn core_durable_command_result_removes_ephemeral_authorization_url() {
+    let payload = JsonValue(serde_json::json!({
+        "authorization_url": "https://linear.app/oauth/authorize?state=secret-state",
+        "authorization_expires_at": "2026-07-19T10:05:00Z"
+    }));
+
+    let durable = durable_command_result_payload(&payload);
+
+    assert!(durable.0.get("authorization_url").is_none());
+}
+
+#[test]
+fn linear_authorization_url_validation_rejects_lookalike_host() {
+    let expires_at = Utc::now() + ChronoDuration::minutes(5);
+
+    let result = validate_linear_authorization_url(
+        "https://linear.app.attacker.test/oauth/authorize?state=opaque",
+        expires_at,
+    );
+
+    assert!(result.is_err());
+}
+
+#[test]
+fn linear_authorization_url_validation_accepts_pinned_host() {
+    let expires_at = Utc::now() + ChronoDuration::minutes(5);
+
+    let result = validate_linear_authorization_url(
+        "https://linear.app/oauth/authorize?client_id=uprava&state=opaque",
+        expires_at,
+    );
+
+    assert!(
+        result.is_ok(),
+        "expected pinned Linear URL to pass: {result:?}"
+    );
+}
+
 #[tokio::test]
 async fn external_availability_uses_node_auth_and_dependency_actual_state() {
     let state = test_state().await;

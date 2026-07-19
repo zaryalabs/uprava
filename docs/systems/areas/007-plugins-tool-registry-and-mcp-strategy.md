@@ -53,22 +53,23 @@ Native agent tools remain native.
   summaries, hashes, refs и session tool snapshots;
 - Web-authenticated Core read routes для definitions, availability и calls.
 
-Локальный baseline эпика 2 реализует observed Node inventory, durable typed
+Baseline эпика 2 реализует observed Node inventory, durable typed
 Tooling commands, desired/actual reconciliation после reconnect, pinned
 ToolHive CLI boundary, bounded local MCP bridge, external availability и
-terminal trace recovery. Реальный Linear OAuth, `tools/list`, read-only call и
-remote revocation по-прежнему требуют разрешённого acceptance workspace;
-незавершённый внешний gate не включён в production fallback и не меняет Core
-contract.
+terminal trace recovery. Opt-in Linear OAuth callback, `tools/list`, read-only
+call и disconnect/revoke scenario подтверждены `2026-07-19` без сохранения
+secret-bearing evidence.
 
-Локальный baseline эпика 3 добавляет Web management surface для integration,
+Baseline эпика 3 добавляет Web management surface для integration,
 managed/observed capabilities и redacted tool-call trace. Primary Codex path
 получает Uprava MCP endpoint и краткоживущий lease перед каждым новым turn через
 authenticated Node transport: token не входит в durable command, process args,
 prompt или transcript и передаётся Codex только через environment. Connect и
-Reconnect остаются disabled до внешнего Linear gate, disconnect немедленно
-закрывает effective availability и не выдаёт локальное действие за
-подтверждённый remote revoke. Operational детали находятся в
+Reconnect возвращают валидированный Linear authorization URL только текущему
+Web-запросу, а heartbeat завершает actual-state reconciliation. Disconnect
+немедленно закрывает effective availability; без отдельного upstream proof Core
+консервативно не выдаёт локальное действие за подтверждённый remote revoke.
+Operational детали находятся в
 [`agent-tooling-toolhive-linear.md`](../../runbooks/agent-tooling-toolhive-linear.md).
 
 ## Vision

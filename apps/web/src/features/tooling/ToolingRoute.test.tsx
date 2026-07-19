@@ -36,7 +36,10 @@ describe("integration management", () => {
         node={node()}
         pendingDisconnect={false}
         disconnecting={false}
+        connecting={false}
+        authorization={null}
         error={null}
+        onConnect={vi.fn()}
         onRequestDisconnect={onRequestDisconnect}
         onCancelDisconnect={vi.fn()}
         onDisconnect={onDisconnect}
@@ -47,7 +50,7 @@ describe("integration management", () => {
 
     expect(onRequestDisconnect).toHaveBeenCalledOnce();
     expect(onDisconnect).not.toHaveBeenCalled();
-    expect(screen.getByRole("button", { name: "Reconnect" })).toBeDisabled();
+    expect(screen.getByRole("button", { name: "Reconnect" })).toBeEnabled();
   });
 
   it("shows immediate availability closure in the confirmation state", () => {
@@ -58,7 +61,10 @@ describe("integration management", () => {
         node={node()}
         pendingDisconnect
         disconnecting={false}
+        connecting={false}
+        authorization={null}
         error={null}
+        onConnect={vi.fn()}
         onRequestDisconnect={vi.fn()}
         onCancelDisconnect={vi.fn()}
         onDisconnect={vi.fn()}
@@ -71,6 +77,40 @@ describe("integration management", () => {
     expect(
       screen.getByRole("button", { name: "Confirm disconnect" }),
     ).toBeEnabled();
+  });
+
+  it("starts reconnect and exposes only the one-time authorization action", () => {
+    const onConnect = vi.fn();
+    render(
+      <IntegrationCard
+        connection={connection()}
+        dependency={dependency()}
+        node={node()}
+        pendingDisconnect={false}
+        disconnecting={false}
+        connecting={false}
+        authorization={{
+          integrationId: "integration-linear-1",
+          url: "https://linear.app/oauth/authorize?state=opaque",
+          expiresAt: "2026-07-19T10:05:00Z",
+        }}
+        error={null}
+        onConnect={onConnect}
+        onRequestDisconnect={vi.fn()}
+        onCancelDisconnect={vi.fn()}
+        onDisconnect={vi.fn()}
+      />,
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: "Reconnect" }));
+
+    expect(onConnect).toHaveBeenCalledOnce();
+    expect(
+      screen.getByRole("link", { name: "Continue authorization in Linear" }),
+    ).toHaveAttribute(
+      "href",
+      "https://linear.app/oauth/authorize?state=opaque",
+    );
   });
 });
 

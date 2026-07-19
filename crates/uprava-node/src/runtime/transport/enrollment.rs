@@ -177,6 +177,7 @@ pub(crate) async fn send_heartbeat(
         daemon_version: daemon_version(),
         capabilities: capabilities(config),
         observed_capabilities: observed_capabilities(config, &node_id).await,
+        dependency_statuses: observed_dependency_statuses(config, local_state, &node_id).await,
         diagnostics: Some(node_diagnostics(local_state)),
         active_runtime_count: active_runtime_count(local_state),
         sleep_hint: SleepHint::Awake,

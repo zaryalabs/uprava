@@ -227,7 +227,8 @@ pub(crate) async fn prepare_command_dispatch_with_live_socket(
             };
             let (status, payload) =
                 execute_tooling_command(config, local_state, tooling, cancellation).await;
-            record_command_result_payload(local_state, command, status, &payload);
+            let durable_payload = durable_tooling_result_payload(&payload);
+            record_command_result_payload(local_state, command, status, &durable_payload);
             return CommandDispatchOutcome {
                 status,
                 events_to_send: vec![],

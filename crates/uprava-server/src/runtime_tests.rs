@@ -308,6 +308,7 @@ async fn heartbeat_node(
                 value: CapabilityValue::provider(true),
             }],
             observed_capabilities: vec![],
+            dependency_statuses: vec![],
             diagnostics: None,
             active_runtime_count,
             sleep_hint,

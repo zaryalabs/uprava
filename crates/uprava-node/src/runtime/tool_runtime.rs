@@ -10,6 +10,9 @@ const MAX_TOOL_DEFINITIONS: usize = 256;
 const MAX_TOOLHIVE_PROCESS_OUTPUT_BYTES: usize = 256 * 1024;
 const MAX_TOOL_SCHEMA_BYTES: usize = 128 * 1024;
 const MAX_TOOL_SCHEMA_DEPTH: usize = 32;
+const INTEGRATION_AUTHORIZATION_TIMEOUT: Duration = Duration::from_secs(5 * 60);
+const AUTHORIZATION_URL_CAPTURE_TIMEOUT: Duration = Duration::from_secs(45);
+const MAX_AUTHORIZATION_OUTPUT_BYTES: usize = 256 * 1024;
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub(crate) struct ToolDependencyDesired {
@@ -34,6 +37,23 @@ pub(crate) async fn observed_capabilities(
     items.push(probe_cli(node_id, "gh", &["--version"], Some(&["auth", "status"])).await);
     items.push(probe_cli(node_id, "glab", &["--version"], Some(&["auth", "status"])).await);
     items
+}
+
+pub(crate) async fn observed_dependency_statuses(
+    config: &NodeConfig,
+    local_state: &NodeLocalState,
+    node_id: &NodeId,
+) -> Vec<McpDependencyStatus> {
+    let mut statuses = Vec::with_capacity(local_state.tool_dependencies.len());
+    for desired in local_state.tool_dependencies.values() {
+        statuses.push(observe_dependency_status(config, node_id, desired).await);
+    }
+    statuses.sort_by(|left, right| {
+        left.dependency_instance_id
+            .as_str()
+            .cmp(right.dependency_instance_id.as_str())
+    });
+    statuses
 }
 
 async fn probe_toolhive(config: &NodeConfig, node_id: &NodeId) -> ObservedCapability {
@@ -160,6 +180,63 @@ pub(crate) async fn execute_tooling_command(
         );
     }
     match &command.payload {
+        ToolingCommandPayloadV1::BeginIntegrationAuthorization {
+            dependency_instance_id,
+            integration_id,
+            upstream_url,
+            workload_name,
+            tool_namespace,
+        } => {
+            let desired = match ToolDependencyDesired::try_new(
+                dependency_instance_id.clone(),
+                integration_id.clone(),
+                IntegrationDesiredState::Enabled,
+                Some("toolhive:managed-linear".to_owned()),
+                upstream_url,
+                workload_name,
+                tool_namespace,
+            ) {
+                Ok(desired) => desired,
+                Err(message) => {
+                    return tooling_failure(
+                        None,
+                        ToolExecutionErrorCode::BackendFailed,
+                        message,
+                        false,
+                    )
+                }
+            };
+            let node_id = local_state
+                .node_id
+                .clone()
+                .unwrap_or_else(|| NodeId::from("unregistered-node"));
+            local_state
+                .tool_dependencies
+                .insert(dependency_instance_id.to_string(), desired.clone());
+            match toolhive_begin_authorization(config, &desired).await {
+                Ok((authorization_url, expires_at)) => tooling_success(ToolingCommandResult {
+                    status: Some(dependency_status(
+                        &desired,
+                        &node_id,
+                        McpDependencyActualState::Starting,
+                        None,
+                        None,
+                        None,
+                        Utc::now(),
+                    )),
+                    definitions: vec![],
+                    event: None,
+                    authorization_url: Some(authorization_url),
+                    authorization_expires_at: Some(expires_at),
+                }),
+                Err(_) => tooling_failure(
+                    None,
+                    ToolExecutionErrorCode::BackendFailed,
+                    "ToolHive could not start Linear authorization",
+                    true,
+                ),
+            }
+        }
         ToolingCommandPayloadV1::UpdateDependencyDesiredState {
             dependency_instance_id,
             integration_id,
@@ -200,6 +277,8 @@ pub(crate) async fn execute_tooling_command(
                 status: Some(status),
                 definitions,
                 event: None,
+                authorization_url: None,
+                authorization_expires_at: None,
             })
         }
         ToolingCommandPayloadV1::ExecuteExternalTool {
@@ -280,6 +359,8 @@ pub(crate) async fn execute_tooling_command(
                             completed_at: Utc::now(),
                         },
                     }),
+                    authorization_url: None,
+                    authorization_expires_at: None,
                 }),
                 Err(error) => tooling_failure_event(tool_call_id, error),
             }
@@ -302,6 +383,8 @@ pub(crate) async fn execute_tooling_command(
                     failed_at: Utc::now(),
                 },
             }),
+            authorization_url: None,
+            authorization_expires_at: None,
         }),
     }
 }
@@ -355,6 +438,18 @@ pub(crate) struct ToolingCommandResult {
     #[serde(default)]
     pub(crate) definitions: Vec<ToolDefinition>,
     pub(crate) event: Option<ToolingEventV1>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub(crate) authorization_url: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub(crate) authorization_expires_at: Option<DateTime<Utc>>,
+}
+
+pub(crate) fn durable_tooling_result_payload(payload: &JsonValue) -> JsonValue {
+    let mut value = payload.0.clone();
+    if let Some(object) = value.as_object_mut() {
+        object.remove("authorization_url");
+    }
+    JsonValue(value)
 }
 
 fn tooling_success(result: ToolingCommandResult) -> (CommandState, JsonValue) {
@@ -384,6 +479,8 @@ fn tooling_failure_event(
                 failed_at: Utc::now(),
             },
         }),
+        authorization_url: None,
+        authorization_expires_at: None,
     })
 }
 
@@ -538,6 +635,189 @@ fn dependency_status(
         error_code: error_code.map(str::to_owned),
         observed_at,
     }
+}
+
+async fn observe_dependency_status(
+    config: &NodeConfig,
+    node_id: &NodeId,
+    desired: &ToolDependencyDesired,
+) -> McpDependencyStatus {
+    let now = Utc::now();
+    let version =
+        match bounded_command(&config.toolhive_binary, &["version"], TOOL_PROBE_TIMEOUT).await {
+            Ok(version) => version,
+            Err(_) => {
+                return dependency_status(
+                    desired,
+                    node_id,
+                    McpDependencyActualState::ToolhiveMissing,
+                    None,
+                    None,
+                    Some("toolhive_missing"),
+                    now,
+                )
+            }
+        };
+    if desired.desired_state == IntegrationDesiredState::Disabled {
+        return dependency_status(
+            desired,
+            node_id,
+            McpDependencyActualState::Stopped,
+            Some(version),
+            None,
+            None,
+            now,
+        );
+    }
+    if desired.credential_ref.is_none() {
+        return dependency_status(
+            desired,
+            node_id,
+            McpDependencyActualState::MissingAuth,
+            Some(version),
+            None,
+            Some("missing_auth"),
+            now,
+        );
+    }
+    if let Ok(Ok(definitions)) = timeout(TOOL_PROBE_TIMEOUT, discover_tools(desired)).await {
+        return dependency_status(
+            desired,
+            node_id,
+            McpDependencyActualState::Running,
+            Some(version),
+            Some(schema_set_hash(&definitions)),
+            None,
+            Utc::now(),
+        );
+    }
+    if toolhive_workload_running(config, desired).await {
+        dependency_status(
+            desired,
+            node_id,
+            McpDependencyActualState::Starting,
+            Some(version),
+            None,
+            None,
+            now,
+        )
+    } else {
+        dependency_status(
+            desired,
+            node_id,
+            McpDependencyActualState::MissingAuth,
+            Some(version),
+            None,
+            Some("missing_auth"),
+            now,
+        )
+    }
+}
+
+async fn toolhive_begin_authorization(
+    config: &NodeConfig,
+    desired: &ToolDependencyDesired,
+) -> anyhow::Result<(String, DateTime<Utc>)> {
+    let _ = toolhive_cleanup(config, desired).await;
+    let proxy_port = desired.proxy_port.to_string();
+    let callback_port = desired.proxy_port.saturating_add(1).to_string();
+    let mut command = TokioCommand::new(&config.toolhive_binary);
+    command
+        .args([
+            "run",
+            desired.upstream_url.as_str(),
+            "--name",
+            desired.workload_name.as_str(),
+            "--foreground",
+            "--remote-auth",
+            "--remote-auth-skip-browser",
+            "--remote-auth-timeout",
+            "5m",
+            "--remote-auth-callback-port",
+            callback_port.as_str(),
+            "--proxy-port",
+            proxy_port.as_str(),
+        ])
+        .stdin(Stdio::null())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped());
+    let mut child = command
+        .spawn()
+        .context("failed to launch ToolHive authorization")?;
+    let mut stdout = child
+        .stdout
+        .take()
+        .context("ToolHive authorization stdout was unavailable")?;
+    let stderr = child
+        .stderr
+        .take()
+        .context("ToolHive authorization stderr was unavailable")?;
+    let stdout_task = tokio::spawn(async move {
+        let _ = tokio::io::copy(&mut stdout, &mut tokio::io::sink()).await;
+    });
+    let lines = BufReader::new(stderr).lines();
+    let captured = timeout(
+        AUTHORIZATION_URL_CAPTURE_TIMEOUT,
+        capture_linear_authorization_url(lines),
+    )
+    .await;
+    let (authorization_url, lines) = match captured {
+        Ok(Ok(captured)) => captured,
+        Ok(Err(error)) => {
+            let _ = child.kill().await;
+            let _ = child.wait().await;
+            stdout_task.abort();
+            return Err(error);
+        }
+        Err(_) => {
+            let _ = child.kill().await;
+            let _ = child.wait().await;
+            stdout_task.abort();
+            anyhow::bail!("timed out waiting for ToolHive authorization URL");
+        }
+    };
+    tokio::spawn(async move {
+        let mut stderr = lines.into_inner();
+        let _ = tokio::io::copy(&mut stderr, &mut tokio::io::sink()).await;
+        let _ = stdout_task.await;
+        let _ = child.wait().await;
+    });
+    let authorization_ttl = chrono::Duration::from_std(INTEGRATION_AUTHORIZATION_TIMEOUT)
+        .context("authorization timeout exceeded chrono range")?;
+    Ok((authorization_url, Utc::now() + authorization_ttl))
+}
+
+async fn capture_linear_authorization_url(
+    mut lines: tokio::io::Lines<BufReader<tokio::process::ChildStderr>>,
+) -> anyhow::Result<(
+    String,
+    tokio::io::Lines<BufReader<tokio::process::ChildStderr>>,
+)> {
+    let mut observed_bytes = 0_usize;
+    while let Some(line) = lines.next_line().await? {
+        observed_bytes = observed_bytes.saturating_add(line.len());
+        anyhow::ensure!(
+            observed_bytes <= MAX_AUTHORIZATION_OUTPUT_BYTES,
+            "ToolHive authorization output exceeded its limit"
+        );
+        if let Some(url) = linear_authorization_url_from_line(&line) {
+            return Ok((url, lines));
+        }
+    }
+    anyhow::bail!("ToolHive authorization exited before producing a URL")
+}
+
+pub(crate) fn linear_authorization_url_from_line(line: &str) -> Option<String> {
+    let (_, raw_url) = line.split_once("Please open this URL in your browser: ")?;
+    let url = Url::parse(raw_url.trim()).ok()?;
+    let host = url.host_str()?;
+    if url.scheme() != "https"
+        || (host != "linear.app" && !host.ends_with(".linear.app"))
+        || url.query_pairs().all(|(key, _)| key != "state")
+    {
+        return None;
+    }
+    Some(url.into())
 }
 
 async fn toolhive_start(

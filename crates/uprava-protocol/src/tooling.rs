@@ -536,6 +536,13 @@ pub struct ToolingCommandV1 {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "type", rename_all = "snake_case")]
 pub enum ToolingCommandPayloadV1 {
+    BeginIntegrationAuthorization {
+        dependency_instance_id: McpDependencyInstanceId,
+        integration_id: IntegrationId,
+        upstream_url: String,
+        workload_name: String,
+        tool_namespace: String,
+    },
     ExecuteExternalTool {
         tool_call_id: ToolCallId,
         tool_id: ToolId,

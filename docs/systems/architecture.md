@@ -281,14 +281,15 @@ Core знает, что tool существует, кому и в каком sco
 исполнять и как связать вызов с trace. Node Daemon, ToolHive или external
 provider выполняют действие там, где находятся data, credentials and runtime.
 
-Реализованный локальный management baseline показывает человеку integration
+Реализованный management baseline показывает человеку integration
 desired/auth/actual state, effective availability, managed Inspect detail,
 observed native inventory и redacted recent calls. Primary Codex adapter
 получает session-scoped Uprava MCP lease через authenticated Node transport
 непосредственно перед turn и передаёт credential процессу только через
 environment. Durable command, provider arguments, prompt and transcript не
-содержат lease. Незавершённый Linear OAuth gate остаётся явным unavailable
-state и не подменяется фиктивным Connect.
+содержат lease. Linear Connect/Reconnect возвращает authorization URL только
+эфемерному Web-запросу; heartbeat подтверждает actual runtime state, не
+подменяя его optimistic UI состоянием.
 
 ### Uprava MCP
 

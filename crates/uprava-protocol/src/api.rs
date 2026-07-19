@@ -414,6 +414,8 @@ pub struct NodeHeartbeatRequest {
     #[serde(default)]
     pub observed_capabilities: Vec<ObservedCapability>,
     #[serde(default)]
+    pub dependency_statuses: Vec<McpDependencyStatus>,
+    #[serde(default)]
     pub diagnostics: Option<String>,
     pub active_runtime_count: i64,
     pub sleep_hint: SleepHint,

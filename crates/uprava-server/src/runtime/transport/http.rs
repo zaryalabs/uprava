@@ -129,7 +129,10 @@ pub fn build_router(state: Arc<AppState>) -> Router {
             "/nodes/{node_id}/observed-capabilities",
             get(observed_capabilities_route),
         )
-        .route("/integrations", get(integration_connections_route))
+        .route(
+            "/integrations",
+            get(integration_connections_route).post(connect_integration_route),
+        )
         .route(
             "/integrations/{integration_id}/disconnect",
             post(disconnect_integration_route),
