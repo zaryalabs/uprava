@@ -51,7 +51,7 @@ function TreeNode({ node }: { node: SessionEvidenceProjectionNode }) {
         <ReferenceActions reference={node.primary_ref} showInspect={false} />
       </div>
       {node.children.length > 0 ? (
-        <div className="ml-3 border-l border-black/10 pl-2">
+        <div className="ml-3 border-l border-[var(--color-border)] pl-2">
           {node.children.slice(0, 8).map((child) => (
             <TreeNode key={child.evidence_id} node={child} />
           ))}

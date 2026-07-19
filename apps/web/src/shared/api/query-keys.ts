@@ -46,4 +46,6 @@ export const queryKeys = {
   mcpDependencies: ["tooling", "dependencies"] as const,
   toolCalls: (scopeKey: string) => ["tooling", "calls", scopeKey] as const,
   toolCall: (toolCallId: string) => ["tooling", "calls", toolCallId] as const,
+  plugins: ["plugins"] as const,
+  pluginContributions: ["plugins", "contributions"] as const,
 };

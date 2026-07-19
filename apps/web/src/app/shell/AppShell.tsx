@@ -1,4 +1,4 @@
-import { LayoutDashboard, Menu, Settings, Wrench } from "lucide-react";
+import { LayoutDashboard, Menu, Palette, Settings, Wrench } from "lucide-react";
 import { useState } from "react";
 import { Link, NavLink, Outlet, useSearchParams } from "react-router-dom";
 
@@ -72,7 +72,15 @@ export function AppShell() {
             API {apiState}
           </span>
         </div>
-        <div className="flex h-full items-center justify-end border-l border-black/10 px-3">
+        <div className="flex h-full items-center justify-end border-l border-[var(--color-border)] px-3">
+          <Link
+            to="/settings/plugins"
+            className="inline-flex h-8 items-center gap-2 border border-transparent px-2 text-xs hover:border-[var(--color-muted)] hover:bg-[var(--color-bg-muted)]"
+            aria-label="Plugins and Appearance"
+          >
+            <Palette size={15} aria-hidden="true" />
+            <span className="max-sm:sr-only">Appearance</span>
+          </Link>
           <Link
             to="/settings/tooling"
             className="inline-flex h-8 items-center gap-2 border border-transparent px-2 text-xs hover:border-[var(--color-muted)] hover:bg-[var(--color-bg-muted)]"
@@ -101,7 +109,7 @@ export function AppShell() {
         >
           <nav
             aria-label="Primary Navigation"
-            className="mb-5 grid gap-1 border-b border-black/10 pb-4"
+            className="mb-5 grid gap-1 border-b border-[var(--color-border)] pb-4"
           >
             <NavLink
               to="/dashboard"

@@ -231,7 +231,7 @@ export function ToolingRoute() {
               }
             />
           ) : (
-            <div className="divide-y divide-black/10">
+            <div className="divide-y divide-[var(--color-border)]">
               {integrations.data.items.map((connection) => (
                 <IntegrationCard
                   key={connection.integration_id}
@@ -302,7 +302,7 @@ export function ToolingRoute() {
               detail="Observed git, gh and glab capabilities appear after a Node heartbeat."
             />
           ) : (
-            <div className="divide-y divide-black/10">
+            <div className="divide-y divide-[var(--color-border)]">
               {inventory.data.nodes.map((node, index) => {
                 const query = observedQueries[index];
                 return (
@@ -338,7 +338,7 @@ export function ToolingRoute() {
                         {query.data.items.map((capability) => (
                           <li
                             key={capability.capability_key}
-                            className="border border-black/10 p-3 text-xs"
+                            className="border border-[var(--color-border)] p-3 text-xs"
                           >
                             <div className="flex items-center justify-between gap-2">
                               <span className="font-bold">
@@ -389,7 +389,7 @@ export function ToolingRoute() {
             <LoadingState stage="Loading Tool Registry" />
           ) : (
             <div className="grid gap-5 lg:grid-cols-[minmax(14rem,0.7fr)_minmax(0,1.3fr)]">
-              <ul className="divide-y divide-black/10 border-y border-black/10">
+              <ul className="divide-y divide-[var(--color-border)] border-y border-[var(--color-border)]">
                 {definitions.data.items.map((definition) => {
                   const effective = availability.data?.items.find(
                     (item) => item.tool_id === definition.tool_id,
@@ -457,7 +457,7 @@ export function ToolingRoute() {
               detail="Search, Inspect and Execute activity will appear after an agent uses Uprava MCP."
             />
           ) : (
-            <ol className="divide-y divide-black/10 border-y border-black/10">
+            <ol className="divide-y divide-[var(--color-border)] border-y border-[var(--color-border)]">
               {calls.data.items.map((call) => (
                 <li key={call.tool_call_id}>
                   <button
@@ -484,7 +484,7 @@ export function ToolingRoute() {
             </ol>
           )}
           {selectedCallId ? (
-            <div className="mt-5 border-t border-black/10 pt-5">
+            <div className="mt-5 border-t border-[var(--color-border)] pt-5">
               {selectedCall.isError ? (
                 <ErrorNotice
                   error={selectedCall.error}
@@ -519,7 +519,7 @@ function ScopeSelector({
   onSession: (value: string) => void;
 }) {
   return (
-    <fieldset className="grid gap-4 border border-black/10 p-4 md:grid-cols-2">
+    <fieldset className="grid gap-4 border border-[var(--color-border)] p-4 md:grid-cols-2">
       <legend className="px-2 text-xs font-bold uppercase tracking-normal">
         Effective scope
       </legend>
@@ -583,7 +583,7 @@ function SectionHeading({
 }) {
   return (
     <header className="mb-5 flex items-start gap-3">
-      <span className="mt-0.5 grid h-7 w-7 shrink-0 place-items-center border border-black/20">
+      <span className="mt-0.5 grid h-7 w-7 shrink-0 place-items-center border border-[var(--color-border-strong)]">
         {icon}
       </span>
       <div>
@@ -860,7 +860,7 @@ function ToolInspectDetail({
           value={availabilityReasonLabel(availability?.reason ?? null)}
         />
       </dl>
-      <details className="mt-5 border border-black/10 p-3 text-xs">
+      <details className="mt-5 border border-[var(--color-border)] p-3 text-xs">
         <summary className="cursor-pointer font-bold">Input schema</summary>
         <pre className="mt-3 max-h-72 overflow-auto whitespace-pre-wrap break-all font-mono text-[var(--color-muted)]">
           {JSON.stringify(definition.input_schema, null, 2)}
@@ -930,7 +930,7 @@ function ToolCallDetailPanel({ detail }: { detail: ToolCallDetail }) {
               (reference, index) => (
                 <li
                   key={`${reference.kind}-${index}`}
-                  className="flex items-center justify-between gap-2 border border-black/10 px-2 py-1 text-xs"
+                  className="flex items-center justify-between gap-2 border border-[var(--color-border)] px-2 py-1 text-xs"
                 >
                   <span className="truncate font-mono">{reference.kind}</span>
                   <ReferenceActions reference={reference} />
@@ -955,7 +955,7 @@ function RedactedSummary({
   return (
     <div className="mt-4">
       <div className="zarya-label">{label}</div>
-      <pre className="mt-2 max-h-40 overflow-auto whitespace-pre-wrap break-all border border-black/10 p-3 font-mono text-xs text-[var(--color-muted)]">
+      <pre className="mt-2 max-h-40 overflow-auto whitespace-pre-wrap break-all border border-[var(--color-border)] p-3 font-mono text-xs text-[var(--color-muted)]">
         {value}
       </pre>
     </div>

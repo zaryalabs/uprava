@@ -25,7 +25,7 @@ export function ChatComposer({ pending, disabled = false, onSend }: Props) {
 
   return (
     <form
-      className="border-t border-black/10 pt-4"
+      className="border-t border-[var(--color-border)] pt-4"
       onSubmit={(event) => {
         event.preventDefault();
         const trimmed = content.trim();

@@ -857,6 +857,64 @@ pub(crate) const MIGRATION_12: &[&str] = &[
     "#,
 ];
 
+pub(crate) const MIGRATION_13: &[&str] = &[
+    r#"
+    create table if not exists plugin_packages (
+        plugin_id text not null,
+        version text not null,
+        manifest_hash text not null,
+        manifest_version integer not null,
+        display_name text not null,
+        description text not null,
+        publisher text not null,
+        install_source text not null,
+        trust_level text not null,
+        manifest_json text not null,
+        discovered_at text not null,
+        primary key (plugin_id, version),
+        unique (plugin_id, version, manifest_hash)
+    )
+    "#,
+    r#"
+    create table if not exists plugin_installations (
+        plugin_id text primary key,
+        active_version text not null,
+        desired_state text not null,
+        effective_state text not null,
+        compatibility_json text not null,
+        configuration_revision integer not null default 0,
+        installed_at text not null,
+        updated_at text not null,
+        last_error_code text,
+        foreign key (plugin_id, active_version)
+            references plugin_packages(plugin_id, version) on delete restrict
+    )
+    "#,
+    r#"
+    create table if not exists plugin_configurations (
+        plugin_id text primary key references plugin_installations(plugin_id) on delete cascade,
+        revision integer not null,
+        values_json text not null,
+        values_hash text not null,
+        updated_at text not null
+    )
+    "#,
+    r#"
+    create table if not exists plugin_permission_grants (
+        plugin_id text not null references plugin_installations(plugin_id) on delete cascade,
+        permission_id text not null,
+        decision text not null,
+        granted_at text not null,
+        updated_at text not null,
+        primary key (plugin_id, permission_id)
+    )
+    "#,
+    r#"
+    create index if not exists plugin_installations_effective_idx
+    on plugin_installations(effective_state, plugin_id)
+    "#,
+];
+
 pub(crate) const MIGRATIONS: &[Migration] = &[
     Migration {
         version: 1,
@@ -916,6 +974,11 @@ pub(crate) const MIGRATIONS: &[Migration] = &[
     Migration {
         version: 12,
         statements: MIGRATION_12,
+        ignore_duplicate_columns: false,
+    },
+    Migration {
+        version: 13,
+        statements: MIGRATION_13,
         ignore_duplicate_columns: false,
     },
 ];

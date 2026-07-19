@@ -80,7 +80,7 @@ export function ScheduledMessagesPanel({
 
   return (
     <section
-      className="border-t border-black/10 pt-4"
+      className="border-t border-[var(--color-border)] pt-4"
       aria-label="Delayed messages"
     >
       <div className="mb-2 flex items-center gap-2 text-sm font-bold">
@@ -178,7 +178,7 @@ function ScheduledMessageRow({
   };
 
   return (
-    <li className="border border-black/10 bg-[var(--color-bg-muted)] p-3 text-sm">
+    <li className="border border-[var(--color-border)] bg-[var(--color-bg-muted)] p-3 text-sm">
       <div className="flex flex-wrap items-center justify-between gap-2">
         <span className="font-medium">{message.state}</span>
         <time

@@ -57,7 +57,7 @@ export function StartSessionControl({
 
   return (
     <section
-      className="border-b border-black/10 pb-4"
+      className="border-b border-[var(--color-border)] pb-4"
       aria-labelledby="start-session-title"
     >
       <div className="zarya-label">NEW RUNTIME</div>
@@ -78,7 +78,7 @@ export function StartSessionControl({
               disabled={!option.available || mutation.isPending}
               className={
                 provider === option.id
-                  ? "bg-[var(--color-ink)] px-2 py-2 text-xs font-medium text-white disabled:bg-[var(--color-muted)]"
+                  ? "bg-[var(--color-ink)] px-2 py-2 text-xs font-medium text-[var(--color-inverse)] disabled:bg-[var(--color-muted)]"
                   : "px-2 py-2 text-xs font-medium hover:bg-[var(--color-bg-muted)] disabled:text-[var(--color-muted)]"
               }
               onClick={() => setProvider(option.id)}

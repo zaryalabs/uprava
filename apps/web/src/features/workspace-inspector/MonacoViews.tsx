@@ -1,6 +1,7 @@
 import * as monaco from "monaco-editor/esm/vs/editor/editor.api.js";
 import { useEffect, useRef } from "react";
 
+import { useThemeHost } from "../../plugins/ExtensionHost";
 import { ensureMonacoEnvironment } from "../../shared/monaco/setup";
 
 export function MonacoFileEditor({
@@ -16,6 +17,7 @@ export function MonacoFileEditor({
   readOnly: boolean;
   onChange: (content: string) => void;
 }) {
+  useMonacoTheme();
   const containerRef = useRef<HTMLDivElement | null>(null);
   const editorRef = useRef<monaco.editor.IStandaloneCodeEditor | null>(null);
   const modelRef = useRef<monaco.editor.ITextModel | null>(null);
@@ -87,6 +89,7 @@ export function MonacoFileEditor({
 }
 
 export function MonacoDiffTextViewer({ value }: { value: string }) {
+  useMonacoTheme();
   const containerRef = useRef<HTMLDivElement | null>(null);
   const modelRef = useRef<monaco.editor.ITextModel | null>(null);
   const modelIdRef = useRef(crypto.randomUUID());
@@ -128,7 +131,7 @@ export function MonacoDiffTextViewer({ value }: { value: string }) {
   return (
     <div
       ref={containerRef}
-      className="min-h-48 flex-1 overflow-hidden border border-[#1f2a22]"
+      className="min-h-48 flex-1 overflow-hidden border border-[var(--color-border-strong)]"
       role="region"
       aria-label="Workspace diff viewer"
     />
@@ -146,6 +149,7 @@ export function MonacoWorkspaceDiffViewer({
   original: string;
   modified: string;
 }) {
+  useMonacoTheme();
   const containerRef = useRef<HTMLDivElement | null>(null);
 
   useEffect(() => {
@@ -192,11 +196,25 @@ export function MonacoWorkspaceDiffViewer({
   return (
     <div
       ref={containerRef}
-      className="min-h-64 flex-1 overflow-hidden border border-[#1f2a22]"
+      className="min-h-64 flex-1 overflow-hidden border border-[var(--color-border-strong)]"
       role="region"
       aria-label={`Workspace diff ${path}`}
     />
   );
+}
+
+function useMonacoTheme() {
+  const { effectiveTheme } = useThemeHost();
+  useEffect(() => {
+    const themeName = `uprava-${effectiveTheme.theme_id.replaceAll(".", "-")}`;
+    monaco.editor.defineTheme(themeName, {
+      base: effectiveTheme.monaco.base as monaco.editor.BuiltinTheme,
+      inherit: true,
+      rules: [],
+      colors: effectiveTheme.monaco.colors,
+    });
+    monaco.editor.setTheme(themeName);
+  }, [effectiveTheme]);
 }
 
 function languageForPath(path: string) {

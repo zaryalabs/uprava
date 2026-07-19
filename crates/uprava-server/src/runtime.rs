@@ -220,6 +220,7 @@ impl AppState {
             mcp_lease_signing_key,
         });
         state.migrate().await?;
+        bootstrap_bundled_plugins(&state).await?;
         revoke_all_mcp_leases_for_credential_rotation(&state).await?;
         seed_uprava_native_tools(&state).await?;
         seed_external_tool_sources(&state).await?;

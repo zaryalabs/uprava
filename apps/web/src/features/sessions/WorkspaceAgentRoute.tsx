@@ -40,7 +40,7 @@ export function WorkspaceAgentRoute() {
 
   return (
     <WorkspaceAgentSurface selectedSessionThreadId={null}>
-      <div className="grid min-h-72 place-items-center border border-dashed border-black/20 p-8 text-center">
+      <div className="grid min-h-72 place-items-center border border-dashed border-[var(--color-border-strong)] p-8 text-center">
         <EmptyState
           title="Start a session"
           detail="This workspace has no managed sessions yet. Use Start Codex in the session list to begin an Agent runtime."
@@ -199,7 +199,7 @@ function SessionListLink({
       className={`block border p-3 ${
         selected
           ? "border-[var(--color-ink)] bg-[var(--color-bg)]"
-          : "border-transparent hover:border-black/20 hover:bg-[var(--color-bg)]"
+          : "border-transparent hover:border-[var(--color-border-strong)] hover:bg-[var(--color-bg)]"
       }`}
     >
       <span className="block truncate text-sm font-medium">

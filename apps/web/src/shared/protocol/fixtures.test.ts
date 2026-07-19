@@ -5,6 +5,7 @@ import {
   commandAcceptedResponseSchema,
   eventEnvelopeSchema,
   toolingContractFixtureSchema,
+  pluginContractFixtureSchema,
   workspaceCommandHistoryResponseSchema,
   workspaceCommandRunResponseSchema,
   workspaceTerminalListResponseSchema,
@@ -24,6 +25,7 @@ describe("Rust-generated protocol fixtures", () => {
     ["workspace_terminal_stream", workspaceTerminalStreamFrameSchema],
     ["event_envelope", eventEnvelopeSchema],
     ["tooling_contract", toolingContractFixtureSchema],
+    ["plugin_contract", pluginContractFixtureSchema],
   ] as const)("validates %s", (name, schema) => {
     expect(schema.safeParse(fixtures[name]).success).toBe(true);
   });

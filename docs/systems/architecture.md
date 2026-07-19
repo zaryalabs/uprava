@@ -370,11 +370,30 @@ Uprava не должен реализовывать все внешние сис
 
 Plugin Registry должен жить в Core рядом с Tool Registry.
 
+Tool Registry и Plugin Registry являются разными authority boundaries:
+
+```text
+Tool Registry
+  реестр callable capabilities, schemas, routing, availability and trace
+
+Plugin Registry
+  реестр package-level extensions самой Uprava and their contributions
+```
+
+Plugin может не предоставлять ни одного tool. Theme, renderer, Workbench view,
+Inspector aspect or link handler остается полноценным plugin. И наоборот,
+external MCP integration может дать tools без права менять UI shell.
+
 Plugin Registry отвечает за:
 
 - installed plugins;
 - plugin versions;
 - plugin configuration;
+- package provenance, trust and compatibility;
+- enable/disable and activation lifecycle;
+- manifest-driven UI contributions;
+- themes, commands, views, actions, renderers, Inspector aspects and link
+  handlers;
 - exposed tools;
 - visual blocks;
 - artifact types;
@@ -383,7 +402,24 @@ Plugin Registry отвечает за:
 - integration accounts/connections;
 - compatibility with Core and Node Daemon versions.
 
-Tool Registry отвечает за конкретные callable capabilities. Plugin Registry отвечает за package-level extension: откуда tool пришел, какие UI/artifact/workflow extensions он добавил, как он конфигурируется and обновляется.
+Tool Registry отвечает за конкретные callable capabilities. Plugin Registry
+отвечает за package-level extension: какие extension points пакет расширяет,
+откуда contribution пришел, как он активируется, конфигурируется, отключается
+and обновляется. Связь plugin с tool является явной ссылкой между registries, а
+не объединением их моделей.
+
+Core хранит packages, installations, permissions and effective contribution
+projection. Web Extension Host монтирует только разрешенные contributions в
+известные typed surfaces. Node Plugin Runtime появляется только для plugins,
+которым действительно нужен local execution рядом с workspace or credentials.
+
+Первый slice использует bundled data-only Dark Theme. Arbitrary plugin
+JavaScript, global CSS injection and direct DOM mutation не допускаются;
+последующие executable plugins требуют trusted bundled boundary или отдельный
+sandbox.
+
+Полный contribution, activation, trust and theme contract определен в
+[`A-004 Modular UI and Work Surface`](areas/004-modular-ui-work-surface.md#plugin-registry-и-extension-host).
 
 ### Integration adapters
 
@@ -619,7 +655,8 @@ role-based access
 - Где хранить большие artifacts: в Core storage, на Node или во внешнем object storage?
 - Какие secrets можно хранить в Core, а какие должны оставаться только на Node?
 - Как описывать tool capabilities: через MCP schema, собственный contract или adapter model?
-- Где граница между plugin, integration, tool and visual block?
+- Какими package signing, catalog and sandbox mechanisms расширить bundled
+  Plugin Registry до local/team/community plugins?
 - Какие интеграции стоит делать через MCP, а какие требуют native adapter?
 - Как versioning tools/plugins влияет на воспроизводимость trace?
 - Должен ли Core уметь выполнять lightweight tools сам, или любой execution должен идти через Node/Provider?
@@ -638,6 +675,8 @@ role-based access
 - `AI Agents` являются workloads, а не инфраструктурными демонами.
 - `Tool Registry` живет в Core.
 - `Plugin Registry` живет в Core рядом с Tool Registry.
+- `Web Extension Host` применяет permission-filtered contributions к известным
+  typed surfaces и всегда сохраняет safe fallback.
 - Uprava MCP является основным machine interface агента к Core capabilities и
   внешним integrations.
 - Agent-facing tool access обязательно использует progressive discovery

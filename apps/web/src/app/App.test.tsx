@@ -11,6 +11,7 @@ import { MemoryRouter } from "react-router-dom";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { App } from "./App";
+import protocolFixtures from "../shared/protocol/fixtures.json";
 import { encodeUpravaRef } from "../workbench/references/refs";
 
 vi.mock("../features/workspace-inspector/MonacoViews", () => ({
@@ -177,6 +178,25 @@ describe("App routes", () => {
     expect(await screen.findByText("uprava-core 0.1.8")).toBeVisible();
     expect(screen.getByText("v2")).toBeVisible();
     expect(screen.getByText("1")).toBeVisible();
+
+    renderApp("/settings/plugins");
+
+    expect(
+      await screen.findByRole("heading", { name: "Plugins & Appearance" }),
+    ).toBeVisible();
+    expect(await screen.findByText("Dark Theme")).toBeVisible();
+    expect(screen.getByRole("radio", { name: /Light/ })).toBeChecked();
+    fireEvent.click(screen.getByRole("radio", { name: /Dark/ }));
+    await waitFor(() =>
+      expect(document.documentElement.dataset.theme).toBe("uprava.dark"),
+    );
+    fireEvent.click(screen.getByRole("button", { name: "Disable" }));
+    await waitFor(() =>
+      expect(document.documentElement.dataset.theme).toBe("core.light"),
+    );
+    expect(
+      screen.queryByRole("radio", { name: /Dark/ }),
+    ).not.toBeInTheDocument();
   }, 45_000);
 
   it("opens canonical Jobs routes and resolves legacy deep links", async () => {
@@ -432,6 +452,7 @@ function renderApp(path: string, options: { jobsFail?: boolean } = {}) {
   jobsRequests = 0;
   jobsShouldFail = options.jobsFail ?? false;
   workspaceReviewRequests = 0;
+  pluginEnabled = true;
   vi.stubGlobal("fetch", vi.fn(mockFetch));
   vi.stubGlobal("EventSource", MockEventSource);
   MockEventSource.reset();
@@ -491,6 +512,7 @@ let lastCreateJobRequest: unknown = null;
 let jobsRequests = 0;
 let jobsShouldFail = false;
 let workspaceReviewRequests = 0;
+let pluginEnabled = true;
 
 async function mockFetch(input: RequestInfo | URL, init?: RequestInit) {
   const url = new URL(input.toString());
@@ -514,6 +536,13 @@ async function mockFetch(input: RequestInfo | URL, init?: RequestInit) {
   if (url.pathname === "/api/v1/jobs" && init?.method === "POST") {
     lastCreateJobRequest = JSON.parse(String(init.body));
     return jsonResponse(createdJobDetail);
+  }
+  if (
+    url.pathname === "/api/v1/plugins/uprava.theme-dark/disable" &&
+    init?.method === "POST"
+  ) {
+    pluginEnabled = false;
+    return jsonResponse(pluginInstallation());
   }
   if (url.pathname === "/api/v1/jobs") {
     jobsRequests += 1;
@@ -566,6 +595,12 @@ function responseForPath(pathname: string) {
       return createdSession
         ? { ...inventory, sessions: [...inventory.sessions, createdSession] }
         : inventory;
+    case "/api/v1/plugins":
+      return { items: [pluginInstallation()] };
+    case "/api/v1/plugin-contributions":
+      return pluginEnabled
+        ? protocolFixtures.plugin_contract.effective_snapshot
+        : { contributions: [], generated_at: "2026-07-19T12:00:00Z" };
     case "/api/v1/node-enrollments":
       return [];
     case "/api/v1/placements/placement-1":
@@ -623,6 +658,17 @@ function responseForPath(pathname: string) {
     default:
       throw new Error(`Unhandled mocked Core path: ${pathname}`);
   }
+}
+
+function pluginInstallation() {
+  const plugin = protocolFixtures.plugin_contract.plugins.items[0];
+  return pluginEnabled
+    ? plugin
+    : {
+        ...plugin,
+        desired_state: "disabled",
+        effective_state: "disabled",
+      };
 }
 
 function jsonResponse(payload: unknown) {

@@ -4,10 +4,20 @@
   --color-bg: #ffffff;
   --color-ink: #0b0b0b;
   --color-muted: #5f5f58;
-  --color-line: #ffffff;
+  --color-inverse: #ffffff;
+  --color-border: #e5e5df;
+  --color-border-strong: #c7c7bf;
+  --color-focus: #0b0b0b;
+  --color-selection: #d9e4dc;
+  --color-editor-bg: #ffffff;
+  --color-editor-ink: #0b0b0b;
+  --color-terminal-bg: #111812;
+  --color-terminal-ink: #dce8dd;
+  --color-line: var(--color-border);
   --color-risk: #c7282f;
   --color-notice: #6b4bb2;
   --color-bg-muted: color-mix(in srgb, var(--color-ink) 5%, var(--color-bg));
+  --color-bg-raised: var(--color-bg);
   --color-risk-soft: color-mix(in srgb, var(--color-risk) 8%, var(--color-bg));
   --color-notice-soft: color-mix(
     in srgb,
@@ -32,14 +42,13 @@
   --uprava-sidebar-width: 248px;
   --uprava-inspector-width: 320px;
   --uprava-topbar-height: 48px;
-  --line-hair: 1px solid
-    color-mix(in srgb, var(--color-ink) 12%, var(--color-bg));
+  --line-hair: 1px solid var(--color-border);
   --line-panel: 1px solid var(--color-line);
-  --line-strong: 1px solid var(--color-ink);
-  --line-control: 1px solid var(--color-muted);
+  --line-strong: 1px solid var(--color-border-strong);
+  --line-control: 1px solid var(--color-border-strong);
   --line-selected: 1px solid var(--color-ink);
   --line-callout: 1px solid var(--color-muted);
-  --line-focus: 2px solid var(--color-ink);
+  --line-focus: 2px solid var(--color-focus);
   color: var(--color-ink);
   background: var(--color-bg);
   font-family: var(--font-sans);
@@ -50,6 +59,25 @@
     var(--color-ink) 12%,
     transparent
   );
+}
+
+:root[data-theme="uprava.dark"] {
+  --color-bg: #111310;
+  --color-bg-muted: #191c18;
+  --color-bg-raised: #20241f;
+  --color-ink: #f1f2ec;
+  --color-muted: #a9ada3;
+  --color-inverse: #111310;
+  --color-border: #3a4038;
+  --color-border-strong: #d7dbd1;
+  --color-focus: #f1f2ec;
+  --color-selection: #355343;
+  --color-editor-bg: #151814;
+  --color-editor-ink: #e5e9df;
+  --color-terminal-bg: #10130f;
+  --color-terminal-ink: #dce8dd;
+  --color-risk: #ff777d;
+  --color-notice: #b7a0ff;
 }
 
 * {

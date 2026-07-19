@@ -1,10 +1,11 @@
 import { FitAddon } from "@xterm/addon-fit";
 import { WebLinksAddon } from "@xterm/addon-web-links";
-import { Terminal } from "@xterm/xterm";
+import { Terminal, type ITheme } from "@xterm/xterm";
 import "@xterm/xterm/css/xterm.css";
 import { XCircle } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 
+import { useThemeHost } from "../../plugins/ExtensionHost";
 import { coreApi } from "../../shared/api/http-client";
 import type {
   WorkspaceTerminalState,
@@ -25,9 +26,13 @@ export function XtermTerminalPanel({
 }) {
   const containerRef = useRef<HTMLDivElement | null>(null);
   const socketRef = useRef<WebSocket | null>(null);
+  const terminalRef = useRef<Terminal | null>(null);
+  const themeColorsRef = useRef<Record<string, string>>({});
   const onStatusChangeRef = useRef(onStatusChange);
   const [state, setState] = useState(terminal.state);
   const [exitCode, setExitCode] = useState<number | null>(terminal.exit_code);
+  const { effectiveTheme } = useThemeHost();
+  themeColorsRef.current = effectiveTheme.terminal.colors;
   onStatusChangeRef.current = onStatusChange;
 
   useEffect(() => {
@@ -46,17 +51,13 @@ export function XtermTerminalPanel({
         "ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace",
       fontSize: 12,
       lineHeight: 1.25,
-      theme: {
-        background: "#111812",
-        foreground: "#dce8dd",
-        cursor: "#f4f7f2",
-        selectionBackground: "#355343",
-      },
+      theme: xtermTheme(themeColorsRef.current),
     });
     const fitAddon = new FitAddon();
     term.loadAddon(fitAddon);
     term.loadAddon(new WebLinksAddon());
     term.open(container);
+    terminalRef.current = term;
     fitAddon.fit();
     term.focus();
 
@@ -104,9 +105,18 @@ export function XtermTerminalPanel({
       dataDisposable.dispose();
       socket.close();
       term.dispose();
+      terminalRef.current = null;
       socketRef.current = null;
     };
   }, [placementId, terminal.terminal_id]);
+
+  useEffect(() => {
+    if (terminalRef.current) {
+      terminalRef.current.options.theme = xtermTheme(
+        effectiveTheme.terminal.colors,
+      );
+    }
+  }, [effectiveTheme.terminal.colors]);
 
   const closeTerminal = () => {
     if (socketRef.current?.readyState === WebSocket.OPEN) {
@@ -115,10 +125,10 @@ export function XtermTerminalPanel({
   };
 
   return (
-    <div className="flex h-full min-h-0 flex-col overflow-hidden border border-[#111812] bg-[var(--color-ink)]">
-      <div className="flex flex-wrap items-center justify-between gap-2 border-b border-[#263128] bg-[#18221b] px-3 py-2">
+    <div className="flex h-full min-h-0 flex-col overflow-hidden border border-[var(--color-border-strong)] bg-[var(--color-terminal-bg)]">
+      <div className="flex flex-wrap items-center justify-between gap-2 border-b border-[var(--color-border)] bg-[var(--color-bg-raised)] px-3 py-2">
         <div className="flex min-w-0 items-center gap-2">
-          <span className="truncate font-mono text-xs text-[#dce8dd]">
+          <span className="truncate font-mono text-xs text-[var(--color-terminal-ink)]">
             {terminal.shell}
           </span>
           <Badge tone={terminalStateTone(state)}>
@@ -142,6 +152,23 @@ export function XtermTerminalPanel({
       />
     </div>
   );
+}
+
+function xtermTheme(colors: Record<string, string>): ITheme {
+  return {
+    background: colors.background,
+    foreground: colors.foreground,
+    cursor: colors.cursor,
+    selectionBackground: colors.selectionBackground,
+    black: colors.black,
+    red: colors.red,
+    green: colors.green,
+    yellow: colors.yellow,
+    blue: colors.blue,
+    magenta: colors.magenta,
+    cyan: colors.cyan,
+    white: colors.white,
+  };
 }
 
 function terminalStateTone(state: WorkspaceTerminalState) {

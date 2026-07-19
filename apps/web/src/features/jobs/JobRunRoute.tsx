@@ -155,7 +155,7 @@ export function JobRunRoute() {
         ) : null}
       </div>
 
-      <details className="border border-black/20 p-4">
+      <details className="border border-[var(--color-border-strong)] p-4">
         <summary className="cursor-pointer text-sm font-bold">
           Effective configuration snapshot
         </summary>
@@ -181,7 +181,7 @@ function Datum({
   children: React.ReactNode;
 }) {
   return (
-    <div className="border-t border-black/20 pt-3">
+    <div className="border-t border-[var(--color-border-strong)] pt-3">
       <div className="text-xs font-bold text-[var(--color-muted)]">{label}</div>
       <div className="mt-1">{children}</div>
     </div>

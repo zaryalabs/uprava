@@ -98,7 +98,7 @@ export function WorkspaceLayout() {
 
   return (
     <section className="space-y-6">
-      <header className="border-b border-black/10 pb-5">
+      <header className="border-b border-[var(--color-border)] pb-5">
         <div className="flex flex-wrap items-start justify-between gap-4">
           <div className="min-w-0">
             <div className="zarya-caption">WORKSPACE / {node.display_name}</div>
@@ -152,7 +152,7 @@ export function WorkspaceLayout() {
 
       <nav
         aria-label="Workspace surfaces"
-        className="flex gap-1 border-b border-black/10"
+        className="flex gap-1 border-b border-[var(--color-border)]"
       >
         <WorkspaceTab
           to={routeWithSearch(

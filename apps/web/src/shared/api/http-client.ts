@@ -31,6 +31,9 @@ import type {
   IntegrationConnectionsResponse,
   IntegrationDisconnectResponse,
   McpDependencyStatusesResponse,
+  PluginInstallationSummary,
+  PluginListResponse,
+  EffectivePluginSnapshot,
   ObservedCapabilitiesResponse,
   ProviderQuotaStatus,
   PersistDeductionResponse,
@@ -81,6 +84,9 @@ import {
   integrationConnectResponseSchema,
   integrationDisconnectResponseSchema,
   mcpDependencyStatusesResponseSchema,
+  pluginInstallationSummarySchema,
+  pluginListResponseSchema,
+  effectivePluginSnapshotSchema,
   observedCapabilitiesResponseSchema,
   toolAvailabilityResponseSchema,
   toolCallDetailSchema,
@@ -369,6 +375,25 @@ export const coreApi = {
     apiGet<ToolCallDetail>(
       `/tool-calls/${encodeURIComponent(toolCallId)}`,
       toolCallDetailSchema,
+    ),
+  plugins: () =>
+    apiGet<PluginListResponse>("/plugins", pluginListResponseSchema),
+  pluginContributions: () =>
+    apiGet<EffectivePluginSnapshot>(
+      "/plugin-contributions?kind=ui.theme",
+      effectivePluginSnapshotSchema,
+    ),
+  enablePlugin: (pluginId: string) =>
+    apiPost<PluginInstallationSummary>(
+      `/plugins/${encodeURIComponent(pluginId)}/enable`,
+      undefined,
+      pluginInstallationSummarySchema,
+    ),
+  disablePlugin: (pluginId: string) =>
+    apiPost<PluginInstallationSummary>(
+      `/plugins/${encodeURIComponent(pluginId)}/disable`,
+      undefined,
+      pluginInstallationSummarySchema,
     ),
   jobs: () => apiGet<JobSummary[]>("/jobs"),
   createJob: (request: CreateJobRequest) =>

@@ -320,6 +320,378 @@ core.mermaidRenderer
 
 Позже external Plugin Registry начнет регистрировать такие же contributions.
 
+## Plugin Registry и Extension Host
+
+Plugin Registry — не разновидность Tool Registry и не каталог integrations.
+Это Core-owned реестр пакетов, которые расширяют саму Uprava через стабильный
+Extension API.
+
+```text
+Tool Registry
+  Какие callable capabilities доступны агенту, человеку или системе?
+
+Plugin Registry
+  Какие пакеты установлены и какие contributions они добавляют в Uprava?
+```
+
+Plugin может предоставить tools, но это только один contribution type. Plugin
+без tools остается полноценным plugin: например theme, renderer, inspector
+aspect или набор keyboard commands.
+
+### Что берем у VS Code и Obsidian
+
+У VS Code полезны:
+
+- declarative `contributes` в manifest;
+- built-in extensions, которые используют тот же контракт, что и будущие
+  внешние extensions;
+- commands, views, menus, themes and configuration как именованные extension
+  points;
+- activation events and context keys;
+- extension host отдельно от workbench shell;
+- safe mode и возможность отключить проблемный extension.
+
+У Obsidian полезны:
+
+- plugin/theme как понятная пользователю package unit;
+- явные install, enable, disable and configure lifecycle;
+- local-first управление установленными пакетами;
+- themes как first-class plugins, меняющие весь внешний вид приложения через
+  контролируемый contract;
+- постепенный путь от bundled packages к community/team packages.
+
+Uprava не копирует их authority model буквально. В distributed Uprava Core
+остается source of truth для installation, compatibility, permissions and
+effective contributions. Web хранит только client/user preferences вроде
+выбранной темы и локального layout, а Node исполняет только явно выданные ему
+plugin/runtime capabilities.
+
+### Package, installation and contribution
+
+Нужно различать три уровня:
+
+```text
+PluginPackage
+  immutable package identity, version, manifest, provenance and code/assets
+
+PluginInstallation
+  установленная active version, desired state, configuration and grants
+
+PluginContribution
+  одно объявленное расширение известного extension point
+```
+
+Один package может иметь несколько версий, но installation выбирает ровно одну
+active version. Обновление package не должно молча активировать новую version,
+если изменились permissions, trust level or compatibility requirements.
+
+Первоначальные install sources:
+
+```text
+bundled
+  поставляется вместе с согласованным Core/Web/Node release
+
+local
+  установлен оператором из локального package artifact, позже
+
+team_catalog
+  разрешен policy управляемого deployment, позже
+
+community_catalog
+  требует provenance, signing and sandbox policy, позже
+```
+
+Plugin Registry v1 реализует только `bundled`. Но persistence и manifest не
+должны предполагать, что plugin code всегда скомпилирован в Core или Web.
+
+### Manifest v1
+
+Минимальная форма manifest:
+
+```text
+manifest_version
+plugin_id
+version
+display_name
+description
+publisher
+license optional
+homepage optional
+install_source
+trust_level
+compatibility:
+  core
+  web
+  node optional
+  protocol_versions
+activation_conditions
+requested_permissions
+configuration_schema optional
+contributes:
+  themes
+  commands
+  views
+  workbench_tabs
+  menu_actions
+  inspector_aspects
+  link_handlers
+  block_renderers
+  artifact_types
+  tools
+  workflow_templates
+  services
+```
+
+`plugin_id` и все contribution ids namespaced and stable. Не-core plugin не
+может занять namespaces `core.*` or `uprava.*`. Manifest, configuration schema,
+descriptions and contribution counts имеют строгие size/depth limits.
+
+Manifest является data, а не executable program. `activation_conditions` and
+`when` clauses используют ограниченную expression grammar над известными
+context keys, а не JavaScript.
+
+### Extension points v1 and later
+
+Extension points являются versioned contracts. Plugin не получает общий
+`render(anywhere)` или доступ к произвольному React subtree.
+
+```text
+ui.theme
+  semantic design tokens, Monaco theme and terminal palette
+
+workbench.command
+  именованная команда с context, permission and Core authorization
+
+workbench.tab
+  вкладка внутри известного typed surface
+
+workbench.menuAction
+  action в разрешенном menu/toolbar/context slot
+
+inspector.aspect
+  дополнительный aspect для поддерживаемого UpravaRef/entity kind
+
+reference.handler
+  preview/open/copy behavior для namespaced reference kind
+
+visual.renderer
+  renderer contract with input schema, scopes and mandatory fallback
+
+artifact.type
+  metadata and lifecycle contract будущего first-class artifact
+
+agent.tool
+  связь package с отдельным Tool Registry definition
+```
+
+Registry отклоняет неизвестную major version extension point. Неизвестный
+optional contribution может остаться inactive с compatibility diagnostic, но
+не должен ломать активацию безопасных независимых contributions того же
+package.
+
+### Activation and context keys
+
+Installation и activation не являются одним состоянием.
+
+```text
+installed
++ desired enabled
++ compatible package and contribution contracts
++ granted permissions
++ satisfied activation conditions
+= effective active contribution
+```
+
+Начальные context keys:
+
+```text
+client.kind
+surface.id
+node.id / node.presence
+workspace.id / workspace.state
+workspace.git.available
+session.id / session.state
+reference.kind
+artifact.type
+actor.kind
+permission.<id>
+```
+
+Context keys являются typed values, опубликованными Core/Web host. Plugin не
+может записывать системные keys. Позже plugin может публиковать только свои
+namespaced keys через объявленный service contract.
+
+Activation должна быть lazy. Theme metadata можно активировать при bootstrap,
+а тяжелый renderer или view module загружается только при совпадении context и
+первом обращении к contribution.
+
+### Core Registry and client Extension Hosts
+
+Plugin architecture состоит не из одного процесса:
+
+```text
+Core Plugin Registry
+  packages, installations, compatibility, configuration, permissions,
+  effective contribution projection, audit
+
+Web Extension Host
+  themes, commands, views, tabs, renderers, aspects, link handlers,
+  local preference and fallback presentation
+
+Node Plugin Runtime, later and only when required
+  local adapters/processes near workspace and credentials
+```
+
+Core отдает Web permission-filtered effective contribution snapshot. Web
+сопоставляет contribution с известной implementation boundary и не может сам
+активировать disabled or incompatible plugin.
+
+Privileged command, даже начавшаяся в plugin UI, снова проходит Core
+authorization. Скрытая кнопка не является security boundary: crafted command
+от disabled plugin должна быть отклонена Core.
+
+### Trust and execution levels
+
+Trust level и runtime type — разные свойства. Bundled plugin может иметь
+высокий trust, но все равно использовать только узкий declarative contract.
+
+```text
+data_only
+  manifest contributions without executable code; themes are the first case
+
+trusted_bundled
+  lazy module shipped with coordinated Uprava release
+
+sandboxed_web
+  future Worker/iframe-like runtime with message contract
+
+sandboxed_node
+  future isolated local runtime with explicit filesystem/network scopes
+
+external_service
+  provider behind Core/Node adapter; never arbitrary code in Web shell
+```
+
+Arbitrary third-party JavaScript не исполняется в основном React tree. Plugin
+не может monkey-patch DOM, import global CSS, mutate router or read auth/session
+credentials. Controlled custom renderers появляются только после отдельного
+sandbox and signing design.
+
+### Lifecycle and failure isolation
+
+Базовый lifecycle:
+
+```text
+discover package
+-> validate manifest, provenance and compatibility
+-> install inactive
+-> review permissions
+-> enable
+-> project effective contributions
+-> activate lazily by context
+-> deactivate
+-> disable or update
+```
+
+Состояния installation:
+
+```text
+disabled
+active
+incompatible
+degraded
+error
+quarantined later
+```
+
+Plugin failure не должен ломать App Shell. Host изолирует renderer/view error,
+показывает fallback, записывает bounded diagnostic and позволяет отключить
+plugin. Uprava должна иметь safe mode, который запускает только core shell и
+явно разрешенные bundled plugins.
+
+Disable не удаляет durable artifacts, refs, tool-call history or configuration.
+Исторический объект, чей renderer отключен, продолжает открываться через
+metadata/raw fallback.
+
+### Themes as a first-class contribution
+
+Theme меняет UI Uprava глобально, но не является произвольным CSS plugin.
+
+```text
+ThemeContribution:
+  theme_id
+  label
+  kind: light | dark | high_contrast
+  color_scheme
+  semantic_tokens
+  monaco_theme
+  terminal_palette
+```
+
+Theme может задавать только allowlisted semantic tokens:
+
+```text
+surface.background
+surface.muted
+content.primary
+content.muted
+border.default
+border.strong
+status.risk
+status.notice
+focus
+selection
+editor.*
+terminal.*
+```
+
+Theme не может задавать selectors, layout, fonts from external origins,
+scripts, URLs, `@import` or arbitrary CSS variables. Host проверяет полноту
+required tokens, parseability colors and minimum contrast для критических
+foreground/background pairs.
+
+Нужно различать:
+
+- installation/enabled state theme plugin — Core-owned;
+- выбранная theme — client/user preference;
+- effective theme — выбранная доступная theme либо обязательный `core.light`
+  fallback.
+
+До появления team/user profile выбранная theme хранится как versioned local
+Web preference. Theme bootstrap применяется до первого React render, чтобы не
+было light/dark flash, и сверяется с effective contributions после загрузки
+Core state.
+
+### Первый plugin: Dark Theme
+
+Первым Plugin Registry v1 package является bundled data-only plugin:
+
+```text
+plugin_id: uprava.theme-dark
+version: 1.0.0
+trust_level: data_only
+requested_permissions:
+  - ui.theme.contribute
+contributes:
+  themes:
+    - uprava.dark
+```
+
+Dark Theme выбрана первой, потому что она:
+
+- сразу доказывает, что plugin меняет саму Uprava, а не только external tool;
+- проверяет полный install/enable/select/disable/fallback lifecycle;
+- заставляет все first-party surfaces соблюдать semantic design tokens;
+- безопасно проверяет Extension Host до появления executable plugins;
+- открывает путь local/community themes через data-only package format.
+
+Default остается `core.light`. Установка или enable Dark Theme не меняет
+выбранную тему без явного действия пользователя.
+
+Следующим bundled functional plugin разумно сделать `uprava.git-review`: theme
+доказывает declarative global UI contribution, а Git Review проверит commands,
+workbench tabs, Inspector aspects, permissions and host services.
+
 ## Addressable UI
 
 Почти все важное в Uprava должно быть адресуемым:
@@ -657,16 +1029,20 @@ Jobs polling — только в активной Jobs surface.
 
 ### Feature queue baseline
 
-Feature queue может сделать modularity visible:
+Пункт `12 Plugin Registry v1` делает modularity visible первым узким slice:
 
-- Plugin Registry v1;
-- manifest-driven contributions;
-- plugin-provided tools, commands, link handlers and artifact types;
-- basic plugin configuration UI;
-- permission checks for plugin actions;
-- first external previews, например GitHub/Linear;
-- first non-core visual blocks;
-- richer command palette and context keys.
+- Core-owned package/install lifecycle;
+- manifest-driven Web Extension Host;
+- versioned `ui.theme` contribution;
+- bundled data-only Dark Theme plugin;
+- Plugins/Appearance management UI;
+- semantic token, Monaco and xterm theme adapters;
+- safe `core.light` fallback and light/dark visual gates.
+
+Следующий functional plugin slice может активировать уже зарезервированные
+commands, Workbench tabs, menu actions and Inspector aspects на bundled Git
+Review. External previews, artifact renderers and broader context-key palette
+добавляются после доказательства этих двух trust levels.
 
 ### Later
 
@@ -705,7 +1081,8 @@ evidence and причинам?
 `A-007 Agent Tooling, Tool Registry and MCP strategy` отвечает:
 
 ```text
-Кто регистрирует tools, renderers, permissions, artifact types and UI contracts?
+Как регистрируются и исполняются callable tools, и как plugin contribution
+ссылается на Tool Registry definition без объединения двух registries?
 ```
 
 ## Рабочая формула

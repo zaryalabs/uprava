@@ -78,7 +78,7 @@ export function JobCreateRoute() {
         </p>
       </header>
       <form
-        className="grid gap-4 border border-black/20 p-4"
+        className="grid gap-4 border border-[var(--color-border-strong)] p-4"
         onSubmit={(event) => {
           event.preventDefault();
           create.mutate();

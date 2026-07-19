@@ -140,6 +140,11 @@ pub fn build_router(state: Arc<AppState>) -> Router {
         .route("/mcp-dependencies", get(mcp_dependency_statuses_route))
         .route("/tool-calls", get(tool_calls_route))
         .route("/tool-calls/{tool_call_id}", get(tool_call_detail_route))
+        .route("/plugins", get(plugin_list_route))
+        .route("/plugins/{plugin_id}", get(plugin_detail_route))
+        .route("/plugins/{plugin_id}/enable", post(enable_plugin_route))
+        .route("/plugins/{plugin_id}/disable", post(disable_plugin_route))
+        .route("/plugin-contributions", get(plugin_contributions_route))
         .route("/references/resolve", post(resolve_reference_route))
         .route("/sessions/{session_thread_id}/stream", get(session_stream))
         .route(

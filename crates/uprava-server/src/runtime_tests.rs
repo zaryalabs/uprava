@@ -558,6 +558,8 @@ mod http;
 mod node;
 #[path = "runtime/tests/persistence.rs"]
 mod persistence;
+#[path = "runtime/tests/plugins.rs"]
+mod plugins;
 #[path = "runtime/tests/runtime.rs"]
 mod runtime;
 #[path = "runtime/tests/scheduling.rs"]

@@ -62,6 +62,11 @@ import type {
   ToolScope,
   ToolingCommandV1,
   ToolingContractFixture,
+  PluginContribution,
+  PluginContractFixture,
+  PluginInstallationSummary,
+  PluginListResponse,
+  EffectivePluginSnapshot,
   ToolingEventV1,
   WorkspaceCommandHistoryItem,
   WorkspaceCommandHistoryResponse,
@@ -579,6 +584,114 @@ export const toolingContractFixtureSchema = z
     integration_disconnect_response: integrationDisconnectResponseSchema,
   })
   .strict() satisfies z.ZodType<ToolingContractFixture>;
+
+const stringMapSchema = z.record(z.string(), z.string());
+
+export const pluginContributionSchema = z.discriminatedUnion("kind", [
+  z
+    .object({
+      kind: z.literal("ui_theme"),
+      contract_version: z.number().int().positive(),
+      contribution: z
+        .object({
+          theme_id: z.string(),
+          label: z.string(),
+          kind: z.enum(["light", "dark", "high_contrast"]),
+          color_scheme: z.enum(["light", "dark"]),
+          semantic_tokens: stringMapSchema,
+          monaco: z
+            .object({ base: z.string(), colors: stringMapSchema })
+            .strict(),
+          terminal: z.object({ colors: stringMapSchema }).strict(),
+        })
+        .strict(),
+    })
+    .strict(),
+  z
+    .object({
+      kind: z.literal("agent_tool"),
+      contract_version: z.number().int().positive(),
+      tool_id: z.string(),
+    })
+    .strict(),
+  z
+    .object({
+      kind: z.literal("artifact_type"),
+      contract_version: z.number().int().positive(),
+      artifact_type_id: z.string(),
+      display_name: z.string(),
+    })
+    .strict(),
+]) satisfies z.ZodType<PluginContribution>;
+
+export const pluginInstallationSummarySchema = z
+  .object({
+    package: z
+      .object({
+        plugin_id: z.string(),
+        version: z.string(),
+        manifest_hash: z.string(),
+        manifest_version: z.number().int().positive(),
+        display_name: z.string(),
+        description: z.string(),
+        publisher: z.string(),
+        install_source: z.enum([
+          "bundled",
+          "local",
+          "team_catalog",
+          "community_catalog",
+        ]),
+        trust_level: z.enum([
+          "data_only",
+          "trusted_bundled",
+          "sandboxed_web",
+          "sandboxed_node",
+          "external_service",
+        ]),
+        requested_permissions: z.array(z.string()),
+        contributions: z.array(pluginContributionSchema),
+        discovered_at: z.string(),
+      })
+      .strict(),
+    desired_state: z.enum(["disabled", "enabled"]),
+    effective_state: z.enum([
+      "disabled",
+      "active",
+      "incompatible",
+      "degraded",
+      "error",
+    ]),
+    compatibility: z
+      .object({
+        state: z.enum(["compatible", "incompatible"]),
+        diagnostics: z.array(z.string()),
+      })
+      .strict(),
+    configuration_revision: z.number().int().nonnegative(),
+    granted_permissions: z.array(z.string()),
+    installed_at: z.string(),
+    updated_at: z.string(),
+    last_error_code: nullableString,
+  })
+  .strict() satisfies z.ZodType<PluginInstallationSummary>;
+
+export const pluginListResponseSchema = z
+  .object({ items: z.array(pluginInstallationSummarySchema) })
+  .strict() satisfies z.ZodType<PluginListResponse>;
+
+export const effectivePluginSnapshotSchema = z
+  .object({
+    contributions: z.array(pluginContributionSchema),
+    generated_at: z.string(),
+  })
+  .strict() satisfies z.ZodType<EffectivePluginSnapshot>;
+
+export const pluginContractFixtureSchema = z
+  .object({
+    plugins: pluginListResponseSchema,
+    effective_snapshot: effectivePluginSnapshotSchema,
+  })
+  .strict() satisfies z.ZodType<PluginContractFixture>;
 const gitChangeKindSchema = z.enum([
   "added",
   "modified",

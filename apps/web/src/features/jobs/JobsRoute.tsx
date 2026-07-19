@@ -72,7 +72,7 @@ export function JobsRoute() {
 
       <div className="uprava-jobs-grid">
         <aside className="uprava-jobs-list" aria-label="Workspace Jobs">
-          <div className="flex items-center justify-between gap-3 border-b border-black/10 pb-3">
+          <div className="flex items-center justify-between gap-3 border-b border-[var(--color-border)] pb-3">
             <div className="zarya-label">JOBS</div>
             <span className="text-xs text-[var(--color-muted)]">
               {workspaceJobs.length}
@@ -119,7 +119,7 @@ export function WorkspaceJobsIndexRoute() {
 
   if (jobs.length === 0) {
     return (
-      <div className="grid min-h-80 place-items-center border border-dashed border-black/20 p-8 text-center">
+      <div className="grid min-h-80 place-items-center border border-dashed border-[var(--color-border-strong)] p-8 text-center">
         <div>
           <EmptyState
             title="No Jobs yet"
@@ -141,7 +141,7 @@ export function WorkspaceJobsIndexRoute() {
   }
 
   return (
-    <div className="grid min-h-80 place-items-center border border-dashed border-black/20 p-8 text-center">
+    <div className="grid min-h-80 place-items-center border border-dashed border-[var(--color-border-strong)] p-8 text-center">
       <EmptyState
         title="Select a Job"
         detail="Choose a Job to inspect its configuration and run history, or create a new paused Job."
@@ -174,7 +174,7 @@ function JobListLink({
       className={`block border p-3 ${
         selected
           ? "border-[var(--color-ink)] bg-[var(--color-bg)]"
-          : "border-transparent hover:border-black/20 hover:bg-[var(--color-bg)]"
+          : "border-transparent hover:border-[var(--color-border-strong)] hover:bg-[var(--color-bg)]"
       }`}
     >
       <span className="block truncate text-sm font-medium">{job.name}</span>

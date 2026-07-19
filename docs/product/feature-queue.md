@@ -37,15 +37,15 @@ dependency, complexity, risk and value. Позиции могут двигать
 
 ## Обзор очереди
 
-Current release baseline: `0.2.11`. Закрытые пункты `0` through `11`, unified
+Current release baseline: `0.2.12`. Закрытые пункты `0` through `12`, unified
 audit hardening release и `5a` workspace renderer release соответствуют shipped
 versions, зафиксированным в [`releases.md`](../releases.md). Пункт `6` включает
 workbench alignment, первый стабильный self-hosted deployment path и
 workspace-centered UI follow-up `0.2.6` и Causality/Trace/Deduction slice
 `0.2.7`. Runtime boundary refactor зафиксирован implementation baseline
 `0.2.9`. Git and review basics зафиксирован implementation baseline `0.2.10`,
-Agent Tooling and Tool Registry v1 — `0.2.11`. Следующий плановый пункт очереди —
-Plugin Registry v1.
+Agent Tooling and Tool Registry v1 — `0.2.11`, Plugin Registry v1 — `0.2.12`.
+Следующий плановый пункт очереди — Visual artifact system.
 
 | Order | Done | Mechanism / Feature Slice | First Useful Slice | Dependency | Complexity |
 | --- | --- | --- | --- | --- | --- |
@@ -62,7 +62,7 @@ Plugin Registry v1.
 | 9 | + | Causality and trace UX | Coarse source/cause links with raw fallback | Workspace refs, event log | Medium |
 | 10 | + | Git and review basics | Better diff, branch/worktree awareness, check results | Workspace intervention, trace | Medium |
 | 11 | + | Agent Tooling and Tool Registry v1 | Uprava MCP, progressive discovery, ToolHive runtime, scoped registry and trace | V01 capability model, events | High |
-| 12 | - | Plugin Registry v1 | Installed plugin metadata, configuration, exposed tools and artifact types | Agent Tooling and Tool Registry v1 | High |
+| 12 | + | Plugin Registry v1 | Core registry, manifest-driven Web Extension Host and bundled Dark Theme plugin | Stable workbench shell, design tokens | High |
 | 14 | - | Visual artifact system | Test reports, richer diffs, timelines, dashboards/forms as first-class artifacts | Trace, registry contracts | High |
 | 15 | - | Dynamic UI from agents | Schema/tool/plugin-rendered UI with safe fallbacks | Visual artifact system, plugins | High |
 | 16 | - | Task-based sandbox runtime | Bounded run contract, isolated workspace, expected evidence | Runtime, workspace, trace | Very high |
@@ -423,14 +423,37 @@ approval policies and first-class integration UX. Отдельный Uprava CLI
 
 ### 12. Plugin Registry v1
 
+Рабочий план реализации:
+[`0.2.12-plugin-registry-dark-theme.md`](../tmp-plans/0.2.12-plugin-registry-dark-theme.md).
+
 **Value:** Uprava становится extensible без hardcoding каждого tool, block and
-integration внутри workbench.
+integration внутри workbench. Plugin Registry расширяет саму Uprava и не
+является разновидностью Tool Registry или integration catalog.
 
-**First useful slice:** Installed plugin metadata, versions, configuration,
-requested permissions, exposed tools, artifact types and compatibility.
+**First useful slice:** Core-owned packages/installations, versioned manifest,
+compatibility, configuration and permissions; permission-filtered contribution
+projection; Web Extension Host с first-class `ui.theme` contribution; bundled
+data-only `uprava.theme-dark`, который можно enable, выбрать, disable и безопасно
+заменить на `core.light` без reload or broken UI.
 
-**Target direction:** Plugin-provided commands, renderers, link handlers,
-workflow templates and governed extension surfaces.
+Theme меняет только allowlisted semantic tokens, Monaco theme and terminal
+palette. Plugin не получает arbitrary CSS, DOM access or JavaScript execution в
+main React tree. Первый slice также приводит first-party UI к theme-safe tokens
+и добавляет light/dark visual and contrast gates.
+
+**Current implementation note:** `0.2.12` добавляет отдельные protocol,
+persistence and application boundaries Plugin Registry, migration 13,
+идемпотентный bundled-package bootstrap, enable/disable and compatibility
+lifecycle, permission-filtered effective projection, Plugins/Appearance UI и
+versioned preference с безопасным light fallback. `uprava.theme-dark@1.0.0`
+является data-only package; arbitrary CSS and executable plugin code в этот
+срез не входят.
+
+**Target direction:** VS Code/Obsidian-like package lifecycle, local/team
+installation, signed catalogs, activation/context keys, plugin-provided
+commands, Workbench views/tabs, Inspector aspects, renderers, link handlers,
+artifact types, workflow templates, services and governed sandboxed extension
+surfaces. Следующий functional bundled plugin candidate — Git Review.
 
 ### 14. Visual artifact system
 

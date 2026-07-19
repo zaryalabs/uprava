@@ -93,7 +93,7 @@ export function CausalityPanel({
 
   return (
     <section
-      className="space-y-4 border-t border-black/10 pt-4"
+      className="space-y-4 border-t border-[var(--color-border)] pt-4"
       aria-label="Session trace"
     >
       <header className="flex flex-wrap items-end justify-between gap-3">
@@ -133,7 +133,7 @@ export function CausalityPanel({
         <LoadingState stage="Loading causality trace" />
       )}
 
-      <details className="border-t border-black/10 pt-3">
+      <details className="border-t border-[var(--color-border)] pt-3">
         <summary className="cursor-pointer text-sm font-bold">
           Explain this session with Deduction
           <span className="ml-2 font-normal text-[var(--color-muted)]">
@@ -199,7 +199,7 @@ function TraceStepCard({
   openRef: (reference: UpravaRef) => void;
 }) {
   return (
-    <article className="border-l-2 border-black/20 p-3">
+    <article className="border-l-2 border-[var(--color-border-strong)] p-3">
       <div className="flex flex-wrap items-start justify-between gap-2">
         <div className="min-w-0">
           <div className="flex flex-wrap items-center gap-2">
@@ -244,7 +244,7 @@ function AspectLinks({
               <button
                 key={`${aspect}:${index}:${refTitle(reference)}`}
                 type="button"
-                className="max-w-48 truncate border border-black/20 px-1.5 py-0.5 text-xs hover:border-[var(--color-ink)]"
+                className="max-w-48 truncate border border-[var(--color-border-strong)] px-1.5 py-0.5 text-xs hover:border-[var(--color-ink)]"
                 title={refTitle(reference)}
                 onClick={() => openRef(reference)}
               >
@@ -288,7 +288,7 @@ function DeductionResult({
   }
   const block = deduction.block;
   return (
-    <article className="min-w-0 border border-black/10 p-3">
+    <article className="min-w-0 border border-[var(--color-border)] p-3">
       <div className="flex flex-wrap items-center justify-between gap-2">
         <Badge tone={deductionStateTone(deduction.state)}>
           {deduction.state}
@@ -316,7 +316,7 @@ function DeductionResult({
             {block.steps.map((step) => (
               <li
                 key={step.step_id}
-                className="border-l border-black/20 pl-2 text-sm"
+                className="border-l border-[var(--color-border-strong)] pl-2 text-sm"
               >
                 <Badge tone={classificationTone(step.classification)}>
                   {step.classification}
@@ -327,7 +327,7 @@ function DeductionResult({
                     <button
                       key={`${step.step_id}:${index}`}
                       type="button"
-                      className="truncate border border-black/20 px-1.5 py-0.5 text-xs hover:border-[var(--color-ink)]"
+                      className="truncate border border-[var(--color-border-strong)] px-1.5 py-0.5 text-xs hover:border-[var(--color-ink)]"
                       onClick={() => openRef(reference)}
                     >
                       {refTitle(reference)}
@@ -415,7 +415,7 @@ function RawEventLog({ sessionThreadId }: { sessionThreadId: string }) {
   });
   const rows = events.data?.pages.flatMap((page) => page.events) ?? [];
   return (
-    <details className="border-t border-black/10 pt-3">
+    <details className="border-t border-[var(--color-border)] pt-3">
       <summary className="cursor-pointer text-sm font-bold">
         Raw event log
         <span className="ml-2 font-normal text-[var(--color-muted)]">
@@ -471,7 +471,7 @@ function RawEventRow({ event }: { event: EventEnvelope }) {
     seq: event.seq,
   };
   return (
-    <details className="border-l border-black/20 py-1 pl-2 text-xs">
+    <details className="border-l border-[var(--color-border-strong)] py-1 pl-2 text-xs">
       <summary className="cursor-pointer">
         <strong>{event.kind}</strong> · seq {event.seq} · {event.happened_at}
       </summary>

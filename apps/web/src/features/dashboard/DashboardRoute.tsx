@@ -71,7 +71,7 @@ export function DashboardRoute() {
       <DashboardHeader generatedAt={inventory.data.generated_at} />
 
       <section
-        className="grid grid-cols-2 gap-x-6 border-b border-black/10 py-6 md:grid-cols-4"
+        className="grid grid-cols-2 gap-x-6 border-b border-[var(--color-border)] py-6 md:grid-cols-4"
         aria-label="System metrics"
       >
         <Metric
@@ -145,7 +145,7 @@ export function DashboardRoute() {
             detail="Session and Job activity will appear here."
           />
         ) : (
-          <ol className="divide-y divide-black/10">
+          <ol className="divide-y divide-[var(--color-border)]">
             {activity.map((item) => (
               <li key={item.key}>
                 <Link
@@ -221,7 +221,7 @@ function Metric({
 function ActivityKindIcon({ kind }: { kind: RecentActivityItem["kind"] }) {
   const Icon = kind === "session" ? MessageSquareText : BriefcaseBusiness;
   return (
-    <span className="hidden h-8 w-8 items-center justify-center border border-black/20 sm:inline-flex">
+    <span className="hidden h-8 w-8 items-center justify-center border border-[var(--color-border-strong)] sm:inline-flex">
       <Icon size={15} aria-hidden="true" />
     </span>
   );

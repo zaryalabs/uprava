@@ -116,7 +116,7 @@ export function NodeDetailRoute() {
 
   return (
     <section className="space-y-7">
-      <header className="flex flex-wrap items-start justify-between gap-4 border-b border-black/10 pb-5">
+      <header className="flex flex-wrap items-start justify-between gap-4 border-b border-[var(--color-border)] pb-5">
         <div className="min-w-0">
           <div className="zarya-caption">NODE OVERVIEW</div>
           <h1 className="mt-2 text-2xl font-semibold">{node.display_name}</h1>
@@ -193,7 +193,7 @@ export function NodeDetailRoute() {
       ) : null}
 
       <section
-        className="grid grid-cols-2 gap-x-6 border-b border-black/10 pb-7 md:grid-cols-4"
+        className="grid grid-cols-2 gap-x-6 border-b border-[var(--color-border)] pb-7 md:grid-cols-4"
         aria-label="Node metrics"
       >
         <NodeMetric label="Last Heartbeat">
@@ -220,7 +220,7 @@ export function NodeDetailRoute() {
             </h2>
             <span className="zarya-caption">{stats.workspaceCount} total</span>
           </div>
-          <div className="divide-y divide-black/10 border-y border-black/10">
+          <div className="divide-y divide-[var(--color-border)] border-y border-[var(--color-border)]">
             {placements.map((placement) => (
               <Link
                 key={placement.project_placement_id}
@@ -285,7 +285,7 @@ export function NodeDetailRoute() {
             <h2 id="node-diagnostics-title" className="text-sm font-bold">
               Diagnostics
             </h2>
-            <p className="mt-2 border-l-2 border-black/20 pl-3 text-sm text-[var(--color-muted)]">
+            <p className="mt-2 border-l-2 border-[var(--color-border-strong)] pl-3 text-sm text-[var(--color-muted)]">
               {node.diagnostics || "No diagnostics reported."}
             </p>
             <p className="mt-2 text-xs text-[var(--color-muted)]">

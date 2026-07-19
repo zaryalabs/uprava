@@ -18,6 +18,7 @@ pub fn is_supported_protocol_version(version: &str) -> bool {
 pub mod api;
 pub mod control;
 pub mod domain;
+pub mod plugins;
 pub mod projection;
 pub mod reference;
 pub mod serde_json_value;
@@ -27,6 +28,7 @@ pub mod workspace;
 pub use api::*;
 pub use control::*;
 pub use domain::*;
+pub use plugins::*;
 pub use projection::*;
 pub use reference::*;
 pub use serde_json_value::JsonValue;

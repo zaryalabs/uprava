@@ -1,0 +1,845 @@
+//! Core-owned Plugin Registry lifecycle and effective contribution projection.
+
+use semver::Version;
+use uprava_protocol::{
+    compute_plugin_manifest_hash, EffectivePluginSnapshot, PluginCompatibility,
+    PluginCompatibilityState, PluginContribution, PluginDesiredState, PluginEffectiveState,
+    PluginId, PluginInstallSource, PluginInstallationSummary, PluginListResponse, PluginManifest,
+    PluginPackageSummary, PluginTrustLevel, PluginVersionRange, ThemeContributionV1,
+    CURRENT_PROTOCOL_VERSION, PLUGIN_MANIFEST_VERSION_V1, THEME_CONTRIBUTION_PERMISSION,
+    THEME_CONTRIBUTION_VERSION_V1,
+};
+
+use super::super::*;
+
+const DARK_THEME_MANIFEST: &str =
+    include_str!("../../../bundled-plugins/uprava.theme-dark/manifest.json");
+const MAX_PLUGIN_ID_CHARS: usize = 128;
+const MAX_PLUGIN_TEXT_CHARS: usize = 2_000;
+const MAX_PLUGIN_PERMISSIONS: usize = 64;
+const MAX_PLUGIN_CONTRIBUTIONS: usize = 128;
+const MAX_THEME_TOKENS: usize = 128;
+const MAX_THEME_ADAPTER_COLORS: usize = 128;
+
+const REQUIRED_THEME_TOKENS: &[&str] = &[
+    "surface.background",
+    "surface.muted",
+    "surface.raised",
+    "content.primary",
+    "content.muted",
+    "content.inverse",
+    "border.default",
+    "border.strong",
+    "status.risk",
+    "status.notice",
+    "focus",
+    "selection",
+    "editor.background",
+    "editor.foreground",
+    "terminal.background",
+    "terminal.foreground",
+];
+
+#[derive(Debug, Deserialize)]
+pub(crate) struct PluginContributionQuery {
+    kind: Option<String>,
+}
+
+pub(crate) async fn bootstrap_bundled_plugins(state: &AppState) -> Result<(), AppError> {
+    let manifest: PluginManifest = serde_json::from_str(DARK_THEME_MANIFEST)?;
+    validate_plugin_manifest(&manifest)?;
+    register_bundled_plugin(state, &manifest).await
+}
+
+pub(crate) async fn plugin_list_route(
+    State(state): State<Arc<AppState>>,
+) -> Result<Json<PluginListResponse>, AppError> {
+    Ok(Json(list_plugins(&state).await?))
+}
+
+pub(crate) async fn plugin_detail_route(
+    State(state): State<Arc<AppState>>,
+    Path(plugin_id): Path<String>,
+) -> Result<Json<PluginInstallationSummary>, AppError> {
+    Ok(Json(
+        load_plugin_installation(&state, &PluginId::from(plugin_id)).await?,
+    ))
+}
+
+pub(crate) async fn enable_plugin_route(
+    State(state): State<Arc<AppState>>,
+    Path(plugin_id): Path<String>,
+) -> Result<Json<PluginInstallationSummary>, AppError> {
+    let plugin_id = PluginId::from(plugin_id);
+    set_plugin_desired_state(&state, &plugin_id, PluginDesiredState::Enabled).await?;
+    Ok(Json(load_plugin_installation(&state, &plugin_id).await?))
+}
+
+pub(crate) async fn disable_plugin_route(
+    State(state): State<Arc<AppState>>,
+    Path(plugin_id): Path<String>,
+) -> Result<Json<PluginInstallationSummary>, AppError> {
+    let plugin_id = PluginId::from(plugin_id);
+    set_plugin_desired_state(&state, &plugin_id, PluginDesiredState::Disabled).await?;
+    Ok(Json(load_plugin_installation(&state, &plugin_id).await?))
+}
+
+pub(crate) async fn plugin_contributions_route(
+    State(state): State<Arc<AppState>>,
+    Query(query): Query<PluginContributionQuery>,
+) -> Result<Json<EffectivePluginSnapshot>, AppError> {
+    if query.kind.as_deref().is_some_and(|kind| kind != "ui.theme") {
+        return Err(AppError::bad_request(
+            "plugin.contribution_kind_unsupported",
+            "Only ui.theme contributions are active in Plugin Registry v1",
+        ));
+    }
+    Ok(Json(effective_plugin_snapshot(&state).await?))
+}
+
+async fn register_bundled_plugin(
+    state: &AppState,
+    manifest: &PluginManifest,
+) -> Result<(), AppError> {
+    let manifest_hash = compute_plugin_manifest_hash(manifest)?;
+    let manifest_json = serde_json::to_string(manifest)?;
+    let compatibility = evaluate_plugin_compatibility(manifest);
+    let compatibility_json = serde_json::to_string(&compatibility)?;
+    let now = Utc::now();
+    let mut transaction = state.pool.begin().await?;
+
+    let existing_hash: Option<String> = sqlx::query_scalar(
+        "select manifest_hash from plugin_packages where plugin_id = ?1 and version = ?2",
+    )
+    .bind(manifest.plugin_id.as_str())
+    .bind(&manifest.version)
+    .fetch_optional(&mut *transaction)
+    .await?;
+    if existing_hash
+        .as_deref()
+        .is_some_and(|hash| hash != manifest_hash)
+    {
+        return Err(AppError::internal(format!(
+            "bundled plugin {}@{} changed without a version bump",
+            manifest.plugin_id, manifest.version
+        )));
+    }
+
+    let package_insert = sqlx::query(
+        r#"
+        insert into plugin_packages (
+            plugin_id, version, manifest_hash, manifest_version, display_name,
+            description, publisher, install_source, trust_level, manifest_json,
+            discovered_at
+        ) values (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11)
+        on conflict(plugin_id, version) do nothing
+        "#,
+    )
+    .bind(manifest.plugin_id.as_str())
+    .bind(&manifest.version)
+    .bind(&manifest_hash)
+    .bind(i64::from(manifest.manifest_version))
+    .bind(&manifest.display_name)
+    .bind(&manifest.description)
+    .bind(&manifest.publisher)
+    .bind(format_install_source(manifest.install_source))
+    .bind(format_trust_level(manifest.trust_level))
+    .bind(&manifest_json)
+    .bind(now)
+    .execute(&mut *transaction)
+    .await?;
+
+    let initial_effective_state = match compatibility.state {
+        PluginCompatibilityState::Compatible => PluginEffectiveState::Disabled,
+        PluginCompatibilityState::Incompatible => PluginEffectiveState::Incompatible,
+    };
+    sqlx::query(
+        r#"
+        insert into plugin_installations (
+            plugin_id, active_version, desired_state, effective_state,
+            compatibility_json, configuration_revision, installed_at, updated_at,
+            last_error_code
+        ) values (?1, ?2, 'disabled', ?3, ?4, 0, ?5, ?5, null)
+        on conflict(plugin_id) do nothing
+        "#,
+    )
+    .bind(manifest.plugin_id.as_str())
+    .bind(&manifest.version)
+    .bind(format_effective_state(initial_effective_state))
+    .bind(&compatibility_json)
+    .bind(now)
+    .execute(&mut *transaction)
+    .await?;
+
+    let empty_configuration = JsonValue(json!({}));
+    let configuration_json = serde_json::to_string(&empty_configuration.0)?;
+    let configuration_hash = format!("sha256:{:x}", Sha256::digest(configuration_json.as_bytes()));
+    sqlx::query(
+        r#"
+        insert into plugin_configurations (
+            plugin_id, revision, values_json, values_hash, updated_at
+        ) values (?1, 0, ?2, ?3, ?4)
+        on conflict(plugin_id) do nothing
+        "#,
+    )
+    .bind(manifest.plugin_id.as_str())
+    .bind(configuration_json)
+    .bind(configuration_hash)
+    .bind(now)
+    .execute(&mut *transaction)
+    .await?;
+
+    for permission in &manifest.requested_permissions {
+        sqlx::query(
+            r#"
+            insert into plugin_permission_grants (
+                plugin_id, permission_id, decision, granted_at, updated_at
+            ) values (?1, ?2, 'granted', ?3, ?3)
+            on conflict(plugin_id, permission_id) do nothing
+            "#,
+        )
+        .bind(manifest.plugin_id.as_str())
+        .bind(permission)
+        .bind(now)
+        .execute(&mut *transaction)
+        .await?;
+    }
+    let desired_state: String =
+        sqlx::query_scalar("select desired_state from plugin_installations where plugin_id = ?1")
+            .bind(manifest.plugin_id.as_str())
+            .fetch_one(&mut *transaction)
+            .await?;
+    let reconciled_effective_state = match compatibility.state {
+        PluginCompatibilityState::Incompatible => PluginEffectiveState::Incompatible,
+        PluginCompatibilityState::Compatible if desired_state == "enabled" => {
+            PluginEffectiveState::Active
+        }
+        PluginCompatibilityState::Compatible => PluginEffectiveState::Disabled,
+    };
+    sqlx::query(
+        r#"
+        update plugin_installations
+        set effective_state = ?1, compatibility_json = ?2, updated_at = ?3,
+            last_error_code = case when ?1 = 'incompatible'
+                then 'plugin.incompatible' else null end
+        where plugin_id = ?4
+          and (effective_state != ?1 or compatibility_json != ?2)
+        "#,
+    )
+    .bind(format_effective_state(reconciled_effective_state))
+    .bind(&compatibility_json)
+    .bind(now)
+    .bind(manifest.plugin_id.as_str())
+    .execute(&mut *transaction)
+    .await?;
+    transaction.commit().await?;
+
+    if package_insert.rows_affected() > 0 {
+        audit_security_event(
+            state,
+            "plugin.discovered",
+            None,
+            Some("core.bootstrap".to_owned()),
+            "registered",
+            JsonValue(json!({
+                "plugin_id": manifest.plugin_id,
+                "version": manifest.version,
+                "manifest_hash": manifest_hash,
+                "install_source": "bundled"
+            })),
+        )
+        .await?;
+    }
+    Ok(())
+}
+
+pub(crate) async fn list_plugins(state: &AppState) -> Result<PluginListResponse, AppError> {
+    let plugin_ids: Vec<String> =
+        sqlx::query_scalar("select plugin_id from plugin_installations order by plugin_id asc")
+            .fetch_all(&state.pool)
+            .await?;
+    let mut items = Vec::with_capacity(plugin_ids.len());
+    for plugin_id in plugin_ids {
+        items.push(load_plugin_installation(state, &PluginId::from(plugin_id)).await?);
+    }
+    Ok(PluginListResponse { items })
+}
+
+pub(crate) async fn load_plugin_installation(
+    state: &AppState,
+    plugin_id: &PluginId,
+) -> Result<PluginInstallationSummary, AppError> {
+    let row = sqlx::query(
+        r#"
+        select p.version, p.manifest_hash, p.manifest_version, p.display_name,
+               p.description, p.publisher, p.install_source, p.trust_level,
+               p.manifest_json, p.discovered_at, i.desired_state,
+               i.effective_state, i.compatibility_json,
+               i.configuration_revision, i.installed_at, i.updated_at,
+               i.last_error_code
+        from plugin_installations i
+        join plugin_packages p
+          on p.plugin_id = i.plugin_id and p.version = i.active_version
+        where i.plugin_id = ?1
+        "#,
+    )
+    .bind(plugin_id.as_str())
+    .fetch_optional(&state.pool)
+    .await?
+    .ok_or_else(|| AppError::not_found("plugin.not_found", "Plugin not found"))?;
+
+    let manifest: PluginManifest = serde_json::from_str(row.get("manifest_json"))?;
+    let compatibility: PluginCompatibility = serde_json::from_str(row.get("compatibility_json"))?;
+    let grants: Vec<(String, String)> = sqlx::query_as(
+        "select permission_id, decision from plugin_permission_grants where plugin_id = ?1 order by permission_id",
+    )
+    .bind(plugin_id.as_str())
+    .fetch_all(&state.pool)
+    .await?;
+    let granted_permissions = grants
+        .into_iter()
+        .filter_map(|(permission, decision)| (decision == "granted").then_some(permission))
+        .collect();
+
+    Ok(PluginInstallationSummary {
+        package: PluginPackageSummary {
+            plugin_id: plugin_id.clone(),
+            version: row.get("version"),
+            manifest_hash: row.get("manifest_hash"),
+            manifest_version: u16::try_from(row.get::<i64, _>("manifest_version"))
+                .map_err(|_| AppError::internal("plugin manifest version exceeds u16"))?,
+            display_name: row.get("display_name"),
+            description: row.get("description"),
+            publisher: row.get("publisher"),
+            install_source: parse_install_source(row.get("install_source"))?,
+            trust_level: parse_trust_level(row.get("trust_level"))?,
+            requested_permissions: manifest.requested_permissions,
+            contributions: manifest.contributions,
+            discovered_at: row.get("discovered_at"),
+        },
+        desired_state: parse_desired_state(row.get("desired_state"))?,
+        effective_state: parse_effective_state(row.get("effective_state"))?,
+        compatibility,
+        configuration_revision: u64::try_from(row.get::<i64, _>("configuration_revision"))
+            .map_err(|_| AppError::internal("plugin configuration revision is invalid"))?,
+        granted_permissions,
+        installed_at: row.get("installed_at"),
+        updated_at: row.get("updated_at"),
+        last_error_code: row.get("last_error_code"),
+    })
+}
+
+pub(crate) async fn set_plugin_desired_state(
+    state: &AppState,
+    plugin_id: &PluginId,
+    desired_state: PluginDesiredState,
+) -> Result<(), AppError> {
+    let current = load_plugin_installation(state, plugin_id).await?;
+    let manifest = load_plugin_manifest(state, plugin_id, &current.package.version).await?;
+    validate_plugin_manifest(&manifest)?;
+    let compatibility = evaluate_plugin_compatibility(&manifest);
+    let compatibility_json = serde_json::to_string(&compatibility)?;
+    let permission_granted = manifest
+        .requested_permissions
+        .iter()
+        .all(|permission| current.granted_permissions.contains(permission));
+    let (effective_state, last_error_code) = match desired_state {
+        PluginDesiredState::Disabled => (PluginEffectiveState::Disabled, None),
+        PluginDesiredState::Enabled
+            if compatibility.state == PluginCompatibilityState::Incompatible =>
+        {
+            (
+                PluginEffectiveState::Incompatible,
+                Some("plugin.incompatible"),
+            )
+        }
+        PluginDesiredState::Enabled if !permission_granted => (
+            PluginEffectiveState::Error,
+            Some("plugin.permission_denied"),
+        ),
+        PluginDesiredState::Enabled => (PluginEffectiveState::Active, None),
+    };
+    let now = Utc::now();
+    sqlx::query(
+        r#"
+        update plugin_installations
+        set desired_state = ?1, effective_state = ?2, compatibility_json = ?3,
+            updated_at = ?4, last_error_code = ?5
+        where plugin_id = ?6
+        "#,
+    )
+    .bind(format_desired_state(desired_state))
+    .bind(format_effective_state(effective_state))
+    .bind(compatibility_json)
+    .bind(now)
+    .bind(last_error_code)
+    .bind(plugin_id.as_str())
+    .execute(&state.pool)
+    .await?;
+
+    let (event_kind, outcome) = match desired_state {
+        PluginDesiredState::Disabled => ("plugin.disabled", "disabled"),
+        PluginDesiredState::Enabled if effective_state == PluginEffectiveState::Active => {
+            ("plugin.enabled", "active")
+        }
+        PluginDesiredState::Enabled if effective_state == PluginEffectiveState::Incompatible => {
+            ("plugin.compatibility_failed", "incompatible")
+        }
+        PluginDesiredState::Enabled => ("plugin.activation_failed", "denied"),
+    };
+    audit_security_event(
+        state,
+        event_kind,
+        None,
+        Some("web.local_user".to_owned()),
+        outcome,
+        JsonValue(json!({
+            "plugin_id": plugin_id,
+            "version": manifest.version,
+            "manifest_hash": current.package.manifest_hash,
+            "effective_state": format_effective_state(effective_state),
+            "error_code": last_error_code
+        })),
+    )
+    .await?;
+
+    if let Some(error_code) = last_error_code {
+        return Err(AppError::bad_request(
+            error_code,
+            "Plugin could not be activated",
+        ));
+    }
+    Ok(())
+}
+
+async fn load_plugin_manifest(
+    state: &AppState,
+    plugin_id: &PluginId,
+    version: &str,
+) -> Result<PluginManifest, AppError> {
+    let manifest_json: String = sqlx::query_scalar(
+        "select manifest_json from plugin_packages where plugin_id = ?1 and version = ?2",
+    )
+    .bind(plugin_id.as_str())
+    .bind(version)
+    .fetch_optional(&state.pool)
+    .await?
+    .ok_or_else(|| AppError::not_found("plugin.package_not_found", "Plugin package not found"))?;
+    serde_json::from_str(&manifest_json).map_err(AppError::from)
+}
+
+pub(crate) async fn effective_plugin_snapshot(
+    state: &AppState,
+) -> Result<EffectivePluginSnapshot, AppError> {
+    let manifest_rows: Vec<String> = sqlx::query_scalar(
+        r#"
+        select p.manifest_json
+        from plugin_installations i
+        join plugin_packages p
+          on p.plugin_id = i.plugin_id and p.version = i.active_version
+        where i.effective_state = 'active'
+        order by i.plugin_id
+        "#,
+    )
+    .fetch_all(&state.pool)
+    .await?;
+    let mut contributions = Vec::new();
+    for manifest_json in manifest_rows {
+        let manifest: PluginManifest = serde_json::from_str(&manifest_json)?;
+        contributions.extend(manifest.contributions.into_iter().filter(|contribution| {
+            matches!(
+                contribution,
+                PluginContribution::UiTheme {
+                    contract_version: THEME_CONTRIBUTION_VERSION_V1,
+                    ..
+                }
+            )
+        }));
+    }
+    Ok(EffectivePluginSnapshot {
+        contributions,
+        generated_at: Utc::now(),
+    })
+}
+
+fn validate_plugin_manifest(manifest: &PluginManifest) -> Result<(), AppError> {
+    if manifest.manifest_version != PLUGIN_MANIFEST_VERSION_V1 {
+        return Err(plugin_manifest_error("Unsupported plugin manifest version"));
+    }
+    validate_namespaced_id(manifest.plugin_id.as_str(), "plugin_id")?;
+    Version::parse(&manifest.version)
+        .map_err(|_| plugin_manifest_error("Plugin version must be SemVer"))?;
+    for value in [
+        manifest.display_name.as_str(),
+        manifest.description.as_str(),
+        manifest.publisher.as_str(),
+    ] {
+        if value.is_empty() || value.chars().count() > MAX_PLUGIN_TEXT_CHARS {
+            return Err(plugin_manifest_error(
+                "Plugin metadata is empty or oversized",
+            ));
+        }
+    }
+    if manifest.requested_permissions.len() > MAX_PLUGIN_PERMISSIONS
+        || manifest.contributions.len() > MAX_PLUGIN_CONTRIBUTIONS
+    {
+        return Err(plugin_manifest_error(
+            "Plugin manifest has too many entries",
+        ));
+    }
+    if manifest.install_source != PluginInstallSource::Bundled
+        || manifest.trust_level != PluginTrustLevel::DataOnly
+    {
+        return Err(plugin_manifest_error(
+            "Plugin Registry v1 accepts bundled data-only packages",
+        ));
+    }
+    if manifest
+        .requested_permissions
+        .iter()
+        .any(|permission| permission != THEME_CONTRIBUTION_PERMISSION)
+    {
+        return Err(plugin_manifest_error(
+            "Plugin Registry v1 contains an unsupported permission",
+        ));
+    }
+    if manifest.plugin_id.as_str().starts_with("uprava.")
+        && manifest.install_source != PluginInstallSource::Bundled
+    {
+        return Err(plugin_manifest_error("Reserved plugin namespace"));
+    }
+    for contribution in &manifest.contributions {
+        match contribution {
+            PluginContribution::UiTheme {
+                contract_version,
+                contribution,
+            } => {
+                if *contract_version != THEME_CONTRIBUTION_VERSION_V1 {
+                    return Err(plugin_manifest_error(
+                        "Unsupported ui.theme contribution version",
+                    ));
+                }
+                if !manifest
+                    .requested_permissions
+                    .iter()
+                    .any(|permission| permission == THEME_CONTRIBUTION_PERMISSION)
+                {
+                    return Err(plugin_manifest_error(
+                        "Theme contribution requires ui.theme.contribute",
+                    ));
+                }
+                validate_theme_contribution(contribution)?;
+            }
+            PluginContribution::AgentTool { .. } | PluginContribution::ArtifactType { .. } => {}
+        }
+    }
+    Ok(())
+}
+
+fn validate_theme_contribution(theme: &ThemeContributionV1) -> Result<(), AppError> {
+    validate_namespaced_id(&theme.theme_id, "theme_id")?;
+    if theme.semantic_tokens.len() > MAX_THEME_TOKENS
+        || theme.monaco.colors.len() > MAX_THEME_ADAPTER_COLORS
+        || theme.terminal.colors.len() > MAX_THEME_ADAPTER_COLORS
+    {
+        return Err(plugin_manifest_error("Theme palette is oversized"));
+    }
+    if REQUIRED_THEME_TOKENS
+        .iter()
+        .any(|token| !theme.semantic_tokens.contains_key(*token))
+    {
+        return Err(plugin_manifest_error(
+            "Theme is missing required semantic tokens",
+        ));
+    }
+    if theme
+        .semantic_tokens
+        .values()
+        .chain(theme.monaco.colors.values())
+        .chain(theme.terminal.colors.values())
+        .any(|color| !valid_hex_color(color))
+    {
+        return Err(plugin_manifest_error("Theme contains an invalid color"));
+    }
+    for (foreground, background, minimum) in [
+        ("content.primary", "surface.background", 4.5),
+        ("content.muted", "surface.background", 3.0),
+        ("focus", "surface.background", 3.0),
+        ("terminal.foreground", "terminal.background", 4.5),
+    ] {
+        let foreground = theme
+            .semantic_tokens
+            .get(foreground)
+            .and_then(|color| parse_hex_rgb(color));
+        let background = theme
+            .semantic_tokens
+            .get(background)
+            .and_then(|color| parse_hex_rgb(color));
+        if foreground
+            .zip(background)
+            .is_none_or(|(foreground, background)| contrast_ratio(foreground, background) < minimum)
+        {
+            return Err(plugin_manifest_error(
+                "Theme does not meet minimum critical contrast",
+            ));
+        }
+    }
+    if !matches!(theme.monaco.base.as_str(), "vs" | "vs-dark" | "hc-black") {
+        return Err(plugin_manifest_error(
+            "Theme contains an invalid Monaco base",
+        ));
+    }
+    Ok(())
+}
+
+fn evaluate_plugin_compatibility(manifest: &PluginManifest) -> PluginCompatibility {
+    let mut diagnostics = Vec::new();
+    if !version_in_range(APP_VERSION, &manifest.compatibility.core) {
+        diagnostics.push(format!("Core {APP_VERSION} is outside the supported range"));
+    }
+    if !version_in_range(APP_VERSION, &manifest.compatibility.web) {
+        diagnostics.push(format!("Web {APP_VERSION} is outside the supported range"));
+    }
+    if !manifest
+        .compatibility
+        .protocol_versions
+        .iter()
+        .any(|version| version == CURRENT_PROTOCOL_VERSION)
+    {
+        diagnostics.push(format!(
+            "Protocol {CURRENT_PROTOCOL_VERSION} is not supported by the plugin"
+        ));
+    }
+    PluginCompatibility {
+        state: if diagnostics.is_empty() {
+            PluginCompatibilityState::Compatible
+        } else {
+            PluginCompatibilityState::Incompatible
+        },
+        diagnostics,
+    }
+}
+
+fn version_in_range(version: &str, range: &PluginVersionRange) -> bool {
+    let Ok(version) = Version::parse(version) else {
+        return false;
+    };
+    if let Some(minimum) = &range.minimum {
+        let Ok(minimum) = Version::parse(minimum) else {
+            return false;
+        };
+        if version < minimum {
+            return false;
+        }
+    }
+    if let Some(maximum) = &range.maximum_exclusive {
+        let Ok(maximum) = Version::parse(maximum) else {
+            return false;
+        };
+        if version >= maximum {
+            return false;
+        }
+    }
+    true
+}
+
+fn validate_namespaced_id(value: &str, field: &str) -> Result<(), AppError> {
+    let valid = value.len() <= MAX_PLUGIN_ID_CHARS
+        && value.contains('.')
+        && value.bytes().all(|byte| {
+            byte.is_ascii_lowercase() || byte.is_ascii_digit() || matches!(byte, b'.' | b'-' | b'_')
+        });
+    if valid {
+        Ok(())
+    } else {
+        Err(plugin_manifest_error(format!(
+            "Plugin {field} must be a bounded namespaced identifier"
+        )))
+    }
+}
+
+fn valid_hex_color(value: &str) -> bool {
+    matches!(value.len(), 4 | 7 | 9)
+        && value.starts_with('#')
+        && value[1..].bytes().all(|byte| byte.is_ascii_hexdigit())
+}
+
+fn parse_hex_rgb(value: &str) -> Option<[u8; 3]> {
+    let hex = value.strip_prefix('#')?;
+    match hex.len() {
+        3 => {
+            let mut bytes = [0u8; 3];
+            for (index, digit) in hex.bytes().enumerate() {
+                let value = (digit as char).to_digit(16)? as u8;
+                bytes[index] = value * 17;
+            }
+            Some(bytes)
+        }
+        6 => Some([
+            u8::from_str_radix(&hex[0..2], 16).ok()?,
+            u8::from_str_radix(&hex[2..4], 16).ok()?,
+            u8::from_str_radix(&hex[4..6], 16).ok()?,
+        ]),
+        _ => None,
+    }
+}
+
+fn contrast_ratio(first: [u8; 3], second: [u8; 3]) -> f64 {
+    let first = relative_luminance(first);
+    let second = relative_luminance(second);
+    (first.max(second) + 0.05) / (first.min(second) + 0.05)
+}
+
+fn relative_luminance(color: [u8; 3]) -> f64 {
+    let channel = |value: u8| {
+        let value = f64::from(value) / 255.0;
+        if value <= 0.040_45 {
+            value / 12.92
+        } else {
+            ((value + 0.055) / 1.055).powf(2.4)
+        }
+    };
+    0.2126 * channel(color[0]) + 0.7152 * channel(color[1]) + 0.0722 * channel(color[2])
+}
+
+fn plugin_manifest_error(message: impl Into<String>) -> AppError {
+    AppError::bad_request("plugin.manifest_invalid", message)
+}
+
+fn format_install_source(value: PluginInstallSource) -> &'static str {
+    match value {
+        PluginInstallSource::Bundled => "bundled",
+        PluginInstallSource::Local => "local",
+        PluginInstallSource::TeamCatalog => "team_catalog",
+        PluginInstallSource::CommunityCatalog => "community_catalog",
+    }
+}
+
+fn parse_install_source(value: &str) -> Result<PluginInstallSource, AppError> {
+    match value {
+        "bundled" => Ok(PluginInstallSource::Bundled),
+        "local" => Ok(PluginInstallSource::Local),
+        "team_catalog" => Ok(PluginInstallSource::TeamCatalog),
+        "community_catalog" => Ok(PluginInstallSource::CommunityCatalog),
+        _ => Err(AppError::internal("plugin install source is invalid")),
+    }
+}
+
+fn format_trust_level(value: PluginTrustLevel) -> &'static str {
+    match value {
+        PluginTrustLevel::DataOnly => "data_only",
+        PluginTrustLevel::TrustedBundled => "trusted_bundled",
+        PluginTrustLevel::SandboxedWeb => "sandboxed_web",
+        PluginTrustLevel::SandboxedNode => "sandboxed_node",
+        PluginTrustLevel::ExternalService => "external_service",
+    }
+}
+
+fn parse_trust_level(value: &str) -> Result<PluginTrustLevel, AppError> {
+    match value {
+        "data_only" => Ok(PluginTrustLevel::DataOnly),
+        "trusted_bundled" => Ok(PluginTrustLevel::TrustedBundled),
+        "sandboxed_web" => Ok(PluginTrustLevel::SandboxedWeb),
+        "sandboxed_node" => Ok(PluginTrustLevel::SandboxedNode),
+        "external_service" => Ok(PluginTrustLevel::ExternalService),
+        _ => Err(AppError::internal("plugin trust level is invalid")),
+    }
+}
+
+fn format_desired_state(value: PluginDesiredState) -> &'static str {
+    match value {
+        PluginDesiredState::Disabled => "disabled",
+        PluginDesiredState::Enabled => "enabled",
+    }
+}
+
+fn parse_desired_state(value: &str) -> Result<PluginDesiredState, AppError> {
+    match value {
+        "disabled" => Ok(PluginDesiredState::Disabled),
+        "enabled" => Ok(PluginDesiredState::Enabled),
+        _ => Err(AppError::internal("plugin desired state is invalid")),
+    }
+}
+
+fn format_effective_state(value: PluginEffectiveState) -> &'static str {
+    match value {
+        PluginEffectiveState::Disabled => "disabled",
+        PluginEffectiveState::Active => "active",
+        PluginEffectiveState::Incompatible => "incompatible",
+        PluginEffectiveState::Degraded => "degraded",
+        PluginEffectiveState::Error => "error",
+    }
+}
+
+fn parse_effective_state(value: &str) -> Result<PluginEffectiveState, AppError> {
+    match value {
+        "disabled" => Ok(PluginEffectiveState::Disabled),
+        "active" => Ok(PluginEffectiveState::Active),
+        "incompatible" => Ok(PluginEffectiveState::Incompatible),
+        "degraded" => Ok(PluginEffectiveState::Degraded),
+        "error" => Ok(PluginEffectiveState::Error),
+        _ => Err(AppError::internal("plugin effective state is invalid")),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn bundled_manifest_should_validate() {
+        let manifest: PluginManifest =
+            serde_json::from_str(DARK_THEME_MANIFEST).expect("manifest parses");
+
+        validate_plugin_manifest(&manifest).expect("manifest validates");
+    }
+
+    #[test]
+    fn namespaced_id_should_reject_reserved_characters() {
+        let error = validate_namespaced_id("uprava.theme/<script>", "plugin_id")
+            .expect_err("identifier is rejected");
+
+        assert!(matches!(error, AppError::BadRequest { .. }));
+    }
+
+    #[test]
+    fn critical_theme_pairs_should_reject_low_contrast() {
+        let mut manifest: PluginManifest =
+            serde_json::from_str(DARK_THEME_MANIFEST).expect("manifest parses");
+        let PluginContribution::UiTheme { contribution, .. } = &mut manifest.contributions[0]
+        else {
+            panic!("fixture contains a theme");
+        };
+        contribution
+            .semantic_tokens
+            .insert("content.primary".to_owned(), "#111310".to_owned());
+
+        let error = validate_plugin_manifest(&manifest).expect_err("contrast is rejected");
+
+        assert!(matches!(error, AppError::BadRequest { .. }));
+    }
+
+    #[test]
+    fn v1_manifest_should_reject_non_bundled_or_executable_trust() {
+        let mut manifest: PluginManifest =
+            serde_json::from_str(DARK_THEME_MANIFEST).expect("manifest parses");
+        manifest.trust_level = PluginTrustLevel::SandboxedWeb;
+
+        let error = validate_plugin_manifest(&manifest).expect_err("executable trust is rejected");
+
+        assert!(matches!(error, AppError::BadRequest { .. }));
+    }
+
+    #[test]
+    fn v1_manifest_should_reject_unknown_permissions() {
+        let mut manifest: PluginManifest =
+            serde_json::from_str(DARK_THEME_MANIFEST).expect("manifest parses");
+        manifest
+            .requested_permissions
+            .push("workspace.write".to_owned());
+
+        let error = validate_plugin_manifest(&manifest).expect_err("permission is rejected");
+
+        assert!(matches!(error, AppError::BadRequest { .. }));
+    }
+}

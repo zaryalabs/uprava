@@ -854,8 +854,13 @@ running and policy allows it.
 
 ### A-004 Modular UI and Work Surface
 
-Registry предоставляет commands, permissions and availability для human UI.
-Plugin-contributed surfaces появятся в пункте `12`.
+A-007 владеет Tool Registry and agent-facing capability contract. Plugin
+Registry, package lifecycle, Web Extension Host, themes, views, commands and
+other UI contributions принадлежат A-004 и реализуются пунктом `12`.
+
+Registries связаны явными references: plugin может contribute tool definition,
+renderer or action for tool output, но Plugin Registry не становится source of
+truth для tool schema/routing, а Tool Registry не активирует UI plugins.
 
 ### A-005 Dynamic UI from Agents
 

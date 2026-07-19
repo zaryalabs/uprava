@@ -2,11 +2,7 @@ import { readFileSync, readdirSync } from "node:fs";
 import { extname, join, relative } from "node:path";
 
 const root = new URL("../src/", import.meta.url);
-const allowed = new Set([
-  "styles.css",
-  "features/workspace-inspector/MonacoViews.tsx",
-  "features/workspace-inspector/XtermTerminal.tsx",
-]);
+const allowed = new Set(["styles.css"]);
 const forbidden = [
   { label: "raw color", pattern: /#[\da-f]{3,8}/i },
   { label: "radius utility", pattern: /\brounded(?:-[\w[\].:/-]+)?\b/ },

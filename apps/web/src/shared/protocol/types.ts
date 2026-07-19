@@ -1434,3 +1434,93 @@ export type ToolingContractFixture = {
   integration_disconnect_request: IntegrationDisconnectRequest;
   integration_disconnect_response: IntegrationDisconnectResponse;
 };
+
+export type PluginTrustLevel =
+  | "data_only"
+  | "trusted_bundled"
+  | "sandboxed_web"
+  | "sandboxed_node"
+  | "external_service";
+export type PluginInstallSource =
+  | "bundled"
+  | "local"
+  | "team_catalog"
+  | "community_catalog";
+export type PluginDesiredState = "disabled" | "enabled";
+export type PluginEffectiveState =
+  | "disabled"
+  | "active"
+  | "incompatible"
+  | "degraded"
+  | "error";
+export type PluginCompatibilityState = "compatible" | "incompatible";
+export type ThemeKind = "light" | "dark" | "high_contrast";
+export type ThemeColorScheme = "light" | "dark";
+
+export type ThemeContributionV1 = {
+  theme_id: string;
+  label: string;
+  kind: ThemeKind;
+  color_scheme: ThemeColorScheme;
+  semantic_tokens: Record<string, string>;
+  monaco: { base: string; colors: Record<string, string> };
+  terminal: { colors: Record<string, string> };
+};
+
+export type PluginContribution =
+  | {
+      kind: "ui_theme";
+      contract_version: number;
+      contribution: ThemeContributionV1;
+    }
+  | { kind: "agent_tool"; contract_version: number; tool_id: string }
+  | {
+      kind: "artifact_type";
+      contract_version: number;
+      artifact_type_id: string;
+      display_name: string;
+    };
+
+export type PluginCompatibility = {
+  state: PluginCompatibilityState;
+  diagnostics: string[];
+};
+
+export type PluginPackageSummary = {
+  plugin_id: string;
+  version: string;
+  manifest_hash: string;
+  manifest_version: number;
+  display_name: string;
+  description: string;
+  publisher: string;
+  install_source: PluginInstallSource;
+  trust_level: PluginTrustLevel;
+  requested_permissions: string[];
+  contributions: PluginContribution[];
+  discovered_at: string;
+};
+
+export type PluginInstallationSummary = {
+  package: PluginPackageSummary;
+  desired_state: PluginDesiredState;
+  effective_state: PluginEffectiveState;
+  compatibility: PluginCompatibility;
+  configuration_revision: number;
+  granted_permissions: string[];
+  installed_at: string;
+  updated_at: string;
+  last_error_code: string | null;
+};
+
+export type PluginListResponse = { items: PluginInstallationSummary[] };
+
+export type EffectivePluginSnapshot = {
+  contributions: PluginContribution[];
+  generated_at: string;
+};
+
+export type PluginContractFixture = {
+  plugins: PluginListResponse;
+  effective_snapshot: EffectivePluginSnapshot;
+};

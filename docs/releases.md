@@ -2,7 +2,7 @@
 
 Статус: `active`
 
-Current release baseline: `0.2.11`.
+Current release baseline: `0.2.12`.
 
 Этот ledger фиксирует implementation baselines. Он не заменяет
 [`feature-queue.md`](product/feature-queue.md), где остается ранжированная очередь
@@ -32,17 +32,24 @@ future work.
 | `0.2.8` | 2026-07-19 | shipped | Модульные Core/Node runtime boundaries, capability-oriented tests и автоматический architecture gate |
 | `0.2.9` | 2026-07-19 | shipped | Прозрачный agent timeline: Conversation/Trace modes, сгруппированные live-события и stalled activity state |
 | `0.2.10` | 2026-07-19 | shipped | Git-aware Review: branch/worktree snapshots, scoped diffs, risk signals и traceable check results |
-| `0.2.11` | 2026-07-19 | current | Agent Tooling and Tool Registry v1: progressive Uprava MCP, scoped registry, ToolHive-backed Linear integration и traceable execution |
+| `0.2.11` | 2026-07-19 | shipped | Agent Tooling and Tool Registry v1: progressive Uprava MCP, scoped registry, ToolHive-backed Linear integration и traceable execution |
+| `0.2.12` | 2026-07-19 | current | Plugin Registry v1: Core-owned lifecycle, manifest-driven Web Extension Host и bundled data-only Dark Theme |
 
 ## Current Baseline
 
-`0.2.11` включает protocol-v2 baseline `0.2.0`, завершённое Zarya 0.1 Web UI/UX
+`0.2.12` включает protocol-v2 baseline `0.2.0`, завершённое Zarya 0.1 Web UI/UX
 alignment и clean-bootstrap four-phase delivery path. Текущая реализация включает
 первый working distributed
-control panel, одиннадцать закрытых
+control panel, двенадцать закрытых
 feature queue slices после `0.1.0`, unified audit hardening slice и workspace
 renderer/PTY terminal layer, а также первый deployable self-hosted release path:
 
+- Core-owned Plugin Registry отделён от Tool Registry и хранит immutable package
+  metadata, installation state, compatibility, configuration revisions,
+  permission grants и effective contribution projection;
+- manifest-driven Web Extension Host применяет только валидированные typed
+  `ui.theme` contributions; bundled data-only `uprava.theme-dark` переключает
+  semantic tokens, Monaco и xterm с безопасным `core.light` fallback;
 - Core-owned Tool Registry, permission-first progressive discovery
   `Search -> Inspect -> Execute` и session-scoped Uprava MCP leases;
 - Node-owned observed capability inventory, desired/actual ToolHive

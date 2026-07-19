@@ -75,6 +75,7 @@ id_type!(IntegrationId);
 id_type!(McpDependencyInstanceId);
 id_type!(ToolCallId);
 id_type!(McpAccessLeaseId);
+id_type!(PluginId);
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]

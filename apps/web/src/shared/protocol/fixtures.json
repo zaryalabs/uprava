@@ -37,6 +37,127 @@
     "source_refs": [],
     "turn_id": null
   },
+  "plugin_contract": {
+    "effective_snapshot": {
+      "contributions": [
+        {
+          "contract_version": 1,
+          "contribution": {
+            "color_scheme": "dark",
+            "kind": "dark",
+            "label": "Dark",
+            "monaco": {
+              "base": "vs-dark",
+              "colors": {
+                "editor.background": "#151814"
+              }
+            },
+            "semantic_tokens": {
+              "border.default": "#3a4038",
+              "border.strong": "#d7dbd1",
+              "content.inverse": "#111310",
+              "content.muted": "#a9ada3",
+              "content.primary": "#f1f2ec",
+              "editor.background": "#151814",
+              "editor.foreground": "#e5e9df",
+              "focus": "#f1f2ec",
+              "selection": "#355343",
+              "status.notice": "#b7a0ff",
+              "status.risk": "#ff777d",
+              "surface.background": "#111310",
+              "surface.muted": "#191c18",
+              "surface.raised": "#20241f",
+              "terminal.background": "#10130f",
+              "terminal.foreground": "#dce8dd"
+            },
+            "terminal": {
+              "colors": {
+                "background": "#10130f"
+              }
+            },
+            "theme_id": "uprava.dark"
+          },
+          "kind": "ui_theme"
+        }
+      ],
+      "generated_at": "2026-07-10T12:00:00Z"
+    },
+    "plugins": {
+      "items": [
+        {
+          "compatibility": {
+            "diagnostics": [],
+            "state": "compatible"
+          },
+          "configuration_revision": 0,
+          "desired_state": "enabled",
+          "effective_state": "active",
+          "granted_permissions": [
+            "ui.theme.contribute"
+          ],
+          "installed_at": "2026-07-10T12:00:00Z",
+          "last_error_code": null,
+          "package": {
+            "contributions": [
+              {
+                "contract_version": 1,
+                "contribution": {
+                  "color_scheme": "dark",
+                  "kind": "dark",
+                  "label": "Dark",
+                  "monaco": {
+                    "base": "vs-dark",
+                    "colors": {
+                      "editor.background": "#151814"
+                    }
+                  },
+                  "semantic_tokens": {
+                    "border.default": "#3a4038",
+                    "border.strong": "#d7dbd1",
+                    "content.inverse": "#111310",
+                    "content.muted": "#a9ada3",
+                    "content.primary": "#f1f2ec",
+                    "editor.background": "#151814",
+                    "editor.foreground": "#e5e9df",
+                    "focus": "#f1f2ec",
+                    "selection": "#355343",
+                    "status.notice": "#b7a0ff",
+                    "status.risk": "#ff777d",
+                    "surface.background": "#111310",
+                    "surface.muted": "#191c18",
+                    "surface.raised": "#20241f",
+                    "terminal.background": "#10130f",
+                    "terminal.foreground": "#dce8dd"
+                  },
+                  "terminal": {
+                    "colors": {
+                      "background": "#10130f"
+                    }
+                  },
+                  "theme_id": "uprava.dark"
+                },
+                "kind": "ui_theme"
+              }
+            ],
+            "description": "Bundled data-only dark appearance for Uprava.",
+            "discovered_at": "2026-07-10T12:00:00Z",
+            "display_name": "Dark Theme",
+            "install_source": "bundled",
+            "manifest_hash": "sha256:plugin-fixture",
+            "manifest_version": 1,
+            "plugin_id": "uprava.theme-dark",
+            "publisher": "Uprava",
+            "requested_permissions": [
+              "ui.theme.contribute"
+            ],
+            "trust_level": "data_only",
+            "version": "1.0.0"
+          },
+          "updated_at": "2026-07-10T12:00:00Z"
+        }
+      ]
+    }
+  },
   "tooling_contract": {
     "availability": {
       "backend_ref": "core-native",

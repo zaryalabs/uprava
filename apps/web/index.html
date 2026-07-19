@@ -3,6 +3,24 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <script>
+      try {
+        const cached = JSON.parse(
+          localStorage.getItem("uprava.theme-cache.v1") || "null",
+        );
+        const dark =
+          cached?.version === 1 &&
+          cached?.palette_version === 1 &&
+          cached?.effective_theme_id === "uprava.dark";
+        document.documentElement.dataset.theme = dark
+          ? "uprava.dark"
+          : "core.light";
+        document.documentElement.style.colorScheme = dark ? "dark" : "light";
+      } catch {
+        document.documentElement.dataset.theme = "core.light";
+        document.documentElement.style.colorScheme = "light";
+      }
+    </script>
     <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
     <title>Uprava</title>
   </head>

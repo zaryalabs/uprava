@@ -1,0 +1,77 @@
+{
+  "manifest_version": 1,
+  "plugin_id": "uprava.theme-dark",
+  "version": "1.0.0",
+  "display_name": "Dark Theme",
+  "description": "Bundled data-only dark appearance for Uprava.",
+  "publisher": "Uprava",
+  "license": null,
+  "homepage": null,
+  "install_source": "bundled",
+  "trust_level": "data_only",
+  "compatibility": {
+    "core": { "minimum": "0.2.12", "maximum_exclusive": "0.3.0" },
+    "web": { "minimum": "0.2.12", "maximum_exclusive": "0.3.0" },
+    "node": null,
+    "protocol_versions": ["v2"]
+  },
+  "activation_conditions": [],
+  "requested_permissions": ["ui.theme.contribute"],
+  "configuration_schema": null,
+  "contributions": [
+    {
+      "kind": "ui_theme",
+      "contract_version": 1,
+      "contribution": {
+        "theme_id": "uprava.dark",
+        "label": "Dark",
+        "kind": "dark",
+        "color_scheme": "dark",
+        "semantic_tokens": {
+          "surface.background": "#111310",
+          "surface.muted": "#191c18",
+          "surface.raised": "#20241f",
+          "content.primary": "#f1f2ec",
+          "content.muted": "#a9ada3",
+          "content.inverse": "#111310",
+          "border.default": "#3a4038",
+          "border.strong": "#d7dbd1",
+          "status.risk": "#ff777d",
+          "status.notice": "#b7a0ff",
+          "focus": "#f1f2ec",
+          "selection": "#355343",
+          "editor.background": "#151814",
+          "editor.foreground": "#e5e9df",
+          "terminal.background": "#10130f",
+          "terminal.foreground": "#dce8dd"
+        },
+        "monaco": {
+          "base": "vs-dark",
+          "colors": {
+            "editor.background": "#151814",
+            "editor.foreground": "#e5e9df",
+            "editorLineNumber.foreground": "#777d73",
+            "editor.selectionBackground": "#355343",
+            "editor.inactiveSelectionBackground": "#293c31"
+          }
+        },
+        "terminal": {
+          "colors": {
+            "background": "#10130f",
+            "foreground": "#dce8dd",
+            "cursor": "#f4f7f2",
+            "selectionBackground": "#355343",
+            "black": "#171a16",
+            "red": "#ff777d",
+            "green": "#8ecf88",
+            "yellow": "#e1c56b",
+            "blue": "#8eb8ff",
+            "magenta": "#c7a0ff",
+            "cyan": "#79c8c3",
+            "white": "#dce8dd"
+          }
+        }
+      }
+    }
+  ]
+}

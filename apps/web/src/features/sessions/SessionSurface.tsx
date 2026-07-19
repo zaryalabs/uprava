@@ -121,7 +121,7 @@ export function SessionSurface({
 
   return (
     <article className="min-w-0" aria-labelledby="session-surface-title">
-      <header className="uprava-session-header grid gap-4 border-b border-black/10 pb-5 md:grid-cols-[minmax(0,1fr)_auto] md:items-end">
+      <header className="uprava-session-header grid gap-4 border-b border-[var(--color-border)] pb-5 md:grid-cols-[minmax(0,1fr)_auto] md:items-end">
         <div className="min-w-0">
           <div className="zarya-caption">
             SESSION / {session.data.session.runtime.provider} /{" "}
@@ -250,14 +250,14 @@ export function SessionSurface({
             sessionThreadId={session.data.session.session_thread_id}
           />
         )}
-        <details className="border-t border-black/10 pt-4">
+        <details className="border-t border-[var(--color-border)] pt-4">
           <summary className="cursor-pointer text-sm font-bold">
             Session details
             <span className="ml-2 font-normal text-[var(--color-muted)]">
               Evidence and Agent Projection
             </span>
           </summary>
-          <div className="mt-4 grid gap-6 border-l border-black/10 pl-4 xl:grid-cols-2">
+          <div className="mt-4 grid gap-6 border-l border-[var(--color-border)] pl-4 xl:grid-cols-2">
             <EvidenceProjection
               sessionThreadId={session.data.session.session_thread_id}
             />

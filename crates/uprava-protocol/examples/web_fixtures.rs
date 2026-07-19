@@ -1,3 +1,5 @@
+use std::collections::BTreeMap;
+
 use chrono::{TimeZone, Utc};
 use serde::Serialize;
 use serde_json::{json, Map, Value};
@@ -8,11 +10,15 @@ use uprava_protocol::{
     IntegrationConnectResponse, IntegrationConnectionSummary, IntegrationConnectionsResponse,
     IntegrationDesiredState, IntegrationDisconnectRequest, IntegrationDisconnectResponse,
     McpAccessLeaseClaims, McpAccessLeaseId, McpDependencyActualState, McpDependencyInstanceId,
-    McpDependencyStatus, McpDependencyStatusesResponse, ObservedCapabilitiesResponse,
-    ObservedCapability, ObservedCapabilityState, PolicyDecision, ProjectId, ProjectPlacementId,
+    McpDependencyStatus, McpDependencyStatusesResponse, MonacoThemeV1,
+    ObservedCapabilitiesResponse, ObservedCapability, ObservedCapabilityState, PluginCompatibility,
+    PluginCompatibilityState, PluginContribution, PluginDesiredState, PluginEffectiveState,
+    PluginId, PluginInstallSource, PluginInstallationSummary, PluginListResponse,
+    PluginPackageSummary, PluginTrustLevel, PolicyDecision, ProjectId, ProjectPlacementId,
     ScopeRef, SearchToolsRequest, SearchToolsResponse, SessionThreadId, TerminalId,
-    ToolAvailability, ToolAvailabilityResponse, ToolAvailabilityState, ToolCallDetail, ToolCallId,
-    ToolCallState, ToolCallSummary, ToolCallsResponse, ToolDefinition, ToolDefinitionState,
+    TerminalThemeV1, ThemeColorScheme, ThemeContributionV1, ThemeKind, ToolAvailability,
+    ToolAvailabilityResponse, ToolAvailabilityState, ToolCallDetail, ToolCallId, ToolCallState,
+    ToolCallSummary, ToolCallsResponse, ToolDefinition, ToolDefinitionState,
     ToolDefinitionsResponse, ToolExecutionKind, ToolId, ToolInvocationMode, ToolRedactionPolicy,
     ToolResultEnvelope, ToolRiskLevel, ToolScope, ToolSearchFilters, ToolSearchResult,
     ToolSourceId, ToolSourceKind, ToolingCommandPayloadV1, ToolingCommandV1, ToolingEventPayloadV1,
@@ -160,12 +166,97 @@ fn main() {
         "tooling_contract",
         tooling_contract_fixture(at, placement_id),
     );
+    insert(
+        &mut fixtures,
+        "plugin_contract",
+        plugin_contract_fixture(at),
+    );
 
     println!(
         "{}",
         serde_json::to_string_pretty(&Value::Object(fixtures))
             .expect("web protocol fixtures serialize")
     );
+}
+
+#[derive(Serialize)]
+struct PluginContractFixture {
+    plugins: PluginListResponse,
+    effective_snapshot: uprava_protocol::EffectivePluginSnapshot,
+}
+
+fn plugin_contract_fixture(at: chrono::DateTime<Utc>) -> PluginContractFixture {
+    let contribution = PluginContribution::UiTheme {
+        contract_version: 1,
+        contribution: ThemeContributionV1 {
+            theme_id: "uprava.dark".to_owned(),
+            label: "Dark".to_owned(),
+            kind: ThemeKind::Dark,
+            color_scheme: ThemeColorScheme::Dark,
+            semantic_tokens: BTreeMap::from([
+                ("content.primary".to_owned(), "#f1f2ec".to_owned()),
+                ("content.muted".to_owned(), "#a9ada3".to_owned()),
+                ("content.inverse".to_owned(), "#111310".to_owned()),
+                ("surface.background".to_owned(), "#111310".to_owned()),
+                ("surface.muted".to_owned(), "#191c18".to_owned()),
+                ("surface.raised".to_owned(), "#20241f".to_owned()),
+                ("border.default".to_owned(), "#3a4038".to_owned()),
+                ("border.strong".to_owned(), "#d7dbd1".to_owned()),
+                ("status.risk".to_owned(), "#ff777d".to_owned()),
+                ("status.notice".to_owned(), "#b7a0ff".to_owned()),
+                ("focus".to_owned(), "#f1f2ec".to_owned()),
+                ("selection".to_owned(), "#355343".to_owned()),
+                ("editor.background".to_owned(), "#151814".to_owned()),
+                ("editor.foreground".to_owned(), "#e5e9df".to_owned()),
+                ("terminal.background".to_owned(), "#10130f".to_owned()),
+                ("terminal.foreground".to_owned(), "#dce8dd".to_owned()),
+            ]),
+            monaco: MonacoThemeV1 {
+                base: "vs-dark".to_owned(),
+                colors: BTreeMap::from([("editor.background".to_owned(), "#151814".to_owned())]),
+            },
+            terminal: TerminalThemeV1 {
+                colors: BTreeMap::from([("background".to_owned(), "#10130f".to_owned())]),
+            },
+        },
+    };
+    let package = PluginPackageSummary {
+        plugin_id: PluginId::from("uprava.theme-dark"),
+        version: "1.0.0".to_owned(),
+        manifest_hash: "sha256:plugin-fixture".to_owned(),
+        manifest_version: 1,
+        display_name: "Dark Theme".to_owned(),
+        description: "Bundled data-only dark appearance for Uprava.".to_owned(),
+        publisher: "Uprava".to_owned(),
+        install_source: PluginInstallSource::Bundled,
+        trust_level: PluginTrustLevel::DataOnly,
+        requested_permissions: vec!["ui.theme.contribute".to_owned()],
+        contributions: vec![contribution.clone()],
+        discovered_at: at,
+    };
+    let installation = PluginInstallationSummary {
+        package,
+        desired_state: PluginDesiredState::Enabled,
+        effective_state: PluginEffectiveState::Active,
+        compatibility: PluginCompatibility {
+            state: PluginCompatibilityState::Compatible,
+            diagnostics: vec![],
+        },
+        configuration_revision: 0,
+        granted_permissions: vec!["ui.theme.contribute".to_owned()],
+        installed_at: at,
+        updated_at: at,
+        last_error_code: None,
+    };
+    PluginContractFixture {
+        plugins: PluginListResponse {
+            items: vec![installation],
+        },
+        effective_snapshot: uprava_protocol::EffectivePluginSnapshot {
+            contributions: vec![contribution],
+            generated_at: at,
+        },
+    }
 }
 
 #[derive(Serialize)]

@@ -1,5 +1,7 @@
 import { expect, test } from "@playwright/test";
 
+import protocolFixtures from "../src/shared/protocol/fixtures.json" with { type: "json" };
+
 test("renders the control panel shell", async ({ page }) => {
   await mockCoreApi(page);
   await page.goto("/");
@@ -58,6 +60,55 @@ test("renders the control panel shell", async ({ page }) => {
   await expect(
     page.getByRole("button", { name: "Show navigation" }),
   ).toHaveAttribute("aria-expanded", "false");
+});
+
+test("enables, persists, and safely disables the bundled Dark Theme", async ({
+  page,
+}) => {
+  await mockCoreApi(page);
+  await page.setViewportSize({ width: 1280, height: 900 });
+  await page.goto("/settings/plugins");
+
+  await expect(
+    page.getByRole("heading", { name: "Plugins & Appearance" }),
+  ).toBeVisible();
+  await expect(page.getByRole("button", { name: "Enable" })).toBeVisible();
+  await expect(page.getByRole("radio", { name: /Light/ })).toBeChecked();
+  await expect(page.getByRole("radio", { name: /Dark/ })).toHaveCount(0);
+
+  await page.getByRole("button", { name: "Enable" }).click();
+  const dark = page.getByRole("radio", { name: /Dark/ });
+  await expect(dark).toBeVisible();
+  await dark.check();
+  await expect(page.locator("html")).toHaveAttribute(
+    "data-theme",
+    "uprava.dark",
+  );
+  expect(
+    await page.evaluate(
+      () => getComputedStyle(document.documentElement).colorScheme,
+    ),
+  ).toBe("dark");
+
+  await page.reload();
+  await expect(page.locator("html")).toHaveAttribute(
+    "data-theme",
+    "uprava.dark",
+  );
+  await expect(page.getByRole("radio", { name: /Dark/ })).toBeChecked();
+
+  await page.getByRole("button", { name: "Disable" }).click();
+  await expect(page.locator("html")).toHaveAttribute(
+    "data-theme",
+    "core.light",
+  );
+  await expect(page.getByRole("radio", { name: /Dark/ })).toHaveCount(0);
+  await page.reload();
+  await expect(page.locator("html")).toHaveAttribute(
+    "data-theme",
+    "core.light",
+  );
+  expect(await horizontalOverflow(page)).toBeLessThanOrEqual(1);
 });
 
 test("renders warning badges and structured session blocks from snapshots", async ({
@@ -169,11 +220,13 @@ test("loads Workbench chunks on demand and refits after shell changes", async ({
   await expect.poll(() => resources.some(isMonacoResource)).toBe(true);
   expect(resources.some(isXtermResource)).toBe(false);
 
-  await page.getByRole("tab", { name: "Diff" }).click();
+  await page.getByRole("tab", { name: "Review" }).click();
+  await expect.poll(() => core.diffRequests).toBe(1);
+  await page.getByRole("button", { name: /README\.md/ }).click();
   await expect(
-    page.getByRole("region", { name: "Workspace diff viewer" }),
+    page.getByRole("region", { name: "Workspace diff README.md" }),
   ).toBeVisible({ timeout: 15_000 });
-  expect(core.diffRequests).toBe(1);
+  expect(core.diffRequests).toBe(2);
   await page.getByRole("tab", { name: "Source" }).click();
 
   await page.getByRole("button", { name: "New" }).click();
@@ -409,7 +462,7 @@ test("supports the shell and composer keyboard path", async ({ page }) => {
   await expect(
     page.getByRole("heading", { name: "Workbench", level: 2 }),
   ).toBeVisible();
-  const agentTab = page.getByRole("link", { name: "Agent" });
+  const agentTab = page.getByRole("link", { name: "Agent", exact: true });
   await agentTab.focus();
   await page.keyboard.press("Enter");
   await expect(page.getByRole("heading", { name: "Fix issue" })).toBeVisible();
@@ -443,6 +496,7 @@ async function mockCoreApi(page: import("@playwright/test").Page) {
     terminalOpen: false,
     jobsRequests: 0,
     createdJobRequest: null as Record<string, unknown> | null,
+    pluginEnabled: false,
   };
   await installMockWebSocket(page);
   await mockPublicShellApi(page);
@@ -455,6 +509,45 @@ async function mockCoreApi(page: import("@playwright/test").Page) {
   await page.route("**/api/v1/node-enrollments", async (route) => {
     await route.fulfill({ contentType: "application/json", body: json([]) });
   });
+  await page.route("**/api/v1/plugins", async (route) => {
+    await route.fulfill({
+      contentType: "application/json",
+      body: json({ items: [mockPluginInstallation(state.pluginEnabled)] }),
+    });
+  });
+  await page.route("**/api/v1/plugin-contributions?**", async (route) => {
+    await route.fulfill({
+      contentType: "application/json",
+      body: json(
+        state.pluginEnabled
+          ? protocolFixtures.plugin_contract.effective_snapshot
+          : {
+              contributions: [],
+              generated_at: "2026-07-19T12:00:00Z",
+            },
+      ),
+    });
+  });
+  await page.route(
+    "**/api/v1/plugins/uprava.theme-dark/enable",
+    async (route) => {
+      state.pluginEnabled = true;
+      await route.fulfill({
+        contentType: "application/json",
+        body: json(mockPluginInstallation(true)),
+      });
+    },
+  );
+  await page.route(
+    "**/api/v1/plugins/uprava.theme-dark/disable",
+    async (route) => {
+      state.pluginEnabled = false;
+      await route.fulfill({
+        contentType: "application/json",
+        body: json(mockPluginInstallation(false)),
+      });
+    },
+  );
   await page.route("**/api/v1/jobs", async (route) => {
     if (route.request().method() === "POST") {
       state.createdJobRequest = route.request().postDataJSON() as Record<
@@ -516,6 +609,17 @@ async function mockCoreApi(page: import("@playwright/test").Page) {
       await route.fulfill({
         contentType: "application/json",
         body: json(workspaceTree),
+      });
+    },
+  );
+  await page.route(
+    "**/api/v1/placements/placement-1/workspace/review?**",
+    async (route) => {
+      state.diffRequests += 1;
+      const path = new URL(route.request().url()).searchParams.get("path");
+      await route.fulfill({
+        contentType: "application/json",
+        body: json(workspaceReviewForPath(path)),
       });
     },
   );
@@ -640,6 +744,15 @@ async function mockCoreApi(page: import("@playwright/test").Page) {
     });
   });
   return state;
+}
+
+function mockPluginInstallation(enabled: boolean) {
+  const plugin = protocolFixtures.plugin_contract.plugins.items[0];
+  return {
+    ...plugin,
+    desired_state: enabled ? "enabled" : "disabled",
+    effective_state: enabled ? "active" : "disabled",
+  };
 }
 
 async function installMockWebSocket(page: import("@playwright/test").Page) {
@@ -820,6 +933,55 @@ const workspaceDiff = {
   diff_truncated: false,
   generated_at: "2026-06-17T00:00:00Z",
 };
+
+const gitSnapshot = {
+  state: "ready",
+  repo_id: "sha256:fixture",
+  head_state: "branch",
+  branch: "main",
+  commit: "0123456789abcdef",
+  upstream: "origin/main",
+  ahead: 0,
+  behind: 0,
+  worktree_kind: "primary",
+  operation: null,
+  changed_files: [
+    {
+      path: "README.md",
+      previous_path: null,
+      index_status: null,
+      worktree_status: "modified",
+      conflicted: false,
+      binary: false,
+    },
+  ],
+  staged_count: 0,
+  unstaged_count: 1,
+  untracked_count: 0,
+  conflicted_count: 0,
+  truncated: false,
+  generated_at: "2026-06-17T00:00:00Z",
+};
+
+function workspaceReviewForPath(path: string | null) {
+  return {
+    placement_id: "placement-1",
+    git_snapshot: gitSnapshot,
+    diff: {
+      ...workspaceDiff,
+      git_snapshot: gitSnapshot,
+      scope: "all",
+      path,
+      changed_files: gitSnapshot.changed_files,
+      hunks: [],
+      original: path ? "# Before" : null,
+      modified: path ? "# Uprava" : null,
+      binary: false,
+    },
+    checks: [],
+    generated_at: "2026-06-17T00:00:00Z",
+  };
+}
 
 const workspaceTerminal = {
   placement_id: "placement-1",

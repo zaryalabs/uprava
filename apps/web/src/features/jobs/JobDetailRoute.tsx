@@ -170,7 +170,7 @@ export function JobDetailRoute() {
                 detail.job.job_id,
                 candidate.job_run_id,
               )}
-              className="grid gap-3 border border-black/20 p-3 hover:bg-[var(--color-bg-muted)] md:grid-cols-[auto_minmax(0,1fr)_auto]"
+              className="grid gap-3 border border-[var(--color-border-strong)] p-3 hover:bg-[var(--color-bg-muted)] md:grid-cols-[auto_minmax(0,1fr)_auto]"
             >
               <StatusIndicator dimension="lifecycle" value={candidate.state} />
               <div className="min-w-0 text-sm">
@@ -230,7 +230,7 @@ function JobConfigEditor({
 
   return (
     <form
-      className="grid gap-3 border border-black/20 p-4"
+      className="grid gap-3 border border-[var(--color-border-strong)] p-4"
       onSubmit={(event) => {
         event.preventDefault();
         save.mutate();
@@ -291,7 +291,7 @@ function Datum({
   children: React.ReactNode;
 }) {
   return (
-    <div className="border-t border-black/20 pt-3">
+    <div className="border-t border-[var(--color-border-strong)] pt-3">
       <div className="text-xs font-bold text-[var(--color-muted)]">{label}</div>
       <div className="mt-1 break-words text-sm">{children}</div>
     </div>
