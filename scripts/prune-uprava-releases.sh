@@ -14,13 +14,14 @@ esac
 
 test -d "$releases_dir" || exit 0
 active_release=$(sed -n 's/^UPRAVA_RELEASE_ID=//p' "$install_dir/.env.release" 2>/dev/null | head -n 1)
+previous_release=$(sed -n 's/^UPRAVA_RELEASE_ID=//p' "$install_dir/.env.previous" 2>/dev/null | head -n 1)
 index=0
 find "$releases_dir" -maxdepth 1 -type f -name '*.env.release' -exec ls -1t {} + |
     while read -r manifest_path; do
         manifest_name=${manifest_path##*/}
         release=${manifest_name%.env.release}
         index=$((index + 1))
-        if [ "$release" = "$active_release" ] || [ "$index" -le "$keep" ]; then
+        if [ "$release" = "$active_release" ] || [ "$release" = "$previous_release" ] || [ "$index" -le "$keep" ]; then
             continue
         fi
         case "$release" in

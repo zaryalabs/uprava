@@ -44,6 +44,7 @@ validate: require-release ## Validate the selected immutable release and host in
 	test "$${UPRAVA_CORE_CONFIG:-}" = "$(CORE_CONFIG)" || { echo "Core config must be $(CORE_CONFIG)" >&2; exit 1; }; \
 	test "$${UPRAVA_NODE_CONFIG:-}" = "$(NODE_CONFIG)" || { echo "Node config must be $(NODE_CONFIG)" >&2; exit 1; }; \
 	test "$${UPRAVA_NODE_STATE_PATH:-}" = /var/lib/uprava-node/node.sqlite || { echo "Unexpected Node state path" >&2; exit 1; }; \
+	test -n "$${UPRAVA_RELEASE_FAMILY:-}" || { echo "Release family is required" >&2; exit 1; }; \
 	test -n "$${UPRAVA_RELEASE_SHA:-}"; \
 	test -n "$${UPRAVA_NODE_VERSION:-}"; \
 	test -n "$${UPRAVA_AUTO_APPROVE_NODE_NAME:-}"; \
@@ -60,6 +61,57 @@ activate: validate ## Activate the selected manifest and release directory
 	$(SUDO) mkdir -p "$(RELEASES_DIR)/$(RELEASE)"; \
 	$(SUDO) ln -sfn "$$manifest" .env.release; \
 	$(SUDO) ln -sfn "$(RELEASES_DIR)/$(RELEASE)" current
+
+remember-current: ## Preserve the active release as the automatic rollback target
+	@set -eu; \
+	if test ! -e .env.release && test ! -L .env.release && test ! -e current && test ! -L current; then \
+		$(SUDO) rm -f .env.previous previous; \
+		exit 0; \
+	fi; \
+	test -L .env.release && test -L current || \
+		{ echo "Active release links are incomplete or not symbolic links" >&2; exit 1; }; \
+	manifest="$$(readlink .env.release)"; \
+	release_dir="$$(readlink current)"; \
+	test -f "$$manifest" || { echo "Active release manifest is missing" >&2; exit 1; }; \
+	. "$$manifest"; \
+	test -n "$${UPRAVA_RELEASE_ID:-}" || { echo "Active release identity is missing" >&2; exit 1; }; \
+	case "$${UPRAVA_RELEASE_ID}" in \
+		''|[!A-Za-z0-9]*|*[!A-Za-z0-9._-]*) echo "Active release identity is unsafe" >&2; exit 1 ;; \
+	esac; \
+	test "$$(realpath "$$manifest")" = "$$(realpath "$(RELEASES_DIR)/$${UPRAVA_RELEASE_ID}.env.release")" || \
+		{ echo "Active release manifest link is inconsistent" >&2; exit 1; }; \
+	test "$$(realpath "$$release_dir")" = "$$(realpath "$(RELEASES_DIR)/$${UPRAVA_RELEASE_ID}")" || \
+		{ echo "Active release directory link is inconsistent" >&2; exit 1; }; \
+	test -x "$$release_dir/uprava-node" || { echo "Active Node binary is missing" >&2; exit 1; }; \
+	$(SUDO) ln -sfn "$$manifest" .env.previous; \
+	$(SUDO) ln -sfn "$$release_dir" previous
+
+rollback-activate: ## Restore the preserved release links after failed validation
+	@set -eu; \
+	test -L .env.previous && test -L previous || { echo "No previous release is available" >&2; exit 1; }; \
+	candidate_family="$$(sed -n 's/^UPRAVA_RELEASE_FAMILY=//p' .env.release | head -n 1)"; \
+	candidate_core_state="$$(sed -n 's/^UPRAVA_CORE_STATE_DIR=//p' .env.release | head -n 1)"; \
+	candidate_node_state="$$(sed -n 's/^UPRAVA_NODE_STATE_PATH=//p' .env.release | head -n 1)"; \
+	manifest="$$(readlink .env.previous)"; \
+	release_dir="$$(readlink previous)"; \
+	test -f "$$manifest" || { echo "Previous release manifest is missing" >&2; exit 1; }; \
+	. "$$manifest"; \
+	test -n "$${UPRAVA_RELEASE_ID:-}" || { echo "Previous release identity is missing" >&2; exit 1; }; \
+	case "$${UPRAVA_RELEASE_ID}" in \
+		''|[!A-Za-z0-9]*|*[!A-Za-z0-9._-]*) echo "Previous release identity is unsafe" >&2; exit 1 ;; \
+	esac; \
+	test -n "$$candidate_family" && test "$${UPRAVA_RELEASE_FAMILY:-}" = "$$candidate_family" || \
+		{ echo "Previous release family is incompatible with the candidate state" >&2; exit 1; }; \
+	test "$${UPRAVA_CORE_STATE_DIR:-}" = "$$candidate_core_state" && \
+		test "$${UPRAVA_NODE_STATE_PATH:-}" = "$$candidate_node_state" || \
+		{ echo "Previous release does not use the candidate state slots" >&2; exit 1; }; \
+	test "$$(realpath "$$manifest")" = "$$(realpath "$(RELEASES_DIR)/$${UPRAVA_RELEASE_ID}.env.release")" || \
+		{ echo "Previous release manifest link is inconsistent" >&2; exit 1; }; \
+	test "$$(realpath "$$release_dir")" = "$$(realpath "$(RELEASES_DIR)/$${UPRAVA_RELEASE_ID}")" || \
+		{ echo "Previous release directory link is inconsistent" >&2; exit 1; }; \
+	test -x "$$release_dir/uprava-node" || { echo "Previous Node binary is missing" >&2; exit 1; }; \
+	$(SUDO) ln -sfn "$$manifest" .env.release; \
+	$(SUDO) ln -sfn "$$release_dir" current
 
 pull: ## Pull Core/Web images and install the verified Node artifact
 	@test -e .env.release || { echo "Missing active .env.release" >&2; exit 1; }
@@ -85,7 +137,12 @@ node-artifact: ## Extract and checksum the active Node artifact
 	$(SUDO) mv "$$tmp" "$$output"; \
 	cleanup; trap - EXIT INT TERM
 
-deploy: activate ## Pull and apply the selected release; no validation or retention
+deploy: validate ## Preserve the current release, then pull and apply the selected release
+	$(MAKE) --no-print-directory -f "$(firstword $(MAKEFILE_LIST))" remember-current \
+		SUDO="$(SUDO)" RELEASES_DIR="$(RELEASES_DIR)"
+	$(MAKE) --no-print-directory -f "$(firstword $(MAKEFILE_LIST))" activate \
+		RELEASE="$(RELEASE)" SUDO="$(SUDO)" RELEASES_DIR="$(RELEASES_DIR)" \
+		CORE_CONFIG="$(CORE_CONFIG)" NODE_CONFIG="$(NODE_CONFIG)"
 	$(MAKE) --no-print-directory -f "$(firstword $(MAKEFILE_LIST))" pull \
 		SUDO="$(SUDO)" RELEASES_DIR="$(RELEASES_DIR)" CORE_CONFIG="$(CORE_CONFIG)" \
 		NODE_CONFIG="$(NODE_CONFIG)" COMPOSE_FILE="$(COMPOSE_FILE)" DOCKER_CONFIG="$(DOCKER_CONFIG)"
@@ -93,6 +150,18 @@ deploy: activate ## Pull and apply the selected release; no validation or retent
 	$(SUDO) systemctl daemon-reload
 	$(SUDO) systemctl enable $(SYSTEMD_UNIT) >/dev/null
 	$(SUDO) systemctl restart $(SYSTEMD_UNIT)
+
+rollback: rollback-activate ## Reactivate the release preserved before deploy
+	$(COMPOSE_CMD) up -d --remove-orphans
+	$(SUDO) systemctl daemon-reload
+	$(SUDO) systemctl restart $(SYSTEMD_UNIT)
+
+deactivate: ## Stop a failed first release and remove its active links
+	@set -u; status=0; \
+	$(COMPOSE_CMD) down || status=$$?; \
+	$(SUDO) systemctl stop $(SYSTEMD_UNIT) || status=$$?; \
+	$(SUDO) rm -f .env.release current; \
+	exit $$status
 
 down: ## Stop Uprava runtime units without deleting state
 	$(COMPOSE_CMD) down
@@ -115,4 +184,4 @@ restore-verify: ## Verify a SQLite backup archive without activating it
 	tar -xzf "$(BACKUP)" -C "$$tmp_dir"; \
 	"$(OPS_SCRIPT_DIR)/verify-sqlite-backup.sh" "$$(find "$$tmp_dir" -name core.sqlite -type f -print -quit)"
 
-.PHONY: help status logs releases require-release validate activate pull node-artifact deploy down backup restore-verify
+.PHONY: help status logs releases require-release validate activate remember-current rollback-activate pull node-artifact deploy rollback deactivate down backup restore-verify

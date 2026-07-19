@@ -95,14 +95,16 @@ rehearsal не требуется для каждой сборки; достат
 `deploy` намеренно остаётся небольшим. Он:
 
 1. устанавливает product-owned operations files;
-2. устанавливает и активирует manifest из `build`;
-3. скачивает digest-pinned artifacts;
-4. применяет Core/Web через Compose;
-5. устанавливает и перезапускает Node binary через разрешённый systemd unit.
+2. устанавливает candidate manifest из `build`;
+3. сохраняет активный release как проверяемый rollback target;
+4. активирует candidate и скачивает digest-pinned artifacts;
+5. применяет Core/Web через Compose;
+6. устанавливает и перезапускает Node binary через разрешённый systemd unit.
 
 Он не запускает smoke, не проверяет business projections, не очищает artifacts,
-не сбрасывает SQLite state и не делает automatic rollback. Успешный deploy
-означает только, что запрошенный release применён.
+не сбрасывает SQLite state и сам не проверяет результат. Успешный deploy
+означает только, что запрошенный release применён; automatic rollback относится
+к readiness gate следующей фазы.
 
 ## Finalize
 
@@ -112,17 +114,23 @@ rehearsal не требуется для каждой сборки; достат
 2. проверяет public route и ожидаемый release SHA;
 3. проверяет active state Node systemd unit;
 4. ожидает свежий Node heartbeat и сверяет Node version;
-5. удаляет только ограниченную историю Uprava releases и images;
-6. выводит краткую production summary.
+5. при ошибке readiness возвращает совместимый предыдущий release либо
+   деактивирует failed first candidate;
+6. после успешной readiness-проверки удаляет только ограниченную историю Uprava
+   releases и images;
+7. выводит краткую production summary.
 
 Finalize использует stable operational interfaces. Он не записывает internal
 SQLite metadata, не требует конкретной business projection и не зависит от
 private table layouts. Read-only SQLite integrity check может существовать как
 отдельная diagnostic command, но не является обязательным release gate.
 
-Если `finalize` падает, workflow становится красным, а release остаётся active.
-Успешные build и deploy остаются видны отдельно, поэтому failure boundary
-понятна. Automatic rollback и alert delivery сейчас вне scope.
+Если readiness-часть `finalize` падает, workflow становится красным, сохранённый
+release той же family и с теми же state slots автоматически активируется снова,
+а Core/Web/Node перезапускаются. При отсутствии безопасного target failed first
+candidate останавливается и active links удаляются. Ошибка retention после
+успешного readiness gate не откатывает валидный release. Alert delivery остаётся
+вне scope.
 
 ## Форма workflow и репозитория
 

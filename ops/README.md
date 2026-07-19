@@ -6,9 +6,12 @@ Production-релизы не собираются и не активируютс
 Фаза `deploy` проверяет стабильные host inputs в `/etc/uprava`, активирует
 manifest с закреплёнными digest, загружает Core/Web, проверяет checksum
 извлечённого Node, запускает Compose и перезапускает принадлежащий продукту
-systemd unit. Она не проверяет health, не сбрасывает состояние, не удаляет
-артефакты и не выполняет rollback. За operational readiness и ограниченное
-удержание только артефактов Uprava отвечает отдельная фаза `finalize`.
+systemd unit. Перед переключением она сохраняет согласованные links активного
+release как rollback target. Она не проверяет health, не сбрасывает состояние и
+не удаляет артефакты. За operational readiness, автоматический возврат
+совместимого предыдущего release при failure и ограниченное удержание только
+артефактов Uprava отвечает отдельная фаза `finalize`. Если безопасного target
+нет, failed candidate останавливается и active links удаляются.
 
 Для чистой установки нужны `/etc/uprava/core.env`, `/etc/uprava/node.env`,
 пользователь `uprava`, Docker/Compose/systemd и общая сеть `platform`.

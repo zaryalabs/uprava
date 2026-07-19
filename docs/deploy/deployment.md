@@ -44,6 +44,8 @@ Root helpers устанавливаются out of band из `ops/uprava-ci-root
   compose.yaml
   .env.release -> builds/releases/<release-id>.env.release
   current -> builds/releases/<release-id>/
+  .env.previous -> builds/releases/<previous-release-id>.env.release
+  previous -> builds/releases/<previous-release-id>/
   builds/releases/<release-id>/uprava-node
   state/core/core.sqlite
   scripts/prune-uprava-images.sh
@@ -75,17 +77,25 @@ Core/Web/Node image refs и checksum извлечённого Node binary. Manif
 - `build` использует только host Docker engine для build, startup check и
   publication immutable artifacts, затем создаёт release manifest.
 - `deploy` создаёт directories и ops files, устанавливает systemd unit и
-  manifest, pull-ит artifacts, проверяет Node checksum, запускает Core/Web и
-  перезапускает Node. Он не проверяет health, не чистит artifacts, не сбрасывает
-  state и не делает rollback.
+  manifest, сохраняет согласованные manifest/binary links активного release как
+  rollback target, pull-ит artifacts, проверяет Node checksum, запускает
+  Core/Web и перезапускает Node. Он не проверяет health, не чистит artifacts и
+  не сбрасывает state.
 - `finalize` ждёт local и public health Core/Web, проверяет public Git SHA,
   systemd unit и вызывает read-only operational interface Core
-  `deployment-status` для проверки Node version и heartbeat. Только после этого
-  выполняется bounded Uprava release/image retention и печатается summary.
+  `deployment-status` для проверки Node version и heartbeat. Ошибка на этом
+  readiness gate автоматически возвращает сохранённые links и перезапускает
+  предыдущие Core/Web/Node. Rollback разрешён только для той же release family
+  и тех же state slots. Если это первая установка или target небезопасен,
+  candidate останавливается и его active links удаляются. Только после
+  успешного readiness gate выполняется bounded Uprava release/image retention
+  и печатается summary.
 
-Failure `finalize` делает workflow красным, но оставляет применённый release
-active. Причина исправляется локально и доставляется следующим обновлением
-`main`; ручное доведение partial release не входит в контракт.
+Failure readiness-части `finalize` делает workflow красным и не оставляет
+невалидный release active. Ошибка retention или summary после успешной
+readiness-проверки также делает workflow красным, но не откатывает уже
+проверенный release. Rollback target сохраняется release retention независимо
+от общего числового лимита.
 
 ## Runtime boundaries
 

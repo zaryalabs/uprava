@@ -255,6 +255,7 @@ scripts-check: ## Run shell syntax checks for product scripts
 	sh scripts/check-release-manifest.sh; \
 	sh scripts/check-ci-phases.sh; \
 	sh scripts/check-clean-bootstrap-deploy.sh; \
+	sh scripts/check-deployment-rollback.sh; \
 	sh scripts/check-release-retention.sh; \
 	sh scripts/check-backup-restore.sh
 

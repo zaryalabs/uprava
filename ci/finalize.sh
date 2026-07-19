@@ -5,6 +5,7 @@ source "$(dirname "$0")/lib.sh"
 
 install_dir=${INSTALL_DIR:-/opt/apps/uprava}
 manifest=${RELEASE_MANIFEST:-${CI_ARTIFACT_DIR:-handoff}/uprava-release.env}
+make_cmd=${MAKE:-make}
 sudo_cmd=${SUDO:-sudo}
 retries=${FINALIZE_RETRIES:-60}
 delay=${FINALIZE_DELAY_SECONDS:-2}
@@ -17,12 +18,34 @@ if [[ ${UPRAVA_ROOT_PHASE:-0} != 1 ]]; then
   exit 0
 fi
 
+rollback_armed=1
+
+finalize_error() {
+  local code=$?
+  trap - ERR
+  if (( rollback_armed == 1 )); then
+    ci_set_stage rollback
+    if "$sudo_cmd" "$make_cmd" -C "$install_dir" --no-print-directory rollback SUDO=; then
+      ci_log "automatic rollback completed"
+    else
+      ci_log "rollback target unavailable or failed; deactivating candidate"
+      if ! "$sudo_cmd" "$make_cmd" -C "$install_dir" --no-print-directory deactivate SUDO=; then
+        ci_log "candidate deactivation reported an error"
+      fi
+    fi
+  fi
+  printf '[ci] phase=%s stage=%s exit=%s\n' "$CI_PHASE" "$ci_stage" "$code" >&2
+  exit "$code"
+}
+
+trap finalize_error ERR
+
 test -s "$manifest"
 # shellcheck disable=SC1090
 source "$manifest"
-: "${UPRAVA_RELEASE_SHA:?missing release SHA}"
-: "${UPRAVA_NODE_VERSION:?missing Node version}"
-: "${UPRAVA_AUTO_APPROVE_NODE_NAME:?missing production Node name}"
+test -n "${UPRAVA_RELEASE_SHA:-}"
+test -n "${UPRAVA_NODE_VERSION:-}"
+test -n "${UPRAVA_AUTO_APPROVE_NODE_NAME:-}"
 
 domain=${UPRAVA_DOMAIN:-$("$sudo_cmd" awk -F= '$1 == "UPRAVA_DOMAIN" {print $2}' /etc/uprava/core.env)}
 compose=("$sudo_cmd" docker compose --env-file /etc/uprava/core.env --env-file "$install_dir/.env.release" -f "$install_dir/compose.yaml")
@@ -55,6 +78,8 @@ ci_set_stage node-readiness
 wait_until node-service "$sudo_cmd" systemctl is-active --quiet uprava-node.service
 wait_until node-heartbeat "${compose[@]}" exec -T core uprava-server deployment-status \
   "$UPRAVA_AUTO_APPROVE_NODE_NAME" "$UPRAVA_NODE_VERSION" 45
+
+rollback_armed=0
 
 ci_set_stage retention
 "$sudo_cmd" INSTALL_DIR="$install_dir" "$install_dir/scripts/prune-uprava-releases.sh"
