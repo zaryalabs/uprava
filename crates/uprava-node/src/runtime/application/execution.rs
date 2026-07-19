@@ -28,8 +28,8 @@ impl<'a> NodeLiveEventSink<'a> {
         }) {
             tracing::warn!(
                 error = %error,
-                event_id = %event.event_id,
-                kind = ?event.kind,
+                event_kind = ?event.kind,
+                correlation_id = ?event.correlation_id,
                 "live provider event could not be queued; durable delivery will retry it"
             );
         }

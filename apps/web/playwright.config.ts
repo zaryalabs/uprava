@@ -6,6 +6,11 @@ const useSystemChrome = process.env.UPRAVA_E2E_SYSTEM_CHROME === "1";
 export default defineConfig({
   testDir: "./e2e",
   reporter: "list",
+  expect: {
+    toHaveScreenshot: {
+      maxDiffPixelRatio: 0.0001,
+    },
+  },
   use: {
     baseURL,
     trace: "on-first-retry",

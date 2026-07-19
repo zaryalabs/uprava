@@ -358,7 +358,8 @@ pub(crate) async fn handle_command_dispatch(
             Err(error) => {
                 tracing::warn!(
                     error = %error,
-                    command_id = %command.command_id,
+                    command_kind = ?command.kind,
+                    correlation_id = %command.correlation_id,
                     "provider MCP access could not be issued"
                 );
                 let outcome = provider_mcp_access_failure_outcome(local_state, &command);
