@@ -107,10 +107,12 @@ state, queues, review contracts, artifact packaging, retries, webhook wakeups.
 
 ### Scope
 
-- Tool Registry v1.
+- Agent Tooling and Tool Registry v1.
 - Plugin Registry v1.
 - Integration adapter model.
-- First-class MCP adapter support.
+- Uprava MCP as the primary agent-facing machine interface.
+- Progressive tool discovery: Search, Inspect and Execute.
+- ToolHive-backed external MCP runtime.
 - Native adapter path for integrations where MCP is not enough.
 - Git provider integration.
 - Linear integration as first task tracker.
@@ -119,7 +121,7 @@ state, queues, review contracts, artifact packaging, retries, webhook wakeups.
 - Tool call trace.
 - Artifact metadata tied to tool/plugin output.
 - Minimal visual plugin/block API.
-- CLI access to registered tools.
+- Node-native CLI inventory as observed capabilities; agents invoke those tools directly.
 
 ### Product shift
 
@@ -311,8 +313,8 @@ Stage 7 расширяет ее за пределы software development.
 - Нужен ли Stage 1 мобильный UI, или достаточно responsive web для
   monitoring/attach?
 - Какая минимальная форма trace нужна для persistent session?
-- Должен ли Tool Registry в Stage 1 быть только internal schema, или уже иметь
-  UI?
+- Какой минимальный human-facing registry UI нужен рядом с обязательным
+  agent-facing progressive discovery?
 - Где провести границу между Stage 2 visual block API and Stage 3 rich visual
   artifacts?
 - Когда именно появляется MR/PR flow: в Stage 2 как git integration или в Stage

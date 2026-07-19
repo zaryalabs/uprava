@@ -1,1240 +1,893 @@
-# A-007 Plugins, Tool Registry and MCP Strategy
+# A-007 Agent Tooling, Tool Registry and MCP Strategy
 
 Статус: `working-position`
 
-Этот документ фиксирует рабочую позицию по ключевой механике `A-007 Plugins,
-Tool Registry and MCP Strategy`.
+Этот документ фиксирует архитектуру пункта очереди `11 Agent Tooling and Tool
+Registry v1` и долговечное направление для plugins and integrations.
 
-Главная позиция: `A-007` - это не только вопрос "где живет Tool Registry" и не
-только вопрос "нужен ли MCP gateway". Это механизм, который описывает, **как
-Uprava управляет tools, plugins, integrations and runtime dependencies across
-Core, Node Daemon, agent runtimes and external providers**.
+## Решение
 
-Ключевое уточнение: проблема MCP в Uprava - это не только protocol routing.
-Это dependency/runtime management:
+Uprava строит agent tooling вокруг четырёх обязательных решений:
 
-- какие MCP servers, CLI utilities, native adapters and Uprava-native tools
-  должны быть доступны;
-- на каких нодах, проектах, workspaces, sessions and agents;
-- кто устанавливает, запускает, обновляет and останавливает эти зависимости;
-- как credentials and secrets материализуются рядом с execution;
-- как Core видит actual capabilities and failures;
-- как tools становятся traceable, permissioned and visible in UI.
+1. Core владеет Tool Registry, product policy, scope, routing, trace and audit.
+2. Uprava MCP является основным machine interface агента к Core capabilities и
+   внешним integrations.
+3. Agent-facing каталог всегда использует progressive discovery
+   `Search -> Inspect -> Execute`; полный catalog schemas не передаётся модели.
+4. ToolHive является external MCP runtime provider: запускает, обнаруживает,
+   агрегирует и проксирует внешние MCP servers, но не заменяет Core policy.
 
-Рабочая позиция:
+Отдельный Uprava CLI не входит в первый срез. Его можно добавить позже, если
+появятся подтверждённые shell-composition, streaming or batch scenarios.
 
-```text
-Core owns desired state, registries, policies, toolsets and trace.
-Node Daemon owns reconciliation, local execution and capability reporting.
-Runtime providers run concrete dependency classes.
-MCP is one tool/integration protocol, not the whole extension model.
-```
-
-Для MCP dependencies Uprava должен иметь abstract runtime provider model.
-`ToolHive` является основным кандидатом для MCP runtime management, но не
-должен быть единственным или обязательным механизмом. Uprava должен уметь
-работать с разными providers:
-
-```text
-McpRuntimeProvider:
-  simple-local
-  remote-http
-  docker-local
-  toolhive-local
-  toolhive-kubernetes
-```
-
-## Vision
-
-### Какую проблему решает механика
-
-Agent tools сегодня обычно настраиваются локально в конкретном client/runtime:
-
-```text
-Codex config
-Claude Code config
-Cursor MCP config
-VS Code / Copilot config
-custom scripts
-shell PATH
-local credentials
-```
-
-Это удобно для одного разработчика на одной машине, но плохо масштабируется до
-Uprava-модели:
-
-- несколько Node Daemons;
-- разные host OS, containers, devboxes and sandboxes;
-- разные agent providers;
-- project-specific and session-specific toolsets;
-- shared team policies;
-- visible trace;
-- reviewable outputs;
-- permissions;
-- external integrations;
-- local workspace tools;
-- future cloud/sandbox runtimes.
-
-Если каждый agent provider самостоятельно читает локальные MCP/CLI configs,
-Core теряет контроль над ключевыми вопросами:
-
-- какой tool действительно был доступен агенту;
-- какая версия server/binary/schema использовалась;
-- на какой Node tool был установлен и запущен;
-- кто разрешил tool;
-- какие secrets были материализованы;
-- как tool call связан с trace, artifact, UI block or external entity;
-- как отключить tool для конкретного проекта, ноды или session;
-- как понять, почему tool отсутствует или degraded.
-
-С другой стороны, попытка реализовать "свой MCP под каждый Notion/Grafana/GitLab
-server" превращает Uprava в бесконечную гонку интеграций. Это не нужно.
-
-Нужна другая модель:
-
-```text
-Core describes desired tools/dependencies.
-Node Daemon reconciles local reality.
-Specialized runtime providers run/manage dependency classes.
-Agent sees a scoped tool surface.
-Uprava records the call path, policy and output.
-```
-
-### Главная модель
-
-Нужно разделить четыре слоя, которые часто смешиваются.
-
-#### Tool
-
-`Tool` - конкретная callable capability с input schema, output schema,
-permissions, risk level, routing target and optional renderer/artifact
-contract.
-
-Примеры:
-
-- `workspace.read_file`;
-- `workspace.run_command`;
-- `notion.search_pages`;
-- `github.create_issue`;
-- `grafana.query_prometheus`;
-- `uprava.emit_causality_narrative`.
-
-#### Dependency
-
-`Dependency` - runtime artifact, который нужен, чтобы tool был доступен:
-binary, container, MCP server, remote endpoint, native adapter, OAuth
-connection, local package, provider runtime.
-
-Примеры:
-
-- `git` binary;
-- `rg` binary;
-- `gh` CLI;
-- `notion-remote` MCP server;
-- local `filesystem` MCP server;
-- Docker image with MCP server;
-- ToolHive workload;
-- native GitHub integration adapter;
-- Codex runtime adapter.
-
-Один dependency может expose несколько tools. Один tool может иметь разные
-execution backends в разных deployment profiles.
-
-#### Plugin / Integration
-
-`Plugin` - package-level extension: tools, UI surfaces, visual renderers,
-artifact types, workflow templates, parsers, schemas, permissions and
-configuration.
-
-`Integration` - configured connection to an external or local system:
-GitHub account, Notion workspace, Grafana instance, local Docker daemon,
-Kubernetes cluster, internal service, MCP endpoint.
-
-Plugin and integration могут требовать dependencies, но не равны им.
-
-#### Runtime Provider
-
-`Runtime Provider` - механизм, который умеет materialize and operate
-dependencies:
-
-```text
-cli provider
-  checks/install/runs binaries
-
-container provider
-  pulls/builds/runs containers
-
-mcp provider
-  starts/proxies MCP servers
-
-toolhive provider
-  delegates MCP server lifecycle to ToolHive
-
-native provider
-  calls external SaaS API or Core-local implementation
-```
+Provider-native и Node-local tools (`bash`, filesystem tools, `git`, `gh`,
+`glab`) не дублируются и не проксируются через Uprava без отдельной продуктовой
+причины. Uprava показывает их как observed capabilities, после чего агент
+вызывает native tool напрямую.
 
 Короткая формула:
 
 ```text
-Tool is what the agent/user can call.
-Dependency is what must exist for the tool to work.
-Plugin is where capabilities and UI contracts come from.
-Runtime provider is who makes the dependency real.
+Core owns meaning, policy and trace.
+Uprava MCP exposes a progressive agent interface.
+ToolHive operates external MCP runtimes.
+Native agent tools remain native.
 ```
 
-### Почему MCP не должен быть единственным механизмом
+## Vision
 
-MCP полезен как protocol для exposing tools to agents. Но Uprava needs more
-than MCP:
+### Проблема
 
-- Core-owned permissions;
-- UI visibility;
-- artifacts and visual renderers;
-- source/evidence/cause refs;
-- workflow integration;
-- node placement;
-- dependency lifecycle;
-- secret materialization;
-- versioned trace;
-- user-facing configuration;
-- agent-provider-independent toolsets.
+У агентской системы одновременно существуют:
 
-Поэтому MCP should be one adapter path:
+- Uprava-native capabilities;
+- внешние MCP integrations;
+- provider-native tools;
+- Node-local CLI tools;
+- разные Node, workspaces, sessions and authorization states;
+- разные agent providers с разными механизмами tool loading.
+
+Если каждый provider самостоятельно читает локальные MCP configs и получает
+полный список всех tools, Core теряет ответы на вопросы:
+
+- какие capabilities агент действительно видел;
+- почему tool был доступен или недоступен;
+- на какой Node и через какой backend он исполнялся;
+- какие permissions and approvals применились;
+- какая schema/version использовалась;
+- как вызов связан с trace, artifact or external entity;
+- как отключить integration для одного project/session;
+- как не заполнить context сотнями schemas.
+
+Если Uprava начнёт оборачивать `bash`, `git`, `gh` и другие знакомые агенту
+инструменты, появятся дублирующие contracts, лишние шаги и худшая composability.
+
+Нужна общая модель, которая управляет тем, чем Uprava действительно владеет,
+наблюдает остальное и раскрывает агенту только релевантные capabilities.
+
+### Целевая схема
 
 ```text
-MCP adapter
-Native API adapter
-CLI adapter
-Node-local adapter
-Core-native tool
-External provider adapter
-Hybrid adapter
+Agent provider
+  built-in tools: bash, files, git, browser
+  direct Node CLI: gh, glab, other registered binaries
+  Uprava MCP: small stable discovery surface
+                     |
+                     v
+Core Tool Registry and Policy
+  definitions, effective availability, permissions, routing, trace
+             |                         |
+             v                         v
+Uprava-native backend             Node MCP bridge
+Core commands/API                      |
+                                      v
+                                   ToolHive
+                                      |
+                                      v
+                         external MCP servers/integrations
 ```
 
-### Почему один Uprava MCP в agent config означает gateway
+## Термины и границы
 
-Если agent config содержит только один MCP server:
+### Managed tool
 
-```text
-agent -> uprava MCP
-```
+Callable capability, contract and execution path которой находятся под
+Uprava policy.
 
-а агент должен через него использовать Notion, Grafana, GitLab, Confluence or
-other upstream MCP servers, то Uprava MCP неизбежно становится generic MCP
-gateway/proxy:
-
-```text
-agent
--> uprava MCP gateway
-  -> upstream Notion MCP
-  -> upstream Grafana MCP
-  -> upstream GitLab MCP
-  -> Uprava-native tools
-  -> Node-local tools
-```
-
-Это не плохо, но это нужно назвать честно.
+Примеры:
 
-Граница такая:
-
-```text
-Do:
-  protocol-level MCP aggregation, filtering, routing, tracing and forwarding
-
-Do not:
-  manually reimplement every external MCP server as custom Uprava logic
-```
-
-Generic MCP gateway должен уметь:
-
-- `tools/list` upstream discovery;
-- namespacing and conflict resolution;
-- tool filtering;
-- `tools/call` forwarding;
-- error mapping;
-- timeout/cancellation;
-- schema snapshotting;
-- permission checks before call;
-- trace events around call;
-- result wrapping/redaction;
-- upstream health reporting.
-
-Он не должен знать доменную семантику Notion or Grafana, если эти systems
-подключены как external MCP. Доменная семантика появляется только тогда, когда
-Uprava выбирает native adapter path for better UX.
+- `uprava.session.inspect`;
+- `uprava.trace.resolve`;
+- `uprava.artifact.describe`;
+- `linear.search_issues` через ToolHive-backed MCP;
+- `notion.get_page` через ToolHive-backed MCP.
 
-### ToolHive как основной кандидат, а не обязательное ядро
-
-ToolHive важен как validation of the model. Он уже делит MCP platform на
-runtime, registry, gateway and portal:
-
-- Runtime запускает MCP servers locally/in containers or in Kubernetes;
-- Registry Server помогает curated catalog of MCP servers;
-- Virtual MCP Server aggregates multiple backend MCP servers into one endpoint;
-- UI/CLI дают operational management;
-- есть support для remote MCP, containerized servers, package-manager schemes,
-  groups, secrets, audit, tool filtering and optimization.
-
-Для Uprava это не означает "ToolHive становится Core". Более точная модель:
-
-```text
-Uprava Core
-  desired state, profiles, policy, permissions, trace, UI, artifacts
-
-Node Daemon
-  dependency reconciler and capability reporter
-
-ToolHive
-  optional provider for MCP runtime management
-```
-
-То есть ToolHive может быть `McpRuntimeProvider`, который решает тяжелую часть
-MCP lifecycle. Uprava сохраняет собственную модель продукта поверх него.
-
-## Пользовательские сценарии
-
-### 1. Включить Notion на всех developer nodes
-
-Пользователь или admin включает Notion integration в Core:
-
-```text
-Enable Notion MCP for node_pool: dev
-Expose tools to projects: all
-Allowed agents: Codex, Claude Code
-Auth: shared OAuth connection or user-scoped OAuth connection
-Runtime provider: toolhive-local
-```
-
-Core не редактирует руками configs всех agent providers. Он обновляет desired
-state. Каждая подходящая Node получает effective profile, reconciler запускает
-или обновляет runtime dependency, reports actual state, and Core exposes tools
-to allowed sessions.
-
-### 2. Включить Grafana только на одной серверной ноде
+### Observed capability
 
-Grafana может быть доступна только на ноде, которая имеет network access to
-internal observability:
+Capability, наличие которой Uprava может обнаружить и показать, но execution
+contract которой не принадлежит Uprava.
 
-```text
-scope:
-  node: sre-linux-01
-dependency:
-  grafana-mcp
-routing:
-  only sessions placed on sre-linux-01
-```
+Примеры:
 
-Если session запущена на другой Node, UI должен показать:
+- `bash` у agent provider;
+- `git` на Node;
+- авторизованный `gh`;
+- `glab` определённой версии;
+- provider-native web search.
 
-```text
-Grafana tools unavailable:
-  reason: dependency only available on sre-linux-01
-  action: move session / request access / use remote provider
-```
+Observed capability не должна притворяться managed tool. Для неё Core может
+знать version, health, Node placement and safe auth status, но не обещает
+Uprava schema, routing, audit coverage or result capture.
 
-### 3. Включить GitLab через native adapter, а не MCP
+### Tool definition
 
-Если Uprava хочет хороший product UX for merge requests, diffs, checks,
-review comments and artifacts, native adapter может быть лучше, чем generic
-MCP:
+Версионируемое описание managed tool независимо от его текущей доступности.
 
-```text
-GitLab native adapter
-  Core owns OAuth, webhooks, domain objects and UI renderers
-  Tools are exposed to agents through Tool Registry
-  Execution happens through Core/external provider adapter
-```
+### Effective availability
 
-MCP can still exist as compatibility path, but not as source-of-truth for the
-integration.
+Результат вычисления доступности definition для конкретных actor, Node,
+project/workspace, session and policy version.
 
-### 4. Дать агенту CLI utility
+### MCP integration
 
-Для command-line utilities модель проще:
+Настроенное подключение внешней системы, tools которой доступны через MCP
+server. Примеры: Linear, Notion, Atlassian/Jira.
 
-```text
-DependencyProfile requires rg, git, cargo
-Node verifies or installs binaries
-Workspace/session policy decides which commands are callable
-Agent invokes typed command tool or terminal/PTY under Node policy
-```
+### Dependency
 
-Важно не превращать все CLI в raw unrestricted shell. Stable tools should be
-typed where possible:
+Runtime artifact, необходимый для capability: MCP server package/image,
+endpoint, binary or provider runtime.
 
-```text
-tool: git.status
-args: { repo_ref }
-execution: node-local
-policy: read-only
-renderer: git status view
-```
-
-Raw shell remains available only through explicit terminal/PTY/run-command
-surface with permissions and trace.
-
-### 5. Session-specific MCP toolset
-
-Для sensitive tasks можно создать session-specific profile:
-
-```text
-session abc:
-  include:
-    - notion.search_pages
-    - github.list_issues
-  exclude:
-    - notion.create_page
-    - github.merge_pull_request
-  lifetime:
-    until session end
-```
-
-Node or ToolHive may run the same upstream server, but Uprava gateway/toolset
-filters what the agent sees and what calls are allowed.
-
-## Agent-facing сценарии
-
-### Direct ToolHive exposure
-
-Быстрый compatibility path:
-
-```text
-Agent config:
-  uprava MCP
-  toolhive vMCP
-```
-
-Плюсы:
-
-- быстрее проверить external MCPs;
-- меньше Uprava gateway code at first;
-- ToolHive already handles aggregation and remote/local MCP runtime.
-
-Минусы:
-
-- часть policy/trace/audit остается outside Uprava;
-- сложнее session-specific toolsets;
-- UI не всегда знает, какой upstream tool реально был вызван;
-- agent provider configs снова содержат больше одного endpoint.
-
-### Uprava-only exposure
-
-Более сильная Uprava product model:
-
-```text
-Agent config:
-  uprava MCP only
-
-uprava MCP
-  -> Uprava-native tools
-  -> Node-local CLI/tools
-  -> ToolHive vMCP
-  -> external MCP servers
-  -> native adapters
-```
-
-Плюсы:
-
-- один agent-facing endpoint;
-- Core sees every tool call;
-- better permissions, trace, artifacts, session scoping;
-- consistent across Codex/Claude/other providers.
-
-Минусы:
-
-- Uprava must implement generic MCP gateway/forwarding;
-- more responsibility for protocol compatibility;
-- needs careful failure handling and performance design.
-
-Рабочая позиция: support both paths during exploration, but design the system
-so the long-term product-correct path is Uprava-only exposure.
-
-## Architecture
-
-### Responsibility boundaries
-
-```text
-Core Backend
-  Tool Registry
-  Plugin Registry
-  Integration Registry
-  Dependency Profile Registry
-  Toolset/Profile resolution
-  Permissions and approval policy
-  Secrets refs and account connections
-  Routing decisions
-  Trace/events/artifact metadata
-  Web Control Panel configuration UI
-
-Node Daemon
-  Dependency Reconciler
-  Capability Reporter
-  Agent Provider Adapter host integration
-  local CLI/container/MCP runtime control
-  ToolHive adapter when enabled
-  workspace-local execution
-  local health checks
-  local secret materialization
-
-Runtime Providers
-  install/start/stop/update dependencies
-  expose endpoints/process handles
-  report health and discovered tools
-  enforce runtime-specific isolation where possible
-
-Agent Runtime
-  consumes scoped tool surface
-  calls tools through provider-native means, MCP, CLI/API or terminal
-```
-
-### Control flow
-
-```text
-User/admin changes desired state in Core
--> Core computes effective dependency profile per Node/project/session
--> Node receives desired state through control channel
--> Node Reconciler compares desired vs actual
--> Runtime Provider installs/starts/stops dependencies
--> Node discovers capabilities/tools and health
--> Node reports actual state to Core
--> Core updates Tool Registry/Toolset snapshot
--> Agent session receives scoped tools
--> Tool calls are routed and traced through Core/Node/provider
-```
-
-### Core registries
-
-#### Tool Registry
-
-Tool Registry stores callable capabilities:
+### Runtime provider
+
+Механизм, управляющий lifecycle dependency. В первом срезе external MCP
+dependencies обслуживает ToolHive.
+
+## Разделение ответственности
+
+### Core
+
+Core владеет:
+
+- Tool Registry definitions;
+- integration configuration and desired state;
+- actor/project/workspace/session scope;
+- permissions, risk and approval policy;
+- progressive discovery index and filtering;
+- effective availability projection;
+- routing decisions;
+- tool-call identity, trace and causality;
+- safe product-level audit metadata;
+- session tool snapshots where required for reproducibility;
+- UI projection and explanations of unavailable state.
+
+### Node Daemon
+
+Node владеет:
+
+- actual Node capability inventory;
+- workspace-local execution context;
+- ToolHive adapter and local MCP bridge;
+- desired/actual reconciliation for enabled MCP dependencies;
+- local process/container lifecycle delegated to ToolHive;
+- reporting discovered tools, schema hashes, health and failures;
+- bounded materialization of credentials where local runtime requires it;
+- local enforcement that complements Core policy.
+
+### ToolHive
+
+ToolHive владеет MCP runtime concerns:
+
+- starting and stopping MCP servers;
+- remote MCP proxying;
+- workload/group/vMCP management;
+- tool discovery and upstream metadata;
+- namespacing/filtering primitives;
+- runtime health and logs;
+- runtime-level audit;
+- supported secrets and isolation mechanisms.
+
+ToolHive не владеет:
+
+- Uprava actor/project/session permissions;
+- product-level tool identity;
+- cross-provider progressive discovery UX;
+- Uprava trace and causality;
+- artifact/UI semantics;
+- final routing authorization.
+
+### Agent provider
+
+Provider:
+
+- подключается к Uprava MCP;
+- показывает модели минимальную discovery surface;
+- может dynamically mount inspected definitions, если умеет;
+- продолжает предоставлять собственные native tools;
+- не получает полный Uprava catalog в model context.
+
+## Core Tool Registry
+
+### ToolDefinition
+
+Минимальная модель:
 
 ```text
 tool_id
+version
 display_name
-description
+short_description
+documentation optional
+source_kind
+source_ref optional
 input_schema
-output_schema
+output_schema optional
+schema_hash
 risk_level
-permission_scopes
+required_permissions
 execution_kind
-routing_target
-source_dependency_ref optional
-source_plugin_ref optional
+routing_policy
+required_capabilities
+approval_policy
+audit_policy
 renderer_contract optional
 artifact_contract optional
-approval_policy
-version/schema_hash
-```
-
-#### Plugin Registry
-
-Plugin Registry stores package-level extension:
-
-```text
-plugin_id
-version
-origin
-provided_tools
-provided_dependencies
-provided_renderers
-provided_artifact_types
-provided_workflow_templates
-configuration_schema
-requested_permissions
-compatibility
-update_policy
-```
-
-#### Integration Registry
-
-Integration Registry stores configured connections:
-
-```text
-integration_id
-kind: native | mcp | cli | external_provider | hybrid
-account_connection_ref optional
-endpoint_ref optional
-secret_refs
-project_bindings
-node_bindings
-policy
 status
+created_at
+updated_at
 ```
 
-#### Dependency Profile Registry
-
-Dependency profiles describe desired state:
-
-```yaml
-id: default-dev-tools
-scope:
-  node_pools: [dev]
-  projects: [all]
-dependencies:
-  - id: git
-    kind: cli_binary
-    provider: system
-    version: system
-  - id: rg
-    kind: cli_binary
-    provider: system
-    version: ">=14"
-  - id: notion
-    kind: mcp_server
-    provider: toolhive-local
-    source: registry:notion-remote
-    group: uprava-default
-    secrets:
-      - ref: notion_oauth
-        target: NOTION_TOKEN
-    tools:
-      allow:
-        - search_pages
-        - get_page
-      deny:
-        - delete_page
-exposure:
-  agents:
-    codex:
-      mode: uprava-mcp
-    claude-code:
-      mode: uprava-mcp
-```
-
-### Desired vs actual state
-
-Core must not assume that desired state has been applied. Node reports actual
-state:
-
-```yaml
-node_id: node_local_macbook
-profile_version: 42
-dependencies:
-  - id: notion
-    desired: present
-    actual: running
-    provider: toolhive-local
-    endpoint: http://127.0.0.1:4483/mcp
-    health: ok
-    discovered_tools:
-      - notion.search_pages
-      - notion.get_page
-    schema_hash: sha256:...
-  - id: grafana
-    desired: present
-    actual: failed
-    reason: missing_secret
-```
-
-UI should always distinguish:
+`source_kind`:
 
 ```text
-configured
+uprava_native
+external_mcp
+plugin
+```
+
+`execution_kind`:
+
+```text
+core_native
+node_native
+toolhive_mcp
+external_provider
+hybrid
+```
+
+`risk_level` initial vocabulary:
+
+```text
+read_only
+workspace_write
+external_read
+external_write
+credentialed_action
+destructive
+privileged_local
+network_broad
+```
+
+### ToolAvailability
+
+```text
+tool_id
+actor_scope
+node_id optional
+project_id optional
+project_placement_id optional
+session_id optional
+status
+reason_code optional
+backend_ref optional
+dependency_instance_ref optional
+schema_hash
+policy_version
+observed_at
+```
+
+`status`:
+
+```text
+available
+unavailable
+degraded
+approval_required
+```
+
+`reason_code` examples:
+
+```text
+node_offline
+capability_missing
+dependency_missing
+dependency_unhealthy
+not_authenticated
+permission_denied
+policy_blocked
+project_not_enabled
+session_not_enabled
+schema_changed
+backend_unreachable
+```
+
+Definition не исчезает при временной недоступности backend. Registry должен
+объяснять unavailable state, а не превращать runtime failure в исчезновение
+capability.
+
+### ObservedCapability
+
+```text
+capability_id
+kind: provider_native | node_cli
+display_name
+short_description
+node_id optional
+provider optional
+version optional
+health
+authentication_status optional
+invocation_hint optional
+scope
+observed_at
+```
+
+Нельзя публиковать secret values, raw credential paths или чрезмерные account
+metadata. Для `gh` достаточно, например, host, authenticated boolean and safe
+account label, если policy это разрешает.
+
+## Progressive tool discovery
+
+### Обязательная модель
+
+Полный catalog никогда не передаётся модели. Даже если Core, Node or ToolHive
+получили upstream `tools/list`, schemas остаются host-side.
+
+```text
+Search
+  returns names and one-line descriptions
+
+Inspect
+  returns the selected full contract
+
+Execute
+  invokes after fresh validation and authorization
+```
+
+### Agent-facing meta-tools
+
+```text
+search_tools(query, filters?, cursor?)
+inspect_tool(tool_id)
+execute_tool(tool_id, arguments)
+```
+
+Это минимальный стабильный набор, который можно держать в provider context
+постоянно.
+
+### Search
+
+Search принимает natural-language query и optional filters:
+
+```text
+source
+risk
+integration
+node
+project/workspace
+availability
+```
+
+Ответ содержит только bounded results:
+
+```text
+tool_id
+name
+one_line_description
+source/server label optional
+availability hint optional
+```
+
+Search pipeline:
+
+```text
+resolve actor/session/project/node scope
+-> filter by permission visibility
+-> filter or annotate effective availability
+-> retrieve and rank relevant tools
+-> return bounded summaries
+```
+
+Policy filtering происходит до retrieval output. Search не должен раскрывать
+существование secret/private tools неавторизованному actor.
+
+Первый retrieval engine может быть keyword/BM25. Contract должен позволять
+добавить embeddings, hybrid ranking or provider-native tool search позже.
+
+### Inspect
+
+Inspect возвращает один выбранный contract:
+
+```text
+full description
+input/output schemas
+examples optional
+permissions and risk
+approval behavior
+effective availability and reason
+source/integration
+schema version/hash
+result and artifact semantics
+```
+
+Inspect не является authorization grant и не резервирует backend.
+
+### Execute
+
+Execute всегда заново выполняет:
+
+```text
+resolve current scope
+load current definition/version
+validate arguments against schema
+recompute effective availability
+authorize actor and approval policy
+choose route/backend
+record tool_call.requested/authorized
+dispatch
+record completion/failure and result refs
+```
+
+Это защищает от stale Inspect, policy changes, Node disconnect and upstream
+schema changes.
+
+### Dynamic mounting
+
+Если provider умеет безопасно добавлять tool definitions в текущую session,
+после Inspect выбранный definition может быть mounted как direct tool. Это
+оптимизация provider adapter, а не новый authority path.
+
+Provider-neutral fallback всегда использует `execute_tool`. Direct calls and
+fallback calls проходят одну Core policy and trace pipeline.
+
+### Catalog maintenance
+
+Core/host:
+
+- индексирует полные definitions вне model context;
+- группирует их по source/server/integration;
+- caches by `tool_id + version + schema_hash`;
+- обновляет индекс на upstream `tools/list_changed`;
+- поддерживает pagination and bounded detail levels;
+- хранит session snapshot, когда это нужно для reproducibility;
+- не меняет значение существующей версии/schema hash молча.
+
+## Uprava-native MCP tools
+
+Первый срез должен показывать через тот же progressive contract небольшой набор
+Core capabilities. Предварительные группы:
+
+```text
+uprava.node.inspect
+uprava.workspace.inspect
+uprava.session.inspect
+uprava.trace.resolve
+uprava.ref.resolve
+uprava.artifact.describe
+uprava.capability.inspect
+```
+
+Точный набор определяется implementation plan. Не следует автоматически
+экспортировать каждый HTTP endpoint или внутренний command как MCP tool.
+Agent-facing tools должны быть устойчивыми domain operations с bounded output.
+
+Uprava-native tool call переводится в существующие Core application services,
+commands and events. MCP не создаёт параллельную domain model.
+
+## External MCP integrations
+
+Основной scope первого направления:
+
+- Linear;
+- Notion;
+- Atlassian/Jira;
+- другие готовые MCP servers.
+
+Первый implementation slice выбирает один реальный server для end-to-end
+проверки. ToolHive должен:
+
+1. materialize configured MCP dependency;
+2. report actual state;
+3. discover tools and schemas;
+4. expose backend through Node bridge;
+5. return health and audit refs;
+6. survive restart/reconciliation according to desired state.
+
+Core namespaces upstream tools and сохраняет stable mapping:
+
+```text
+Uprava tool_id
+upstream server/workload
+upstream tool name
+schema hash
+integration/connection ref
+Node/runtime provider
+```
+
+Direct agent-to-ToolHive exposure не является целевой моделью v1, потому что
+обходит Core progressive discovery, permissions and trace. Все agent-visible
+calls должны проходить через Uprava MCP policy boundary.
+
+## Desired and actual state
+
+Core хранит desired integration state:
+
+```text
+integration enabled
+connection ref
+allowed projects/sessions
+preferred Node/pool
+tool allow/deny policy
+runtime profile/version
+```
+
+Node сообщает actual state:
+
+```text
+not_installed
 installing
+starting
 running
-available to this session
 degraded
 failed
-blocked by policy
-blocked by missing auth
-blocked by node capability
+blocked_by_policy
+missing_auth
+stopped
 ```
 
-### Dependency kinds
+UI и discovery должны различать configured, running and available-to-this-
+session. Desired state не считается применённым до Node report.
 
-Initial dependency kind taxonomy:
+## Authentication and secrets
+
+### Uprava MCP access
+
+Agent runtime получает scoped identity/credential для Uprava MCP. Core
+проверяет actor, session/project binding, token audience, expiry and scopes.
+Credential не должен становиться частью model prompt.
+
+Точный enrollment/token lifecycle определяется security implementation plan,
+но authority остаётся в Core.
+
+### External integration auth
+
+Connection model хранит authorization state и secret refs, но не secret values
+в registry output.
+
+Для remote MCP integrations предпочтителен стандартный MCP/OAuth flow. Для
+third-party authorization допускается out-of-band browser flow; credentials
+хранит соответствующая trusted runtime boundary и не возвращает агенту.
+
+Если local ToolHive workload требует credential, Node получает только право на
+bounded materialization для конкретной dependency instance.
+
+Trace сохраняет:
 
 ```text
-cli_binary
-  git, rg, cargo, gh, docker, uv, node
-
-local_mcp_server
-  stdio/SSE/Streamable HTTP server that runs on Node
-
-remote_mcp_server
-  external HTTP MCP endpoint proxied or called by provider
-
-containerized_mcp_server
-  MCP server packaged as Docker/Podman image
-
-native_adapter
-  Uprava-owned integration adapter, usually Core-side or provider-side
-
-uprava_native_tool
-  internal Core/Node capability surfaced as tool
-
-agent_provider_adapter
-  Codex, Claude Code, OpenCode, etc.
+connection ref
+materialization event/ref
+scope and policy version
+outcome
 ```
 
-This taxonomy is not exhaustive. The important rule is that dependencies are
-first-class managed objects, not hidden implementation details inside agent
-text or local config files.
+Trace не сохраняет token, cookie, API key or raw secret-bearing environment.
 
-### Runtime provider interface
+## Permissions, approvals and security
 
-Conceptual provider contract:
+### Permission decision
 
 ```text
-plan(desired_dependency, node_context) -> reconciliation_plan
-apply(plan) -> operation_id
-status(dependency_instance) -> actual_state
-discover(dependency_instance) -> capabilities/tools/schemas
-stop(dependency_instance)
-remove(dependency_instance)
-logs(dependency_instance)
-health(dependency_instance)
-```
-
-For MCP providers:
-
-```text
-start_server
-proxy_remote_server
-create_group/toolset
-expose_endpoint
-discover_tools
-filter_or_namespace_tools
-materialize_secrets
-report_audit_refs
-```
-
-ToolHive adapter can implement this contract using ToolHive CLI/API. A
-simple-local provider can implement only a smaller subset.
-
-### ToolHive-backed MCP runtime
-
-ToolHive should be treated as a primary candidate for MCP runtime provider
-because it already covers many operational concerns:
-
-- local MCP server execution;
-- remote MCP proxying;
-- containerized runtime;
-- package-manager based server builds;
-- groups;
-- Virtual MCP Server aggregation;
-- registry/catalog;
-- secrets;
-- tool filtering and name overrides;
-- audit logging;
-- Kubernetes operator path.
-
-Integration shape:
-
-```text
-Core DependencyProfile
--> Node Reconciler
--> ToolHive adapter
--> ToolHive workload/group/vMCP
--> discovered MCP tools
--> Uprava Tool Registry snapshot
-```
-
-Important: ToolHive can manage MCP runtime. Uprava still owns:
-
-- product-level permissions;
-- project/session scoping;
-- trace semantics;
-- visual blocks and artifacts;
-- integration UI;
-- agent provider routing;
-- Uprava-native tools.
-
-### Generic MCP gateway
-
-If Uprava exposes only one MCP endpoint to agents, Uprava needs a generic MCP
-gateway.
-
-Minimal gateway responsibilities:
-
-```text
-list_tools:
-  collect from Uprava-native tools
-  collect from Node-local tools
-  collect from upstream MCP providers
-  apply project/session/user/agent policy
-  namespace/rename/filter
-  return scoped list
-
-call_tool:
-  validate tool exists in scoped toolset
-  check permission and approval policy
-  record tool_call.started
-  route to Core/Node/upstream MCP/native provider
-  stream or collect result
-  redact/wrap result if needed
-  record tool_call.completed/failed
-```
-
-Gateway must store a tool snapshot per session/run:
-
-```text
-session_id
-tool_id
-upstream_tool_name
-upstream_server_id
-schema_hash
-description_hash
-runtime_provider
-dependency_instance
-policy_version
-```
-
-This is required for reproducibility and review. MCP tools can change over
-time; trace must know what the agent saw when it made the decision.
-
-### Agent config management
-
-Primary design goal: minimize provider-specific config mutation.
-
-Preferred long-term agent config:
-
-```text
-Codex:
-  mcp_server: uprava-node-bridge
-
-Claude Code:
-  mcp_server: uprava-node-bridge
-
-Other providers:
-  equivalent Uprava endpoint/adapter
-```
-
-Core should not regularly rewrite every provider's external MCP list. Node
-Daemon may perform one-time bootstrap or explicit registration:
-
-```text
-install/register Uprava bridge with agent provider
-verify config health
-avoid overwriting user-owned unrelated entries
-```
-
-Provider-specific config management remains necessary for:
-
-- bootstrap;
-- compatibility mode;
-- direct ToolHive exposure experiments;
-- providers that cannot consume Uprava tool surface otherwise.
-
-But it should not be the main control plane.
-
-### Secrets and credentials
-
-Secrets must be first-class and never become plain agent config.
-
-Model:
-
-```text
-Core stores account connection and secret refs.
-Node receives permission to materialize secret for one dependency instance.
-Runtime provider injects secret at process/container/proxy start.
-Trace stores secret ref and materialization event, never secret value.
-Secret is revoked/expired when dependency/session/profile ends.
-```
-
-Credential scopes:
-
-```text
-user-scoped
-project-scoped
-team-scoped
-node-scoped
-session-scoped
-provider-managed
-```
-
-For OAuth-based external systems, Core may own account connection and token
-refresh, while Node gets short-lived materialized credentials only when local
-runtime needs them.
-
-### Permissions and security
-
-MCP servers are not harmless metadata. They are executable tool surfaces and
-often code dependencies. Security model must cover:
-
-- supply chain trust;
-- package/image provenance;
-- version pinning;
-- filesystem access;
-- network access;
-- secret injection;
-- tool description/tool metadata poisoning;
-- overbroad tool lists;
-- cross-tool data forwarding;
-- output redaction;
-- per-tool approvals;
-- audit and trace;
-- deactivation/revocation.
-
-Tool filtering must not be treated as the only security boundary. If a tool is
-hidden from `tools/list`, calls to that tool must also be denied at routing
-time unless an internal workflow explicitly uses it under policy.
-
-Risk levels:
-
-```text
-read-only
-workspace-write
-external-read
-external-write
-credentialed-action
-destructive
-privileged-local
-network-broad
-```
-
-Approval policy can depend on:
-
-```text
-user
-project
-agent
-node
+actor
 tool
-args
-target external entity
+project/workspace/session
+Node
+arguments/target summary
 risk level
+connection
 runtime mode
+policy version
+-> allow | deny | require_approval
+```
+
+Filtering tool out of Search не является единственной security boundary.
+Inspect and Execute independently enforce visibility and authorization.
+Calling a hidden/denied upstream name through crafted input must fail.
+
+### Threats
+
+Security model учитывает:
+
+- malicious tool descriptions and metadata poisoning;
+- schema drift;
+- supply-chain provenance of MCP packages/images;
+- overbroad network/filesystem access;
+- secret exfiltration and token passthrough;
+- cross-tool data forwarding;
+- unsafe result content;
+- confused-deputy routing;
+- stale policy or availability snapshots;
+- excessive catalog disclosure;
+- destructive or credentialed calls without approval.
+
+ToolHive isolation and audit помогают, но не заменяют Core authorization.
+
+## Tool call, trace and audit
+
+### ToolCall
+
+```text
+tool_call_id
+tool_id
+tool_version/schema_hash
+actor_ref
+scope_ref
+session/run refs optional
+source integration/backend refs
+arguments metadata/redaction refs
+policy decision and version
+approval ref optional
+route
+status
+command/event/result/artifact refs
+started_at
+completed_at optional
 ```
 
 ### Events
 
-Important events for trace and UI:
+Минимальные product events:
 
 ```text
-dependency_profile.updated
-dependency.reconcile.started
-dependency.install.started
-dependency.install.completed
-dependency.install.failed
-dependency.start.started
-dependency.start.completed
-dependency.start.failed
-dependency.health.changed
-dependency.discovered
-dependency.removed
+tool_call.requested
+tool_call.authorized
+tool_call.approval_required
+tool_call.started
+tool_call.completed
+tool_call.failed
+tool_call.denied
 
-secret.materialization.requested
-secret.materialization.granted
-secret.materialization.failed
-secret.expired
+tool_definition.discovered
+tool_definition.changed
+tool_availability.changed
 
-toolset.resolved
-tool.registry.updated
-tool.snapshot.created
-tool.call.started
-tool.call.forwarded
-tool.call.output_available
-tool.call.completed
-tool.call.failed
-
-mcp.upstream.connected
-mcp.upstream.disconnected
-mcp.tools.changed
-mcp.gateway.policy_denied
+mcp_dependency.reconcile_started
+mcp_dependency.running
+mcp_dependency.failed
+mcp_dependency.stopped
 ```
 
-### Storage implications
+Search and Inspect можно агрегировать как telemetry, но privileged discovery
+denials and schema changes должны оставлять reviewable evidence.
 
-Likely Core storage areas:
+### Trace versus security audit
+
+Trace отвечает, что произошло в работе и к чему привело.
+
+Security audit отвечает, кто запросил чувствительное действие, какое policy
+решение было принято и почему.
+
+Не каждый read-only call обязан дублироваться в security audit. Audit policy
+может быть:
 
 ```text
-plugins
-plugin_versions
-integrations
-integration_accounts
-tools
-tool_versions
-dependency_profiles
-dependency_profile_assignments
-dependency_instances
-node_capabilities
-node_dependency_status
-session_toolsets
-tool_snapshots
-tool_call_events
-secret_refs
-secret_materialization_events
+none
+failures
+mutations
+all_calls
 ```
 
-Node-local storage can keep:
+Arguments/results сохраняются только согласно redaction policy. Предпочтительны
+refs, hashes, sizes, bounded summaries and redaction flags вместо raw content.
+
+## Core API and storage boundaries
+
+Концептуальные read models/endpoints:
 
 ```text
-last desired profile version
-actual dependency cache
-provider-specific instance ids
-local health cache
-local logs pointers
-runtime socket/port metadata
+GET /tools
+GET /tools/:tool_id
+GET /placements/:id/tools
+GET /sessions/:id/tools
+GET /nodes/:id/capabilities
+GET /integrations
+GET /integrations/:id/status
+GET /tool-calls/:tool_call_id
 ```
 
-Core remains source-of-truth for desired state. Node-local state is actual
-state and operational cache.
+Uprava MCP вызывает application services, а не эти HTTP endpoints через
+loopback. HTTP и MCP transports должны использовать общие domain/application
+boundaries.
 
-## Native vs MCP vs CLI decision rules
-
-### Use Uprava-native tool when
-
-- tool is part of Uprava itself;
-- it modifies sessions, artifacts, UI, refs, event log, workspace state or
-  permissions;
-- it needs tight integration with trace and visual semantics;
-- it is a safe internal control-plane action.
-
-Examples:
-
-- create artifact;
-- emit causality narrative;
-- inspect workspace ref;
-- resolve UI selection;
-- start/stop session;
-- request approval.
-
-### Use CLI adapter when
-
-- capability is naturally local to workspace;
-- mature CLI already exists;
-- output can be parsed or shown as command output;
-- execution must happen near files/env/runtime.
-
-Examples:
-
-- `git`;
-- `rg`;
-- `cargo`;
-- `npm test`;
-- `gh` when local auth/workspace context is useful.
-
-### Use external MCP when
-
-- a good MCP server already exists;
-- generic tool access is enough;
-- domain UX is not yet worth native investment;
-- we want fast integration;
-- server can be safely isolated and governed;
-- output can remain text/resource/tool-result oriented.
-
-Examples:
-
-- early Notion search/read;
-- early Grafana query;
-- experimental internal tools;
-- external SaaS capabilities where MCP server is maintained upstream.
-
-### Use native adapter when
-
-- Uprava needs high-quality product UX;
-- integration has important domain objects;
-- we need webhooks, pagination, conflict handling, rich permissions or durable
-  snapshots;
-- outputs become first-class artifacts/visual blocks;
-- generic MCP hides too much behavior.
-
-Examples:
-
-- GitHub/GitLab PR review flow;
-- Linear issue/project workflow;
-- Notion/Confluence document artifacts if document UX becomes core;
-- Grafana/observability dashboards if visual analysis becomes core.
-
-### Use ToolHive-backed MCP runtime when
-
-- dependency is MCP server;
-- local/containerized/remote MCP lifecycle matters;
-- we need groups, vMCP, isolation, secrets, audit or Kubernetes path;
-- we want to avoid building MCP server operations from scratch.
-
-### Use simple MCP runtime when
-
-- early MVP/spike;
-- single local server;
-- no fleet management;
-- no complex secret or isolation requirements;
-- direct HTTP remote endpoint is enough.
-
-## Queue strategy
-
-### V01 constraints
-
-V01 should not become an integration platform before the developer
-workbench works. Minimal obligations:
-
-- keep Tool Registry and Plugin Registry schemas compatible with additional tools;
-- model Node capabilities and dependency status;
-- expose Uprava-native workspace/session tools;
-- avoid hardcoding agent-provider-specific configs as the primary control
-  plane;
-- leave room for Dependency Profiles and MCP runtime providers.
-
-### Feature queue target
-
-Feature queue should make modularity real:
-
-- Dependency Profile Registry;
-- Node Dependency Reconciler;
-- first MCP runtime provider;
-- generic MCP gateway or bridge spike;
-- ToolHive-backed provider spike;
-- basic UI for tool/dependency status;
-- basic permissions and approvals;
-- tool call trace;
-- plugin-provided renderer/artifact metadata.
-
-### Spike recommendation
-
-The first practical spike should answer:
+Минимальные persistence concepts:
 
 ```text
-Can Core desired state cause a Node to run Notion MCP through a provider,
-discover tools, expose them to an agent, and trace a call?
+tool_definitions
+tool_sources
+tool_availability_snapshots or projection
+observed_capabilities
+integration_connections
+mcp_dependency_instances
+session_tool_snapshots
+tool_calls
 ```
 
-Recommended spike path:
+Конкретная normal form определяется implementation plan. Upstream raw metadata
+можно хранить отдельно от normalized product definition.
+
+## UI consequences
+
+UI первого среза не должен становиться marketplace. Достаточно:
+
+- integration list and desired state;
+- connect/authenticate, reconnect and disconnect;
+- ToolHive dependency status and failure reason;
+- effective availability per Node/project/session;
+- observed native CLI inventory and safe auth status;
+- recent tool calls and trace links;
+- Inspect detail для definition, permissions, source and schema version.
+
+UI не обязан показывать модели полный catalog. Human catalog view и
+agent-facing progressive discovery являются разными projections одного Core
+registry.
+
+## First implementation slice
+
+Пункт `11` включает целостный, но узкий vertical slice.
+
+### Обязательно
+
+- Core Tool Registry domain model and persistence;
+- managed tools versus observed capabilities;
+- effective availability by Node/project/session/actor;
+- Uprava MCP endpoint/bridge and scoped authentication;
+- stable `search_tools`, `inspect_tool`, `execute_tool` surface;
+- permission-filtered keyword/BM25 search with bounded results;
+- несколько Uprava-native inspection/action tools;
+- ToolHive adapter on Node;
+- один реальный external MCP server/integration;
+- desired/actual dependency status;
+- schema hash/version and list-changed refresh;
+- tool-call identity, routing, trace and safe audit metadata;
+- compact integration/capability UI.
+
+### Не входит
+
+- отдельный Uprava CLI;
+- большой integration marketplace;
+- Plugin Registry implementation;
+- автоматическая обёртка `bash`, files, `git`, `gh` or `glab`;
+- remote installation/authentication management для native CLI tools;
+- enterprise RBAC;
+- универсальная secrets platform;
+- embeddings as required search engine;
+- programmatic tool calling/code mode;
+- rich renderer/artifact contract для каждого tool;
+- direct agent-to-ToolHive exposure.
+
+## Acceptance scenario
+
+Срез считается доказанным, когда проходит следующий сценарий:
+
+1. Core хранит definitions Uprava-native and external tools.
+2. Agent session подключена к Uprava MCP с project/session scope.
+3. Модель видит только три discovery meta-tools, а не полный catalog.
+4. Search находит релевантный Uprava-native tool и возвращает краткое описание.
+5. Inspect раскрывает одну schema and availability.
+6. Execute проходит fresh authorization и оставляет tool-call trace.
+7. Node через ToolHive запускает один внешний MCP server и сообщает actual state.
+8. Тот же Search -> Inspect -> Execute path вызывает внешний tool.
+9. Отключение Node, integration or permission меняет availability и блокирует
+   crafted Execute.
+10. Agent может узнать, что на Node доступны `git`/`gh`, но вызывает их напрямую.
+11. UI показывает integration/auth/health state и ссылку на trace без secrets.
+
+## Relationship with other areas
+
+### A-001 Distributed Architecture
 
 ```text
-Core profile:
-  notion via toolhive-local
-
-Node:
-  ToolHive adapter
-  group/workload/vMCP setup
-  discovery status back to Core
-
-Agent:
-  try direct ToolHive vMCP
-  try Uprava MCP forwarding
-
-Trace:
-  record tool list snapshot and call event
+Core: definitions, desired state, policy, progressive index, routing, trace
+Node: actual capabilities, ToolHive runtime, local bridge and enforcement
 ```
 
-The point of the spike is not to choose ToolHive forever. The point is to test
-whether provider-backed MCP runtime management solves the daemon dependency
-problem with acceptable complexity.
+Clients and agents не обходят Core policy при managed tool calls.
 
-## Relationship with other design docs
+### A-002 Run Mode
 
-### Relationship with A-001 Distributed Architecture
+Run Mode определяет lifecycle agent workload. A-007 определяет effective
+toolset этой session/run. Persistent, sandbox and hybrid modes могут иметь
+разные Node placements and integration policies.
 
-A-007 depends on the Core / Node Daemon split:
+### A-003 Distributed Runtime Coordination
+
+Tool availability становится placement constraint. Session, которой нужен
+определённый external MCP backend, размещается только там, где dependency
+running and policy allows it.
+
+### A-004 Modular UI and Work Surface
+
+Registry предоставляет commands, permissions and availability для human UI.
+Plugin-contributed surfaces появятся в пункте `12`.
+
+### A-005 Dynamic UI from Agents
+
+Tool result может ссылаться на registered renderer/artifact contract. Agent-
+generated UI не получает authority bypass через MCP output.
+
+### A-006 Visual Rendering and Artifact Semantics
+
+A-006 определяет visual objects and fallbacks. A-007 связывает tool output,
+source, schema, trace and renderer contract.
+
+### A-008 Go to Source and Causality UX
 
 ```text
-Core: desired state, policy, registry, trace
-Node: local runtime, dependency reconciliation, actual capabilities
+artifact/result -> tool call -> definition -> integration/backend -> events
 ```
 
-Tools must not make clients bypass Core and talk directly to every node or
-external provider without trace and permissions.
+### A-009 Human-Agent Dual Interface
 
-### Relationship with A-002 Run Mode
+Uprava MCP является primary machine interface агента к Core semantic context,
+refs and commands. Progressive discovery не заменяет agent-readable UI model;
+он является способом безопасно навигировать её capabilities.
 
-Run Mode decides how an agent session/task is executed. A-007 decides which
-tools/dependencies are available inside that run and how they are exposed.
+### A-010 Project Workspace Surface
 
-Different runtime strategies may require different dependency profiles:
+Observed `bash`, files and git capabilities остаются native. Managed tools and
+external MCP integrations уважают workspace boundaries, Node placement and
+project-scoped trace.
 
-```text
-persistent local runtime -> node-local tools and local MCP
-ephemeral sandbox -> container image/tools profile
-remote provider runtime -> remote MCP/native tools only
-hybrid runtime -> split profile
-```
+## Open implementation questions
 
-### Relationship with A-003 Distributed Runtime Coordination
+Архитектурный vision определён; implementation plan должен закрыть:
 
-A-003 dispatches work to nodes and handles node/resource state. A-007 adds
-dependency capability and tool availability as placement constraints:
+- Core-hosted gateway или split Core policy + Node MCP bridge transport;
+- точный scoped credential lifecycle для agent runtime;
+- первый реальный external MCP server для acceptance scenario;
+- ToolHive CLI/API integration boundary and supported versions;
+- keyword/BM25 index implementation and update transaction;
+- session snapshot retention policy;
+- safe native CLI auth probes for `gh`/`glab`;
+- direct dynamic mounting support в первом Codex adapter или только
+  `execute_tool` fallback;
+- exact event payloads and redaction policy;
+- schema drift behavior during long persistent sessions.
 
-```text
-session needs grafana.internal
--> only nodes with dependency available and network access can run it
-```
-
-### Relationship with A-004 Modular UI and Work Surface
-
-Plugins can contribute panels, blocks, commands and configuration surfaces.
-A-007 provides the registry and permission model behind those UI extensions.
-
-### Relationship with A-005 Dynamic UI from Agents
-
-Dynamic UI from agents often comes from tool/plugin output. A-007 must connect:
-
-```text
-tool output schema
--> renderer/artifact contract
--> permissions
--> trace refs
-```
-
-### Relationship with A-006 Visual Rendering and Artifact Semantics
-
-A-006 defines how visual objects behave. A-007 defines how tools/plugins
-register renderers, artifact types and output contracts.
-
-### Relationship with A-008 Go to Source and Causality UX
-
-Tool calls and dependency operations are part of the cause/evidence graph:
-
-```text
-artifact -> tool call -> upstream MCP server -> dependency instance -> profile
-```
-
-### Relationship with A-009 Human-Agent Dual Interface
-
-A-009 primary agent-facing contract for Uprava Core should remain CLI/API and
-shared refs/commands. MCP is an adapter path for exposing tools to external
-agent providers, not the only internal control interface.
-
-### Relationship with A-010 Project Workspace Surface
-
-Workspace-local tools and CLI dependencies must respect workspace boundaries,
-filesystem permissions, PTY/session policies and project-scoped trace.
-
-## Open questions
-
-- Should Uprava implement generic MCP gateway in Core, Node, or split between
-  Core policy and Node-local proxy?
-- How much of ToolHive should be controlled through CLI vs API in the first
-  spike?
-- Is direct ToolHive vMCP acceptable as a temporary exposure mode, or should
-  every agent-visible call go through Uprava from the start?
-- How do we represent upstream MCP tools that change schemas during a long
-  persistent session?
-- Should Tool Registry store every upstream MCP tool as first-class tool, or
-  store only session-scoped snapshots until user promotes them?
-- What is the minimal safe install policy for package-manager MCP servers
-  (`npx`, `uvx`, `go`)?
-- How should user-owned local agent configs be protected from Uprava bootstrap
-  changes?
-- Which integrations deserve native adapters early rather than MCP path?
-- What is the exact boundary between plugin package, integration connection,
-  dependency instance and tool snapshot in storage?
+Эти вопросы не меняют ключевые решения: MCP-first, ToolHive-backed,
+Core-governed and progressively discovered.
 
 ## Quality questions
 
-For every tool/integration/dependency:
+Для каждого capability:
 
-- Is it clear whether this is a tool, dependency, plugin, integration or
-  provider?
-- Where is desired state stored?
-- Where does actual execution happen?
-- Which Node or provider owns runtime lifecycle?
-- How are versions and schemas pinned or snapshotted?
-- What secrets are required and where are they materialized?
-- What tool calls are visible to Core trace?
-- What is shown in UI if the dependency is missing, failed or unauthorized?
-- Can the tool be disabled for one project/session/node without uninstalling
-  everything globally?
-- Is the tool exposed to agents through direct provider config, Uprava MCP,
-  CLI/API or another adapter?
-- Is there a safe fallback if ToolHive or another runtime provider is absent?
-- Does the output have renderer/artifact/source/cause semantics where needed?
+- Managed tool это или observed capability?
+- Кто владеет definition и version?
+- Где находится actual runtime?
+- Как вычисляется Node/project/session availability?
+- Может ли неавторизованный actor узнать о существовании tool?
+- Почему model context не получает лишние schemas?
+- Что возвращают Search and Inspect?
+- Проверяет ли Execute policy заново?
+- Как обрабатываются schema changes and `tools/list_changed`?
+- Какие secrets нужны и где они materialized?
+- Какие trace/audit refs остаются?
+- Можно ли отключить integration для одного scope?
+- Что видит пользователь при missing auth, unhealthy backend or denied call?
+- Не дублирует ли capability уже доступный native agent tool?
 
 ## References
 
-- [Model Context Protocol architecture](https://modelcontextprotocol.io/docs/learn/architecture)
-- [MCP tools specification](https://modelcontextprotocol.io/specification/2025-06-18/server/tools)
+- [MCP Client Best Practices](https://modelcontextprotocol.io/docs/develop/clients/client-best-practices)
+- [MCP Authorization](https://modelcontextprotocol.io/specification/2025-06-18/basic/authorization)
+- [MCP Security Best Practices](https://modelcontextprotocol.io/docs/tutorials/security/security_best_practices)
 - [ToolHive documentation](https://docs.stacklok.com/toolhive)
-- [ToolHive Virtual MCP Server](https://docs.stacklok.com/toolhive/guides-vmcp/)
-- [ToolHive run MCP servers](https://docs.stacklok.com/toolhive/guides-cli/run-mcp-servers)

@@ -36,7 +36,7 @@ Tauri рассматриваем как desktop shell/client, но не как �
 ```text
 Core Backend        Rust / Axum / Tokio
 Node Daemon         Rust / Tokio
-CLI                 Rust
+Operator CLI later  Rust, only when concrete operational scenarios justify it
 Web Control Panel   React / TypeScript / Vite
 Desktop Client      Tauri later, wraps Web Control Panel or talks to Core
 ```
@@ -120,18 +120,17 @@ Core Backend отвечает за:
 
 Node Daemon должен быть максимально переносимым. V01 ориентируется на desktop/server nodes, но архитектура должна не блокировать future cloud nodes, sandboxes and microVM hosts.
 
-### CLI
+### Agent tooling and optional operator CLI
 
-CLI тоже лучше писать на Rust, чтобы переиспользовать shared crates and API client.
+Основной machine interface агента к Core и integrations — Uprava MCP с
+progressive discovery `Search -> Inspect -> Execute`. External MCP runtime
+строится через ToolHive на Node.
 
-Возможные задачи CLI:
-
-- start local Core;
-- register Node;
-- inspect nodes/sessions;
-- connect to Core;
-- run diagnostics;
-- manage plugins/tools later.
+Отдельный Uprava CLI не входит в Agent Tooling v1. Если позднее появятся
+подтверждённые shell-composition, streaming, batch или operator diagnostics
+scenarios, CLI следует писать на Rust с переиспользованием shared crates and API
+client. Он не должен дублировать MCP catalog или становиться параллельной
+authority boundary.
 
 ### Rust tooling
 

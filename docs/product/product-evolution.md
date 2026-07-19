@@ -54,9 +54,8 @@ Persistent Runtime + Node Daemon + Core UI
 - Background Jobs и scheduled agent runs;
 - causality and trace UX;
 - git and review basics;
-- Tool Registry v1;
+- Agent Tooling and Tool Registry v1;
 - Plugin Registry v1;
-- first external integrations;
 - visual artifact system;
 - dynamic UI from agents;
 - task-based sandbox runtime;

@@ -702,7 +702,7 @@ Feature queue может сделать modularity visible:
 evidence and причинам?
 ```
 
-`A-007 Plugins, Tool Registry and MCP strategy` отвечает:
+`A-007 Agent Tooling, Tool Registry and MCP strategy` отвечает:
 
 ```text
 Кто регистрирует tools, renderers, permissions, artifact types and UI contracts?

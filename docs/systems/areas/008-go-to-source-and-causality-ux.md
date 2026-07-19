@@ -793,7 +793,7 @@ agent-created blocks/artifacts that must expose source/evidence/cause refs
 source-of-truth, fallback, visual object refs and artifact semantics
 ```
 
-`A-007 Plugins, Tool Registry and MCP strategy` should provide:
+`A-007 Agent Tooling, Tool Registry and MCP strategy` should provide:
 
 ```text
 tool schemas, renderer registrations, parsers, integration snapshots and

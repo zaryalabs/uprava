@@ -19,11 +19,12 @@ Every meaningful Uprava UI object should be understandable, referenceable,
 navigable and actionable by both a human and an authorized agent.
 ```
 
-Важное решение: агентский доступ к Core-level UI/context/actions должен
-строиться через **Uprava CLI-first interface**, а не через MCP как первичный
-контракт. MCP может появиться позже как adapter поверх тех же команд, но
-архитектурный source-of-truth для internal agent control должен быть CLI/API
-contract, общий с Core command registry and permissions.
+Важное решение: агентский доступ к Core-level UI/context/actions строится через
+**Uprava MCP** с обязательным progressive discovery
+`Search -> Inspect -> Execute`. Архитектурный source of truth остаётся в Core
+domain/API/command contracts, общих с permissions and trace; MCP является
+основной agent-facing проекцией этих contracts. Отдельный Uprava CLI не входит
+в первый Agent Tooling slice.
 
 ## Vision
 
@@ -89,7 +90,7 @@ Web UI observes current Uprava state
 -> surfaces/blocks/renderers expose semantic descriptors
 -> Core resolves refs, permissions and command availability
 -> UI context snapshot is produced for current user/session/agent scope
--> human invokes context action or agent requests context through CLI/API
+-> human invokes context action or agent requests context through Uprava MCP
 -> agent receives structured context, not pixels
 -> agent proposes or invokes registered command if allowed
 -> Core records action/event/result in trace
@@ -243,21 +244,21 @@ required_permission: workspace.write
 
 Ответ может быть коротким и точным, без догадок по скриншоту.
 
-### 4. Agent operates the workbench through CLI
+### 4. Agent operates the workbench through Uprava MCP
 
-Агентская runtime среда получает доступ к Uprava CLI. Вместо кликов по
-координатам агент делает:
+Агентская runtime среда получает доступ к небольшой стабильной MCP surface.
+Вместо кликов по координатам и загрузки полного каталога действий агент сначала
+находит capability, затем раскрывает только выбранный contract и вызывает его:
 
 ```text
-uprava ui context --session <id>
-uprava ui actions --ref <ref>
-uprava ui invoke ask-agent --ref <ref> --prompt "Explain risk"
-uprava ref resolve <ref>
-uprava navigate open <ref>
+search_tools("inspect current diff and explain risk")
+inspect_tool("uprava.context.inspect")
+execute_tool("uprava.context.inspect", { ref: "..." })
 ```
 
-Имена команд здесь illustrative. Важно не naming, а решение: stable CLI/API
-commands over Core refs and permissions.
+Та же поверхность покрывает refs, current UI context, available actions,
+trace and platform state. Core permission and command registry остаются
+authority boundary; MCP не даёт агенту обходной путь.
 
 ### 5. Chat with attached UI context
 
@@ -412,102 +413,73 @@ permission decision
 result event
 ```
 
-Agent action не должен обходить Core command registry. Даже если агент
-получает context через CLI, privileged work проходит через Core.
+Agent action не должен обходить Core command registry. Даже если агент получает
+context через MCP, privileged work проходит через Core.
 
-#### Uprava CLI
+#### Uprava MCP
 
-`Uprava CLI` - primary machine interface for agents and automation.
+`Uprava MCP` - primary machine interface for agents and automation.
 
-CLI должен быть Rust-based client over Core API, переиспользующий shared API
-client and domain types. Возможное имя бинаря (`uprava`, `upravactl` or
-другое) остается naming detail.
+Он отвечает за:
 
-CLI отвечает за:
-
-- querying UI context;
+- searching permission-scoped capabilities;
+- inspecting one selected tool/context contract;
+- invoking registered commands through fresh authorization;
+- querying semantic UI context;
 - resolving refs;
-- listing available actions;
-- invoking registered commands;
-- opening/navigating refs where a client target is available;
 - attaching context to sessions;
 - reading trace/event summaries;
-- managing auth/session scope for agent runtimes.
+- exposing safe Node capability inventory.
 
-MCP adapter может появиться позже, но как secondary adapter:
+MCP не является source of truth для UI semantics. Stable Core domain/API,
+commands, refs and permissions определяют поведение, а Uprava MCP переводит их
+в provider-neutral agent-facing contract:
 
 ```text
-MCP tool call
--> Uprava CLI/API command
+Uprava MCP Search / Inspect / Execute
 -> Core permission/command registry
 -> event/trace/result
 ```
 
-Нельзя делать MCP source-of-truth для UI semantics, иначе contract будет
-зависеть от конкретного agent tool protocol.
+### MCP-first decision
 
-### CLI-first decision
-
-Решение: agent access to Uprava Core should be CLI-first.
+Решение: agent access to Uprava Core should be MCP-first.
 
 Причины:
 
-- CLI проще сделать стабильным internal contract для Rust workspace;
-- CLI одинаково полезен агентам, людям, scripts, tests and CI;
-- CLI может переиспользовать shared API client and type definitions;
-- CLI не привязывает Uprava к MCP lifecycle and semantics;
-- CLI хорошо ложится на provider adapters, где многие агенты уже умеют
-  вызывать shell commands;
-- CLI легче версионировать и использовать как debugging surface;
-- MCP можно добавить поверх CLI/API без изменения Core model.
-
-Что это не означает:
-
-- MCP не запрещен;
-- Uprava не отказывается от MCP integrations;
-- external tools/plugins still may expose MCP servers;
-- future MCP gateway can exist for compatibility.
+- MCP даёт schema-defined model-controlled tools поверх API-shaped operations;
+- современный authorization flow позволяет не передавать credentials через
+  model context;
+- один contract может обслуживать Uprava-native и external MCP capabilities;
+- ToolHive закрывает runtime lifecycle внешних MCP servers;
+- progressive discovery защищает context от большого tool catalog;
+- отдельный CLI не даёт достаточной ценности без подтверждённых
+  shell-composition, streaming or batch scenarios.
 
 Ограничение:
 
 ```text
-CLI is a control interface, not an authority bypass.
+MCP is an agent interface, not an authority bypass.
 Core still owns permissions, command routing, event log and trace.
 ```
 
-### Возможный CLI contract
+### Progressive discovery contract
 
-Имена команд preliminary:
-
-```text
-uprava ui context
-uprava ui tree
-uprava ui focused
-uprava ui selection
-uprava ui actions --ref <ref>
-uprava ui invoke <command-id> --ref <ref> --input <json>
-
-uprava ref resolve <ref>
-uprava ref open <ref>
-uprava ref related <ref>
-
-uprava session context attach <session> <ref>
-uprava session ask <session> --ref <ref> --prompt <text>
-
-uprava trace source <ref>
-uprava trace cause <ref>
-```
-
-Для agent runtime важны machine-readable outputs:
+Полный каталог tools не передаётся модели:
 
 ```text
---json
---jsonl for streams
---schema for contract discovery
---bounded / --max-items / --max-bytes
+Search  -> names and one-line descriptions
+Inspect -> one full schema, permissions, risk and availability
+Execute -> fresh validation, authorization and routing
 ```
 
-CLI должен возвращать explicit errors:
+Core/host может индексировать полный upstream `tools/list`, но agent context
+получает только релевантные результаты Search. Для providers с dynamic tool
+mounting выбранная definition может быть добавлена после Inspect; стабильный
+`execute_tool` остаётся fallback.
+
+Uprava MCP должен возвращать bounded machine-readable results and explicit
+errors:
 
 ```text
 permission_denied
@@ -669,8 +641,8 @@ It does not grant ownership, authority or bypass rights.
 | Permission denied | Redact content and expose denial reason if allowed. |
 | Action disabled | Show disabled reason to human and agent. |
 | Agent requests hidden context | Deny and record policy event if relevant. |
-| CLI cannot reach Core | Return transport error; agent should not pretend context is current. |
-| MCP adapter diverges from CLI | CLI/API contract wins. |
+| Uprava MCP cannot reach Core | Return transport error; agent should not pretend context is current. |
+| MCP projection diverges from Core | Core domain/API/command contract wins. |
 | External embed is opaque | Uprava exposes embed boundary, metadata and allowed actions only. |
 
 ### Relationship with A-004 Modular UI and Work Surface
@@ -734,7 +706,7 @@ visible object -> cause refs
 This lets a human ask "почему так?" and lets an agent follow the same chain
 through structured refs.
 
-### Relationship with A-007 Plugins, Tool Registry and MCP Strategy
+### Relationship with A-007 Agent Tooling, Tool Registry and MCP Strategy
 
 Plugins should be able to contribute:
 
@@ -746,11 +718,12 @@ Plugins should be able to contribute:
 - redaction policies;
 - accessibility metadata.
 
-MCP belongs in A-007 as one integration/tool protocol. For A-009, MCP is not
-the primary interface between agents and Uprava Core. The primary interface is:
+MCP runtime, Tool Registry and progressive discovery belong in A-007. For
+A-009, Uprava MCP is the primary agent-facing interface, while authority and
+semantic source of truth remain in:
 
 ```text
-Core API + Uprava CLI + shared command/ref/context contracts
+Core domain/API + shared command/ref/context/permission contracts
 ```
 
 ### Quality questions
@@ -779,6 +752,7 @@ Agent-readable UI gives semantic context, refs, state, actions, permissions and
 causality links. Context actions such as right-click "Ask agent" and selection
 popup prompts are entry points into the same command-backed model.
 
-Agent access to Uprava Core should be CLI-first. MCP can be added later as a
-compatibility adapter, but the source-of-truth contract should be Core API,
-Uprava CLI, command registry, references, permissions and trace.
+Agent access to Uprava Core is MCP-first and uses progressive discovery rather
+than a full tool catalog. The source-of-truth contract remains Core domain/API,
+command registry, references, permissions and trace. A separate Uprava CLI is
+deferred until composition, streaming or batch scenarios justify it.

@@ -135,7 +135,7 @@
 | F-105 | Docker integration | Интеграция с Docker/deployment/runtime слоем. | `README.md`, `docs/development/uprava-notes.md:73` |
 | F-106 | MLflow integration | Подключение MLflow как возможного plugin. | `README.md` |
 | F-107 | MCP integration | Подключение MCP, но с выводом результатов в визуальный UI, а не только в текст. | `README.md`, `docs/development/uprava-notes.md:100` |
-| F-108 | CLI access to connected tools | CLI с доступом к инструментам, подключенным на уровне системы. | `README.md` |
+| F-108 | Progressive agent tool access | Основной machine interface агента к Uprava и внешним integrations строится через MCP с `Search -> Inspect -> Execute`; отдельный Uprava CLI откладывается до подтверждённых composition/streaming/batch scenarios. | User clarification, 2026-07-19 |
 | F-109 | External task trackers instead of own tracker first | На старте не делать свой task tracker, а использовать готовые. | `README.md` |
 | F-110 | Task tracker provider abstraction | Позже можно сделать метаинструмент поверх разных task trackers. | `docs/development/uprava-notes.md:76` |
 | F-111 | External memory instead of own memory first | На старте не делать свою memory system. | `README.md` |
@@ -143,9 +143,9 @@
 | F-113 | Git provider integration | Интеграция с git для PR/MR, comments, branches, checks. | `docs/development/uprava-notes.md:20`, `docs/development/uprava-notes.md:120-124` |
 | F-114 | Observability provider integration | LangSmith, Langfuse, OpenTelemetry, Phoenix или аналогичные инструменты. | `docs/development/uprava-notes.md:105-106` |
 | F-115 | Sandbox/devbox providers | Возможные внешние sandbox providers из useful links: Daytona, E2B, Sandcastle и аналоги. | `docs/development/uprava-notes.md:132`, `docs/development/uprava-notes.md:138-139` |
-| F-116 | Core Tool Registry | Реестр tools/capabilities в Core: metadata, schemas, permissions, routing, UI contracts and audit policy. Выполнение tool может происходить на Node, во внешнем provider или позже в Core для lightweight tools. | User clarification, 2026-06-15 |
+| F-116 | Core Tool Registry | Реестр managed tools и observed capabilities в Core: metadata, schemas, permissions, Node/project/session availability, routing, UI contracts and audit policy. Выполнение managed tool может происходить на Node, через ToolHive-backed MCP provider, во внешнем provider или в Core. Native Node/provider tools не проксируются и вызываются агентом напрямую. | User clarification, 2026-07-19 |
 | F-117 | Plugin Registry | Реестр установленных plugins в Core: версии, конфигурация, exposed tools, visual blocks, artifact types, workflow templates, permissions and compatibility. | User clarification, 2026-06-15 |
-| F-118 | Integration adapter model | Интеграции подключаются через MCP, native API, Node-local adapters, external provider adapters or hybrid adapters. MCP важен, но не является единственным вариантом. | User clarification, 2026-06-15 |
+| F-118 | MCP and integration runtime model | MCP является основным agent-facing interface для Uprava-native tools и внешних integrations; ToolHive управляет external MCP runtime. Native API/Node-local/hybrid adapters допустимы как execution backends за Core-owned policy and registry. | User clarification, 2026-07-19 |
 | F-119 | First-class integration UX | Интеграции должны давать UI blocks, artifacts, workflow hooks, trace and permissions, а не только скрытый tool call внутри текстового ответа агента. | User clarification, 2026-06-15 |
 
 ## 7. Traceability, Monitoring, Metrics

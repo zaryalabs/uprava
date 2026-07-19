@@ -225,7 +225,7 @@ Core должен быть местом, где принимаются и про
 
 Node Daemon должен enforce локальные ограничения, но policy и routing должны быть согласованы через Core.
 
-## Tool Registry
+## Agent Tooling and Tool Registry
 
 Tool Registry должен жить в Core.
 
@@ -240,22 +240,106 @@ Tool Registry должен жить в Core.
 - куда маршрутизировать tool call;
 - какие schemas, permissions and risk levels у tool.
 
-При этом выполнение tool не обязано происходить в Core.
+Registry различает два класса:
+
+```text
+managed tools
+  Uprava-native MCP tools и внешние MCP integrations под Core policy
+
+observed capabilities
+  provider-native и Node-local tools, наличие которых Core может показывать,
+  но execution contract которых не принадлежит Uprava
+```
+
+`bash`, file tools, `git`, `gh`, `glab` и похожие средства не нужно
+дублировать или проксировать через Uprava. Node сообщает их version, health and
+safe authentication status, Core учитывает Node/project/session scope, а агент
+вызывает native CLI напрямую.
+
+Выполнение managed tool не обязано происходить в Core.
 
 Модель:
 
 ```text
 Core Tool Registry
-metadata, schema, permissions, routing, UI contract, audit policy
+metadata, schema, permissions, effective availability, routing, audit policy
+
+Uprava MCP
+agent-facing Search -> Inspect -> Execute
 
 Node Tool Runtime
-local execution, files, terminal, local env, local credentials
+local execution, capability inventory, workspace context
+
+ToolHive MCP Runtime
+external MCP server lifecycle, discovery, proxying, health
 
 External Tool Provider
-MCP, SaaS API, GitHub, Linear, Grafana, Docker, MLflow, etc.
+Linear, Notion, Atlassian/Jira, Grafana and other MCP-backed systems
 ```
 
-Core знает, что tool существует и как с ним работать. Node Daemon или external provider выполняют конкретное действие там, где находятся данные, credentials and runtime.
+Core знает, что tool существует, кому и в каком scope он доступен, где его
+исполнять и как связать вызов с trace. Node Daemon, ToolHive или external
+provider выполняют действие там, где находятся data, credentials and runtime.
+
+### Uprava MCP
+
+MCP является основным machine interface агента как first-class citizen к
+Uprava-native capabilities и внешним integrations. Внутренний source of truth
+остаётся в Core domain/API/command contracts; MCP является управляемой
+agent-facing проекцией этих contracts, а не отдельной authority boundary.
+
+Отдельный Uprava CLI не входит в первый Agent Tooling slice. Он нужен только
+если появятся подтверждённые shell-composition, streaming or batch scenarios,
+для которых MCP неудобен.
+
+### Progressive tool discovery
+
+Полный tool catalog не должен попадать в model context. Uprava MCP обязательно
+следует трёхуровневой модели:
+
+```text
+Search
+  query + scope -> tool name/id + one-line description
+
+Inspect
+  tool id -> full schema, docs, permissions, risk, source and availability
+
+Execute
+  tool id + arguments -> fresh authorization, validation, routing and result
+```
+
+Минимальная стабильная agent-facing поверхность:
+
+```text
+search_tools(query, filters?, cursor?)
+inspect_tool(tool_id)
+execute_tool(tool_id, arguments)
+```
+
+Core/host может получать полный upstream `tools/list`, но использует его только
+для policy-filtered index, ranking and schema cache. Full schema раскрывается
+только после Inspect. Execute не доверяет предыдущему Inspect и заново проверяет
+schema, permission, availability and approval policy. Upstream
+`tools/list_changed` обновляет index and effective availability.
+
+Provider-specific dynamic tool mounting допустим после Inspect, если host умеет
+добавлять definition безопасно. Stable `execute_tool` остаётся
+provider-neutral fallback.
+
+### ToolHive boundary
+
+ToolHive является обязательным external MCP runtime provider первого среза и
+отвечает за server lifecycle, discovery, grouping/aggregation, proxying, health
+and runtime-level audit.
+
+ToolHive не заменяет Core. Uprava продолжает владеть:
+
+- product-level Tool Registry;
+- Node/project/session scope;
+- permissions and approvals;
+- routing decisions;
+- tool-call trace, causality and safe audit metadata;
+- integration configuration and UI exposure.
 
 ## Plugins and Integrations
 
@@ -295,13 +379,14 @@ Tool Registry отвечает за конкретные callable capabilities. 
 
 Интеграция может подключаться разными способами:
 
-- **MCP adapter** - если внешняя система уже доступна через MCP или MCP хорошо подходит как tool protocol.
+- **MCP adapter** - основной agent-facing путь для Uprava-native tools и внешних integrations.
 - **Native API adapter** - если нужен контроль над auth, pagination, webhooks, rate limits, domain objects or visual UX.
 - **Node-local adapter** - если tool должен выполняться рядом с файлами, терминалом, локальными credentials or runtime.
 - **External provider adapter** - если tool исполняется во внешнем SaaS/provider.
 - **Hybrid adapter** - metadata and permissions живут в Core, execution идет через Node or external provider.
 
-MCP важен, но не должен быть единственным способом интеграции. Для Uprava важно не только вызвать tool, но и:
+MCP является основным agent-facing protocol, но execution backend не обязан
+быть MCP. Для Uprava важно не только вызвать tool, но и:
 
 - показать его в UI;
 - трассировать вызовы;
@@ -350,6 +435,7 @@ workflow hooks
 - Tool Registry;
 - Plugin Registry;
 - integration registry and configuration;
+- MCP search/inspect/execute index and gateway policy;
 - permissions and policies;
 - routing commands to Node Daemons;
 - webhooks from GitHub/GitLab/Linear/CI;
@@ -360,6 +446,8 @@ workflow hooks
 
 - Node registration and heartbeat;
 - local capability probing;
+- native CLI capability inventory without proxying execution;
+- ToolHive-backed MCP runtime lifecycle and actual-state reporting;
 - workspace management;
 - file access;
 - terminal/PTY;
@@ -540,7 +628,15 @@ role-based access
 - `AI Agents` являются workloads, а не инфраструктурными демонами.
 - `Tool Registry` живет в Core.
 - `Plugin Registry` живет в Core рядом с Tool Registry.
-- Внешние интеграции подключаются через adapters: MCP, native API, Node-local, external provider or hybrid.
-- MCP важен как протокол интеграции, но не должен быть единственным механизмом расширения.
+- Uprava MCP является основным machine interface агента к Core capabilities и
+  внешним integrations.
+- Agent-facing tool access обязательно использует progressive discovery
+  `Search -> Inspect -> Execute`; полный catalog schemas не передаётся модели.
+- ToolHive является external MCP runtime provider; Core сохраняет policy,
+  scope, routing, trace and audit.
+- Provider-native и Node-local CLI tools учитываются как observed capabilities
+  и вызываются агентом напрямую.
+- Native API, Node-local, external provider and hybrid adapters остаются
+  допустимыми execution backends за MCP-facing/Core-owned contract.
 - Tool execution может происходить на Node, во внешнем provider или позднее в самом Core для безопасных lightweight tools.
 - Clients должны работать через Core, а не напрямую владеть distributed state.

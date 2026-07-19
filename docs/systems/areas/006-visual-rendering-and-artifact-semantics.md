@@ -768,7 +768,7 @@ not A-005 dynamic UI. If an agent explicitly proposes a generated dashboard
 artifact, creation belongs to A-005 and visual semantics belong to
 A-006.
 
-### Relationship with A-007 Plugins, Tool Registry and MCP Strategy
+### Relationship with A-007 Agent Tooling, Tool Registry and MCP Strategy
 
 Plugins and tools provide many renderers, but A-006 defines the visual contract
 they should satisfy.
