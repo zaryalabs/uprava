@@ -37,12 +37,13 @@ dependency, complexity, risk and value. Позиции могут двигать
 
 ## Обзор очереди
 
-Current release baseline: `0.2.7`. Закрытые пункты `0` through `9`, unified
+Current release baseline: `0.2.8`. Закрытые пункты `0` through `9`, unified
 audit hardening release и `5a` workspace renderer release соответствуют shipped
 versions, зафиксированным в [`releases.md`](../releases.md). Пункт `6` включает
 workbench alignment, первый стабильный self-hosted deployment path и
 workspace-centered UI follow-up `0.2.6` и Causality/Trace/Deduction slice
-`0.2.7`. Следующий плановый пункт очереди — Git and review basics.
+`0.2.7`. Runtime boundary refactor зафиксирован implementation baseline
+`0.2.8`. Следующий плановый пункт очереди — Git and review basics.
 
 | Order | Done | Mechanism / Feature Slice | First Useful Slice | Dependency | Complexity |
 | --- | --- | --- | --- | --- | --- |

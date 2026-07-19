@@ -21,6 +21,41 @@
   turn ставят automatic scheduling на паузу, если Job явно не включает
   continue-after-error.
 
+## Границы модулей реализации 0.2.8
+
+Core и Node используют небольшие `runtime.rs` только как composition roots.
+Они собирают зависимости, запускают owner tasks и recovery loops, но не
+являются местом для накопления transport, persistence, workspace или provider
+реализации.
+
+Core разделён следующим образом:
+
+- `runtime/transport/` — Axum router, HTTP/control ingress, process-local
+  connection registry, command waiters и terminal fan-out;
+- `runtime/application/` — capability-oriented orchestration sessions,
+  workspace, scheduling, projections и distributed coordination;
+- `persistence/` — numbered migrations и durability-heavy command, event,
+  enrollment, heartbeat и placement operations;
+- `runtime/support.rs` — единый error/serialization/security boundary.
+
+Node разделён следующим образом:
+
+- `runtime/persistence/state.rs` — единственный owner локального versioned state
+  и SQLite actor;
+- `runtime/transport/` — outbound enrollment, heartbeat и control channel;
+- `runtime/application/` — bounded dispatch, cancellation, execution и event
+  outbox;
+- `runtime/workspace.rs`, `terminal.rs` и `provider.rs` — отдельные data-plane
+  boundaries для filesystem/process, PTY и provider adapter.
+
+Feature-local orchestration может оставаться рядом с транзакцией, если
+искусственное выделение универсального repository разорвало бы один durable
+use case. При этом persistence modules не импортируют Axum/WebSocket, а Node
+state persistence не импортирует HTTP, control socket, PTY или provider
+execution. Инвариант `event -> projection -> publication outbox` остаётся одной
+Core-owned транзакцией. Эти правила, наличие модулей и предел размера
+composition roots проверяет `scripts/check_runtime_boundaries.py`.
+
 Статус: `active`
 
 Этот документ фиксирует первую архитектурную позицию по client/server модели Uprava.

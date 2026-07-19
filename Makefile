@@ -251,6 +251,7 @@ scripts-check: ## Run shell syntax checks for product scripts
 	done; \
 	sh scripts/check-container-runtime-users.sh; \
 	$(PYTHON) scripts/check_logging_policy.py; \
+	$(PYTHON) scripts/check_runtime_boundaries.py; \
 	sh scripts/check-ci-policy.sh; \
 	sh scripts/check-release-manifest.sh; \
 	sh scripts/check-ci-phases.sh; \

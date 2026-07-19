@@ -58,11 +58,16 @@ def macros(text: str):
 
 def main() -> None:
     root = Path(__file__).resolve().parent.parent
-    sources = (
-        root / "crates/uprava-server/src/runtime.rs",
-        root / "crates/uprava-server/src/main.rs",
-        root / "crates/uprava-node/src/runtime.rs",
-        root / "crates/uprava-logging/src/lib.rs",
+    source_roots = (
+        root / "crates/uprava-server/src",
+        root / "crates/uprava-node/src",
+        root / "crates/uprava-logging/src",
+    )
+    sources = sorted(
+        source
+        for source_root in source_roots
+        for source in source_root.rglob("*.rs")
+        if "tests" not in source.parts and not source.name.endswith("_tests.rs")
     )
     errors: list[str] = []
     field_pattern = re.compile(rf"\b({'|'.join(map(re.escape, FORBIDDEN))})\s*=")

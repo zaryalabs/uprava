@@ -1,0 +1,528 @@
+//! Bounded command dispatch, cancellation and durable result delivery.
+
+use super::super::*;
+
+#[derive(Debug)]
+pub(crate) struct CommandDispatchJob {
+    pub(crate) command: CommandEnvelope,
+}
+
+#[derive(Clone, Default)]
+pub(crate) struct CommandExecutionLocks {
+    pub(crate) locks: Arc<Mutex<HashMap<String, Arc<Mutex<()>>>>>,
+}
+
+impl CommandExecutionLocks {
+    pub(crate) async fn lock_for(&self, key: String) -> Arc<Mutex<()>> {
+        let mut locks = self.locks.lock().await;
+        locks
+            .entry(key)
+            .or_insert_with(|| Arc::new(Mutex::new(())))
+            .clone()
+    }
+}
+
+#[derive(Clone, Default)]
+pub(crate) struct ExecutionCancellationRegistry {
+    pub(crate) state: Arc<Mutex<ExecutionCancellationState>>,
+}
+
+#[derive(Default)]
+pub(crate) struct ExecutionCancellationState {
+    pub(crate) senders: HashMap<String, watch::Sender<bool>>,
+    pub(crate) pending: HashSet<String>,
+}
+
+pub(crate) struct ExecutionCancellationGuard {
+    pub(crate) key: String,
+    pub(crate) sender: watch::Sender<bool>,
+    pub(crate) receiver: watch::Receiver<bool>,
+}
+
+impl ExecutionCancellationRegistry {
+    pub(crate) async fn begin(&self, key: String) -> ExecutionCancellationGuard {
+        let mut state = self.state.lock().await;
+        let initially_cancelled = state.pending.remove(&key);
+        let (sender, receiver) = watch::channel(initially_cancelled);
+        state.senders.insert(key.clone(), sender.clone());
+        ExecutionCancellationGuard {
+            key,
+            sender,
+            receiver,
+        }
+    }
+
+    pub(crate) async fn cancel(&self, key: String, remember_if_pending: bool) -> bool {
+        let mut state = self.state.lock().await;
+        if let Some(sender) = state.senders.get(&key) {
+            return sender.send(true).is_ok();
+        }
+        if remember_if_pending {
+            state.pending.insert(key);
+        }
+        false
+    }
+
+    pub(crate) async fn finish(&self, guard: ExecutionCancellationGuard) {
+        let mut state = self.state.lock().await;
+        if state
+            .senders
+            .get(&guard.key)
+            .is_some_and(|sender| sender.same_channel(&guard.sender))
+        {
+            state.senders.remove(&guard.key);
+        }
+    }
+}
+
+impl ExecutionCancellationGuard {
+    pub(crate) fn receiver(&self) -> watch::Receiver<bool> {
+        self.receiver.clone()
+    }
+}
+
+pub(crate) async fn run_command_dispatcher(
+    config: NodeConfig,
+    shared_state: NodeStateStore,
+    sender: ControlFrameSender,
+    terminal_supervisor: TerminalSupervisor,
+    mut priority_receiver: mpsc::Receiver<CommandDispatchJob>,
+    mut receiver: mpsc::Receiver<CommandDispatchJob>,
+) {
+    let shared = CommandDispatcherShared {
+        config,
+        shared_state,
+        sender,
+        terminal_supervisor,
+        locks: CommandExecutionLocks::default(),
+        cancellations: ExecutionCancellationRegistry::default(),
+        concurrency: Arc::new(Semaphore::new(NODE_COMMAND_DISPATCH_CONCURRENCY)),
+    };
+    let mut tasks = tokio::task::JoinSet::new();
+
+    loop {
+        tokio::select! {
+            biased;
+            Some(job) = priority_receiver.recv() => {
+                spawn_command_dispatch_task(&mut tasks, job, &shared);
+            }
+            Some(job) = receiver.recv() => {
+                spawn_command_dispatch_task(&mut tasks, job, &shared);
+            }
+            Some(result) = tasks.join_next(), if !tasks.is_empty() => {
+                if let Err(error) = result {
+                    tracing::warn!(error = %error, "command dispatcher task failed");
+                }
+            }
+            else => break,
+        }
+    }
+
+    while let Some(result) = tasks.join_next().await {
+        if let Err(error) = result {
+            tracing::warn!(error = %error, "command dispatcher task failed");
+        }
+    }
+}
+
+#[derive(Clone)]
+pub(crate) struct CommandDispatcherShared {
+    pub(crate) config: NodeConfig,
+    pub(crate) shared_state: NodeStateStore,
+    pub(crate) sender: ControlFrameSender,
+    pub(crate) terminal_supervisor: TerminalSupervisor,
+    pub(crate) locks: CommandExecutionLocks,
+    pub(crate) cancellations: ExecutionCancellationRegistry,
+    pub(crate) concurrency: Arc<Semaphore>,
+}
+
+pub(crate) fn spawn_command_dispatch_task(
+    tasks: &mut tokio::task::JoinSet<()>,
+    job: CommandDispatchJob,
+    shared: &CommandDispatcherShared,
+) {
+    let shared = shared.clone();
+    tasks.spawn(async move {
+        let Some(_permit) = prepare_command_dispatch_task(
+            &job.command,
+            &shared.cancellations,
+            shared.concurrency.clone(),
+        )
+        .await
+        else {
+            return;
+        };
+        let execution_lock = shared
+            .locks
+            .lock_for(command_execution_key(&job.command))
+            .await;
+        let _guard = execution_lock.lock().await;
+        let cancellation_guard = match execution_cancellation_key(&job.command) {
+            Some(key) => Some(shared.cancellations.begin(key).await),
+            None => None,
+        };
+        let cancellation_receiver = cancellation_guard
+            .as_ref()
+            .map(ExecutionCancellationGuard::receiver);
+        let baseline = match shared.shared_state.snapshot().await {
+            Ok(snapshot) => snapshot,
+            Err(error) => {
+                tracing::warn!(
+                    error = %error,
+                    "command dispatcher could not load state snapshot"
+                );
+                let _ = send_dispatch_internal_error_result(
+                    &shared.sender,
+                    &job.command,
+                    "node.dispatch_state_unavailable",
+                    "Node could not load durable state before command dispatch",
+                    false,
+                )
+                .await;
+                return;
+            }
+        };
+        let mut local_state = baseline.clone();
+        let context = CommandDispatchContext {
+            config: &shared.config,
+            sender: &shared.sender,
+            terminal_supervisor: &shared.terminal_supervisor,
+            shared_state: &shared.shared_state,
+            cancellation: cancellation_receiver,
+        };
+        if let Err(error) =
+            handle_command_dispatch(context, job.command, &mut local_state, &baseline).await
+        {
+            tracing::warn!(error = %error, "command dispatch failed");
+        }
+        if let Some(guard) = cancellation_guard {
+            shared.cancellations.finish(guard).await;
+        }
+    });
+}
+
+pub(crate) async fn prepare_command_dispatch_task(
+    command: &CommandEnvelope,
+    cancellations: &ExecutionCancellationRegistry,
+    concurrency: Arc<Semaphore>,
+) -> Option<tokio::sync::OwnedSemaphorePermit> {
+    if let Some((key, remember_if_pending)) = cancellation_signal(command) {
+        let cancelled = cancellations.cancel(key.clone(), remember_if_pending).await;
+        tracing::debug!(cancelled, key, "cancellation command signalled provider");
+    }
+    match concurrency.acquire_owned().await {
+        Ok(permit) => Some(permit),
+        Err(_) => {
+            tracing::warn!("command dispatcher semaphore closed");
+            None
+        }
+    }
+}
+
+pub(crate) fn runtime_cancellation_key(runtime_session_id: &RuntimeSessionId) -> String {
+    format!("runtime:{}", runtime_session_id.as_str())
+}
+
+pub(crate) fn is_priority_cancellation_command(command: &CommandEnvelope) -> bool {
+    matches!(
+        command.kind,
+        CommandKind::InterruptRuntime | CommandKind::StopRuntime | CommandKind::CancelDeduction
+    )
+}
+
+pub(crate) fn deduction_cancellation_key(deduction_id: &uprava_protocol::DeductionId) -> String {
+    format!("deduction:{}", deduction_id.as_str())
+}
+
+pub(crate) fn execution_cancellation_key(command: &CommandEnvelope) -> Option<String> {
+    match (&command.kind, &command.payload) {
+        (CommandKind::SendTurn, _) => command
+            .target
+            .runtime_session_id()
+            .map(runtime_cancellation_key),
+        (CommandKind::RequestDeduction, CommandPayload::RequestDeduction { package }) => {
+            Some(deduction_cancellation_key(&package.deduction_id))
+        }
+        _ => None,
+    }
+}
+
+pub(crate) fn cancellation_signal(command: &CommandEnvelope) -> Option<(String, bool)> {
+    match (&command.kind, &command.payload) {
+        (CommandKind::InterruptRuntime | CommandKind::StopRuntime, _) => command
+            .target
+            .runtime_session_id()
+            .map(runtime_cancellation_key)
+            .map(|key| (key, false)),
+        (CommandKind::CancelDeduction, CommandPayload::CancelDeduction { deduction_id }) => {
+            Some((deduction_cancellation_key(deduction_id), true))
+        }
+        _ => None,
+    }
+}
+
+pub(crate) fn command_execution_key(command: &CommandEnvelope) -> String {
+    command
+        .target
+        .runtime_session_id()
+        .map(|runtime_id| format!("runtime:{}", runtime_id.as_str()))
+        .or_else(|| {
+            command
+                .target
+                .project_placement_id()
+                .map(|placement_id| format!("placement:{}", placement_id.as_str()))
+        })
+        .unwrap_or_else(|| format!("command:{}", command.command_id.as_str()))
+}
+
+pub(crate) struct CommandDispatchContext<'a> {
+    pub(crate) config: &'a NodeConfig,
+    pub(crate) sender: &'a ControlFrameSender,
+    pub(crate) terminal_supervisor: &'a TerminalSupervisor,
+    pub(crate) shared_state: &'a NodeStateStore,
+    pub(crate) cancellation: Option<watch::Receiver<bool>>,
+}
+
+pub(crate) async fn handle_command_dispatch(
+    context: CommandDispatchContext<'_>,
+    command: CommandEnvelope,
+    local_state: &mut NodeLocalState,
+    baseline: &NodeLocalState,
+) -> anyhow::Result<()> {
+    let outcome = prepare_command_dispatch_with_live_socket(
+        context.config,
+        local_state,
+        &command,
+        Some(context.sender),
+        Some(context.terminal_supervisor),
+        context.cancellation,
+    )
+    .await;
+    if outcome.state_changed {
+        context
+            .shared_state
+            .persist_command_outcome(baseline, local_state)
+            .await?;
+    }
+
+    send_frame(
+        context.sender,
+        ControlFrame::CommandAck {
+            frame_id: Uuid::new_v4().to_string(),
+            protocol_version: API_VERSION.to_owned(),
+            sent_at: Utc::now(),
+            command_id: command.command_id.clone(),
+            status: CommandState::Acknowledged,
+        },
+    )
+    .await?;
+
+    send_event_batch(context.sender, outcome.events_to_send).await?;
+    send_command_result(
+        context.sender,
+        &command.command_id,
+        outcome.status,
+        outcome.result_payload,
+    )
+    .await
+}
+
+pub(crate) async fn send_command_result(
+    sender: &ControlFrameSender,
+    command_id: &CommandId,
+    status: CommandState,
+    payload: JsonValue,
+) -> anyhow::Result<()> {
+    send_frame(
+        sender,
+        ControlFrame::CommandResult {
+            frame_id: Uuid::new_v4().to_string(),
+            protocol_version: API_VERSION.to_owned(),
+            sent_at: Utc::now(),
+            command_id: command_id.clone(),
+            status,
+            payload,
+        },
+    )
+    .await
+}
+
+pub(crate) async fn replay_event_outbox(
+    sender: &ControlFrameSender,
+    events: &[EventEnvelope],
+) -> anyhow::Result<()> {
+    if events.is_empty() {
+        return Ok(());
+    }
+    tracing::info!(events = events.len(), "replaying control event outbox");
+    send_event_batch(sender, events.to_vec()).await
+}
+
+pub(crate) async fn send_event_batch(
+    sender: &ControlFrameSender,
+    events: Vec<EventEnvelope>,
+) -> anyhow::Result<()> {
+    if events.is_empty() {
+        return Ok(());
+    }
+    send_frame(
+        sender,
+        ControlFrame::EventBatch {
+            frame_id: Uuid::new_v4().to_string(),
+            protocol_version: API_VERSION.to_owned(),
+            sent_at: Utc::now(),
+            events,
+        },
+    )
+    .await
+}
+
+pub(crate) async fn send_dispatch_busy_result(
+    sender: &ControlFrameSender,
+    command: &CommandEnvelope,
+) -> anyhow::Result<()> {
+    send_dispatch_internal_error_result(
+        sender,
+        command,
+        "node.dispatch_busy",
+        "Node command dispatcher is saturated; retry the command later",
+        true,
+    )
+    .await
+}
+
+pub(crate) async fn send_dispatch_closed_result(
+    sender: &ControlFrameSender,
+    command: &CommandEnvelope,
+) -> anyhow::Result<()> {
+    send_dispatch_internal_error_result(
+        sender,
+        command,
+        "node.dispatch_closed",
+        "Node command dispatcher is unavailable on this control connection",
+        true,
+    )
+    .await
+}
+
+pub(crate) async fn send_dispatch_internal_error_result(
+    sender: &ControlFrameSender,
+    command: &CommandEnvelope,
+    error_code: &'static str,
+    message: &'static str,
+    retryable: bool,
+) -> anyhow::Result<()> {
+    send_frame(
+        sender,
+        ControlFrame::CommandAck {
+            frame_id: Uuid::new_v4().to_string(),
+            protocol_version: API_VERSION.to_owned(),
+            sent_at: Utc::now(),
+            command_id: command.command_id.clone(),
+            status: CommandState::Acknowledged,
+        },
+    )
+    .await?;
+    send_command_result(
+        sender,
+        &command.command_id,
+        CommandState::Failed,
+        JsonValue(serde_json::json!({
+            "error_code": error_code,
+            "message": message,
+            "retryable": retryable,
+        })),
+    )
+    .await
+}
+
+pub(crate) async fn send_frame(
+    sender: &ControlFrameSender,
+    frame: ControlFrame,
+) -> anyhow::Result<()> {
+    sender.try_send(frame).context("control frame send failed")
+}
+
+pub(crate) fn control_frame_protocol_error(frame: &ControlFrame) -> Option<ControlFrame> {
+    let received_protocol_version = control_frame_protocol_version(frame);
+    if is_supported_protocol_version(received_protocol_version) {
+        return None;
+    }
+
+    Some(ControlFrame::ControlError {
+        frame_id: Uuid::new_v4().to_string(),
+        protocol_version: API_VERSION.to_owned(),
+        sent_at: Utc::now(),
+        error: ApiError {
+            error_code: "control.protocol_incompatible".to_owned(),
+            message: "Control protocol version is incompatible".to_owned(),
+            details: JsonValue(serde_json::json!({
+                "expected_protocol_version": API_VERSION,
+                "received_protocol_version": received_protocol_version,
+            })),
+            retryable: false,
+            correlation_id: CorrelationId::from(Uuid::new_v4().to_string()),
+        },
+    })
+}
+
+pub(crate) fn control_frame_protocol_version(frame: &ControlFrame) -> &str {
+    match frame {
+        ControlFrame::Hello {
+            protocol_version, ..
+        }
+        | ControlFrame::HelloAck {
+            protocol_version, ..
+        }
+        | ControlFrame::CommandDispatch {
+            protocol_version, ..
+        }
+        | ControlFrame::CommandAck {
+            protocol_version, ..
+        }
+        | ControlFrame::CommandResult {
+            protocol_version, ..
+        }
+        | ControlFrame::EventBatch {
+            protocol_version, ..
+        }
+        | ControlFrame::EventBatchAck {
+            protocol_version, ..
+        }
+        | ControlFrame::WorkspaceTerminalAttach {
+            protocol_version, ..
+        }
+        | ControlFrame::WorkspaceTerminalInput {
+            protocol_version, ..
+        }
+        | ControlFrame::WorkspaceTerminalResize {
+            protocol_version, ..
+        }
+        | ControlFrame::WorkspaceTerminalClose {
+            protocol_version, ..
+        }
+        | ControlFrame::WorkspaceTerminalOutput {
+            protocol_version, ..
+        }
+        | ControlFrame::WorkspaceTerminalStatus {
+            protocol_version, ..
+        }
+        | ControlFrame::Ping {
+            protocol_version, ..
+        }
+        | ControlFrame::Pong {
+            protocol_version, ..
+        }
+        | ControlFrame::ControlError {
+            protocol_version, ..
+        } => protocol_version,
+    }
+}
+
+#[derive(Debug)]
+pub(crate) struct CommandDispatchOutcome {
+    pub(crate) status: CommandState,
+    pub(crate) events_to_send: Vec<EventEnvelope>,
+    pub(crate) result_payload: JsonValue,
+    pub(crate) state_changed: bool,
+}
