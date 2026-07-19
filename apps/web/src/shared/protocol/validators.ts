@@ -4,20 +4,65 @@ import {
   COMMAND_KIND_VALUES,
   COMMAND_STATE_VALUES,
   EVENT_KIND_VALUES,
+  INTEGRATION_AUTH_STATE_VALUES,
+  INTEGRATION_DESIRED_STATE_VALUES,
+  MCP_DEPENDENCY_ACTUAL_STATE_VALUES,
   MESSAGE_ROLE_VALUES,
+  OBSERVED_CAPABILITY_STATE_VALUES,
   PLACEMENT_STATE_VALUES,
+  POLICY_DECISION_VALUES,
+  TOOL_AVAILABILITY_STATE_VALUES,
+  TOOL_CALL_STATE_VALUES,
+  TOOL_DEFINITION_STATE_VALUES,
+  TOOL_EXECUTION_ERROR_CODE_VALUES,
+  TOOL_EXECUTION_KIND_VALUES,
+  TOOL_INVOCATION_MODE_VALUES,
+  TOOL_RISK_LEVEL_VALUES,
+  TOOL_SOURCE_KIND_VALUES,
+  TOOL_UNAVAILABLE_REASON_VALUES,
   WARNING_SEVERITY_VALUES,
   WORKSPACE_COMMAND_INTENT_VALUES,
   WORKSPACE_TERMINAL_STATE_VALUES,
 } from "./literals";
 import type {
+  ActorRef,
   CommandAcceptedResponse,
   CommandKind,
   CommandState,
   EventEnvelope,
   EventKind,
   EventPayload,
+  ExecuteToolRequest,
+  ExecuteToolResponse,
+  InspectToolRequest,
+  InspectToolResponse,
+  IntegrationConnectRequest,
+  IntegrationConnectResponse,
+  IntegrationConnectionSummary,
+  IntegrationConnectionsResponse,
+  IntegrationDisconnectRequest,
+  IntegrationDisconnectResponse,
+  McpAccessLeaseClaims,
+  McpDependencyStatus,
+  McpDependencyStatusesResponse,
   MessageRole,
+  ObservedCapabilitiesResponse,
+  ObservedCapability,
+  SearchToolsRequest,
+  SearchToolsResponse,
+  ToolAvailability,
+  ToolAvailabilityResponse,
+  ToolCallDetail,
+  ToolCallSummary,
+  ToolCallsResponse,
+  ToolDefinition,
+  ToolDefinitionsResponse,
+  ToolExecutionError,
+  ToolResultEnvelope,
+  ToolScope,
+  ToolingCommandV1,
+  ToolingContractFixture,
+  ToolingEventV1,
   WorkspaceCommandHistoryItem,
   WorkspaceCommandHistoryResponse,
   WorkspaceCommandIntent,
@@ -72,6 +117,468 @@ export const workspaceTerminalStateSchema = z.enum(
 const nullableString = z.string().nullable();
 const nullableNumber = z.number().nullable();
 const protocolRefSchema = z.object({ kind: z.string() }).passthrough();
+const actorRefSchema = z.discriminatedUnion("kind", [
+  z
+    .object({ kind: z.literal("local_user"), actor_id: nullableString })
+    .strict(),
+  z.object({ kind: z.literal("system") }).strict(),
+  z.object({ kind: z.literal("node"), node_id: z.string() }).strict(),
+  z.object({ kind: z.literal("provider"), provider: z.string() }).strict(),
+  z.object({ kind: z.literal("unknown") }).strict(),
+]) satisfies z.ZodType<ActorRef>;
+const toolSourceKindSchema = z.enum(TOOL_SOURCE_KIND_VALUES);
+const toolExecutionKindSchema = z.enum(TOOL_EXECUTION_KIND_VALUES);
+const toolRiskLevelSchema = z.enum(TOOL_RISK_LEVEL_VALUES);
+const toolDefinitionStateSchema = z.enum(TOOL_DEFINITION_STATE_VALUES);
+const toolAvailabilityStateSchema = z.enum(TOOL_AVAILABILITY_STATE_VALUES);
+const toolUnavailableReasonSchema = z.enum(TOOL_UNAVAILABLE_REASON_VALUES);
+const observedCapabilityStateSchema = z.enum(OBSERVED_CAPABILITY_STATE_VALUES);
+const integrationDesiredStateSchema = z.enum(INTEGRATION_DESIRED_STATE_VALUES);
+const integrationAuthStateSchema = z.enum(INTEGRATION_AUTH_STATE_VALUES);
+const mcpDependencyActualStateSchema = z.enum(
+  MCP_DEPENDENCY_ACTUAL_STATE_VALUES,
+);
+const policyDecisionSchema = z.enum(POLICY_DECISION_VALUES);
+const toolCallStateSchema = z.enum(TOOL_CALL_STATE_VALUES);
+const toolInvocationModeSchema = z.enum(TOOL_INVOCATION_MODE_VALUES);
+const toolExecutionErrorCodeSchema = z.enum(TOOL_EXECUTION_ERROR_CODE_VALUES);
+const upravaRefSchema = protocolRefSchema as z.ZodType<
+  import("./types").UpravaRef
+>;
+
+export const toolScopeSchema = z
+  .object({
+    actor_ref: actorRefSchema,
+    node_id: nullableString,
+    project_id: nullableString,
+    project_placement_id: nullableString,
+    session_thread_id: nullableString,
+  })
+  .strict() satisfies z.ZodType<ToolScope>;
+
+export const toolDefinitionSchema = z
+  .object({
+    tool_id: z.string(),
+    source_id: z.string(),
+    source_kind: toolSourceKindSchema,
+    source_tool_name: z.string(),
+    version: z.number().int().nonnegative(),
+    display_name: z.string(),
+    short_description: z.string(),
+    documentation_url: nullableString,
+    input_schema: z.unknown(),
+    output_schema: z.unknown(),
+    schema_hash: z.string(),
+    risk_level: toolRiskLevelSchema,
+    required_permissions: z.array(z.string()),
+    execution_kind: toolExecutionKindSchema,
+    approval_policy: policyDecisionSchema,
+    redaction: z
+      .object({
+        argument_json_pointers: z.array(z.string()),
+        result_json_pointers: z.array(z.string()),
+        redact_all_arguments: z.boolean(),
+        redact_all_result: z.boolean(),
+        max_summary_bytes: z.number().int().nonnegative(),
+      })
+      .strict(),
+    state: toolDefinitionStateSchema,
+    created_at: z.string(),
+    updated_at: z.string(),
+  })
+  .strict() satisfies z.ZodType<ToolDefinition>;
+
+export const toolAvailabilitySchema = z
+  .object({
+    tool_id: z.string(),
+    scope: toolScopeSchema,
+    state: toolAvailabilityStateSchema,
+    reason: toolUnavailableReasonSchema.nullable(),
+    backend_ref: nullableString,
+    dependency_instance_id: nullableString,
+    schema_hash: z.string(),
+    policy_version: z.string(),
+    observed_at: z.string(),
+  })
+  .strict() satisfies z.ZodType<ToolAvailability>;
+
+export const observedCapabilitySchema = z
+  .object({
+    node_id: z.string(),
+    capability_key: z.string(),
+    display_name: z.string(),
+    state: observedCapabilityStateSchema,
+    version: nullableString,
+    safe_authentication_state: nullableString,
+    observed_at: z.string(),
+  })
+  .strict() satisfies z.ZodType<ObservedCapability>;
+
+export const integrationConnectionSummarySchema = z
+  .object({
+    integration_id: z.string(),
+    source_id: z.string(),
+    provider: z.string(),
+    display_name: z.string(),
+    desired_state: integrationDesiredStateSchema,
+    auth_state: integrationAuthStateSchema,
+    node_id: nullableString,
+    authenticated_actor_label: nullableString,
+    connected_at: nullableString,
+    updated_at: z.string(),
+    error_code: nullableString,
+  })
+  .strict() satisfies z.ZodType<IntegrationConnectionSummary>;
+
+export const mcpDependencyStatusSchema = z
+  .object({
+    dependency_instance_id: z.string(),
+    integration_id: z.string(),
+    node_id: z.string(),
+    desired_state: integrationDesiredStateSchema,
+    actual_state: mcpDependencyActualStateSchema,
+    runtime_name: z.string(),
+    runtime_version: nullableString,
+    upstream_identity: nullableString,
+    schema_set_hash: nullableString,
+    error_code: nullableString,
+    observed_at: z.string(),
+  })
+  .strict() satisfies z.ZodType<McpDependencyStatus>;
+
+const toolSearchFiltersSchema = z
+  .object({
+    source_kinds: z.array(toolSourceKindSchema),
+    risk_levels: z.array(toolRiskLevelSchema),
+    availability_states: z.array(toolAvailabilityStateSchema),
+  })
+  .strict();
+
+export const searchToolsRequestSchema = z
+  .object({
+    scope: toolScopeSchema,
+    query: z.string(),
+    filters: toolSearchFiltersSchema,
+    cursor: nullableString,
+    limit: z.number().int().positive().nullable(),
+  })
+  .strict() satisfies z.ZodType<SearchToolsRequest>;
+
+const toolSearchResultSchema = z
+  .object({
+    tool_id: z.string(),
+    display_name: z.string(),
+    short_description: z.string(),
+    source_kind: toolSourceKindSchema,
+    risk_level: toolRiskLevelSchema,
+    availability_state: toolAvailabilityStateSchema,
+    unavailable_reason: toolUnavailableReasonSchema.nullable(),
+    schema_hash: z.string(),
+  })
+  .strict();
+
+export const searchToolsResponseSchema = z
+  .object({
+    items: z.array(toolSearchResultSchema),
+    next_cursor: nullableString,
+  })
+  .strict() satisfies z.ZodType<SearchToolsResponse>;
+
+export const inspectToolRequestSchema = z
+  .object({ scope: toolScopeSchema, tool_id: z.string() })
+  .strict() satisfies z.ZodType<InspectToolRequest>;
+
+export const inspectToolResponseSchema = z
+  .object({
+    definition: toolDefinitionSchema,
+    availability: toolAvailabilitySchema,
+    invocation_mode: toolInvocationModeSchema,
+  })
+  .strict() satisfies z.ZodType<InspectToolResponse>;
+
+export const executeToolRequestSchema = z
+  .object({
+    scope: toolScopeSchema,
+    tool_id: z.string(),
+    arguments: z.unknown(),
+  })
+  .strict() satisfies z.ZodType<ExecuteToolRequest>;
+
+const toolExecutionErrorSchema = z
+  .object({
+    code: toolExecutionErrorCodeSchema,
+    message: z.string(),
+    retryable: z.boolean(),
+    redacted_details: z.unknown(),
+  })
+  .strict() satisfies z.ZodType<ToolExecutionError>;
+
+const toolResultEnvelopeSchema = z
+  .object({
+    content: z.unknown(),
+    summary: nullableString,
+    truncated: z.boolean(),
+    original_size_bytes: nullableNumber,
+    artifact_refs: z.array(upravaRefSchema),
+  })
+  .strict() satisfies z.ZodType<ToolResultEnvelope>;
+
+export const executeToolResponseSchema = z
+  .object({
+    tool_call_id: z.string(),
+    state: toolCallStateSchema,
+    result: toolResultEnvelopeSchema.nullable(),
+    error: toolExecutionErrorSchema.nullable(),
+  })
+  .strict() satisfies z.ZodType<ExecuteToolResponse>;
+
+const toolCallSummarySchema = z
+  .object({
+    tool_call_id: z.string(),
+    tool_id: z.string(),
+    schema_hash: z.string(),
+    actor_ref: actorRefSchema,
+    scope: toolScopeSchema,
+    source_kind: toolSourceKindSchema,
+    state: toolCallStateSchema,
+    policy_decision: policyDecisionSchema,
+    route: z.string(),
+    requested_at: z.string(),
+    started_at: nullableString,
+    completed_at: nullableString,
+    correlation_id: z.string(),
+  })
+  .strict() satisfies z.ZodType<ToolCallSummary>;
+
+export const toolCallDetailSchema = z
+  .object({
+    summary: toolCallSummarySchema,
+    command_id: nullableString,
+    integration_id: nullableString,
+    dependency_instance_id: nullableString,
+    policy_version: z.string(),
+    redacted_arguments_summary: nullableString,
+    redacted_result_summary: nullableString,
+    argument_hash: nullableString,
+    result_hash: nullableString,
+    result_size_bytes: nullableNumber,
+    trace_refs: z.array(upravaRefSchema),
+    result_refs: z.array(upravaRefSchema),
+    error: toolExecutionErrorSchema.nullable(),
+  })
+  .strict() satisfies z.ZodType<ToolCallDetail>;
+
+const toolingCommandPayloadSchema = z.discriminatedUnion("type", [
+  z
+    .object({
+      type: z.literal("execute_external_tool"),
+      tool_call_id: z.string(),
+      tool_id: z.string(),
+      schema_hash: z.string(),
+      integration_id: z.string(),
+      dependency_instance_id: z.string(),
+      scope: toolScopeSchema,
+      arguments: z.unknown(),
+      deadline_at: z.string(),
+      max_result_bytes: z.number().int().nonnegative(),
+    })
+    .strict(),
+  z
+    .object({
+      type: z.literal("cancel_tool_call"),
+      tool_call_id: z.string(),
+      reason: nullableString,
+    })
+    .strict(),
+  z
+    .object({
+      type: z.literal("update_dependency_desired_state"),
+      dependency_instance_id: z.string(),
+      integration_id: z.string(),
+      desired_state: integrationDesiredStateSchema,
+      credential_ref: nullableString,
+    })
+    .strict(),
+]);
+
+export const toolingCommandV1Schema = z
+  .object({
+    contract_version: z.literal(1),
+    payload: toolingCommandPayloadSchema,
+  })
+  .strict() satisfies z.ZodType<ToolingCommandV1>;
+
+const toolingEventPayloadSchema = z.discriminatedUnion("type", [
+  z
+    .object({
+      type: z.literal("dependency_actual_state_reported"),
+      status: mcpDependencyStatusSchema,
+    })
+    .strict(),
+  z
+    .object({
+      type: z.literal("tool_definitions_discovered"),
+      dependency_instance_id: z.string(),
+      definitions: z.array(toolDefinitionSchema),
+      schema_set_hash: z.string(),
+    })
+    .strict(),
+  z
+    .object({
+      type: z.literal("tool_call_started"),
+      tool_call_id: z.string(),
+      started_at: z.string(),
+    })
+    .strict(),
+  z
+    .object({
+      type: z.literal("tool_call_completed"),
+      tool_call_id: z.string(),
+      result: toolResultEnvelopeSchema,
+      completed_at: z.string(),
+    })
+    .strict(),
+  z
+    .object({
+      type: z.literal("tool_call_failed"),
+      tool_call_id: z.string(),
+      error: toolExecutionErrorSchema,
+      failed_at: z.string(),
+    })
+    .strict(),
+  z
+    .object({
+      type: z.literal("tool_call_denied"),
+      tool_call_id: z.string(),
+      error: toolExecutionErrorSchema,
+      denied_at: z.string(),
+    })
+    .strict(),
+  z
+    .object({
+      type: z.literal("tool_availability_changed"),
+      availability: toolAvailabilitySchema,
+    })
+    .strict(),
+]);
+
+export const toolingEventV1Schema = z
+  .object({
+    contract_version: z.literal(1),
+    payload: toolingEventPayloadSchema,
+  })
+  .strict() satisfies z.ZodType<ToolingEventV1>;
+
+const mcpAccessLeaseClaimsSchema = z
+  .object({
+    lease_id: z.string(),
+    audience: z.string(),
+    actor_ref: actorRefSchema,
+    session_thread_id: z.string(),
+    project_id: nullableString,
+    project_placement_id: z.string(),
+    node_id: z.string(),
+    issued_at: z.string(),
+    expires_at: z.string(),
+    credential_version: z.number().int().nonnegative(),
+  })
+  .strict() satisfies z.ZodType<McpAccessLeaseClaims>;
+
+export const toolDefinitionsResponseSchema = z
+  .object({
+    items: z.array(toolDefinitionSchema),
+    next_cursor: nullableString,
+  })
+  .strict() satisfies z.ZodType<ToolDefinitionsResponse>;
+
+export const toolAvailabilityResponseSchema = z
+  .object({
+    items: z.array(toolAvailabilitySchema),
+    generated_at: z.string(),
+  })
+  .strict() satisfies z.ZodType<ToolAvailabilityResponse>;
+
+export const observedCapabilitiesResponseSchema = z
+  .object({
+    items: z.array(observedCapabilitySchema),
+    generated_at: z.string(),
+  })
+  .strict() satisfies z.ZodType<ObservedCapabilitiesResponse>;
+
+export const integrationConnectionsResponseSchema = z
+  .object({ items: z.array(integrationConnectionSummarySchema) })
+  .strict() satisfies z.ZodType<IntegrationConnectionsResponse>;
+
+export const mcpDependencyStatusesResponseSchema = z
+  .object({
+    items: z.array(mcpDependencyStatusSchema),
+    generated_at: z.string(),
+  })
+  .strict() satisfies z.ZodType<McpDependencyStatusesResponse>;
+
+export const toolCallsResponseSchema = z
+  .object({
+    items: z.array(toolCallSummarySchema),
+    next_cursor: nullableString,
+  })
+  .strict() satisfies z.ZodType<ToolCallsResponse>;
+
+export const integrationConnectRequestSchema = z
+  .object({
+    integration_id: z.string(),
+    project_id: nullableString,
+    node_id: z.string(),
+  })
+  .strict() satisfies z.ZodType<IntegrationConnectRequest>;
+
+export const integrationConnectResponseSchema = z
+  .object({
+    connection: integrationConnectionSummarySchema,
+    authorization_url: z.string(),
+    expires_at: z.string(),
+  })
+  .strict() satisfies z.ZodType<IntegrationConnectResponse>;
+
+export const integrationDisconnectRequestSchema = z
+  .object({ revoke_remote: z.boolean() })
+  .strict() satisfies z.ZodType<IntegrationDisconnectRequest>;
+
+export const integrationDisconnectResponseSchema = z
+  .object({
+    connection: integrationConnectionSummarySchema,
+    remote_revocation_confirmed: z.boolean(),
+  })
+  .strict() satisfies z.ZodType<IntegrationDisconnectResponse>;
+
+export const toolingContractFixtureSchema = z
+  .object({
+    tool_definition: toolDefinitionSchema,
+    availability: toolAvailabilitySchema,
+    observed_capability: observedCapabilitySchema,
+    integration: integrationConnectionSummarySchema,
+    dependency: mcpDependencyStatusSchema,
+    search_request: searchToolsRequestSchema,
+    search_response: searchToolsResponseSchema,
+    inspect_request: inspectToolRequestSchema,
+    inspect_response: inspectToolResponseSchema,
+    execute_request: executeToolRequestSchema,
+    execute_response: executeToolResponseSchema,
+    tool_call_detail: toolCallDetailSchema,
+    node_command: toolingCommandV1Schema,
+    node_event: toolingEventV1Schema,
+    lease_claims: mcpAccessLeaseClaimsSchema,
+    tool_definitions: toolDefinitionsResponseSchema,
+    tool_availability: toolAvailabilityResponseSchema,
+    observed_capabilities: observedCapabilitiesResponseSchema,
+    integration_connections: integrationConnectionsResponseSchema,
+    dependency_statuses: mcpDependencyStatusesResponseSchema,
+    tool_calls: toolCallsResponseSchema,
+    integration_connect_request: integrationConnectRequestSchema,
+    integration_connect_response: integrationConnectResponseSchema,
+    integration_disconnect_request: integrationDisconnectRequestSchema,
+    integration_disconnect_response: integrationDisconnectResponseSchema,
+  })
+  .strict() satisfies z.ZodType<ToolingContractFixture>;
 const gitChangeKindSchema = z.enum([
   "added",
   "modified",

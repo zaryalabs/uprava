@@ -203,3 +203,128 @@ export const WORKSPACE_TERMINAL_STREAM_FRAME_KIND_VALUES = [
   "pong",
   "error",
 ] as const;
+
+export const TOOL_SOURCE_KIND_VALUES = [
+  "uprava_native",
+  "external_mcp",
+  "plugin",
+] as const;
+
+export const TOOL_EXECUTION_KIND_VALUES = [
+  "core_native",
+  "node_native",
+  "toolhive_mcp",
+  "external_provider",
+  "hybrid",
+] as const;
+
+export const TOOL_RISK_LEVEL_VALUES = [
+  "read_only",
+  "workspace_write",
+  "external_read",
+  "external_write",
+  "credentialed_action",
+  "destructive",
+  "privileged_local",
+  "network_broad",
+] as const;
+
+export const TOOL_DEFINITION_STATE_VALUES = [
+  "active",
+  "deprecated",
+  "disabled",
+] as const;
+
+export const TOOL_AVAILABILITY_STATE_VALUES = [
+  "available",
+  "unavailable",
+  "degraded",
+  "approval_required",
+] as const;
+
+export const TOOL_UNAVAILABLE_REASON_VALUES = [
+  "node_offline",
+  "capability_missing",
+  "dependency_missing",
+  "dependency_unhealthy",
+  "not_authenticated",
+  "permission_denied",
+  "policy_blocked",
+  "project_not_enabled",
+  "session_not_enabled",
+  "schema_changed",
+  "backend_unreachable",
+  "toolhive_missing",
+] as const;
+
+export const OBSERVED_CAPABILITY_STATE_VALUES = [
+  "available",
+  "unavailable",
+  "unknown",
+] as const;
+
+export const INTEGRATION_DESIRED_STATE_VALUES = [
+  "enabled",
+  "disabled",
+] as const;
+
+export const INTEGRATION_AUTH_STATE_VALUES = [
+  "disconnected",
+  "connecting",
+  "connected",
+  "expired",
+  "error",
+] as const;
+
+export const MCP_DEPENDENCY_ACTUAL_STATE_VALUES = [
+  "toolhive_missing",
+  "missing_auth",
+  "installing",
+  "starting",
+  "running",
+  "degraded",
+  "failed",
+  "stopped",
+] as const;
+
+export const POLICY_DECISION_VALUES = [
+  "allow",
+  "deny",
+  "require_approval",
+] as const;
+
+export const TOOL_CALL_STATE_VALUES = [
+  "requested",
+  "authorized",
+  "approval_required",
+  "started",
+  "completed",
+  "failed",
+  "denied",
+  "cancelled",
+  "timed_out",
+] as const;
+
+export const TOOL_INVOCATION_MODE_VALUES = [
+  "stable_execute_tool",
+  "dynamic_mount_optional",
+] as const;
+
+export const TOOL_EXECUTION_ERROR_CODE_VALUES = [
+  "invalid_arguments",
+  "permission_denied",
+  "approval_required",
+  "unavailable",
+  "schema_changed",
+  "rate_limited",
+  "request_too_large",
+  "result_too_large",
+  "timeout",
+  "cancelled",
+  "backend_failed",
+  "toolhive_missing",
+  "not_authenticated",
+  "scope_mismatch",
+  "lease_expired",
+  "lease_revoked",
+] as const;

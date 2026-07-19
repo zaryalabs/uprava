@@ -123,6 +123,80 @@ ENUM_SPECS: list[tuple[str, str, str, str | None, str]] = [
         "kind",
         "WORKSPACE_TERMINAL_STREAM_FRAME_KIND_VALUES",
     ),
+    ("ToolSourceKind", "ToolSourceKind", "snake_case", None, "TOOL_SOURCE_KIND_VALUES"),
+    (
+        "ToolExecutionKind",
+        "ToolExecutionKind",
+        "snake_case",
+        None,
+        "TOOL_EXECUTION_KIND_VALUES",
+    ),
+    ("ToolRiskLevel", "ToolRiskLevel", "snake_case", None, "TOOL_RISK_LEVEL_VALUES"),
+    (
+        "ToolDefinitionState",
+        "ToolDefinitionState",
+        "snake_case",
+        None,
+        "TOOL_DEFINITION_STATE_VALUES",
+    ),
+    (
+        "ToolAvailabilityState",
+        "ToolAvailabilityState",
+        "snake_case",
+        None,
+        "TOOL_AVAILABILITY_STATE_VALUES",
+    ),
+    (
+        "ToolUnavailableReason",
+        "ToolUnavailableReason",
+        "snake_case",
+        None,
+        "TOOL_UNAVAILABLE_REASON_VALUES",
+    ),
+    (
+        "ObservedCapabilityState",
+        "ObservedCapabilityState",
+        "snake_case",
+        None,
+        "OBSERVED_CAPABILITY_STATE_VALUES",
+    ),
+    (
+        "IntegrationDesiredState",
+        "IntegrationDesiredState",
+        "snake_case",
+        None,
+        "INTEGRATION_DESIRED_STATE_VALUES",
+    ),
+    (
+        "IntegrationAuthState",
+        "IntegrationAuthState",
+        "snake_case",
+        None,
+        "INTEGRATION_AUTH_STATE_VALUES",
+    ),
+    (
+        "McpDependencyActualState",
+        "McpDependencyActualState",
+        "snake_case",
+        None,
+        "MCP_DEPENDENCY_ACTUAL_STATE_VALUES",
+    ),
+    ("PolicyDecision", "PolicyDecision", "snake_case", None, "POLICY_DECISION_VALUES"),
+    ("ToolCallState", "ToolCallState", "snake_case", None, "TOOL_CALL_STATE_VALUES"),
+    (
+        "ToolInvocationMode",
+        "ToolInvocationMode",
+        "snake_case",
+        None,
+        "TOOL_INVOCATION_MODE_VALUES",
+    ),
+    (
+        "ToolExecutionErrorCode",
+        "ToolExecutionErrorCode",
+        "snake_case",
+        None,
+        "TOOL_EXECUTION_ERROR_CODE_VALUES",
+    ),
 ]
 
 
@@ -383,8 +457,9 @@ def render_web_literals(values_by_constant: dict[str, list[str]]) -> str:
 
 
 def render_ts_const_array(name: str, values: list[str]) -> str:
-    if len(values) <= 2:
-        return f"export const {name} = [{render_ts_strings(values)}] as const;\n"
+    inline = f"export const {name} = [{render_ts_strings(values)}] as const;"
+    if len(values) <= 2 and len(inline) <= 80:
+        return f"{inline}\n"
     lines = [f"export const {name} = ["]
     lines.extend(f'  "{value}",' for value in values)
     lines.append("] as const;\n")

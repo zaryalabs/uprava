@@ -1,11 +1,26 @@
 use chrono::{TimeZone, Utc};
+use serde::Serialize;
 use serde_json::{json, Map, Value};
 use uprava_protocol::{
-    ActorRef, CommandAcceptedResponse, CommandKind, CommandState, EventEnvelope, EventId,
-    EventKind, ProjectPlacementId, ScopeRef, TerminalId, WorkspaceCommandHistoryItem,
-    WorkspaceCommandHistoryResponse, WorkspaceCommandIntent, WorkspaceCommandRunResponse,
-    WorkspaceTerminalListResponse, WorkspaceTerminalOpenResponse, WorkspaceTerminalOutputFrame,
-    WorkspaceTerminalState, WorkspaceTerminalStreamFrame, WorkspaceTerminalSummary,
+    compute_tool_schema_hash, ActorRef, CommandAcceptedResponse, CommandKind, CommandState,
+    CorrelationId, EventEnvelope, EventId, EventKind, ExecuteToolRequest, ExecuteToolResponse,
+    InspectToolRequest, InspectToolResponse, IntegrationAuthState, IntegrationConnectRequest,
+    IntegrationConnectResponse, IntegrationConnectionSummary, IntegrationConnectionsResponse,
+    IntegrationDesiredState, IntegrationDisconnectRequest, IntegrationDisconnectResponse,
+    McpAccessLeaseClaims, McpAccessLeaseId, McpDependencyActualState, McpDependencyInstanceId,
+    McpDependencyStatus, McpDependencyStatusesResponse, ObservedCapabilitiesResponse,
+    ObservedCapability, ObservedCapabilityState, PolicyDecision, ProjectId, ProjectPlacementId,
+    ScopeRef, SearchToolsRequest, SearchToolsResponse, SessionThreadId, TerminalId,
+    ToolAvailability, ToolAvailabilityResponse, ToolAvailabilityState, ToolCallDetail, ToolCallId,
+    ToolCallState, ToolCallSummary, ToolCallsResponse, ToolDefinition, ToolDefinitionState,
+    ToolDefinitionsResponse, ToolExecutionKind, ToolId, ToolInvocationMode, ToolRedactionPolicy,
+    ToolResultEnvelope, ToolRiskLevel, ToolScope, ToolSearchFilters, ToolSearchResult,
+    ToolSourceId, ToolSourceKind, ToolingCommandPayloadV1, ToolingCommandV1, ToolingEventPayloadV1,
+    ToolingEventV1, WorkspaceCommandHistoryItem, WorkspaceCommandHistoryResponse,
+    WorkspaceCommandIntent, WorkspaceCommandRunResponse, WorkspaceTerminalListResponse,
+    WorkspaceTerminalOpenResponse, WorkspaceTerminalOutputFrame, WorkspaceTerminalState,
+    WorkspaceTerminalStreamFrame, WorkspaceTerminalSummary, TOOLING_CONTRACT_VERSION_V1,
+    UPRAVA_MCP_LEASE_AUDIENCE,
 };
 
 fn main() {
@@ -96,7 +111,7 @@ fn main() {
         &mut fixtures,
         "workspace_terminal_list",
         WorkspaceTerminalListResponse {
-            placement_id,
+            placement_id: placement_id.clone(),
             terminals: vec![terminal],
             generated_at: at,
         },
@@ -140,12 +155,298 @@ fn main() {
             ),
         },
     );
+    insert(
+        &mut fixtures,
+        "tooling_contract",
+        tooling_contract_fixture(at, placement_id),
+    );
 
     println!(
         "{}",
         serde_json::to_string_pretty(&Value::Object(fixtures))
             .expect("web protocol fixtures serialize")
     );
+}
+
+#[derive(Serialize)]
+struct ToolingContractFixture {
+    tool_definition: ToolDefinition,
+    availability: ToolAvailability,
+    observed_capability: ObservedCapability,
+    integration: IntegrationConnectionSummary,
+    dependency: McpDependencyStatus,
+    search_request: SearchToolsRequest,
+    search_response: SearchToolsResponse,
+    inspect_request: InspectToolRequest,
+    inspect_response: InspectToolResponse,
+    execute_request: ExecuteToolRequest,
+    execute_response: ExecuteToolResponse,
+    tool_call_detail: ToolCallDetail,
+    node_command: ToolingCommandV1,
+    node_event: ToolingEventV1,
+    lease_claims: McpAccessLeaseClaims,
+    tool_definitions: ToolDefinitionsResponse,
+    tool_availability: ToolAvailabilityResponse,
+    observed_capabilities: ObservedCapabilitiesResponse,
+    integration_connections: IntegrationConnectionsResponse,
+    dependency_statuses: McpDependencyStatusesResponse,
+    tool_calls: ToolCallsResponse,
+    integration_connect_request: IntegrationConnectRequest,
+    integration_connect_response: IntegrationConnectResponse,
+    integration_disconnect_request: IntegrationDisconnectRequest,
+    integration_disconnect_response: IntegrationDisconnectResponse,
+}
+
+fn tooling_contract_fixture(
+    at: chrono::DateTime<Utc>,
+    placement_id: ProjectPlacementId,
+) -> ToolingContractFixture {
+    let tool_id = ToolId::from("uprava.session.inspect");
+    let source_id = ToolSourceId::from("uprava-native");
+    let input_schema = json!({
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": { "session_thread_id": { "type": "string" } },
+        "required": ["session_thread_id"],
+        "additionalProperties": false
+    })
+    .into();
+    let schema_hash =
+        compute_tool_schema_hash(&input_schema, None).expect("fixture tool schema hash computes");
+    let definition = ToolDefinition {
+        tool_id: tool_id.clone(),
+        source_id: source_id.clone(),
+        source_kind: ToolSourceKind::UpravaNative,
+        source_tool_name: "session.inspect".to_owned(),
+        version: 1,
+        display_name: "Inspect session".to_owned(),
+        short_description: "Return a bounded session summary.".to_owned(),
+        documentation_url: None,
+        input_schema,
+        output_schema: None,
+        schema_hash: schema_hash.clone(),
+        risk_level: ToolRiskLevel::ReadOnly,
+        required_permissions: vec!["session.read".to_owned()],
+        execution_kind: ToolExecutionKind::CoreNative,
+        approval_policy: PolicyDecision::Allow,
+        redaction: ToolRedactionPolicy {
+            argument_json_pointers: vec![],
+            result_json_pointers: vec![],
+            redact_all_arguments: false,
+            redact_all_result: false,
+            max_summary_bytes: 4096,
+        },
+        state: ToolDefinitionState::Active,
+        created_at: at,
+        updated_at: at,
+    };
+    let scope = ToolScope {
+        actor_ref: ActorRef::local_user(),
+        node_id: Some("node-fixture".into()),
+        project_id: Some(ProjectId::from("project-fixture")),
+        project_placement_id: Some(placement_id.clone()),
+        session_thread_id: Some(SessionThreadId::from("session-fixture")),
+    };
+    let availability = ToolAvailability {
+        tool_id: tool_id.clone(),
+        scope: scope.clone(),
+        state: ToolAvailabilityState::Available,
+        reason: None,
+        backend_ref: Some("core-native".to_owned()),
+        dependency_instance_id: None,
+        schema_hash: schema_hash.clone(),
+        policy_version: "policy-fixture-v1".to_owned(),
+        observed_at: at,
+    };
+    let integration_id = uprava_protocol::IntegrationId::from("integration-linear-fixture");
+    let dependency_instance_id = McpDependencyInstanceId::from("dependency-linear-fixture");
+    let integration = IntegrationConnectionSummary {
+        integration_id: integration_id.clone(),
+        source_id: ToolSourceId::from("linear-remote-mcp"),
+        provider: "linear".to_owned(),
+        display_name: "Linear".to_owned(),
+        desired_state: IntegrationDesiredState::Enabled,
+        auth_state: IntegrationAuthState::Connected,
+        node_id: Some("node-fixture".into()),
+        authenticated_actor_label: Some("fixture-workspace".to_owned()),
+        connected_at: Some(at),
+        updated_at: at,
+        error_code: None,
+    };
+    let dependency = McpDependencyStatus {
+        dependency_instance_id: dependency_instance_id.clone(),
+        integration_id: integration_id.clone(),
+        node_id: "node-fixture".into(),
+        desired_state: IntegrationDesiredState::Enabled,
+        actual_state: McpDependencyActualState::Running,
+        runtime_name: "toolhive".to_owned(),
+        runtime_version: Some("0.40.0".to_owned()),
+        upstream_identity: Some("https://mcp.linear.app/mcp".to_owned()),
+        schema_set_hash: Some("sha256:schema-set-fixture".to_owned()),
+        error_code: None,
+        observed_at: at,
+    };
+    let observed_capability = ObservedCapability {
+        node_id: "node-fixture".into(),
+        capability_key: "git".to_owned(),
+        display_name: "Git".to_owned(),
+        state: ObservedCapabilityState::Available,
+        version: Some("2.50.1".to_owned()),
+        safe_authentication_state: None,
+        observed_at: at,
+    };
+    let search_result = ToolSearchResult {
+        tool_id: tool_id.clone(),
+        display_name: definition.display_name.clone(),
+        short_description: definition.short_description.clone(),
+        source_kind: definition.source_kind,
+        risk_level: definition.risk_level,
+        availability_state: availability.state,
+        unavailable_reason: None,
+        schema_hash: schema_hash.clone(),
+    };
+    let tool_call_id = ToolCallId::from("tool-call-fixture");
+    let call_summary = ToolCallSummary {
+        tool_call_id: tool_call_id.clone(),
+        tool_id: tool_id.clone(),
+        schema_hash: schema_hash.clone(),
+        actor_ref: ActorRef::local_user(),
+        scope: scope.clone(),
+        source_kind: ToolSourceKind::UpravaNative,
+        state: ToolCallState::Completed,
+        policy_decision: PolicyDecision::Allow,
+        route: "core_native".to_owned(),
+        requested_at: at,
+        started_at: Some(at),
+        completed_at: Some(at),
+        correlation_id: CorrelationId::from("correlation-tool-fixture"),
+    };
+    let result = ToolResultEnvelope {
+        content: json!({ "session_thread_id": "session-fixture", "state": "active" }).into(),
+        summary: Some("Session is active.".to_owned()),
+        truncated: false,
+        original_size_bytes: Some(64),
+        artifact_refs: vec![],
+    };
+
+    ToolingContractFixture {
+        tool_definition: definition.clone(),
+        availability: availability.clone(),
+        observed_capability: observed_capability.clone(),
+        integration: integration.clone(),
+        dependency: dependency.clone(),
+        search_request: SearchToolsRequest {
+            scope: scope.clone(),
+            query: "inspect session".to_owned(),
+            filters: ToolSearchFilters::default(),
+            cursor: None,
+            limit: Some(10),
+        },
+        search_response: SearchToolsResponse {
+            items: vec![search_result],
+            next_cursor: None,
+        },
+        inspect_request: InspectToolRequest {
+            scope: scope.clone(),
+            tool_id: tool_id.clone(),
+        },
+        inspect_response: InspectToolResponse {
+            definition: definition.clone(),
+            availability: availability.clone(),
+            invocation_mode: ToolInvocationMode::StableExecuteTool,
+        },
+        execute_request: ExecuteToolRequest {
+            scope: scope.clone(),
+            tool_id: tool_id.clone(),
+            arguments: json!({ "session_thread_id": "session-fixture" }).into(),
+        },
+        execute_response: ExecuteToolResponse {
+            tool_call_id: tool_call_id.clone(),
+            state: ToolCallState::Completed,
+            result: Some(result.clone()),
+            error: None,
+        },
+        tool_call_detail: ToolCallDetail {
+            summary: call_summary.clone(),
+            command_id: Some("command-tool-fixture".into()),
+            integration_id: None,
+            dependency_instance_id: None,
+            policy_version: "policy-fixture-v1".to_owned(),
+            redacted_arguments_summary: Some("session_thread_id=session-fixture".to_owned()),
+            redacted_result_summary: Some("Session is active.".to_owned()),
+            argument_hash: Some("sha256:arguments-fixture".to_owned()),
+            result_hash: Some("sha256:result-fixture".to_owned()),
+            result_size_bytes: Some(64),
+            trace_refs: vec![],
+            result_refs: vec![],
+            error: None,
+        },
+        node_command: ToolingCommandV1 {
+            contract_version: TOOLING_CONTRACT_VERSION_V1,
+            payload: ToolingCommandPayloadV1::CancelToolCall {
+                tool_call_id: tool_call_id.clone(),
+                reason: Some("fixture".to_owned()),
+            },
+        },
+        node_event: ToolingEventV1 {
+            contract_version: TOOLING_CONTRACT_VERSION_V1,
+            payload: ToolingEventPayloadV1::ToolAvailabilityChanged {
+                availability: availability.clone(),
+            },
+        },
+        lease_claims: McpAccessLeaseClaims {
+            lease_id: McpAccessLeaseId::from("lease-fixture"),
+            audience: UPRAVA_MCP_LEASE_AUDIENCE.to_owned(),
+            actor_ref: ActorRef::local_user(),
+            session_thread_id: "session-fixture".into(),
+            project_id: Some("project-fixture".into()),
+            project_placement_id: placement_id,
+            node_id: "node-fixture".into(),
+            issued_at: at,
+            expires_at: at + chrono::Duration::minutes(10),
+            credential_version: 1,
+        },
+        tool_definitions: ToolDefinitionsResponse {
+            items: vec![definition],
+            next_cursor: None,
+        },
+        tool_availability: ToolAvailabilityResponse {
+            items: vec![availability],
+            generated_at: at,
+        },
+        observed_capabilities: ObservedCapabilitiesResponse {
+            items: vec![observed_capability],
+            generated_at: at,
+        },
+        integration_connections: IntegrationConnectionsResponse {
+            items: vec![integration.clone()],
+        },
+        dependency_statuses: McpDependencyStatusesResponse {
+            items: vec![dependency],
+            generated_at: at,
+        },
+        tool_calls: ToolCallsResponse {
+            items: vec![call_summary],
+            next_cursor: None,
+        },
+        integration_connect_request: IntegrationConnectRequest {
+            integration_id: integration_id.clone(),
+            project_id: Some("project-fixture".into()),
+            node_id: "node-fixture".into(),
+        },
+        integration_connect_response: IntegrationConnectResponse {
+            connection: integration.clone(),
+            authorization_url: "https://core.example.test/oauth/linear".to_owned(),
+            expires_at: at + chrono::Duration::minutes(5),
+        },
+        integration_disconnect_request: IntegrationDisconnectRequest {
+            revoke_remote: true,
+        },
+        integration_disconnect_response: IntegrationDisconnectResponse {
+            connection: integration,
+            remote_revocation_confirmed: true,
+        },
+    }
 }
 
 fn insert<T: serde::Serialize>(fixtures: &mut Map<String, Value>, name: &str, fixture: T) {

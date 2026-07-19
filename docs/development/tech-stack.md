@@ -126,6 +126,10 @@ Node Daemon должен быть максимально переносимым.
 progressive discovery `Search -> Inspect -> Execute`. External MCP runtime
 строится через ToolHive на Node.
 
+Версии dependencies, wire vocabulary, auth/redaction policy и API shapes
+зафиксированы в
+[`agent-tooling-contracts.md`](agent-tooling-contracts.md).
+
 Отдельный Uprava CLI не входит в Agent Tooling v1. Если позднее появятся
 подтверждённые shell-composition, streaming, batch или operator diagnostics
 scenarios, CLI следует писать на Rust с переиспользованием shared crates and API

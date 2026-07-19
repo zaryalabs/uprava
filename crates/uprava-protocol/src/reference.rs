@@ -69,6 +69,12 @@ id_type!(CorrelationId);
 id_type!(DeductionId);
 id_type!(JobId);
 id_type!(JobRunId);
+id_type!(ToolId);
+id_type!(ToolSourceId);
+id_type!(IntegrationId);
+id_type!(McpDependencyInstanceId);
+id_type!(ToolCallId);
+id_type!(McpAccessLeaseId);
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]

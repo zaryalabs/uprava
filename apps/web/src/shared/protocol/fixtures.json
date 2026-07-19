@@ -37,6 +37,530 @@
     "source_refs": [],
     "turn_id": null
   },
+  "tooling_contract": {
+    "availability": {
+      "backend_ref": "core-native",
+      "dependency_instance_id": null,
+      "observed_at": "2026-07-10T12:00:00Z",
+      "policy_version": "policy-fixture-v1",
+      "reason": null,
+      "schema_hash": "sha256:ed602a8aa883f02fca2160ee9392cb3ef4cc649f70ee8e26a7d8ed54192f39ca",
+      "scope": {
+        "actor_ref": {
+          "actor_id": null,
+          "kind": "local_user"
+        },
+        "node_id": "node-fixture",
+        "project_id": "project-fixture",
+        "project_placement_id": "placement-fixture",
+        "session_thread_id": "session-fixture"
+      },
+      "state": "available",
+      "tool_id": "uprava.session.inspect"
+    },
+    "dependency": {
+      "actual_state": "running",
+      "dependency_instance_id": "dependency-linear-fixture",
+      "desired_state": "enabled",
+      "error_code": null,
+      "integration_id": "integration-linear-fixture",
+      "node_id": "node-fixture",
+      "observed_at": "2026-07-10T12:00:00Z",
+      "runtime_name": "toolhive",
+      "runtime_version": "0.40.0",
+      "schema_set_hash": "sha256:schema-set-fixture",
+      "upstream_identity": "https://mcp.linear.app/mcp"
+    },
+    "dependency_statuses": {
+      "generated_at": "2026-07-10T12:00:00Z",
+      "items": [
+        {
+          "actual_state": "running",
+          "dependency_instance_id": "dependency-linear-fixture",
+          "desired_state": "enabled",
+          "error_code": null,
+          "integration_id": "integration-linear-fixture",
+          "node_id": "node-fixture",
+          "observed_at": "2026-07-10T12:00:00Z",
+          "runtime_name": "toolhive",
+          "runtime_version": "0.40.0",
+          "schema_set_hash": "sha256:schema-set-fixture",
+          "upstream_identity": "https://mcp.linear.app/mcp"
+        }
+      ]
+    },
+    "execute_request": {
+      "arguments": {
+        "session_thread_id": "session-fixture"
+      },
+      "scope": {
+        "actor_ref": {
+          "actor_id": null,
+          "kind": "local_user"
+        },
+        "node_id": "node-fixture",
+        "project_id": "project-fixture",
+        "project_placement_id": "placement-fixture",
+        "session_thread_id": "session-fixture"
+      },
+      "tool_id": "uprava.session.inspect"
+    },
+    "execute_response": {
+      "error": null,
+      "result": {
+        "artifact_refs": [],
+        "content": {
+          "session_thread_id": "session-fixture",
+          "state": "active"
+        },
+        "original_size_bytes": 64,
+        "summary": "Session is active.",
+        "truncated": false
+      },
+      "state": "completed",
+      "tool_call_id": "tool-call-fixture"
+    },
+    "inspect_request": {
+      "scope": {
+        "actor_ref": {
+          "actor_id": null,
+          "kind": "local_user"
+        },
+        "node_id": "node-fixture",
+        "project_id": "project-fixture",
+        "project_placement_id": "placement-fixture",
+        "session_thread_id": "session-fixture"
+      },
+      "tool_id": "uprava.session.inspect"
+    },
+    "inspect_response": {
+      "availability": {
+        "backend_ref": "core-native",
+        "dependency_instance_id": null,
+        "observed_at": "2026-07-10T12:00:00Z",
+        "policy_version": "policy-fixture-v1",
+        "reason": null,
+        "schema_hash": "sha256:ed602a8aa883f02fca2160ee9392cb3ef4cc649f70ee8e26a7d8ed54192f39ca",
+        "scope": {
+          "actor_ref": {
+            "actor_id": null,
+            "kind": "local_user"
+          },
+          "node_id": "node-fixture",
+          "project_id": "project-fixture",
+          "project_placement_id": "placement-fixture",
+          "session_thread_id": "session-fixture"
+        },
+        "state": "available",
+        "tool_id": "uprava.session.inspect"
+      },
+      "definition": {
+        "approval_policy": "allow",
+        "created_at": "2026-07-10T12:00:00Z",
+        "display_name": "Inspect session",
+        "documentation_url": null,
+        "execution_kind": "core_native",
+        "input_schema": {
+          "$schema": "https://json-schema.org/draft/2020-12/schema",
+          "additionalProperties": false,
+          "properties": {
+            "session_thread_id": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "session_thread_id"
+          ],
+          "type": "object"
+        },
+        "output_schema": null,
+        "redaction": {
+          "argument_json_pointers": [],
+          "max_summary_bytes": 4096,
+          "redact_all_arguments": false,
+          "redact_all_result": false,
+          "result_json_pointers": []
+        },
+        "required_permissions": [
+          "session.read"
+        ],
+        "risk_level": "read_only",
+        "schema_hash": "sha256:ed602a8aa883f02fca2160ee9392cb3ef4cc649f70ee8e26a7d8ed54192f39ca",
+        "short_description": "Return a bounded session summary.",
+        "source_id": "uprava-native",
+        "source_kind": "uprava_native",
+        "source_tool_name": "session.inspect",
+        "state": "active",
+        "tool_id": "uprava.session.inspect",
+        "updated_at": "2026-07-10T12:00:00Z",
+        "version": 1
+      },
+      "invocation_mode": "stable_execute_tool"
+    },
+    "integration": {
+      "auth_state": "connected",
+      "authenticated_actor_label": "fixture-workspace",
+      "connected_at": "2026-07-10T12:00:00Z",
+      "desired_state": "enabled",
+      "display_name": "Linear",
+      "error_code": null,
+      "integration_id": "integration-linear-fixture",
+      "node_id": "node-fixture",
+      "provider": "linear",
+      "source_id": "linear-remote-mcp",
+      "updated_at": "2026-07-10T12:00:00Z"
+    },
+    "integration_connect_request": {
+      "integration_id": "integration-linear-fixture",
+      "node_id": "node-fixture",
+      "project_id": "project-fixture"
+    },
+    "integration_connect_response": {
+      "authorization_url": "https://core.example.test/oauth/linear",
+      "connection": {
+        "auth_state": "connected",
+        "authenticated_actor_label": "fixture-workspace",
+        "connected_at": "2026-07-10T12:00:00Z",
+        "desired_state": "enabled",
+        "display_name": "Linear",
+        "error_code": null,
+        "integration_id": "integration-linear-fixture",
+        "node_id": "node-fixture",
+        "provider": "linear",
+        "source_id": "linear-remote-mcp",
+        "updated_at": "2026-07-10T12:00:00Z"
+      },
+      "expires_at": "2026-07-10T12:05:00Z"
+    },
+    "integration_connections": {
+      "items": [
+        {
+          "auth_state": "connected",
+          "authenticated_actor_label": "fixture-workspace",
+          "connected_at": "2026-07-10T12:00:00Z",
+          "desired_state": "enabled",
+          "display_name": "Linear",
+          "error_code": null,
+          "integration_id": "integration-linear-fixture",
+          "node_id": "node-fixture",
+          "provider": "linear",
+          "source_id": "linear-remote-mcp",
+          "updated_at": "2026-07-10T12:00:00Z"
+        }
+      ]
+    },
+    "integration_disconnect_request": {
+      "revoke_remote": true
+    },
+    "integration_disconnect_response": {
+      "connection": {
+        "auth_state": "connected",
+        "authenticated_actor_label": "fixture-workspace",
+        "connected_at": "2026-07-10T12:00:00Z",
+        "desired_state": "enabled",
+        "display_name": "Linear",
+        "error_code": null,
+        "integration_id": "integration-linear-fixture",
+        "node_id": "node-fixture",
+        "provider": "linear",
+        "source_id": "linear-remote-mcp",
+        "updated_at": "2026-07-10T12:00:00Z"
+      },
+      "remote_revocation_confirmed": true
+    },
+    "lease_claims": {
+      "actor_ref": {
+        "actor_id": null,
+        "kind": "local_user"
+      },
+      "audience": "uprava:mcp",
+      "credential_version": 1,
+      "expires_at": "2026-07-10T12:10:00Z",
+      "issued_at": "2026-07-10T12:00:00Z",
+      "lease_id": "lease-fixture",
+      "node_id": "node-fixture",
+      "project_id": "project-fixture",
+      "project_placement_id": "placement-fixture",
+      "session_thread_id": "session-fixture"
+    },
+    "node_command": {
+      "contract_version": 1,
+      "payload": {
+        "reason": "fixture",
+        "tool_call_id": "tool-call-fixture",
+        "type": "cancel_tool_call"
+      }
+    },
+    "node_event": {
+      "contract_version": 1,
+      "payload": {
+        "availability": {
+          "backend_ref": "core-native",
+          "dependency_instance_id": null,
+          "observed_at": "2026-07-10T12:00:00Z",
+          "policy_version": "policy-fixture-v1",
+          "reason": null,
+          "schema_hash": "sha256:ed602a8aa883f02fca2160ee9392cb3ef4cc649f70ee8e26a7d8ed54192f39ca",
+          "scope": {
+            "actor_ref": {
+              "actor_id": null,
+              "kind": "local_user"
+            },
+            "node_id": "node-fixture",
+            "project_id": "project-fixture",
+            "project_placement_id": "placement-fixture",
+            "session_thread_id": "session-fixture"
+          },
+          "state": "available",
+          "tool_id": "uprava.session.inspect"
+        },
+        "type": "tool_availability_changed"
+      }
+    },
+    "observed_capabilities": {
+      "generated_at": "2026-07-10T12:00:00Z",
+      "items": [
+        {
+          "capability_key": "git",
+          "display_name": "Git",
+          "node_id": "node-fixture",
+          "observed_at": "2026-07-10T12:00:00Z",
+          "safe_authentication_state": null,
+          "state": "available",
+          "version": "2.50.1"
+        }
+      ]
+    },
+    "observed_capability": {
+      "capability_key": "git",
+      "display_name": "Git",
+      "node_id": "node-fixture",
+      "observed_at": "2026-07-10T12:00:00Z",
+      "safe_authentication_state": null,
+      "state": "available",
+      "version": "2.50.1"
+    },
+    "search_request": {
+      "cursor": null,
+      "filters": {
+        "availability_states": [],
+        "risk_levels": [],
+        "source_kinds": []
+      },
+      "limit": 10,
+      "query": "inspect session",
+      "scope": {
+        "actor_ref": {
+          "actor_id": null,
+          "kind": "local_user"
+        },
+        "node_id": "node-fixture",
+        "project_id": "project-fixture",
+        "project_placement_id": "placement-fixture",
+        "session_thread_id": "session-fixture"
+      }
+    },
+    "search_response": {
+      "items": [
+        {
+          "availability_state": "available",
+          "display_name": "Inspect session",
+          "risk_level": "read_only",
+          "schema_hash": "sha256:ed602a8aa883f02fca2160ee9392cb3ef4cc649f70ee8e26a7d8ed54192f39ca",
+          "short_description": "Return a bounded session summary.",
+          "source_kind": "uprava_native",
+          "tool_id": "uprava.session.inspect",
+          "unavailable_reason": null
+        }
+      ],
+      "next_cursor": null
+    },
+    "tool_availability": {
+      "generated_at": "2026-07-10T12:00:00Z",
+      "items": [
+        {
+          "backend_ref": "core-native",
+          "dependency_instance_id": null,
+          "observed_at": "2026-07-10T12:00:00Z",
+          "policy_version": "policy-fixture-v1",
+          "reason": null,
+          "schema_hash": "sha256:ed602a8aa883f02fca2160ee9392cb3ef4cc649f70ee8e26a7d8ed54192f39ca",
+          "scope": {
+            "actor_ref": {
+              "actor_id": null,
+              "kind": "local_user"
+            },
+            "node_id": "node-fixture",
+            "project_id": "project-fixture",
+            "project_placement_id": "placement-fixture",
+            "session_thread_id": "session-fixture"
+          },
+          "state": "available",
+          "tool_id": "uprava.session.inspect"
+        }
+      ]
+    },
+    "tool_call_detail": {
+      "argument_hash": "sha256:arguments-fixture",
+      "command_id": "command-tool-fixture",
+      "dependency_instance_id": null,
+      "error": null,
+      "integration_id": null,
+      "policy_version": "policy-fixture-v1",
+      "redacted_arguments_summary": "session_thread_id=session-fixture",
+      "redacted_result_summary": "Session is active.",
+      "result_hash": "sha256:result-fixture",
+      "result_refs": [],
+      "result_size_bytes": 64,
+      "summary": {
+        "actor_ref": {
+          "actor_id": null,
+          "kind": "local_user"
+        },
+        "completed_at": "2026-07-10T12:00:00Z",
+        "correlation_id": "correlation-tool-fixture",
+        "policy_decision": "allow",
+        "requested_at": "2026-07-10T12:00:00Z",
+        "route": "core_native",
+        "schema_hash": "sha256:ed602a8aa883f02fca2160ee9392cb3ef4cc649f70ee8e26a7d8ed54192f39ca",
+        "scope": {
+          "actor_ref": {
+            "actor_id": null,
+            "kind": "local_user"
+          },
+          "node_id": "node-fixture",
+          "project_id": "project-fixture",
+          "project_placement_id": "placement-fixture",
+          "session_thread_id": "session-fixture"
+        },
+        "source_kind": "uprava_native",
+        "started_at": "2026-07-10T12:00:00Z",
+        "state": "completed",
+        "tool_call_id": "tool-call-fixture",
+        "tool_id": "uprava.session.inspect"
+      },
+      "trace_refs": []
+    },
+    "tool_calls": {
+      "items": [
+        {
+          "actor_ref": {
+            "actor_id": null,
+            "kind": "local_user"
+          },
+          "completed_at": "2026-07-10T12:00:00Z",
+          "correlation_id": "correlation-tool-fixture",
+          "policy_decision": "allow",
+          "requested_at": "2026-07-10T12:00:00Z",
+          "route": "core_native",
+          "schema_hash": "sha256:ed602a8aa883f02fca2160ee9392cb3ef4cc649f70ee8e26a7d8ed54192f39ca",
+          "scope": {
+            "actor_ref": {
+              "actor_id": null,
+              "kind": "local_user"
+            },
+            "node_id": "node-fixture",
+            "project_id": "project-fixture",
+            "project_placement_id": "placement-fixture",
+            "session_thread_id": "session-fixture"
+          },
+          "source_kind": "uprava_native",
+          "started_at": "2026-07-10T12:00:00Z",
+          "state": "completed",
+          "tool_call_id": "tool-call-fixture",
+          "tool_id": "uprava.session.inspect"
+        }
+      ],
+      "next_cursor": null
+    },
+    "tool_definition": {
+      "approval_policy": "allow",
+      "created_at": "2026-07-10T12:00:00Z",
+      "display_name": "Inspect session",
+      "documentation_url": null,
+      "execution_kind": "core_native",
+      "input_schema": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "additionalProperties": false,
+        "properties": {
+          "session_thread_id": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "session_thread_id"
+        ],
+        "type": "object"
+      },
+      "output_schema": null,
+      "redaction": {
+        "argument_json_pointers": [],
+        "max_summary_bytes": 4096,
+        "redact_all_arguments": false,
+        "redact_all_result": false,
+        "result_json_pointers": []
+      },
+      "required_permissions": [
+        "session.read"
+      ],
+      "risk_level": "read_only",
+      "schema_hash": "sha256:ed602a8aa883f02fca2160ee9392cb3ef4cc649f70ee8e26a7d8ed54192f39ca",
+      "short_description": "Return a bounded session summary.",
+      "source_id": "uprava-native",
+      "source_kind": "uprava_native",
+      "source_tool_name": "session.inspect",
+      "state": "active",
+      "tool_id": "uprava.session.inspect",
+      "updated_at": "2026-07-10T12:00:00Z",
+      "version": 1
+    },
+    "tool_definitions": {
+      "items": [
+        {
+          "approval_policy": "allow",
+          "created_at": "2026-07-10T12:00:00Z",
+          "display_name": "Inspect session",
+          "documentation_url": null,
+          "execution_kind": "core_native",
+          "input_schema": {
+            "$schema": "https://json-schema.org/draft/2020-12/schema",
+            "additionalProperties": false,
+            "properties": {
+              "session_thread_id": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "session_thread_id"
+            ],
+            "type": "object"
+          },
+          "output_schema": null,
+          "redaction": {
+            "argument_json_pointers": [],
+            "max_summary_bytes": 4096,
+            "redact_all_arguments": false,
+            "redact_all_result": false,
+            "result_json_pointers": []
+          },
+          "required_permissions": [
+            "session.read"
+          ],
+          "risk_level": "read_only",
+          "schema_hash": "sha256:ed602a8aa883f02fca2160ee9392cb3ef4cc649f70ee8e26a7d8ed54192f39ca",
+          "short_description": "Return a bounded session summary.",
+          "source_id": "uprava-native",
+          "source_kind": "uprava_native",
+          "source_tool_name": "session.inspect",
+          "state": "active",
+          "tool_id": "uprava.session.inspect",
+          "updated_at": "2026-07-10T12:00:00Z",
+          "version": 1
+        }
+      ],
+      "next_cursor": null
+    }
+  },
   "workspace_command_history": {
     "commands": [
       {

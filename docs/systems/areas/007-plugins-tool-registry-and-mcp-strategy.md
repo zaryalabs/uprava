@@ -34,6 +34,9 @@ ToolHive operates external MCP runtimes.
 Native agent tools remain native.
 ```
 
+Версионированный foundation contract для среза `0.2.11` находится в
+[`agent-tooling-contracts.md`](../../development/agent-tooling-contracts.md).
+
 ## Vision
 
 ### Проблема

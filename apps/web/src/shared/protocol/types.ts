@@ -5,12 +5,26 @@ import type {
   COMMAND_STATE_VALUES,
   DEPLOYMENT_PROFILE_VALUES,
   EVENT_KIND_VALUES,
+  INTEGRATION_AUTH_STATE_VALUES,
+  INTEGRATION_DESIRED_STATE_VALUES,
+  MCP_DEPENDENCY_ACTUAL_STATE_VALUES,
   MESSAGE_ROLE_VALUES,
   NODE_PRESENCE_VALUES,
+  OBSERVED_CAPABILITY_STATE_VALUES,
   PLACEMENT_STATE_VALUES,
+  POLICY_DECISION_VALUES,
   RUNTIME_SESSION_STATE_VALUES,
   SCHEDULED_MESSAGE_STATE_VALUES,
   SESSION_THREAD_STATE_VALUES,
+  TOOL_AVAILABILITY_STATE_VALUES,
+  TOOL_CALL_STATE_VALUES,
+  TOOL_DEFINITION_STATE_VALUES,
+  TOOL_EXECUTION_ERROR_CODE_VALUES,
+  TOOL_EXECUTION_KIND_VALUES,
+  TOOL_INVOCATION_MODE_VALUES,
+  TOOL_RISK_LEVEL_VALUES,
+  TOOL_SOURCE_KIND_VALUES,
+  TOOL_UNAVAILABLE_REASON_VALUES,
   WARNING_SEVERITY_VALUES,
   WORKSPACE_COMMAND_INTENT_VALUES,
   WORKSPACE_ENTRY_KIND_VALUES,
@@ -1053,4 +1067,370 @@ export type AgentProjection = {
   source_cause_summary: string;
   resume_context: string;
   generated_at: string;
+};
+
+export type ActorRef =
+  | { kind: "local_user"; actor_id: string | null }
+  | { kind: "system" }
+  | { kind: "node"; node_id: string }
+  | { kind: "provider"; provider: string }
+  | { kind: "unknown" };
+
+export type ToolSourceKind = (typeof TOOL_SOURCE_KIND_VALUES)[number];
+export type ToolExecutionKind = (typeof TOOL_EXECUTION_KIND_VALUES)[number];
+export type ToolRiskLevel = (typeof TOOL_RISK_LEVEL_VALUES)[number];
+export type ToolDefinitionState = (typeof TOOL_DEFINITION_STATE_VALUES)[number];
+export type ToolAvailabilityState =
+  (typeof TOOL_AVAILABILITY_STATE_VALUES)[number];
+export type ToolUnavailableReason =
+  (typeof TOOL_UNAVAILABLE_REASON_VALUES)[number];
+export type ObservedCapabilityState =
+  (typeof OBSERVED_CAPABILITY_STATE_VALUES)[number];
+export type IntegrationDesiredState =
+  (typeof INTEGRATION_DESIRED_STATE_VALUES)[number];
+export type IntegrationAuthState =
+  (typeof INTEGRATION_AUTH_STATE_VALUES)[number];
+export type McpDependencyActualState =
+  (typeof MCP_DEPENDENCY_ACTUAL_STATE_VALUES)[number];
+export type PolicyDecision = (typeof POLICY_DECISION_VALUES)[number];
+export type ToolCallState = (typeof TOOL_CALL_STATE_VALUES)[number];
+export type ToolInvocationMode = (typeof TOOL_INVOCATION_MODE_VALUES)[number];
+export type ToolExecutionErrorCode =
+  (typeof TOOL_EXECUTION_ERROR_CODE_VALUES)[number];
+
+export type ToolRedactionPolicy = {
+  argument_json_pointers: string[];
+  result_json_pointers: string[];
+  redact_all_arguments: boolean;
+  redact_all_result: boolean;
+  max_summary_bytes: number;
+};
+
+export type ToolDefinition = {
+  tool_id: string;
+  source_id: string;
+  source_kind: ToolSourceKind;
+  source_tool_name: string;
+  version: number;
+  display_name: string;
+  short_description: string;
+  documentation_url: string | null;
+  input_schema: unknown;
+  output_schema: unknown | null;
+  schema_hash: string;
+  risk_level: ToolRiskLevel;
+  required_permissions: string[];
+  execution_kind: ToolExecutionKind;
+  approval_policy: PolicyDecision;
+  redaction: ToolRedactionPolicy;
+  state: ToolDefinitionState;
+  created_at: string;
+  updated_at: string;
+};
+
+export type ToolScope = {
+  actor_ref: ActorRef;
+  node_id: string | null;
+  project_id: string | null;
+  project_placement_id: string | null;
+  session_thread_id: string | null;
+};
+
+export type ToolAvailability = {
+  tool_id: string;
+  scope: ToolScope;
+  state: ToolAvailabilityState;
+  reason: ToolUnavailableReason | null;
+  backend_ref: string | null;
+  dependency_instance_id: string | null;
+  schema_hash: string;
+  policy_version: string;
+  observed_at: string;
+};
+
+export type ObservedCapability = {
+  node_id: string;
+  capability_key: string;
+  display_name: string;
+  state: ObservedCapabilityState;
+  version: string | null;
+  safe_authentication_state: string | null;
+  observed_at: string;
+};
+
+export type IntegrationConnectionSummary = {
+  integration_id: string;
+  source_id: string;
+  provider: string;
+  display_name: string;
+  desired_state: IntegrationDesiredState;
+  auth_state: IntegrationAuthState;
+  node_id: string | null;
+  authenticated_actor_label: string | null;
+  connected_at: string | null;
+  updated_at: string;
+  error_code: string | null;
+};
+
+export type McpDependencyStatus = {
+  dependency_instance_id: string;
+  integration_id: string;
+  node_id: string;
+  desired_state: IntegrationDesiredState;
+  actual_state: McpDependencyActualState;
+  runtime_name: string;
+  runtime_version: string | null;
+  upstream_identity: string | null;
+  schema_set_hash: string | null;
+  error_code: string | null;
+  observed_at: string;
+};
+
+export type ToolSearchFilters = {
+  source_kinds: ToolSourceKind[];
+  risk_levels: ToolRiskLevel[];
+  availability_states: ToolAvailabilityState[];
+};
+
+export type SearchToolsRequest = {
+  scope: ToolScope;
+  query: string;
+  filters: ToolSearchFilters;
+  cursor: string | null;
+  limit: number | null;
+};
+
+export type ToolSearchResult = {
+  tool_id: string;
+  display_name: string;
+  short_description: string;
+  source_kind: ToolSourceKind;
+  risk_level: ToolRiskLevel;
+  availability_state: ToolAvailabilityState;
+  unavailable_reason: ToolUnavailableReason | null;
+  schema_hash: string;
+};
+
+export type SearchToolsResponse = {
+  items: ToolSearchResult[];
+  next_cursor: string | null;
+};
+
+export type InspectToolRequest = {
+  scope: ToolScope;
+  tool_id: string;
+};
+
+export type InspectToolResponse = {
+  definition: ToolDefinition;
+  availability: ToolAvailability;
+  invocation_mode: ToolInvocationMode;
+};
+
+export type ExecuteToolRequest = {
+  scope: ToolScope;
+  tool_id: string;
+  arguments: unknown;
+};
+
+export type ToolExecutionError = {
+  code: ToolExecutionErrorCode;
+  message: string;
+  retryable: boolean;
+  redacted_details: unknown;
+};
+
+export type ToolResultEnvelope = {
+  content: unknown;
+  summary: string | null;
+  truncated: boolean;
+  original_size_bytes: number | null;
+  artifact_refs: UpravaRef[];
+};
+
+export type ExecuteToolResponse = {
+  tool_call_id: string;
+  state: ToolCallState;
+  result: ToolResultEnvelope | null;
+  error: ToolExecutionError | null;
+};
+
+export type ToolCallSummary = {
+  tool_call_id: string;
+  tool_id: string;
+  schema_hash: string;
+  actor_ref: ActorRef;
+  scope: ToolScope;
+  source_kind: ToolSourceKind;
+  state: ToolCallState;
+  policy_decision: PolicyDecision;
+  route: string;
+  requested_at: string;
+  started_at: string | null;
+  completed_at: string | null;
+  correlation_id: string;
+};
+
+export type ToolCallDetail = {
+  summary: ToolCallSummary;
+  command_id: string | null;
+  integration_id: string | null;
+  dependency_instance_id: string | null;
+  policy_version: string;
+  redacted_arguments_summary: string | null;
+  redacted_result_summary: string | null;
+  argument_hash: string | null;
+  result_hash: string | null;
+  result_size_bytes: number | null;
+  trace_refs: UpravaRef[];
+  result_refs: UpravaRef[];
+  error: ToolExecutionError | null;
+};
+
+export type ToolingCommandV1 = {
+  contract_version: 1;
+  payload:
+    | {
+        type: "execute_external_tool";
+        tool_call_id: string;
+        tool_id: string;
+        schema_hash: string;
+        integration_id: string;
+        dependency_instance_id: string;
+        scope: ToolScope;
+        arguments: unknown;
+        deadline_at: string;
+        max_result_bytes: number;
+      }
+    | { type: "cancel_tool_call"; tool_call_id: string; reason: string | null }
+    | {
+        type: "update_dependency_desired_state";
+        dependency_instance_id: string;
+        integration_id: string;
+        desired_state: IntegrationDesiredState;
+        credential_ref: string | null;
+      };
+};
+
+export type ToolingEventV1 = {
+  contract_version: 1;
+  payload:
+    | { type: "dependency_actual_state_reported"; status: McpDependencyStatus }
+    | {
+        type: "tool_definitions_discovered";
+        dependency_instance_id: string;
+        definitions: ToolDefinition[];
+        schema_set_hash: string;
+      }
+    | { type: "tool_call_started"; tool_call_id: string; started_at: string }
+    | {
+        type: "tool_call_completed";
+        tool_call_id: string;
+        result: ToolResultEnvelope;
+        completed_at: string;
+      }
+    | {
+        type: "tool_call_failed";
+        tool_call_id: string;
+        error: ToolExecutionError;
+        failed_at: string;
+      }
+    | {
+        type: "tool_call_denied";
+        tool_call_id: string;
+        error: ToolExecutionError;
+        denied_at: string;
+      }
+    | { type: "tool_availability_changed"; availability: ToolAvailability };
+};
+
+export type McpAccessLeaseClaims = {
+  lease_id: string;
+  audience: string;
+  actor_ref: ActorRef;
+  session_thread_id: string;
+  project_id: string | null;
+  project_placement_id: string;
+  node_id: string;
+  issued_at: string;
+  expires_at: string;
+  credential_version: number;
+};
+
+export type IntegrationConnectRequest = {
+  integration_id: string;
+  project_id: string | null;
+  node_id: string;
+};
+
+export type IntegrationConnectResponse = {
+  connection: IntegrationConnectionSummary;
+  authorization_url: string;
+  expires_at: string;
+};
+
+export type IntegrationDisconnectRequest = {
+  revoke_remote: boolean;
+};
+
+export type IntegrationDisconnectResponse = {
+  connection: IntegrationConnectionSummary;
+  remote_revocation_confirmed: boolean;
+};
+
+export type ToolDefinitionsResponse = {
+  items: ToolDefinition[];
+  next_cursor: string | null;
+};
+
+export type ToolAvailabilityResponse = {
+  items: ToolAvailability[];
+  generated_at: string;
+};
+
+export type ObservedCapabilitiesResponse = {
+  items: ObservedCapability[];
+  generated_at: string;
+};
+
+export type IntegrationConnectionsResponse = {
+  items: IntegrationConnectionSummary[];
+};
+
+export type McpDependencyStatusesResponse = {
+  items: McpDependencyStatus[];
+  generated_at: string;
+};
+
+export type ToolCallsResponse = {
+  items: ToolCallSummary[];
+  next_cursor: string | null;
+};
+
+export type ToolingContractFixture = {
+  tool_definition: ToolDefinition;
+  availability: ToolAvailability;
+  observed_capability: ObservedCapability;
+  integration: IntegrationConnectionSummary;
+  dependency: McpDependencyStatus;
+  search_request: SearchToolsRequest;
+  search_response: SearchToolsResponse;
+  inspect_request: InspectToolRequest;
+  inspect_response: InspectToolResponse;
+  execute_request: ExecuteToolRequest;
+  execute_response: ExecuteToolResponse;
+  tool_call_detail: ToolCallDetail;
+  node_command: ToolingCommandV1;
+  node_event: ToolingEventV1;
+  lease_claims: McpAccessLeaseClaims;
+  tool_definitions: ToolDefinitionsResponse;
+  tool_availability: ToolAvailabilityResponse;
+  observed_capabilities: ObservedCapabilitiesResponse;
+  integration_connections: IntegrationConnectionsResponse;
+  dependency_statuses: McpDependencyStatusesResponse;
+  tool_calls: ToolCallsResponse;
+  integration_connect_request: IntegrationConnectRequest;
+  integration_connect_response: IntegrationConnectResponse;
+  integration_disconnect_request: IntegrationDisconnectRequest;
+  integration_disconnect_response: IntegrationDisconnectResponse;
 };

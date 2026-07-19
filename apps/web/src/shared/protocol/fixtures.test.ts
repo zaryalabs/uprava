@@ -4,6 +4,7 @@ import fixtures from "./fixtures.json";
 import {
   commandAcceptedResponseSchema,
   eventEnvelopeSchema,
+  toolingContractFixtureSchema,
   workspaceCommandHistoryResponseSchema,
   workspaceCommandRunResponseSchema,
   workspaceTerminalListResponseSchema,
@@ -22,6 +23,7 @@ describe("Rust-generated protocol fixtures", () => {
     ["workspace_terminal_list", workspaceTerminalListResponseSchema],
     ["workspace_terminal_stream", workspaceTerminalStreamFrameSchema],
     ["event_envelope", eventEnvelopeSchema],
+    ["tooling_contract", toolingContractFixtureSchema],
   ] as const)("validates %s", (name, schema) => {
     expect(schema.safeParse(fixtures[name]).success).toBe(true);
   });

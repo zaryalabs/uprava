@@ -21,6 +21,7 @@ pub mod domain;
 pub mod projection;
 pub mod reference;
 pub mod serde_json_value;
+pub mod tooling;
 pub mod workspace;
 
 pub use api::*;
@@ -29,6 +30,7 @@ pub use domain::*;
 pub use projection::*;
 pub use reference::*;
 pub use serde_json_value::JsonValue;
+pub use tooling::*;
 pub use workspace::*;
 
 #[cfg(test)]
