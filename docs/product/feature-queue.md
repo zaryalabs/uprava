@@ -37,13 +37,14 @@ dependency, complexity, risk and value. Позиции могут двигать
 
 ## Обзор очереди
 
-Current release baseline: `0.2.9`. Закрытые пункты `0` through `9`, unified
+Current release baseline: `0.2.10`. Закрытые пункты `0` through `10`, unified
 audit hardening release и `5a` workspace renderer release соответствуют shipped
 versions, зафиксированным в [`releases.md`](../releases.md). Пункт `6` включает
 workbench alignment, первый стабильный self-hosted deployment path и
 workspace-centered UI follow-up `0.2.6` и Causality/Trace/Deduction slice
 `0.2.7`. Runtime boundary refactor зафиксирован implementation baseline
-`0.2.9`. Следующий плановый пункт очереди — Git and review basics.
+`0.2.9`. Git and review basics зафиксирован implementation baseline `0.2.10`.
+Следующий плановый пункт очереди — Tool Registry v1.
 
 | Order | Done | Mechanism / Feature Slice | First Useful Slice | Dependency | Complexity |
 | --- | --- | --- | --- | --- | --- |
@@ -58,7 +59,7 @@ workspace-centered UI follow-up `0.2.6` и Causality/Trace/Deduction slice
 | 7 | + | Отложенные сообщения в сессии | Долговечные одноразовые будущие turn существующей сессии | Runtime/session guards, Core-owned persistence | Medium |
 | 8 | + | Background Jobs и scheduled agent runs | Долговечные определения unattended agent work, расписания и наблюдаемые runs | Placements, provider runtime, durable events | High |
 | 9 | + | Causality and trace UX | Coarse source/cause links with raw fallback | Workspace refs, event log | Medium |
-| 10 | - | Git and review basics | Better diff, branch/worktree awareness, check results | Workspace intervention, trace | Medium |
+| 10 | + | Git and review basics | Better diff, branch/worktree awareness, check results | Workspace intervention, trace | Medium |
 | 11 | - | Tool Registry v1 | Real tool metadata, permissions, routing and audit policy | V01 capability model, events | High |
 | 12 | - | Plugin Registry v1 | Installed plugin metadata, configuration, exposed tools and artifact types | Tool Registry v1 | High |
 | 13 | - | First external integrations | Git provider and task tracker integration slices | Tool/Plugin Registry | High |
@@ -369,6 +370,13 @@ fallbacks.
 
 **First useful slice:** Branch/worktree snapshot, changed-file list, diff view,
 check entry points, warning badges for risky workspace state.
+
+**Current implementation note:** `0.2.10` добавляет Node-owned porcelain-v2 Git
+snapshot, persisted Placement git facts, same-repo/branch coordination warning,
+changed-file scopes `all / staged / unstaged`, bounded per-file Monaco diff с
+binary/raw fallback и resolvable diff/hunk refs. Workbench Review запускает
+`make l` и `make c` через существующий async bounded command path, показывает
+progress/cancel и долговечную типизированную историю check results.
 
 **Target direction:** Git provider integration, PR/MR comment import, review
 queues, CI follow-up loops and review-ready task outputs.

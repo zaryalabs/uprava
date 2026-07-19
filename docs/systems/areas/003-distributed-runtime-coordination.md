@@ -224,6 +224,18 @@ V01 не требует:
     `repo_url`, normalized `repo_id`, `branch`, `commit`, `dirty`, `ahead`,
     `behind`, `untracked_count`, `active_runtime_count`.
 
+### Реализованный Git coordination baseline 0.2.10
+
+Node сообщает типизированный `GitWorkspaceSnapshot` вместе с workspace resource
+snapshot. Core сохраняет snapshot на `ProjectPlacement` и вычисляет
+`same_repo_branch_active` для других placements с активным runtime по
+`repo_id + branch`. Snapshot, полученный через Review, также обновляет current
+Placement facts.
+
+Это warning-only coordination: Uprava не блокирует работу и не создаёт
+distributed Git lock. Remote fetch не выполняется, поэтому ahead/behind всегда
+означает только локально известное состояние upstream на момент snapshot.
+
 ### Core inventory model
 
 Core различает logical project identity и node-local placement. Для protocol

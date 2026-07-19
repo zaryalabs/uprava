@@ -22,6 +22,8 @@ import type {
   WorkspaceCommandHistoryResponse,
   WorkspaceCommandIntent,
   WorkspaceCommandRunResponse,
+  WorkspaceDiffResponse,
+  WorkspaceReviewProjection,
   WorkspaceTerminalListResponse,
   WorkspaceTerminalOpenResponse,
   WorkspaceTerminalOutputFrame,
@@ -70,6 +72,50 @@ export const workspaceTerminalStateSchema = z.enum(
 const nullableString = z.string().nullable();
 const nullableNumber = z.number().nullable();
 const protocolRefSchema = z.object({ kind: z.string() }).passthrough();
+const gitChangeKindSchema = z.enum([
+  "added",
+  "modified",
+  "deleted",
+  "renamed",
+  "copied",
+  "untracked",
+  "unmerged",
+  "type_changed",
+  "unknown",
+]);
+const gitChangedFileSchema = z
+  .object({
+    path: z.string(),
+    previous_path: nullableString,
+    index_status: gitChangeKindSchema.nullable(),
+    worktree_status: gitChangeKindSchema.nullable(),
+    conflicted: z.boolean(),
+    binary: z.boolean(),
+  })
+  .strict();
+const gitWorkspaceSnapshotSchema = z
+  .object({
+    state: z.enum(["ready", "not_repository", "unavailable"]),
+    repo_id: nullableString,
+    head_state: z.enum(["branch", "detached", "unborn"]).nullable(),
+    branch: nullableString,
+    commit: nullableString,
+    upstream: nullableString,
+    ahead: z.number().int().nonnegative(),
+    behind: z.number().int().nonnegative(),
+    worktree_kind: z.enum(["primary", "linked"]).nullable(),
+    operation: z
+      .enum(["merge", "rebase", "cherry_pick", "revert", "bisect"])
+      .nullable(),
+    changed_files: z.array(gitChangedFileSchema),
+    staged_count: z.number().int().nonnegative(),
+    unstaged_count: z.number().int().nonnegative(),
+    untracked_count: z.number().int().nonnegative(),
+    conflicted_count: z.number().int().nonnegative(),
+    truncated: z.boolean(),
+    generated_at: z.string(),
+  })
+  .strict();
 const runtimeStateEventPayloadSchema = z
   .object({
     type: z.enum([
@@ -132,6 +178,7 @@ const workspaceSnapshotEventFields = {
       })
       .strict(),
   ),
+  git_snapshot: gitWorkspaceSnapshotSchema.nullable().optional(),
 };
 export const eventPayloadSchema = z.union([
   runtimeStateEventPayloadSchema,
@@ -341,6 +388,63 @@ export const workspaceCommandRunResponseSchema = z
     completed_at: z.string(),
   })
   .strict() satisfies z.ZodType<WorkspaceCommandRunResponse>;
+
+export const workspaceDiffResponseSchema = z
+  .object({
+    placement_id: z.string(),
+    diff_id: z.string(),
+    git_snapshot: gitWorkspaceSnapshotSchema,
+    summary: z.string(),
+    diff: z.string(),
+    scope: z.enum(["all", "staged", "unstaged"]),
+    path: nullableString,
+    changed_files: z.array(gitChangedFileSchema),
+    hunks: z.array(
+      z
+        .object({
+          hunk_id: z.string(),
+          header: z.string(),
+          patch: z.string(),
+        })
+        .strict(),
+    ),
+    original: nullableString,
+    modified: nullableString,
+    binary: z.boolean(),
+    summary_truncated: z.boolean(),
+    diff_truncated: z.boolean(),
+    generated_at: z.string(),
+  })
+  .strict() satisfies z.ZodType<WorkspaceDiffResponse>;
+
+const workspaceCheckRunSummarySchema = z
+  .object({
+    command_id: z.string(),
+    state: commandStateSchema,
+    command: z.string(),
+    args: z.array(z.string()),
+    label: nullableString,
+    success: z.boolean().nullable(),
+    exit_code: nullableNumber,
+    stdout: nullableString,
+    stderr: nullableString,
+    stdout_truncated: z.boolean(),
+    stderr_truncated: z.boolean(),
+    duration_ms: nullableNumber,
+    created_at: z.string(),
+    completed_at: nullableString,
+  })
+  .strict();
+
+export const workspaceReviewProjectionSchema = z
+  .object({
+    placement_id: z.string(),
+    git_snapshot: gitWorkspaceSnapshotSchema,
+    diff: workspaceDiffResponseSchema,
+    checks: z.array(workspaceCheckRunSummarySchema),
+    generated_at: z.string(),
+  })
+  .strict() satisfies z.ZodType<WorkspaceReviewProjection>;
 
 export const workspaceCommandHistoryItemSchema = z
   .object({

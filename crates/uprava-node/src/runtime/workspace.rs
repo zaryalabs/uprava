@@ -52,6 +52,7 @@ pub(crate) fn placement_snapshot_events(
             "workspace_path": snapshot.workspace_path,
             "state": snapshot.state,
             "resource_badges": snapshot.resource_badges,
+            "git_snapshot": snapshot.git_snapshot,
             "last_validated_at": snapshot.last_validated_at,
         }),
     )]
@@ -73,6 +74,7 @@ pub(crate) fn validate_command_workspace(
                 severity: WarningSeverity::HardBlock,
                 label: "Workspace outside allowed roots".to_owned(),
             }],
+            git_snapshot: None,
             last_validated_at: Utc::now(),
         };
     }
@@ -502,8 +504,23 @@ pub(crate) async fn build_workspace_diff_response(
     config: &NodeConfig,
     command: &CommandEnvelope,
 ) -> Result<WorkspaceDiffResponse, WorkspaceInspectError> {
+    let request = workspace_command_payload::<WorkspaceDiffRequest>(command)?;
     let placement_id = workspace_command_placement_id(command)?;
     let workspace_root = canonical_workspace_root(config, workspace_command_path(command)?)?;
+    let relative_path = request
+        .path
+        .as_deref()
+        .map(safe_workspace_relative_path)
+        .transpose()?;
+    if relative_path
+        .as_ref()
+        .is_some_and(|path| path.as_os_str().is_empty())
+    {
+        return Err(WorkspaceInspectError::new(
+            "workspace.path_required",
+            "Workspace diff path must identify a file",
+        ));
+    }
     let inside = run_workspace_process(
         &workspace_root,
         "git",
@@ -514,41 +531,77 @@ pub(crate) async fn build_workspace_diff_response(
     )
     .await;
     if !inside.success || inside.stdout.trim() != "true" {
+        let git_snapshot = GitWorkspaceSnapshot {
+            state: GitRepositoryState::NotRepository,
+            repo_id: None,
+            head_state: None,
+            branch: None,
+            commit: None,
+            upstream: None,
+            ahead: 0,
+            behind: 0,
+            worktree_kind: None,
+            operation: None,
+            changed_files: vec![],
+            staged_count: 0,
+            unstaged_count: 0,
+            untracked_count: 0,
+            conflicted_count: 0,
+            truncated: false,
+            generated_at: Utc::now(),
+        };
         return Ok(WorkspaceDiffResponse {
             placement_id,
             diff_id: format!("workspace-diff-{}", command.command_id.as_str()),
+            git_snapshot,
             summary: "Workspace is not a git worktree".to_owned(),
             diff: inside.stderr,
+            scope: request.scope,
+            path: request.path,
+            changed_files: vec![],
+            hunks: vec![],
+            original: None,
+            modified: None,
+            binary: false,
             summary_truncated: false,
             diff_truncated: inside.stderr_truncated,
             generated_at: Utc::now(),
         });
     }
-    let summary = run_workspace_process(
-        &workspace_root,
-        "git",
-        &["diff".to_owned(), "--stat".to_owned()],
-        Duration::from_secs(10),
-        WORKSPACE_DIFF_STAT_BYTES,
-        4_096,
-    )
-    .await;
+    let snapshot_root = workspace_root.clone();
+    let snapshot = tokio::task::spawn_blocking(move || git_workspace_snapshot(&snapshot_root))
+        .await
+        .map_err(|error| {
+            WorkspaceInspectError::new(
+                "workspace.git_snapshot_failed",
+                format!("Git snapshot worker failed: {error}"),
+            )
+        })?
+        .ok_or_else(|| {
+            WorkspaceInspectError::new(
+                "workspace.git_snapshot_failed",
+                "Git snapshot could not be collected",
+            )
+        })?;
+    let mut changed_files = snapshot
+        .changed_files
+        .iter()
+        .filter(|change| diff_change_matches_scope(change, request.scope))
+        .cloned()
+        .collect::<Vec<_>>();
+    let path = relative_path
+        .as_ref()
+        .map(|path| relative_path_string(path));
+    let diff_args = workspace_diff_args(request.scope, path.as_deref(), snapshot.commit.is_some());
     let diff = run_workspace_process(
         &workspace_root,
         "git",
-        &["diff".to_owned(), "--".to_owned()],
+        &diff_args,
         Duration::from_secs(10),
         WORKSPACE_DIFF_BYTES,
         4_096,
     )
     .await;
-    let mut summary_text = summary.stdout;
-    if !summary.stderr.trim().is_empty() {
-        if !summary_text.is_empty() {
-            summary_text.push('\n');
-        }
-        summary_text.push_str(&summary.stderr);
-    }
     let mut diff_text = diff.stdout;
     if !diff.stderr.trim().is_empty() {
         if !diff_text.is_empty() {
@@ -556,19 +609,261 @@ pub(crate) async fn build_workspace_diff_response(
         }
         diff_text.push_str(&diff.stderr);
     }
+    let mut diff_truncated = diff.stdout_truncated || diff.stderr_truncated;
+    if request.scope == WorkspaceDiffScope::All && snapshot.commit.is_none() {
+        let staged = run_workspace_process(
+            &workspace_root,
+            "git",
+            &workspace_diff_args(WorkspaceDiffScope::Staged, path.as_deref(), false),
+            Duration::from_secs(10),
+            WORKSPACE_DIFF_BYTES,
+            4_096,
+        )
+        .await;
+        let mut staged_text = staged.stdout;
+        if !staged.stderr.trim().is_empty() {
+            staged_text.push_str(&staged.stderr);
+        }
+        if !staged_text.is_empty() {
+            staged_text.push_str(&diff_text);
+            diff_text = staged_text;
+        }
+        diff_truncated |= staged.stdout_truncated || staged.stderr_truncated;
+    }
+    let binary = relative_path
+        .as_ref()
+        .is_some_and(|path| binary_extension(path))
+        || diff_text.contains("Binary files ");
+    if binary {
+        if let Some(path) = path.as_deref() {
+            if let Some(change) = changed_files.iter_mut().find(|change| change.path == path) {
+                change.binary = true;
+            }
+        }
+    }
+    let (original, modified) = if let Some(relative_path) = &relative_path {
+        workspace_diff_contents(
+            &workspace_root,
+            relative_path,
+            request.scope,
+            &snapshot,
+            binary,
+        )
+        .await?
+    } else {
+        (None, None)
+    };
+    let summary = format!(
+        "{} changed · {} staged · {} unstaged · {} untracked · {} conflicted",
+        changed_files.len(),
+        snapshot.staged_count,
+        snapshot.unstaged_count,
+        snapshot.untracked_count,
+        snapshot.conflicted_count,
+    );
+    let summary_truncated = snapshot.truncated;
+    let diff_id = format!("workspace-diff-{}", command.command_id.as_str());
+    let hunks = parse_workspace_diff_hunks(&diff_id, &diff_text);
     Ok(WorkspaceDiffResponse {
         placement_id,
-        diff_id: format!("workspace-diff-{}", command.command_id.as_str()),
-        summary: if summary_text.trim().is_empty() {
-            "No unstaged diff".to_owned()
-        } else {
-            summary_text
-        },
+        diff_id,
+        git_snapshot: snapshot,
+        summary,
         diff: diff_text,
-        summary_truncated: summary.stdout_truncated || summary.stderr_truncated,
-        diff_truncated: diff.stdout_truncated || diff.stderr_truncated,
+        scope: request.scope,
+        path,
+        changed_files,
+        hunks,
+        original,
+        modified,
+        binary,
+        summary_truncated,
+        diff_truncated,
         generated_at: Utc::now(),
     })
+}
+
+pub(crate) fn parse_workspace_diff_hunks(diff_id: &str, diff: &str) -> Vec<WorkspaceDiffHunk> {
+    let mut hunks = Vec::new();
+    let mut header: Option<String> = None;
+    let mut patch = String::new();
+    for line in diff.lines() {
+        if hunks.len() >= MAX_WORKSPACE_DIFF_HUNKS {
+            break;
+        }
+        if line.starts_with("@@ ") {
+            if let Some(header) = header.take() {
+                hunks.push(WorkspaceDiffHunk {
+                    hunk_id: format!("{diff_id}:hunk-{}", hunks.len() + 1),
+                    header,
+                    patch: std::mem::take(&mut patch),
+                });
+            }
+            header = Some(line.to_owned());
+            patch.push_str(line);
+            patch.push('\n');
+        } else if header.is_some() {
+            if line.starts_with("diff --git ") {
+                if let Some(header) = header.take() {
+                    hunks.push(WorkspaceDiffHunk {
+                        hunk_id: format!("{diff_id}:hunk-{}", hunks.len() + 1),
+                        header,
+                        patch: std::mem::take(&mut patch),
+                    });
+                }
+            } else {
+                patch.push_str(line);
+                patch.push('\n');
+            }
+        }
+    }
+    if hunks.len() < MAX_WORKSPACE_DIFF_HUNKS {
+        if let Some(header) = header {
+            hunks.push(WorkspaceDiffHunk {
+                hunk_id: format!("{diff_id}:hunk-{}", hunks.len() + 1),
+                header,
+                patch,
+            });
+        }
+    }
+    hunks
+}
+
+fn diff_change_matches_scope(change: &GitChangedFile, scope: WorkspaceDiffScope) -> bool {
+    match scope {
+        WorkspaceDiffScope::All => true,
+        WorkspaceDiffScope::Staged => change.index_status.is_some(),
+        WorkspaceDiffScope::Unstaged => change.worktree_status.is_some(),
+    }
+}
+
+fn workspace_diff_args(
+    scope: WorkspaceDiffScope,
+    path: Option<&str>,
+    has_head: bool,
+) -> Vec<String> {
+    let mut args = vec![
+        "diff".to_owned(),
+        "--no-ext-diff".to_owned(),
+        "--no-color".to_owned(),
+        "--find-renames".to_owned(),
+    ];
+    match scope {
+        WorkspaceDiffScope::All if has_head => args.push("HEAD".to_owned()),
+        WorkspaceDiffScope::All | WorkspaceDiffScope::Unstaged => {}
+        WorkspaceDiffScope::Staged => args.push("--cached".to_owned()),
+    }
+    args.push("--".to_owned());
+    if let Some(path) = path {
+        args.push(path.to_owned());
+    }
+    args
+}
+
+async fn workspace_diff_contents(
+    workspace_root: &Path,
+    relative_path: &Path,
+    scope: WorkspaceDiffScope,
+    snapshot: &GitWorkspaceSnapshot,
+    binary: bool,
+) -> Result<(Option<String>, Option<String>), WorkspaceInspectError> {
+    if binary {
+        return Ok((None, None));
+    }
+    let path = relative_path_string(relative_path);
+    let change = snapshot
+        .changed_files
+        .iter()
+        .find(|change| change.path == path);
+    let untracked =
+        change.is_some_and(|change| change.worktree_status == Some(GitChangeKind::Untracked));
+    let original = if untracked {
+        Some(String::new())
+    } else {
+        let source_path = change
+            .and_then(|change| change.previous_path.as_deref())
+            .unwrap_or(&path);
+        let spec = match scope {
+            WorkspaceDiffScope::Unstaged => format!(":{source_path}"),
+            WorkspaceDiffScope::All | WorkspaceDiffScope::Staged => {
+                format!("HEAD:{source_path}")
+            }
+        };
+        git_show_text(workspace_root, &spec).await
+    };
+    let modified = match scope {
+        WorkspaceDiffScope::Staged => git_show_text(workspace_root, &format!(":{path}")).await,
+        WorkspaceDiffScope::All | WorkspaceDiffScope::Unstaged => {
+            read_workspace_diff_file(workspace_root, relative_path).await?
+        }
+    };
+    Ok((
+        original.or_else(|| Some(String::new())),
+        modified.or_else(|| Some(String::new())),
+    ))
+}
+
+async fn git_show_text(workspace_root: &Path, spec: &str) -> Option<String> {
+    let output = run_workspace_process(
+        workspace_root,
+        "git",
+        &[
+            "show".to_owned(),
+            "--no-textconv".to_owned(),
+            spec.to_owned(),
+        ],
+        Duration::from_secs(10),
+        MAX_WORKSPACE_TEXT_BYTES as usize,
+        4_096,
+    )
+    .await;
+    output.success.then_some(output.stdout)
+}
+
+async fn read_workspace_diff_file(
+    workspace_root: &Path,
+    relative_path: &Path,
+) -> Result<Option<String>, WorkspaceInspectError> {
+    let workspace_root = workspace_root.to_owned();
+    let relative_path = relative_path.to_owned();
+    tokio::task::spawn_blocking(move || {
+        let target = match resolve_existing_workspace_path(&workspace_root, &relative_path) {
+            Ok(target) => target,
+            Err(error) if error.code == "workspace.path_missing" => return Ok(None),
+            Err(error) => return Err(error),
+        };
+        let metadata = fs::metadata(&target).map_err(|error| {
+            WorkspaceInspectError::new(
+                "workspace.metadata_failed",
+                format!("Failed to inspect diff file: {error}"),
+            )
+        })?;
+        if !metadata.is_file() || metadata.len() > MAX_WORKSPACE_TEXT_BYTES {
+            return Ok(None);
+        }
+        let bytes = fs::read(target).map_err(|error| {
+            WorkspaceInspectError::new(
+                "workspace.read_failed",
+                format!("Failed to read diff file: {error}"),
+            )
+        })?;
+        if bytes.contains(&0) {
+            return Ok(None);
+        }
+        String::from_utf8(bytes).map(Some).map_err(|_| {
+            WorkspaceInspectError::new(
+                "workspace.diff_binary_file",
+                "Workspace diff content is not UTF-8 text",
+            )
+        })
+    })
+    .await
+    .map_err(|error| {
+        WorkspaceInspectError::new(
+            "workspace.diff_read_failed",
+            format!("Workspace diff reader failed: {error}"),
+        )
+    })?
 }
 
 pub(crate) fn workspace_command_payload<T: for<'de> Deserialize<'de>>(

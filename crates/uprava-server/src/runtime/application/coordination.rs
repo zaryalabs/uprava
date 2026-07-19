@@ -1081,6 +1081,14 @@ pub(crate) async fn update_placement_from_workspace_event_on_connection(
         .map(serde_json::from_value::<Vec<ResourceBadge>>)
         .transpose()?
         .unwrap_or_default();
+    let git_snapshot = event
+        .payload
+        .0
+        .get("git_snapshot")
+        .cloned()
+        .map(serde_json::from_value::<Option<GitWorkspaceSnapshot>>)
+        .transpose()?
+        .flatten();
 
     sqlx::query(
         r#"
@@ -1089,9 +1097,10 @@ pub(crate) async fn update_placement_from_workspace_event_on_connection(
             workspace_path = coalesce(?2, workspace_path),
             state = ?3,
             resource_badges_json = ?4,
-            last_validated_at = ?5,
-            updated_at = ?5
-        where project_placement_id = ?6
+            git_snapshot_json = ?5,
+            last_validated_at = ?6,
+            updated_at = ?6
+        where project_placement_id = ?7
         "#,
     )
     .bind(
@@ -1110,6 +1119,12 @@ pub(crate) async fn update_placement_from_workspace_event_on_connection(
     )
     .bind(format_placement_state(state_value))
     .bind(serde_json::to_string(&resource_badges)?)
+    .bind(
+        git_snapshot
+            .as_ref()
+            .map(serde_json::to_string)
+            .transpose()?,
+    )
     .bind(event.happened_at)
     .bind(placement_id.as_str())
     .execute(&mut *connection)

@@ -94,6 +94,7 @@ pub(crate) fn workspace_snapshot_from_request(
         workspace_path: workspace_path.to_owned(),
         state,
         resource_badges: badges,
+        git_snapshot: None,
         last_validated_at: Utc::now(),
     }
 }

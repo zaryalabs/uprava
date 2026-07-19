@@ -72,6 +72,30 @@ traceable checks и автоматизированных actions; это backend
 Это ближе к легкому GitHub/GitLab web project view + terminal + basic editor,
 чем к попытке встроить весь VS Code внутрь Uprava.
 
+### Реализованный Review baseline 0.2.10
+
+Workbench получил отдельный Git-aware `Review` mode:
+
+```text
+Node Git snapshot
+-> Core Placement projection
+-> changed-file navigator
+-> all / staged / unstaged bounded diff
+-> Monaco diff or raw/binary fallback
+-> make l / make c check result history
+-> WorkspaceDiff / DiffHunk / CheckResult references
+```
+
+Node читает machine-readable Git porcelain без shell, ограничивает объём
+status/diff output и остаётся authority для node-local repository facts. Review
+показывает branch или detached/unborn HEAD, commit, upstream drift, primary или
+linked worktree, активную Git operation, conflicts и freshness timestamp.
+
+Review не меняет Git state: в этом срезе нет fetch, checkout, stage, commit,
+reset, discard или создания worktree. Произвольная ручная работа по-прежнему
+остаётся в PTY, а кнопки `make l` и `make c` используют bounded command path с
+`intent=check`, cancellation и durable output.
+
 ### Почему не полноценная IDE first
 
 Полная IDE сразу потянет за собой:

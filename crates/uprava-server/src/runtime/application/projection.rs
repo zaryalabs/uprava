@@ -61,7 +61,7 @@ pub(crate) async fn load_placements(
     let rows = sqlx::query(
         r#"
         select project_placement_id, project_id, node_id, display_name, workspace_path,
-               state, resource_badges_json, last_validated_at
+               state, resource_badges_json, git_snapshot_json, last_validated_at
         from project_placements
         order by updated_at desc
         "#,
@@ -100,7 +100,7 @@ pub(crate) async fn load_placement_with_excluded_session(
     let row = sqlx::query(
         r#"
         select project_placement_id, project_id, node_id, display_name, workspace_path,
-               state, resource_badges_json, last_validated_at
+               state, resource_badges_json, git_snapshot_json, last_validated_at
         from project_placements
         where project_placement_id = ?1
         "#,
@@ -118,6 +118,7 @@ pub(crate) fn row_to_placement(
 ) -> Result<ProjectPlacementSummary, AppError> {
     let badges_json: String = row.try_get("resource_badges_json")?;
     let project_id: Option<String> = row.try_get("project_id")?;
+    let git_snapshot_json: Option<String> = row.try_get("git_snapshot_json")?;
     Ok(ProjectPlacementSummary {
         project_placement_id: ProjectPlacementId::from(
             row.try_get::<String, _>("project_placement_id")?,
@@ -128,6 +129,10 @@ pub(crate) fn row_to_placement(
         workspace_path: row.try_get("workspace_path")?,
         state: parse_placement_state(row.try_get::<String, _>("state")?.as_str()),
         resource_badges: serde_json::from_str(&badges_json)?,
+        git_snapshot: git_snapshot_json
+            .as_deref()
+            .map(serde_json::from_str)
+            .transpose()?,
         last_validated_at: row.try_get("last_validated_at")?,
     })
 }
@@ -137,9 +142,9 @@ pub(crate) async fn add_core_resource_badges(
     mut placement: ProjectPlacementSummary,
     excluded_session_id: Option<&SessionThreadId>,
 ) -> Result<ProjectPlacementSummary, AppError> {
-    placement
-        .resource_badges
-        .retain(|badge| badge.kind != "same_workspace_active");
+    placement.resource_badges.retain(|badge| {
+        badge.kind != "same_workspace_active" && badge.kind != "same_repo_branch_active"
+    });
     let active_count =
         active_workspace_session_count(state, &placement, excluded_session_id).await?;
     if active_count > 0 {
@@ -149,7 +154,57 @@ pub(crate) async fn add_core_resource_badges(
             label: format!("Workspace already has {active_count} active session(s)"),
         });
     }
+    let same_branch_count = active_same_repo_branch_count(state, &placement).await?;
+    if same_branch_count > 0 {
+        placement.resource_badges.push(ResourceBadge {
+            kind: "same_repo_branch_active".to_owned(),
+            severity: WarningSeverity::Warning,
+            label: format!(
+                "Same repository branch has {same_branch_count} active session(s) elsewhere"
+            ),
+        });
+    }
     Ok(placement)
+}
+
+pub(crate) async fn active_same_repo_branch_count(
+    state: &AppState,
+    placement: &ProjectPlacementSummary,
+) -> Result<i64, AppError> {
+    let Some(snapshot) = &placement.git_snapshot else {
+        return Ok(0);
+    };
+    let (Some(repo_id), Some(branch)) = (&snapshot.repo_id, &snapshot.branch) else {
+        return Ok(0);
+    };
+    let rows = sqlx::query(
+        r#"
+        select pp.git_snapshot_json
+        from project_placements pp
+        join session_threads st on st.project_placement_id = pp.project_placement_id
+        join runtime_sessions rs on rs.runtime_session_id = st.runtime_session_id
+        where pp.project_placement_id != ?1
+          and pp.git_snapshot_json is not null
+          and st.state in ('active', 'detached', 'degraded')
+          and rs.state in (
+              'starting', 'ready', 'running', 'blocked',
+              'stopping', 'interrupted', 'resuming', 'stale'
+          )
+        "#,
+    )
+    .bind(placement.project_placement_id.as_str())
+    .fetch_all(&state.pool)
+    .await?;
+    let mut count = 0i64;
+    for row in rows {
+        let raw: String = row.try_get("git_snapshot_json")?;
+        let candidate: GitWorkspaceSnapshot = serde_json::from_str(&raw)?;
+        if candidate.repo_id.as_ref() == Some(repo_id) && candidate.branch.as_ref() == Some(branch)
+        {
+            count += 1;
+        }
+    }
+    Ok(count)
 }
 
 pub(crate) async fn active_workspace_session_count(
@@ -793,6 +848,9 @@ pub(crate) async fn resolve_reference_inner(
         } => {
             resolve_workspace_diff_reference(state, reference.clone(), diff_id, placement_id).await
         }
+        UpravaRef::DiffHunk { diff_id, hunk_id } => {
+            resolve_workspace_diff_hunk_reference(state, reference.clone(), diff_id, hunk_id).await
+        }
         UpravaRef::TerminalCommand {
             terminal_command_id,
             ..
@@ -952,6 +1010,53 @@ pub(crate) async fn resolve_workspace_diff_reference(
     ))
 }
 
+pub(crate) async fn resolve_workspace_diff_hunk_reference(
+    state: &AppState,
+    reference: UpravaRef,
+    diff_id: &str,
+    hunk_id: &str,
+) -> Result<ReferenceResolution, AppError> {
+    let rows = sqlx::query(
+        "select command_id, result_payload_json from commands where kind = 'ReadWorkspaceDiff' and result_payload_json is not null order by completed_at desc limit 500",
+    )
+    .fetch_all(&state.pool)
+    .await?;
+    for row in rows {
+        let raw: String = row.try_get("result_payload_json")?;
+        let Ok(result) = serde_json::from_str::<WorkspaceDiffResponse>(&raw) else {
+            continue;
+        };
+        if result.diff_id != diff_id {
+            continue;
+        }
+        let Some(hunk) = result.hunks.iter().find(|hunk| hunk.hunk_id == hunk_id) else {
+            continue;
+        };
+        let command_id = CommandId::from(row.try_get::<String, _>("command_id")?);
+        return Ok(ReferenceResolution {
+            reference,
+            status: ReferenceResolutionStatus::Resolved,
+            title: hunk.header.clone(),
+            summary: result.path.clone().or_else(|| Some(result.summary.clone())),
+            links: CausalityLinks {
+                source_refs: vec![UpravaRef::WorkspaceDiff {
+                    diff_id: result.diff_id,
+                    placement_id: result.placement_id,
+                }],
+                cause_refs: vec![UpravaRef::Command { command_id }],
+                ..CausalityLinks::default()
+            },
+            raw_payload: Some(JsonValue(json!({ "patch": hunk.patch }))),
+            raw_truncated: result.diff_truncated,
+            unavailable_reason: None,
+        });
+    }
+    Ok(raw_only_resolution(
+        reference,
+        "Diff hunk is no longer present in bounded command history",
+    ))
+}
+
 pub(crate) async fn resolve_terminal_command_reference(
     state: &AppState,
     reference: UpravaRef,
@@ -1071,10 +1176,16 @@ pub(crate) fn result_refs_for_command(
         }
         CommandKind::ReadWorkspaceDiff => {
             let result: WorkspaceDiffResponse = serde_json::from_value(payload.0.clone()).ok()?;
-            Some(vec![UpravaRef::WorkspaceDiff {
-                diff_id: result.diff_id,
+            let diff_id = result.diff_id;
+            let mut refs = vec![UpravaRef::WorkspaceDiff {
+                diff_id: diff_id.clone(),
                 placement_id: result.placement_id,
-            }])
+            }];
+            refs.extend(result.hunks.into_iter().map(|hunk| UpravaRef::DiffHunk {
+                diff_id: diff_id.clone(),
+                hunk_id: hunk.hunk_id,
+            }));
+            Some(refs)
         }
         _ => None,
     }

@@ -64,6 +64,8 @@ pub enum CommandPayload {
     },
     ReadWorkspaceDiff {
         workspace_path: String,
+        #[serde(default)]
+        request: WorkspaceDiffRequest,
     },
     OpenWorkspaceTerminal {
         workspace_path: String,
@@ -179,7 +181,7 @@ impl CommandPayload {
             | Self::ReadWorkspaceFile { workspace_path, .. }
             | Self::WriteWorkspaceFile { workspace_path, .. }
             | Self::RunWorkspaceCommand { workspace_path, .. }
-            | Self::ReadWorkspaceDiff { workspace_path }
+            | Self::ReadWorkspaceDiff { workspace_path, .. }
             | Self::OpenWorkspaceTerminal { workspace_path, .. } => Some(workspace_path),
             _ => None,
         }
@@ -223,6 +225,7 @@ impl CommandPayload {
             }
             Self::WriteWorkspaceFile { request, .. } => serde_json::to_value(request).ok()?,
             Self::RunWorkspaceCommand { request, .. } => serde_json::to_value(request).ok()?,
+            Self::ReadWorkspaceDiff { request, .. } => serde_json::to_value(request).ok()?,
             Self::OpenWorkspaceTerminal { request, .. } => serde_json::to_value(request).ok()?,
             _ => return None,
         };
@@ -435,6 +438,7 @@ pub enum EventPayloadKind {
         workspace_path: String,
         state: PlacementState,
         resource_badges: Vec<ResourceBadge>,
+        git_snapshot: Option<GitWorkspaceSnapshot>,
     },
     ResourceSnapshotUpdated {
         placement_id: ProjectPlacementId,
@@ -442,6 +446,7 @@ pub enum EventPayloadKind {
         workspace_path: String,
         state: PlacementState,
         resource_badges: Vec<ResourceBadge>,
+        git_snapshot: Option<GitWorkspaceSnapshot>,
     },
     WorkspaceFileWritten {
         placement_id: ProjectPlacementId,
@@ -723,6 +728,10 @@ impl EventPayload {
                     .cloned()
                     .and_then(|value| serde_json::from_value(value).ok())
                     .unwrap_or_default();
+                let git_snapshot = value
+                    .get("git_snapshot")
+                    .cloned()
+                    .and_then(|value| serde_json::from_value(value).ok());
                 if kind == EventKind::WorkspaceValidated {
                     EventPayloadKind::WorkspaceValidated {
                         placement_id,
@@ -730,6 +739,7 @@ impl EventPayload {
                         workspace_path,
                         state,
                         resource_badges,
+                        git_snapshot,
                     }
                 } else {
                     EventPayloadKind::ResourceSnapshotUpdated {
@@ -738,6 +748,7 @@ impl EventPayload {
                         workspace_path,
                         state,
                         resource_badges,
+                        git_snapshot,
                     }
                 }
             }

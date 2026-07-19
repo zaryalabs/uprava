@@ -72,6 +72,10 @@ pub fn build_router(state: Arc<AppState>) -> Router {
             get(workspace_diff_route),
         )
         .route(
+            "/placements/{placement_id}/workspace/review",
+            get(workspace_review_route),
+        )
+        .route(
             "/placements/{placement_id}/workspace/terminals",
             get(workspace_terminal_list_route).post(workspace_terminal_open_route),
         )

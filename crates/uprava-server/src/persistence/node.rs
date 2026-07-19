@@ -506,14 +506,15 @@ pub(crate) async fn upsert_heartbeat_workspaces(
             r#"
             insert into project_placements (
                 project_placement_id, project_id, node_id, display_name, workspace_path,
-                state, resource_badges_json, last_validated_at, created_at, updated_at
+                state, resource_badges_json, git_snapshot_json, last_validated_at, created_at, updated_at
             )
-            values (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?8, ?8)
+            values (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?9, ?9)
             on conflict(node_id, workspace_path) do update set
                 project_id = excluded.project_id,
                 display_name = excluded.display_name,
                 state = excluded.state,
                 resource_badges_json = excluded.resource_badges_json,
+                git_snapshot_json = excluded.git_snapshot_json,
                 last_validated_at = excluded.last_validated_at,
                 updated_at = excluded.updated_at
             "#,
@@ -525,6 +526,13 @@ pub(crate) async fn upsert_heartbeat_workspaces(
         .bind(workspace.workspace_path)
         .bind(format_placement_state(workspace.state))
         .bind(serde_json::to_string(&workspace.resource_badges)?)
+        .bind(
+            workspace
+                .git_snapshot
+                .as_ref()
+                .map(serde_json::to_string)
+                .transpose()?,
+        )
         .bind(workspace.last_validated_at)
         .execute(&state.pool)
         .await?;

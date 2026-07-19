@@ -44,6 +44,8 @@ import type {
   WorkspaceCommandRunRequest,
   WorkspaceCommandRunResponse,
   WorkspaceDiffResponse,
+  WorkspaceDiffScope,
+  WorkspaceReviewProjection,
   WorkspaceFileContentResponse,
   WorkspaceFileWriteRequest,
   WorkspaceFileWriteResponse,
@@ -60,6 +62,8 @@ import {
   workspaceCommandHistoryItemSchema,
   workspaceCommandHistoryResponseSchema,
   workspaceCommandRunResponseSchema,
+  workspaceDiffResponseSchema,
+  workspaceReviewProjectionSchema,
   workspaceTerminalListResponseSchema,
   workspaceTerminalOpenResponseSchema,
 } from "../protocol/validators";
@@ -390,7 +394,20 @@ export const coreApi = {
   workspaceDiff: (placementId: string) =>
     apiGet<WorkspaceDiffResponse>(
       `/placements/${encodeURIComponent(placementId)}/workspace/diff`,
+      workspaceDiffResponseSchema,
     ),
+  workspaceReview: (
+    placementId: string,
+    scope: WorkspaceDiffScope,
+    path: string | null,
+  ) => {
+    const query = new URLSearchParams({ scope });
+    if (path) query.set("path", path);
+    return apiGet<WorkspaceReviewProjection>(
+      `/placements/${encodeURIComponent(placementId)}/workspace/review?${query.toString()}`,
+      workspaceReviewProjectionSchema,
+    );
+  },
   workspaceTerminals: (placementId: string) =>
     apiGet<WorkspaceTerminalListResponse>(
       `/placements/${encodeURIComponent(placementId)}/workspace/terminals`,

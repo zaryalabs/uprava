@@ -31,6 +31,12 @@ Baseline не заявляет exact per-edit provenance, полный cause gra
 внутреннему reasoning provider. Такие пробелы остаются явными через precision и
 raw fallback.
 
+Follow-up baseline `0.2.10` делает review evidence адресуемым: workspace Review
+сохраняет bounded diff snapshot, публикует `WorkspaceDiff` и стабильные
+`DiffHunk` refs, а controlled checks публикуют `CheckResult` с причиной
+`Command`. Diff остаётся snapshot-level evidence и не выдаётся за точную
+причину конкретного edit.
+
 Главная позиция: `A-008` - это не отдельный trace viewer и не попытка показать
 пользователю весь raw log. Это **механика перехода от видимого результата к
 источнику, доказательству и причине** через ссылки между addressable blocks,

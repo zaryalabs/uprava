@@ -5,13 +5,14 @@ import { useEffect, useState, type ReactNode } from "react";
 import { coreApi } from "../../shared/api/http-client";
 import { queryKeys } from "../../shared/api/query-keys";
 import { Button } from "../../shared/ui/button";
+import type { WorkspaceDiffScope } from "../../shared/protocol/types";
 import { useWorkspaceDraft } from "./WorkspaceDrafts";
-import { WorkspaceDiffPanel } from "./WorkspaceDiffPanel";
 import { WorkspaceFileViewer } from "./WorkspaceFileViewer";
 import { WorkspaceFileTree } from "./WorkspaceFileTree";
+import { WorkspaceReviewPanel } from "./WorkspaceReviewPanel";
 import { WorkspaceTerminalPanel } from "./WorkspaceTerminalPanel";
 
-type EditorMode = "source" | "diff";
+type EditorMode = "source" | "review";
 
 export function WorkspaceWorkbench({
   placementId,
@@ -26,16 +27,19 @@ export function WorkspaceWorkbench({
   const [selectedPath, setSelectedPath] = useState<string | null>(null);
   const [treeRefreshVersion, setTreeRefreshVersion] = useState(0);
   const [editorMode, setEditorMode] = useState<EditorMode>("source");
+  const [reviewScope, setReviewScope] = useState<WorkspaceDiffScope>("all");
+  const [reviewPath, setReviewPath] = useState<string | null>(null);
 
   const selectedFile = useQuery({
     queryKey: queryKeys.workspaceFile(placementId, selectedPath ?? ""),
     queryFn: () => coreApi.workspaceFile(placementId, selectedPath ?? "."),
     enabled: Boolean(placementId && selectedPath),
   });
-  const diff = useQuery({
-    queryKey: queryKeys.workspaceDiff(placementId),
-    queryFn: () => coreApi.workspaceDiff(placementId),
-    enabled: false,
+  const review = useQuery({
+    queryKey: queryKeys.workspaceReview(placementId, reviewScope, reviewPath),
+    queryFn: () =>
+      coreApi.workspaceReview(placementId, reviewScope, reviewPath),
+    enabled: editorMode === "review",
   });
   const selectedRemoteContent =
     selectedFile.data?.path === selectedPath ? selectedFile.data.content : null;
@@ -64,6 +68,9 @@ export function WorkspaceWorkbench({
       void queryClient.invalidateQueries({
         queryKey: ["placement", placementId, "workspace-tree"],
       });
+      void queryClient.invalidateQueries({
+        queryKey: ["placement", placementId, "workspace-review"],
+      });
     },
     onError: (_error, request) => {
       void queryClient.invalidateQueries({
@@ -75,6 +82,8 @@ export function WorkspaceWorkbench({
   useEffect(() => {
     setSelectedPath(null);
     setEditorMode("source");
+    setReviewScope("all");
+    setReviewPath(null);
   }, [placementId]);
 
   const editorContent = fileDraft.draft?.localContent ?? "";
@@ -103,9 +112,8 @@ export function WorkspaceWorkbench({
     });
   };
 
-  const openDiff = () => {
-    setEditorMode("diff");
-    if (!diff.data && !diff.isFetching) void diff.refetch();
+  const openReview = () => {
+    setEditorMode("review");
   };
 
   return (
@@ -175,11 +183,11 @@ export function WorkspaceWorkbench({
               role="tab"
               id="workbench-diff-tab"
               aria-controls="workbench-diff-panel"
-              aria-selected={editorMode === "diff"}
+              aria-selected={editorMode === "review"}
               className="uprava-pane-tab"
-              onClick={openDiff}
+              onClick={openReview}
             >
-              Diff
+              Review
             </button>
           </div>
           <div className="min-h-0 flex-1 overflow-hidden">
@@ -215,11 +223,23 @@ export function WorkspaceWorkbench({
                 aria-labelledby="workbench-diff-tab"
                 className="h-full min-h-0"
               >
-                <WorkspaceDiffPanel
-                  isLoading={diff.isFetching}
-                  error={diff.error}
-                  diff={diff.data ?? null}
-                  onRefresh={() => void diff.refetch()}
+                <WorkspaceReviewPanel
+                  placementId={placementId}
+                  isLoading={review.isFetching}
+                  error={review.error}
+                  review={review.data ?? null}
+                  scope={reviewScope}
+                  selectedPath={reviewPath}
+                  onScopeChange={(scope) => {
+                    setReviewScope(scope);
+                    setReviewPath(null);
+                  }}
+                  onSelectPath={setReviewPath}
+                  onOpenSource={(path) => {
+                    setSelectedPath(path);
+                    setEditorMode("source");
+                  }}
+                  onRefresh={() => void review.refetch()}
                 />
               </div>
             )}

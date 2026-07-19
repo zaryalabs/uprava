@@ -430,6 +430,27 @@ async fn accept_placement_snapshot_event(
     placement_state: PlacementState,
     resource_badges: Vec<ResourceBadge>,
 ) {
+    accept_placement_snapshot_event_with_git(
+        state,
+        placement,
+        node_id,
+        kind,
+        placement_state,
+        resource_badges,
+        None,
+    )
+    .await;
+}
+
+async fn accept_placement_snapshot_event_with_git(
+    state: &Arc<AppState>,
+    placement: &ProjectPlacementSummary,
+    node_id: NodeId,
+    kind: EventKind,
+    placement_state: PlacementState,
+    resource_badges: Vec<ResourceBadge>,
+    git_snapshot: Option<GitWorkspaceSnapshot>,
+) {
     accept_node_event(
         state,
         EventEnvelope {
@@ -462,6 +483,7 @@ async fn accept_placement_snapshot_event(
                     "workspace_path": placement.workspace_path.as_str(),
                     "state": placement_state,
                     "resource_badges": resource_badges,
+                    "git_snapshot": git_snapshot,
                 }),
             ),
         },

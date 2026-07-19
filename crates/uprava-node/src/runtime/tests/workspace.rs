@@ -724,6 +724,7 @@ async fn read_workspace_diff_command_returns_git_diff() {
     command.kind = CommandKind::ReadWorkspaceDiff;
     command.payload = CommandPayload::ReadWorkspaceDiff {
         workspace_path: workspace_path.display().to_string(),
+        request: WorkspaceDiffRequest::default(),
     };
     let mut local_state = NodeLocalState::default();
 
@@ -735,6 +736,134 @@ async fn read_workspace_diff_command_returns_git_diff() {
     assert_eq!(outcome.status, CommandState::Completed);
     assert!(response.diff.contains("-before"));
     assert!(response.diff.contains("+after"));
+    assert_eq!(response.scope, WorkspaceDiffScope::All);
+    assert_eq!(response.git_snapshot.state, GitRepositoryState::Ready);
+    assert_eq!(response.changed_files.len(), 1);
+    assert_eq!(response.hunks.len(), 1);
+    assert!(response.hunks[0].patch.contains("+after"));
+}
+
+#[tokio::test]
+async fn selected_untracked_file_returns_bounded_monaco_contents() {
+    let config = config_fixture();
+    let workspace_path =
+        std::env::temp_dir().join(format!("uprava-node-untracked-{}", Uuid::new_v4()));
+    std::fs::create_dir_all(&workspace_path).expect("workspace fixture creates");
+    StdCommand::new("git")
+        .arg("init")
+        .current_dir(&workspace_path)
+        .status()
+        .expect("git init starts");
+    std::fs::write(workspace_path.join("notes.md"), "new review note\n")
+        .expect("untracked fixture writes");
+    let mut command = placement_command_fixture(
+        "command-untracked-diff",
+        "placement-untracked-diff",
+        "workspace",
+        &workspace_path.display().to_string(),
+    );
+    command.kind = CommandKind::ReadWorkspaceDiff;
+    command.payload = CommandPayload::ReadWorkspaceDiff {
+        workspace_path: workspace_path.display().to_string(),
+        request: WorkspaceDiffRequest {
+            scope: WorkspaceDiffScope::All,
+            path: Some("notes.md".to_owned()),
+        },
+    };
+    let mut local_state = NodeLocalState::default();
+
+    let outcome = prepare_command_dispatch(&config, &mut local_state, &command).await;
+    let response = serde_json::from_value::<WorkspaceDiffResponse>(outcome.result_payload.0)
+        .expect("workspace diff response decodes");
+    std::fs::remove_dir_all(&workspace_path).expect("workspace fixture removes");
+
+    assert_eq!(outcome.status, CommandState::Completed);
+    assert_eq!(response.original.as_deref(), Some(""));
+    assert_eq!(response.modified.as_deref(), Some("new review note\n"));
+    assert_eq!(response.changed_files[0].path, "notes.md");
+    assert_eq!(
+        response.changed_files[0].worktree_status,
+        Some(GitChangeKind::Untracked)
+    );
+}
+
+#[test]
+fn git_snapshot_reports_index_worktree_and_linked_worktree_state() {
+    let fixture_root = std::env::temp_dir().join(format!("uprava-git-snapshot-{}", Uuid::new_v4()));
+    let repository = fixture_root.join("repository");
+    let linked = fixture_root.join("linked");
+    std::fs::create_dir_all(&repository).expect("repository fixture creates");
+    StdCommand::new("git")
+        .arg("init")
+        .current_dir(&repository)
+        .status()
+        .expect("git init starts");
+    std::fs::write(repository.join("README.md"), "before\n").expect("fixture writes");
+    StdCommand::new("git")
+        .args(["add", "README.md"])
+        .current_dir(&repository)
+        .status()
+        .expect("git add starts");
+    StdCommand::new("git")
+        .args(["-c", "user.email=test@example.invalid"])
+        .args(["-c", "user.name=Uprava Test"])
+        .args(["commit", "-m", "initial"])
+        .current_dir(&repository)
+        .status()
+        .expect("git commit starts");
+    std::fs::write(repository.join("README.md"), "staged\n").expect("staged fixture writes");
+    StdCommand::new("git")
+        .args(["add", "README.md"])
+        .current_dir(&repository)
+        .status()
+        .expect("git add starts");
+    std::fs::write(repository.join("README.md"), "unstaged\n").expect("unstaged fixture writes");
+    std::fs::write(repository.join("notes.md"), "untracked\n").expect("fixture writes");
+
+    let snapshot = git_workspace_snapshot(&repository).expect("git snapshot returns");
+    StdCommand::new("git")
+        .args(["worktree", "add", "-b", "review-linked"])
+        .arg(&linked)
+        .current_dir(&repository)
+        .status()
+        .expect("linked worktree creates");
+    let linked_snapshot = git_workspace_snapshot(&linked).expect("linked snapshot returns");
+    std::fs::remove_dir_all(&fixture_root).expect("fixture removes");
+
+    assert_eq!(snapshot.state, GitRepositoryState::Ready);
+    assert_eq!(snapshot.staged_count, 1);
+    assert_eq!(snapshot.unstaged_count, 2);
+    assert_eq!(snapshot.untracked_count, 1);
+    assert_eq!(snapshot.worktree_kind, Some(GitWorktreeKind::Primary));
+    assert_eq!(linked_snapshot.worktree_kind, Some(GitWorktreeKind::Linked));
+}
+
+#[test]
+fn git_snapshot_bounds_changed_file_projection() {
+    let mut status = String::from("# branch.oid (initial)\0# branch.head main\0");
+    for index in 0..=MAX_GIT_CHANGED_FILES {
+        status.push_str(&format!("? file-{index}.txt\0"));
+    }
+
+    let snapshot = parse_git_porcelain_v2(&status, Utc::now());
+
+    assert_eq!(snapshot.changed_files.len(), MAX_GIT_CHANGED_FILES);
+    assert_eq!(snapshot.untracked_count as usize, MAX_GIT_CHANGED_FILES + 1);
+    assert!(snapshot.truncated);
+}
+
+#[test]
+fn workspace_diff_bounds_hunk_projection() {
+    let diff = "@@ -1 +1 @@\n-old\n+new\n".repeat(MAX_WORKSPACE_DIFF_HUNKS + 1);
+
+    let hunks = parse_workspace_diff_hunks("diff-1", &diff);
+
+    assert_eq!(hunks.len(), MAX_WORKSPACE_DIFF_HUNKS);
+    assert_eq!(hunks[0].hunk_id, "diff-1:hunk-1");
+    assert_eq!(
+        hunks.last().map(|hunk| hunk.hunk_id.as_str()),
+        Some("diff-1:hunk-256")
+    );
 }
 
 #[test]

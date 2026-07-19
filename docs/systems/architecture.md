@@ -21,7 +21,7 @@
   turn ставят automatic scheduling на паузу, если Job явно не включает
   continue-after-error.
 
-## Границы модулей реализации 0.2.9
+## Границы модулей реализации 0.2.10
 
 Core и Node используют небольшие `runtime.rs` только как composition roots.
 Они собирают зависимости, запускают owner tasks и recovery loops, но не

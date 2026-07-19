@@ -237,6 +237,69 @@ async fn placement_projection_warns_when_workspace_has_active_session() {
 }
 
 #[tokio::test]
+async fn placement_projection_warns_when_same_repo_branch_is_active_elsewhere() {
+    let state = test_state().await;
+    let (node_id, first_detail, first_workspace_path) = create_test_session(&state).await;
+    let second_workspace_path =
+        std::env::temp_dir().join(format!("uprava-test-{}", Uuid::new_v4()));
+    std::fs::create_dir_all(&second_workspace_path).expect("second workspace creates");
+    let second = validate_placement(
+        State(state.clone()),
+        Json(CreatePlacementRequest {
+            node_id: node_id.clone(),
+            display_name: "second workspace".to_owned(),
+            workspace_path: second_workspace_path.display().to_string(),
+        }),
+    )
+    .await
+    .expect("second placement validates")
+    .0;
+    let snapshot = GitWorkspaceSnapshot {
+        state: uprava_protocol::GitRepositoryState::Ready,
+        repo_id: Some("sha256:test-repository".to_owned()),
+        head_state: Some(uprava_protocol::GitHeadState::Branch),
+        branch: Some("feature/review".to_owned()),
+        generated_at: Utc::now(),
+        ..GitWorkspaceSnapshot::default()
+    };
+    sqlx::query(
+        "update project_placements set git_snapshot_json = ?1 where project_placement_id = ?2",
+    )
+    .bind(serde_json::to_string(&snapshot).expect("snapshot serializes"))
+    .bind(first_detail.placement.project_placement_id.as_str())
+    .execute(&state.pool)
+    .await
+    .expect("first snapshot persists");
+    accept_placement_snapshot_event_with_git(
+        &state,
+        &second,
+        node_id,
+        EventKind::WorkspaceValidated,
+        PlacementState::Validated,
+        vec![],
+        Some(snapshot),
+    )
+    .await;
+
+    let second = load_placement(&state, &second.project_placement_id)
+        .await
+        .expect("second placement reloads");
+    std::fs::remove_dir_all(&first_workspace_path).expect("first workspace removes");
+    std::fs::remove_dir_all(&second_workspace_path).expect("second workspace removes");
+
+    assert!(second.resource_badges.iter().any(|badge| {
+        badge.kind == "same_repo_branch_active" && badge.severity == WarningSeverity::Warning
+    }));
+    assert_eq!(
+        second
+            .git_snapshot
+            .as_ref()
+            .and_then(|git| git.branch.as_deref()),
+        Some("feature/review")
+    );
+}
+
+#[tokio::test]
 async fn session_detail_does_not_warn_about_its_own_active_runtime() {
     let state = test_state().await;
     let (_node_id, detail, workspace_path) = create_test_session(&state).await;
@@ -696,7 +759,7 @@ async fn workspace_file_route_dispatches_node_read_and_decodes_payload() {
 }
 
 #[tokio::test]
-async fn workspace_command_route_persists_result_payload_for_history() {
+async fn workspace_check_route_persists_typed_result_for_review_history() {
     let state = test_state().await;
     let claim = enroll_test_node(&state).await;
     let node_id = claim.node_id.clone().expect("node id returned");
@@ -736,8 +799,8 @@ async fn workspace_command_route_persists_result_payload_for_history() {
             WorkspaceCommandRunRequest {
                 command: "rustc".to_owned(),
                 args: vec!["--version".to_owned()],
-                intent: uprava_protocol::WorkspaceCommandIntent::Command,
-                label: None,
+                intent: uprava_protocol::WorkspaceCommandIntent::Check,
+                label: Some("Quick check".to_owned()),
                 timeout_seconds: Some(30),
             },
             CorrelationId::from("correlation-workspace-command"),
@@ -757,8 +820,8 @@ async fn workspace_command_route_persists_result_payload_for_history() {
         "terminal_command_id": "terminal-command-test",
         "command": "rustc",
         "args": ["--version"],
-        "intent": "command",
-        "label": null,
+        "intent": "check",
+        "label": "Quick check",
         "exit_code": 0,
         "success": true,
         "stdout": "rustc 1.0.0\n",
@@ -791,6 +854,9 @@ async fn workspace_command_route_persists_result_payload_for_history() {
         workspace_command_history(&state, placement.project_placement_id.clone(), Some(10))
             .await
             .expect("workspace command history loads");
+    let checks = workspace_check_history(&state, placement.project_placement_id.clone(), Some(10))
+        .await
+        .expect("workspace check history loads");
     std::fs::remove_dir_all(&workspace_path).expect("workspace dir removes");
 
     assert_eq!(command.kind, CommandKind::RunWorkspaceCommand);
@@ -798,6 +864,136 @@ async fn workspace_command_route_persists_result_payload_for_history() {
     assert_eq!(history.commands.len(), 1);
     assert_eq!(history.commands[0].command_id, command.command_id);
     assert!(history.commands[0].result_payload.is_some());
+    assert_eq!(checks.len(), 1);
+    assert_eq!(checks[0].label.as_deref(), Some("Quick check"));
+    assert_eq!(checks[0].success, Some(true));
+}
+
+#[tokio::test]
+async fn workspace_review_route_combines_git_diff_and_check_projection() {
+    let state = test_state().await;
+    let claim = enroll_test_node(&state).await;
+    let node_id = claim.node_id.clone().expect("node id returned");
+    heartbeat_test_node(&state, node_id.clone(), claim.credential.clone()).await;
+    let workspace_path = std::env::temp_dir().join(format!("uprava-test-{}", Uuid::new_v4()));
+    std::fs::create_dir_all(&workspace_path).expect("workspace dir creates");
+    let placement = validate_placement(
+        State(state.clone()),
+        Json(CreatePlacementRequest {
+            node_id: node_id.clone(),
+            display_name: "workspace".to_owned(),
+            workspace_path: workspace_path.display().to_string(),
+        }),
+    )
+    .await
+    .expect("placement validates")
+    .0;
+    accept_workspace_validation_event(
+        &state,
+        &placement,
+        node_id.clone(),
+        PlacementState::Validated,
+        vec![],
+    )
+    .await;
+    sqlx::query("delete from commands")
+        .execute(&state.pool)
+        .await
+        .expect("setup commands clear");
+    let (context, mut rx) = activate_test_connection(&state, node_id).await;
+    let state_for_route = state.clone();
+    let placement_id = placement.project_placement_id.clone();
+    let route_task = tokio::spawn(async move {
+        workspace_review_route(
+            State(state_for_route),
+            HeaderMap::new(),
+            Path(placement_id.to_string()),
+            Query(WorkspaceDiffRequest {
+                scope: uprava_protocol::WorkspaceDiffScope::Staged,
+                path: Some("src/main.rs".to_owned()),
+            }),
+        )
+        .await
+    });
+    let dispatched = tokio::time::timeout(std::time::Duration::from_secs(1), rx.recv())
+        .await
+        .expect("workspace review dispatch is sent")
+        .expect("channel stays open");
+    let ControlFrame::CommandDispatch { command, .. } = dispatched else {
+        panic!("expected command dispatch");
+    };
+    let git_snapshot = GitWorkspaceSnapshot {
+        state: uprava_protocol::GitRepositoryState::Ready,
+        repo_id: Some("sha256:review".to_owned()),
+        head_state: Some(uprava_protocol::GitHeadState::Branch),
+        branch: Some("feature/review".to_owned()),
+        generated_at: Utc::now(),
+        ..GitWorkspaceSnapshot::default()
+    };
+    let response = WorkspaceDiffResponse {
+        placement_id: placement.project_placement_id.clone(),
+        diff_id: "workspace-diff-review".to_owned(),
+        git_snapshot,
+        summary: "1 changed".to_owned(),
+        diff: "@@ -1 +1 @@".to_owned(),
+        scope: uprava_protocol::WorkspaceDiffScope::Staged,
+        path: Some("src/main.rs".to_owned()),
+        changed_files: vec![],
+        hunks: vec![uprava_protocol::WorkspaceDiffHunk {
+            hunk_id: "workspace-diff-review:hunk-1".to_owned(),
+            header: "@@ -1 +1 @@".to_owned(),
+            patch: "@@ -1 +1 @@\n-before\n+after\n".to_owned(),
+        }],
+        original: Some("before\n".to_owned()),
+        modified: Some("after\n".to_owned()),
+        binary: false,
+        summary_truncated: false,
+        diff_truncated: false,
+        generated_at: Utc::now(),
+    };
+    handle_node_control_frame(
+        &state,
+        &context,
+        ControlFrame::CommandResult {
+            frame_id: "workspace-review-result-frame".to_owned(),
+            protocol_version: API_VERSION.to_owned(),
+            sent_at: Utc::now(),
+            command_id: command.command_id,
+            status: CommandState::Completed,
+            payload: JsonValue(serde_json::to_value(response).expect("response serializes")),
+        },
+    )
+    .await
+    .expect("review result accepts");
+    let review = route_task
+        .await
+        .expect("route task joins")
+        .expect("workspace review succeeds")
+        .0;
+    let hunk_ref = UpravaRef::DiffHunk {
+        diff_id: "workspace-diff-review".to_owned(),
+        hunk_id: "workspace-diff-review:hunk-1".to_owned(),
+    };
+    let hunk = resolve_workspace_diff_hunk_reference(
+        &state,
+        hunk_ref,
+        "workspace-diff-review",
+        "workspace-diff-review:hunk-1",
+    )
+    .await
+    .expect("diff hunk resolves");
+    std::fs::remove_dir_all(&workspace_path).expect("workspace dir removes");
+
+    assert_eq!(
+        review.git_snapshot.branch.as_deref(),
+        Some("feature/review")
+    );
+    assert_eq!(
+        review.diff.scope,
+        uprava_protocol::WorkspaceDiffScope::Staged
+    );
+    assert!(review.checks.is_empty());
+    assert_eq!(hunk.status, ReferenceResolutionStatus::Resolved);
 }
 
 #[tokio::test]

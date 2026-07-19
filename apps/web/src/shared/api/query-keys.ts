@@ -15,8 +15,12 @@ export const queryKeys = {
     ["placement", placementId, "workspace-file", path] as const,
   workspaceCommandHistory: (placementId: string) =>
     ["placement", placementId, "workspace-command-history"] as const,
+  workspaceCommandResource: (placementId: string, commandId: string) =>
+    ["placement", placementId, "workspace-command", commandId] as const,
   workspaceDiff: (placementId: string) =>
     ["placement", placementId, "workspace-diff"] as const,
+  workspaceReview: (placementId: string, scope: string, path: string | null) =>
+    ["placement", placementId, "workspace-review", scope, path] as const,
   workspaceTerminals: (placementId: string) =>
     ["placement", placementId, "workspace-terminals"] as const,
   session: (sessionThreadId: string) => ["session", sessionThreadId] as const,

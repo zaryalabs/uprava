@@ -18,6 +18,9 @@ vi.mock("../features/workspace-inspector/MonacoViews", () => ({
     <div role="region" aria-label={`File editor ${path}`} />
   ),
   MonacoDiffTextViewer: () => <div role="region" aria-label="Diff viewer" />,
+  MonacoWorkspaceDiffViewer: ({ path }: { path: string }) => (
+    <div role="region" aria-label={`Workspace diff ${path}`} />
+  ),
 }));
 
 describe("App routes", () => {
@@ -103,12 +106,17 @@ describe("App routes", () => {
     expect(
       await screen.findByRole("heading", { name: "Workbench", level: 2 }),
     ).toBeVisible();
-    expect(workspaceDiffRequests).toBe(0);
-    fireEvent.click(screen.getByRole("tab", { name: "Diff" }));
+    expect(workspaceReviewRequests).toBe(0);
+    fireEvent.click(screen.getByRole("tab", { name: "Review" }));
+    expect(await screen.findByText("main")).toBeVisible();
+    expect(workspaceReviewRequests).toBe(1);
+    fireEvent.click(await screen.findByRole("button", { name: /README\.md/ }));
     expect(
-      await screen.findByRole("region", { name: "Diff viewer" }),
+      await screen.findByRole("region", {
+        name: "Workspace diff README.md",
+      }),
     ).toBeVisible();
-    expect(workspaceDiffRequests).toBe(1);
+    expect(workspaceReviewRequests).toBe(2);
     expect(screen.queryByText("No commands recorded")).not.toBeInTheDocument();
     expect((await screen.findAllByText("README.md")).length).toBeGreaterThan(0);
     fireEvent.click(screen.getByRole("treeitem", { name: "README.md" }));
@@ -423,7 +431,7 @@ function renderApp(path: string, options: { jobsFail?: boolean } = {}) {
   lastCreateJobRequest = null;
   jobsRequests = 0;
   jobsShouldFail = options.jobsFail ?? false;
-  workspaceDiffRequests = 0;
+  workspaceReviewRequests = 0;
   vi.stubGlobal("fetch", vi.fn(mockFetch));
   vi.stubGlobal("EventSource", MockEventSource);
   MockEventSource.reset();
@@ -482,7 +490,7 @@ let lastCreateSessionRequest: unknown = null;
 let lastCreateJobRequest: unknown = null;
 let jobsRequests = 0;
 let jobsShouldFail = false;
-let workspaceDiffRequests = 0;
+let workspaceReviewRequests = 0;
 
 async function mockFetch(input: RequestInfo | URL, init?: RequestInit) {
   const url = new URL(input.toString());
@@ -521,8 +529,9 @@ async function mockFetch(input: RequestInfo | URL, init?: RequestInit) {
       );
     }
   }
-  if (url.pathname === "/api/v1/placements/placement-1/workspace/diff") {
-    workspaceDiffRequests += 1;
+  if (url.pathname === "/api/v1/placements/placement-1/workspace/review") {
+    workspaceReviewRequests += 1;
+    return jsonResponse(workspaceReviewForPath(url.searchParams.get("path")));
   }
   const payload = responseForPath(url.pathname);
   return jsonResponse(payload);
@@ -755,12 +764,71 @@ const workspaceFile = {
 const workspaceDiff = {
   placement_id: "placement-1",
   diff_id: "diff-1",
+  git_snapshot: {
+    state: "ready",
+    repo_id: "sha256:fixture",
+    head_state: "branch",
+    branch: "main",
+    commit: "0123456789abcdef",
+    upstream: "origin/main",
+    ahead: 0,
+    behind: 0,
+    worktree_kind: "primary",
+    operation: null,
+    changed_files: [
+      {
+        path: "README.md",
+        previous_path: null,
+        index_status: null,
+        worktree_status: "modified",
+        conflicted: false,
+        binary: false,
+      },
+    ],
+    staged_count: 0,
+    unstaged_count: 1,
+    untracked_count: 0,
+    conflicted_count: 0,
+    truncated: false,
+    generated_at: "2026-06-17T00:00:00Z",
+  },
   summary: "README.md | 1 +",
   diff: "diff --git a/README.md b/README.md\n+# Uprava",
+  scope: "all",
+  path: null,
+  changed_files: [
+    {
+      path: "README.md",
+      previous_path: null,
+      index_status: null,
+      worktree_status: "modified",
+      conflicted: false,
+      binary: false,
+    },
+  ],
+  hunks: [],
+  original: null,
+  modified: null,
+  binary: false,
   summary_truncated: false,
   diff_truncated: false,
   generated_at: "2026-06-17T00:00:00Z",
 };
+
+function workspaceReviewForPath(path: string | null) {
+  return {
+    placement_id: "placement-1",
+    git_snapshot: workspaceDiff.git_snapshot,
+    diff: {
+      ...workspaceDiff,
+      path,
+      original: path ? "# Before" : null,
+      modified: path ? "# Uprava" : null,
+    },
+    checks: [],
+    generated_at: "2026-06-17T00:00:00Z",
+  };
+}
 
 const workspaceTerminals = {
   placement_id: "placement-1",

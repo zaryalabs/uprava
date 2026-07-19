@@ -405,9 +405,15 @@ pub(crate) fn causal_workspace_events(
                 payload.0.clone(),
             );
             event.result_refs = vec![UpravaRef::WorkspaceDiff {
-                diff_id: result.diff_id,
+                diff_id: result.diff_id.clone(),
                 placement_id: result.placement_id,
             }];
+            event
+                .result_refs
+                .extend(result.hunks.into_iter().map(|hunk| UpravaRef::DiffHunk {
+                    diff_id: result.diff_id.clone(),
+                    hunk_id: hunk.hunk_id,
+                }));
             event
         }
         _ => return vec![],

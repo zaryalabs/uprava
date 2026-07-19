@@ -124,7 +124,63 @@ export type ProjectPlacementSummary = {
   workspace_path: string;
   state: PlacementState;
   resource_badges: ResourceBadge[];
+  git_snapshot?: GitWorkspaceSnapshot | null;
   last_validated_at: string | null;
+};
+
+export type GitRepositoryState = "ready" | "not_repository" | "unavailable";
+export type GitHeadState = "branch" | "detached" | "unborn";
+export type GitWorktreeKind = "primary" | "linked";
+export type GitOperation =
+  | "merge"
+  | "rebase"
+  | "cherry_pick"
+  | "revert"
+  | "bisect";
+export type GitChangeKind =
+  | "added"
+  | "modified"
+  | "deleted"
+  | "renamed"
+  | "copied"
+  | "untracked"
+  | "unmerged"
+  | "type_changed"
+  | "unknown";
+
+export type GitChangedFile = {
+  path: string;
+  previous_path: string | null;
+  index_status: GitChangeKind | null;
+  worktree_status: GitChangeKind | null;
+  conflicted: boolean;
+  binary: boolean;
+};
+
+export type GitWorkspaceSnapshot = {
+  state: GitRepositoryState;
+  repo_id: string | null;
+  head_state: GitHeadState | null;
+  branch: string | null;
+  commit: string | null;
+  upstream: string | null;
+  ahead: number;
+  behind: number;
+  worktree_kind: GitWorktreeKind | null;
+  operation: GitOperation | null;
+  changed_files: GitChangedFile[];
+  staged_count: number;
+  unstaged_count: number;
+  untracked_count: number;
+  conflicted_count: number;
+  truncated: boolean;
+  generated_at: string;
+};
+
+export type WorkspaceDiffHunk = {
+  hunk_id: string;
+  header: string;
+  patch: string;
 };
 
 export type WorkspaceEntryKind = (typeof WORKSPACE_ENTRY_KIND_VALUES)[number];
@@ -209,10 +265,45 @@ export type WorkspaceCommandRunResponse = {
 export type WorkspaceDiffResponse = {
   placement_id: string;
   diff_id: string;
+  git_snapshot: GitWorkspaceSnapshot;
   summary: string;
   diff: string;
+  scope: WorkspaceDiffScope;
+  path: string | null;
+  changed_files: GitChangedFile[];
+  hunks: WorkspaceDiffHunk[];
+  original: string | null;
+  modified: string | null;
+  binary: boolean;
   summary_truncated: boolean;
   diff_truncated: boolean;
+  generated_at: string;
+};
+
+export type WorkspaceDiffScope = "all" | "staged" | "unstaged";
+
+export type WorkspaceCheckRunSummary = {
+  command_id: string;
+  state: CommandState;
+  command: string;
+  args: string[];
+  label: string | null;
+  success: boolean | null;
+  exit_code: number | null;
+  stdout: string | null;
+  stderr: string | null;
+  stdout_truncated: boolean;
+  stderr_truncated: boolean;
+  duration_ms: number | null;
+  created_at: string;
+  completed_at: string | null;
+};
+
+export type WorkspaceReviewProjection = {
+  placement_id: string;
+  git_snapshot: GitWorkspaceSnapshot;
+  diff: WorkspaceDiffResponse;
+  checks: WorkspaceCheckRunSummary[];
   generated_at: string;
 };
 
@@ -490,6 +581,7 @@ type WorkspaceSnapshotEventData = {
   workspace_path: string;
   state: PlacementState;
   resource_badges: ResourceBadge[];
+  git_snapshot: GitWorkspaceSnapshot | null;
 };
 
 export type InventorySnapshot = {

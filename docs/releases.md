@@ -2,7 +2,7 @@
 
 Статус: `active`
 
-Current release baseline: `0.2.9`.
+Current release baseline: `0.2.10`.
 
 Этот ledger фиксирует implementation baselines. Он не заменяет
 [`feature-queue.md`](product/feature-queue.md), где остается ранжированная очередь
@@ -30,14 +30,15 @@ future work.
 | `0.2.6` | 2026-07-13 | shipped | Workspace-centered Web UI: Node/Workspace navigation и workspace Agent, Workbench, Jobs surfaces |
 | `0.2.7` | 2026-07-19 | shipped | Causality/Trace UX, raw event/ref resolution и isolated structured Deduction |
 | `0.2.8` | 2026-07-19 | shipped | Модульные Core/Node runtime boundaries, capability-oriented tests и автоматический architecture gate |
-| `0.2.9` | 2026-07-19 | current | Прозрачный agent timeline: Conversation/Trace modes, сгруппированные live-события и stalled activity state |
+| `0.2.9` | 2026-07-19 | shipped | Прозрачный agent timeline: Conversation/Trace modes, сгруппированные live-события и stalled activity state |
+| `0.2.10` | 2026-07-19 | current | Git-aware Review: branch/worktree snapshots, scoped diffs, risk signals и traceable check results |
 
 ## Current Baseline
 
-`0.2.9` включает protocol-v2 baseline `0.2.0`, завершённое Zarya 0.1 Web UI/UX
+`0.2.10` включает protocol-v2 baseline `0.2.0`, завершённое Zarya 0.1 Web UI/UX
 alignment и clean-bootstrap four-phase delivery path. Текущая реализация включает
 первый working distributed
-control panel, девять закрытых
+control panel, десять закрытых
 feature queue slices после `0.1.0`, unified audit hardening slice и workspace
 renderer/PTY terminal layer, а также первый deployable self-hosted release path:
 
@@ -77,6 +78,13 @@ renderer/PTY terminal layer, а также первый deployable self-hosted r
 - Runtime architecture gate ограничивает рост composition roots и запрещает
   transport/process dependencies внутри persistence; logging policy рекурсивно
   проверяет все production-модули после декомпозиции.
+- Node-owned Git snapshot различает branch, detached/unborn HEAD, primary и
+  linked worktree, локальный upstream drift, staged/unstaged/untracked/conflict
+  state и выполняющуюся Git operation; Core сохраняет snapshot на Placement и
+  показывает warning для active runtime на том же repo/branch.
+- Workspace Review предоставляет bounded `all`/`staged`/`unstaged` diff,
+  per-file Monaco/raw preview, стабильные `WorkspaceDiff`/`DiffHunk` refs и
+  долговечную историю traceable `make l`/`make c` check results.
 
 - controlled-development security baseline;
 - runtime/session hardening;

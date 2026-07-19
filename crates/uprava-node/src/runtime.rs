@@ -26,6 +26,7 @@ use futures_util::{SinkExt, StreamExt};
 use pty_process::{Command as PtyCommand, Size as PtySize};
 use reqwest::Url;
 use serde::{Deserialize, Serialize};
+use sha2::{Digest, Sha256};
 use sqlx::{sqlite::SqliteConnectOptions, Row, SqlitePool};
 use tokio::{
     io::{AsyncBufReadExt, AsyncRead, AsyncReadExt, AsyncWriteExt, BufReader},
@@ -45,12 +46,14 @@ use uprava_protocol::{
     CapabilitySummary, CapabilityValue, CommandEnvelope, CommandId, CommandKind, CommandPayload,
     CommandState, ControlFrame, CorrelationId, DeductionInputPackage, DeductionProviderOutput,
     DeductionProviderResult, EnrollmentId, EventEnvelope, EventId, EventKind, EventPayload,
-    NodeEnrollmentClaimRequest, NodeEnrollmentClaimResponse, NodeEnrollmentRequest,
-    NodeEnrollmentRequestedResponse, NodeHeartbeatRequest, NodeHeartbeatResponse, NodeId,
-    PlacementState, ProjectPlacementId, ResourceBadge, RuntimeSessionId, RuntimeSessionState,
-    ScopeRef, SessionThreadId, SleepHint, TerminalId, TextRange, TurnId, UpravaRef,
-    WarningSeverity, WorkspaceCommandIntent, WorkspaceCommandRunRequest,
-    WorkspaceCommandRunResponse, WorkspaceDiffResponse, WorkspaceEntry,
+    GitChangeKind, GitChangedFile, GitHeadState, GitOperation, GitRepositoryState,
+    GitWorkspaceSnapshot, GitWorktreeKind, NodeEnrollmentClaimRequest, NodeEnrollmentClaimResponse,
+    NodeEnrollmentRequest, NodeEnrollmentRequestedResponse, NodeHeartbeatRequest,
+    NodeHeartbeatResponse, NodeId, PlacementState, ProjectPlacementId, ResourceBadge,
+    RuntimeSessionId, RuntimeSessionState, ScopeRef, SessionThreadId, SleepHint, TerminalId,
+    TextRange, TurnId, UpravaRef, WarningSeverity, WorkspaceCommandIntent,
+    WorkspaceCommandRunRequest, WorkspaceCommandRunResponse, WorkspaceDiffHunk,
+    WorkspaceDiffRequest, WorkspaceDiffResponse, WorkspaceDiffScope, WorkspaceEntry,
     WorkspaceEntryClassification, WorkspaceEntryKind, WorkspaceEntryStatus,
     WorkspaceFileContentResponse, WorkspaceFileWriteRequest, WorkspaceFileWriteResponse,
     WorkspaceSnapshot, WorkspaceTerminalOpenRequest, WorkspaceTerminalOpenResponse,
@@ -100,8 +103,10 @@ const MAX_WORKSPACE_COMMAND_SECONDS: u64 = 120;
 const ALLOWED_WORKSPACE_COMMANDS: &[&str] = &[
     "cargo", "git", "make", "node", "npm", "pnpm", "bun", "rustc",
 ];
-const WORKSPACE_DIFF_STAT_BYTES: usize = 16 * 1024;
 const WORKSPACE_DIFF_BYTES: usize = 128 * 1024;
+const MAX_GIT_STATUS_BYTES: usize = 512 * 1024;
+const MAX_GIT_CHANGED_FILES: usize = 1_000;
+const MAX_WORKSPACE_DIFF_HUNKS: usize = 256;
 const MAX_WORKSPACE_TERMINAL_REPLAY_FRAMES: usize = 256;
 const MAX_WORKSPACE_TERMINAL_REPLAY_BYTES: usize = 256 * 1024;
 const MAX_WORKSPACE_TERMINAL_INPUT_CHARS: usize = 16_384;

@@ -135,6 +135,70 @@ export function MonacoDiffTextViewer({ value }: { value: string }) {
   );
 }
 
+export function MonacoWorkspaceDiffViewer({
+  placementId,
+  path,
+  original,
+  modified,
+}: {
+  placementId: string;
+  path: string;
+  original: string;
+  modified: string;
+}) {
+  const containerRef = useRef<HTMLDivElement | null>(null);
+
+  useEffect(() => {
+    ensureMonacoEnvironment();
+    const language = languageForPath(path);
+    void loadLanguage(language);
+    const container = containerRef.current;
+    if (!container) return;
+    const snapshotId = crypto.randomUUID();
+    const originalModel = monaco.editor.createModel(
+      original,
+      language,
+      monaco.Uri.parse(
+        `uprava://workspace/${encodeURIComponent(placementId)}/review/${snapshotId}/original/${encodeURIComponent(path)}`,
+      ),
+    );
+    const modifiedModel = monaco.editor.createModel(
+      modified,
+      language,
+      monaco.Uri.parse(
+        `uprava://workspace/${encodeURIComponent(placementId)}/review/${snapshotId}/modified/${encodeURIComponent(path)}`,
+      ),
+    );
+    const editor = monaco.editor.createDiffEditor(container, {
+      readOnly: true,
+      automaticLayout: true,
+      fontFamily:
+        "ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace",
+      fontSize: 12,
+      lineHeight: 20,
+      minimap: { enabled: false },
+      renderSideBySide: true,
+      scrollBeyondLastLine: false,
+      wordWrap: "off",
+    });
+    editor.setModel({ original: originalModel, modified: modifiedModel });
+    return () => {
+      editor.dispose();
+      originalModel.dispose();
+      modifiedModel.dispose();
+    };
+  }, [modified, original, path, placementId]);
+
+  return (
+    <div
+      ref={containerRef}
+      className="min-h-64 flex-1 overflow-hidden border border-[#1f2a22]"
+      role="region"
+      aria-label={`Workspace diff ${path}`}
+    />
+  );
+}
+
 function languageForPath(path: string) {
   const extension = path.split(".").pop()?.toLowerCase() ?? "";
   const languages: Record<string, string> = {

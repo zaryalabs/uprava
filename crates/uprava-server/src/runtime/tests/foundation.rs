@@ -231,7 +231,7 @@ async fn migration_creates_baseline_schema_from_empty_database() {
             .fetch_all(&state.pool)
             .await
             .expect("migration versions load");
-    assert_eq!(applied_versions, vec![1, 2, 3, 4, 5, 6, 7, 8, 9, 10]);
+    assert_eq!(applied_versions, vec![1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11]);
 
     let metadata: (String, i64) =
         sqlx::query_as("select slot, schema_version from core_schema_meta")
@@ -256,7 +256,7 @@ async fn migration_runner_is_idempotent_and_does_not_duplicate_versions() {
         .fetch_one(&state.pool)
         .await
         .expect("migration count loads");
-    assert_eq!(migration_count, 10);
+    assert_eq!(migration_count, 11);
 }
 
 #[tokio::test]
@@ -470,7 +470,7 @@ async fn migration_concurrent_file_backed_starts_share_one_numbered_history() {
         .fetch_one(&pool)
         .await
         .expect("migration count loads");
-    assert_eq!(count, 10);
+    assert_eq!(count, 11);
     drop(first);
     drop(second);
     pool.close().await;

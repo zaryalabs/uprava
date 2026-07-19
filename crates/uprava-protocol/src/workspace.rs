@@ -93,6 +93,8 @@ pub struct ProjectPlacementSummary {
     pub workspace_path: String,
     pub state: PlacementState,
     pub resource_badges: Vec<ResourceBadge>,
+    #[serde(default)]
+    pub git_snapshot: Option<GitWorkspaceSnapshot>,
     pub last_validated_at: Option<DateTime<Utc>>,
 }
 
@@ -102,7 +104,112 @@ pub struct WorkspaceSnapshot {
     pub workspace_path: String,
     pub state: PlacementState,
     pub resource_badges: Vec<ResourceBadge>,
+    #[serde(default)]
+    pub git_snapshot: Option<GitWorkspaceSnapshot>,
     pub last_validated_at: DateTime<Utc>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum GitRepositoryState {
+    Ready,
+    NotRepository,
+    Unavailable,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum GitHeadState {
+    Branch,
+    Detached,
+    Unborn,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum GitWorktreeKind {
+    Primary,
+    Linked,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum GitOperation {
+    Merge,
+    Rebase,
+    CherryPick,
+    Revert,
+    Bisect,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum GitChangeKind {
+    Added,
+    Modified,
+    Deleted,
+    Renamed,
+    Copied,
+    Untracked,
+    Unmerged,
+    TypeChanged,
+    Unknown,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct GitChangedFile {
+    pub path: String,
+    pub previous_path: Option<String>,
+    pub index_status: Option<GitChangeKind>,
+    pub worktree_status: Option<GitChangeKind>,
+    pub conflicted: bool,
+    pub binary: bool,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct GitWorkspaceSnapshot {
+    pub state: GitRepositoryState,
+    pub repo_id: Option<String>,
+    pub head_state: Option<GitHeadState>,
+    pub branch: Option<String>,
+    pub commit: Option<String>,
+    pub upstream: Option<String>,
+    pub ahead: u64,
+    pub behind: u64,
+    pub worktree_kind: Option<GitWorktreeKind>,
+    pub operation: Option<GitOperation>,
+    #[serde(default)]
+    pub changed_files: Vec<GitChangedFile>,
+    pub staged_count: u64,
+    pub unstaged_count: u64,
+    pub untracked_count: u64,
+    pub conflicted_count: u64,
+    pub truncated: bool,
+    pub generated_at: DateTime<Utc>,
+}
+
+impl Default for GitWorkspaceSnapshot {
+    fn default() -> Self {
+        Self {
+            state: GitRepositoryState::Unavailable,
+            repo_id: None,
+            head_state: None,
+            branch: None,
+            commit: None,
+            upstream: None,
+            ahead: 0,
+            behind: 0,
+            worktree_kind: None,
+            operation: None,
+            changed_files: vec![],
+            staged_count: 0,
+            unstaged_count: 0,
+            untracked_count: 0,
+            conflicted_count: 0,
+            truncated: false,
+            generated_at: DateTime::<Utc>::UNIX_EPOCH,
+        }
+    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -235,11 +342,47 @@ pub struct WorkspaceCommandRunResponse {
 pub struct WorkspaceDiffResponse {
     pub placement_id: ProjectPlacementId,
     pub diff_id: String,
+    #[serde(default)]
+    pub git_snapshot: GitWorkspaceSnapshot,
     pub summary: String,
     pub diff: String,
+    #[serde(default)]
+    pub scope: WorkspaceDiffScope,
+    pub path: Option<String>,
+    #[serde(default)]
+    pub changed_files: Vec<GitChangedFile>,
+    #[serde(default)]
+    pub hunks: Vec<WorkspaceDiffHunk>,
+    pub original: Option<String>,
+    pub modified: Option<String>,
+    #[serde(default)]
+    pub binary: bool,
     pub summary_truncated: bool,
     pub diff_truncated: bool,
     pub generated_at: DateTime<Utc>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct WorkspaceDiffHunk {
+    pub hunk_id: String,
+    pub header: String,
+    pub patch: String,
+}
+
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum WorkspaceDiffScope {
+    #[default]
+    All,
+    Staged,
+    Unstaged,
+}
+
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct WorkspaceDiffRequest {
+    #[serde(default)]
+    pub scope: WorkspaceDiffScope,
+    pub path: Option<String>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -257,6 +400,35 @@ pub struct WorkspaceCommandHistoryItem {
 pub struct WorkspaceCommandHistoryResponse {
     pub placement_id: ProjectPlacementId,
     pub commands: Vec<WorkspaceCommandHistoryItem>,
+    pub generated_at: DateTime<Utc>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct WorkspaceCheckRunSummary {
+    pub command_id: CommandId,
+    pub state: CommandState,
+    pub command: String,
+    #[serde(default)]
+    pub args: Vec<String>,
+    pub label: Option<String>,
+    pub success: Option<bool>,
+    pub exit_code: Option<i32>,
+    pub stdout: Option<String>,
+    pub stderr: Option<String>,
+    pub stdout_truncated: bool,
+    pub stderr_truncated: bool,
+    pub duration_ms: Option<u64>,
+    pub created_at: DateTime<Utc>,
+    pub completed_at: Option<DateTime<Utc>>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct WorkspaceReviewProjection {
+    pub placement_id: ProjectPlacementId,
+    pub git_snapshot: GitWorkspaceSnapshot,
+    pub diff: WorkspaceDiffResponse,
+    #[serde(default)]
+    pub checks: Vec<WorkspaceCheckRunSummary>,
     pub generated_at: DateTime<Utc>,
 }
 

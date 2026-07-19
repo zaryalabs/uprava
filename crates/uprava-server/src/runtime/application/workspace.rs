@@ -694,14 +694,37 @@ pub(crate) async fn workspace_diff_route(
     State(state): State<Arc<AppState>>,
     headers: HeaderMap,
     Path(placement_id): Path<String>,
+    Query(request): Query<WorkspaceDiffRequest>,
 ) -> Result<Json<WorkspaceDiffResponse>, AppError> {
     workspace_diff_with_correlation(
         &state,
         ProjectPlacementId::from(placement_id),
+        request,
         request_correlation_id(&headers),
     )
     .await
     .map(Json)
+}
+
+pub(crate) async fn workspace_review_route(
+    State(state): State<Arc<AppState>>,
+    headers: HeaderMap,
+    Path(placement_id): Path<String>,
+    Query(request): Query<WorkspaceDiffRequest>,
+) -> Result<Json<WorkspaceReviewProjection>, AppError> {
+    let placement_id = ProjectPlacementId::from(placement_id);
+    let correlation_id = request_correlation_id(&headers);
+    let (diff, checks) = tokio::try_join!(
+        workspace_diff_with_correlation(&state, placement_id.clone(), request, correlation_id,),
+        workspace_check_history(&state, placement_id.clone(), Some(20)),
+    )?;
+    Ok(Json(WorkspaceReviewProjection {
+        placement_id,
+        git_snapshot: diff.git_snapshot.clone(),
+        diff,
+        checks,
+        generated_at: Utc::now(),
+    }))
 }
 
 pub(crate) async fn workspace_command_history_route(
@@ -863,22 +886,33 @@ pub(crate) async fn workspace_command_run_with_correlation(
 pub(crate) async fn workspace_diff_with_correlation(
     state: &AppState,
     placement_id: ProjectPlacementId,
+    request: WorkspaceDiffRequest,
     correlation_id: CorrelationId,
 ) -> Result<WorkspaceDiffResponse, AppError> {
     let placement = load_placement(state, &placement_id).await?;
     ensure_placement_inspectable(&placement)?;
-    dispatch_workspace_command(
+    let response = dispatch_workspace_command(
         state,
         &placement,
         CommandKind::ReadWorkspaceDiff,
-        json!({}),
+        serde_json::to_value(request)?,
         vec![UpravaRef::Workspace {
             placement_id: placement.project_placement_id.clone(),
         }],
         correlation_id,
         WORKSPACE_INTERVENTION_TIMEOUT,
     )
-    .await
+    .await?;
+    let response: WorkspaceDiffResponse = response;
+    sqlx::query(
+        "update project_placements set git_snapshot_json = ?1, updated_at = ?2 where project_placement_id = ?3",
+    )
+    .bind(serde_json::to_string(&response.git_snapshot)?)
+    .bind(response.git_snapshot.generated_at)
+    .bind(placement.project_placement_id.as_str())
+    .execute(&state.pool)
+    .await?;
+    Ok(response)
 }
 
 pub(crate) async fn workspace_terminal_open_with_correlation(
@@ -1003,6 +1037,67 @@ pub(crate) async fn workspace_command_history(
     })
 }
 
+pub(crate) async fn workspace_check_history(
+    state: &AppState,
+    placement_id: ProjectPlacementId,
+    limit: Option<i64>,
+) -> Result<Vec<WorkspaceCheckRunSummary>, AppError> {
+    let placement = load_placement(state, &placement_id).await?;
+    ensure_placement_inspectable(&placement)?;
+    let limit = limit.unwrap_or(20).clamp(1, 100);
+    let rows = sqlx::query(
+        r#"
+        select command_id, state, payload_json, result_payload_json, created_at, completed_at
+        from commands
+        where project_placement_id = ?1
+          and kind = 'RunWorkspaceCommand'
+          and json_extract(payload_json, '$.request.intent') = 'check'
+        order by created_at desc
+        limit ?2
+        "#,
+    )
+    .bind(placement.project_placement_id.as_str())
+    .bind(limit)
+    .fetch_all(&state.pool)
+    .await?;
+    let mut checks = Vec::new();
+    for row in rows {
+        let payload: CommandPayload =
+            serde_json::from_str(&row.try_get::<String, _>("payload_json")?)?;
+        let CommandPayload::RunWorkspaceCommand { request, .. } = payload else {
+            continue;
+        };
+        if request.intent != WorkspaceCommandIntent::Check {
+            continue;
+        }
+        let result = row
+            .try_get::<Option<String>, _>("result_payload_json")?
+            .as_deref()
+            .and_then(|raw| serde_json::from_str::<WorkspaceCommandRunResponse>(raw).ok());
+        checks.push(WorkspaceCheckRunSummary {
+            command_id: CommandId::from(row.try_get::<String, _>("command_id")?),
+            state: parse_command_state(&row.try_get::<String, _>("state")?),
+            command: request.command,
+            args: request.args,
+            label: request.label,
+            success: result.as_ref().map(|result| result.success),
+            exit_code: result.as_ref().and_then(|result| result.exit_code),
+            stdout: result.as_ref().map(|result| result.stdout.clone()),
+            stderr: result.as_ref().map(|result| result.stderr.clone()),
+            stdout_truncated: result
+                .as_ref()
+                .is_some_and(|result| result.stdout_truncated),
+            stderr_truncated: result
+                .as_ref()
+                .is_some_and(|result| result.stderr_truncated),
+            duration_ms: result.as_ref().map(|result| result.duration_ms),
+            created_at: row.try_get("created_at")?,
+            completed_at: row.try_get("completed_at")?,
+        });
+    }
+    Ok(checks)
+}
+
 pub(crate) async fn dispatch_workspace_command<T>(
     state: &AppState,
     placement: &ProjectPlacementSummary,
@@ -1081,7 +1176,10 @@ pub(crate) fn typed_workspace_command_payload(
             workspace_path,
             request: serde_json::from_value(payload)?,
         }),
-        CommandKind::ReadWorkspaceDiff => Ok(CommandPayload::ReadWorkspaceDiff { workspace_path }),
+        CommandKind::ReadWorkspaceDiff => Ok(CommandPayload::ReadWorkspaceDiff {
+            workspace_path,
+            request: serde_json::from_value(payload)?,
+        }),
         CommandKind::OpenWorkspaceTerminal => Ok(CommandPayload::OpenWorkspaceTerminal {
             workspace_path,
             request: serde_json::from_value(payload)?,

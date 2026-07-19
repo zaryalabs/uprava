@@ -712,6 +712,9 @@ pub(crate) const MIGRATION_10: &[&str] = &[
     "#,
 ];
 
+pub(crate) const MIGRATION_11: &[&str] =
+    &["alter table project_placements add column git_snapshot_json text"];
+
 pub(crate) const MIGRATIONS: &[Migration] = &[
     Migration {
         version: 1,
@@ -762,5 +765,10 @@ pub(crate) const MIGRATIONS: &[Migration] = &[
         version: 10,
         statements: MIGRATION_10,
         ignore_duplicate_columns: false,
+    },
+    Migration {
+        version: 11,
+        statements: MIGRATION_11,
+        ignore_duplicate_columns: true,
     },
 ];
