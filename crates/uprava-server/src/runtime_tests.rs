@@ -387,7 +387,10 @@ async fn migration_creates_baseline_schema_from_empty_database() {
                   'scheduled_messages',
                   'jobs',
                   'job_runs',
-                  'provider_quota_snapshots'
+                  'provider_quota_snapshots',
+                  'deductions',
+                  'causality_narratives',
+                  'causality_narrative_versions'
               )
             "#,
     )
@@ -395,14 +398,14 @@ async fn migration_creates_baseline_schema_from_empty_database() {
     .await
     .expect("baseline tables count loads");
 
-    assert_eq!(table_count, 20);
+    assert_eq!(table_count, 23);
 
     let applied_versions: Vec<i64> =
         sqlx::query_scalar("select version from schema_migrations order by version")
             .fetch_all(&state.pool)
             .await
             .expect("migration versions load");
-    assert_eq!(applied_versions, vec![1, 2, 3, 4, 5, 6, 7, 8, 9]);
+    assert_eq!(applied_versions, vec![1, 2, 3, 4, 5, 6, 7, 8, 9, 10]);
 
     let metadata: (String, i64) =
         sqlx::query_as("select slot, schema_version from core_schema_meta")
@@ -427,7 +430,7 @@ async fn migration_runner_is_idempotent_and_does_not_duplicate_versions() {
         .fetch_one(&state.pool)
         .await
         .expect("migration count loads");
-    assert_eq!(migration_count, 9);
+    assert_eq!(migration_count, 10);
 }
 
 #[tokio::test]
@@ -641,7 +644,7 @@ async fn migration_concurrent_file_backed_starts_share_one_numbered_history() {
         .fetch_one(&pool)
         .await
         .expect("migration count loads");
-    assert_eq!(count, 9);
+    assert_eq!(count, 10);
     drop(first);
     drop(second);
     pool.close().await;
@@ -807,6 +810,184 @@ async fn session_history_and_read_models_survive_sqlite_reopen() {
     assert!(projection
         .evidence_projection_summary
         .contains("1 messages, 1 events"));
+}
+
+#[tokio::test]
+async fn trace_event_log_and_reference_resolution_preserve_raw_causality() {
+    let state = test_state().await;
+    let (node_id, detail, workspace_path) = create_test_session(&state).await;
+    let cause_ref = UpravaRef::Command {
+        command_id: CommandId::from("command-cause-1"),
+    };
+    for (seq, event_id, summary) in [
+        (1, "activity-1", "read source file"),
+        (2, "activity-2", "compare command output"),
+    ] {
+        let mut event = node_event_fixture(
+            &detail,
+            node_id.clone(),
+            event_id,
+            seq,
+            EventKind::ProviderActivity,
+            json!({ "summary": summary, "provider": "codex" }),
+        );
+        event.cause_refs = vec![cause_ref.clone()];
+        accept_node_event(&state, event)
+            .await
+            .expect("provider activity accepts");
+    }
+
+    let trace = build_session_trace_projection(&state, &detail.session.session_thread_id)
+        .await
+        .expect("trace builds");
+    let activity = trace
+        .steps
+        .iter()
+        .find(|step| step.title == "Provider activity")
+        .expect("provider activity is grouped");
+    assert_eq!(activity.precision, TracePrecision::Coarse);
+    assert_eq!(activity.links.raw_refs.len(), 2);
+    assert!(activity.links.cause_refs.contains(&cause_ref));
+
+    let first_page = load_event_log_page(
+        &state,
+        EventLogQuery {
+            session_thread_id: Some(detail.session.session_thread_id.to_string()),
+            placement_id: None,
+            kind: Some("provider.activity".to_owned()),
+            cursor: None,
+            limit: Some(1),
+        },
+    )
+    .await
+    .expect("first event page loads");
+    assert_eq!(first_page.events.len(), 1);
+    let cursor = first_page.next_cursor.expect("more events remain");
+    let second_page = load_event_log_page(
+        &state,
+        EventLogQuery {
+            session_thread_id: Some(detail.session.session_thread_id.to_string()),
+            placement_id: None,
+            kind: Some("provider.activity".to_owned()),
+            cursor: Some(cursor),
+            limit: Some(1),
+        },
+    )
+    .await
+    .expect("second event page loads");
+    assert_eq!(second_page.events.len(), 1);
+    assert_ne!(
+        first_page.events[0].event_id,
+        second_page.events[0].event_id
+    );
+
+    let resolution = resolve_reference(&state, event_ref(&first_page.events[0]))
+        .await
+        .expect("event reference resolves");
+    assert_eq!(resolution.status, ReferenceResolutionStatus::Resolved);
+    assert_eq!(resolution.links.cause_refs, vec![cause_ref]);
+    assert!(resolution.raw_payload.is_some());
+
+    let missing = resolve_reference(
+        &state,
+        UpravaRef::Event {
+            event_id: EventId::from("missing-event"),
+            scope_ref: Box::new(ScopeRef::Session {
+                session_thread_id: detail.session.session_thread_id.clone(),
+            }),
+            seq: 999,
+        },
+    )
+    .await
+    .expect("missing references resolve to an explicit state");
+    assert_eq!(missing.status, ReferenceResolutionStatus::Missing);
+    assert_eq!(
+        missing.unavailable_reason.as_deref(),
+        Some("Event not found")
+    );
+    std::fs::remove_dir_all(workspace_path).expect("workspace dir removes");
+}
+
+#[tokio::test]
+async fn deduction_rejects_foreign_scope_and_records_bounded_package() {
+    let state = test_state().await;
+    let (_node_id, detail, workspace_path) = create_test_session(&state).await;
+    set_session_runtime_state(&state, &detail, RuntimeSessionState::Ready).await;
+
+    let invalid = create_deduction(
+        &state,
+        detail.session.session_thread_id.clone(),
+        CreateDeductionRequest {
+            scope_ref: UpravaRef::Message {
+                message_id: MessageId::from("foreign-message"),
+            },
+            question: Some("Why?".to_owned()),
+        },
+        CorrelationId::from("deduction-invalid-scope"),
+    )
+    .await
+    .expect_err("foreign scope is rejected");
+    assert!(matches!(
+        invalid,
+        AppError::BadRequest {
+            code: "deduction.scope_invalid",
+            ..
+        }
+    ));
+
+    let scope_ref = UpravaRef::Session {
+        session_thread_id: detail.session.session_thread_id.clone(),
+    };
+    let accepted = create_deduction(
+        &state,
+        detail.session.session_thread_id.clone(),
+        CreateDeductionRequest {
+            scope_ref: scope_ref.clone(),
+            question: None,
+        },
+        CorrelationId::from("deduction-valid"),
+    )
+    .await
+    .expect("deduction records");
+    let command_json: String =
+        sqlx::query_scalar("select command_json from commands where command_id = ?1")
+            .bind(accepted.command_id.as_str())
+            .fetch_one(&state.pool)
+            .await
+            .expect("deduction command loads");
+    let command: CommandEnvelope =
+        serde_json::from_str(&command_json).expect("deduction command decodes");
+    let CommandPayload::RequestDeduction { package } = command.payload else {
+        panic!("deduction command carries an evidence package");
+    };
+    assert_eq!(package.scope_ref, scope_ref);
+    assert!(!package.evidence_snapshot_hash.is_empty());
+    assert!(package.allowed_refs.contains(&package.scope_ref));
+    assert_eq!(package.session_thread_id, detail.session.session_thread_id);
+
+    let record = load_deduction_record(&state, &accepted.deduction_id)
+        .await
+        .expect("deduction record loads");
+    assert_eq!(record.state, DeductionState::Requested);
+
+    let cancelled = cancel_deduction(
+        &state,
+        &accepted.deduction_id,
+        CorrelationId::from("deduction-cancel"),
+    )
+    .await
+    .expect("active deduction cancels");
+    let cancelled_record = load_deduction_record(&state, &accepted.deduction_id)
+        .await
+        .expect("cancelled deduction reloads");
+    assert_eq!(cancelled_record.state, DeductionState::Cancelled);
+    let cancel_kind: String = sqlx::query_scalar("select kind from commands where command_id = ?1")
+        .bind(cancelled.command_id.as_str())
+        .fetch_one(&state.pool)
+        .await
+        .expect("cancel command loads");
+    assert_eq!(cancel_kind, "CancelDeduction");
+    std::fs::remove_dir_all(workspace_path).expect("workspace dir removes");
 }
 
 #[tokio::test]

@@ -22,6 +22,13 @@ export const queryKeys = {
   session: (sessionThreadId: string) => ["session", sessionThreadId] as const,
   sessionEvidenceProjection: (sessionThreadId: string) =>
     ["session", sessionThreadId, "evidence-projection"] as const,
+  sessionTrace: (sessionThreadId: string) =>
+    ["session", sessionThreadId, "trace"] as const,
+  eventLog: (sessionThreadId: string, kind: string) =>
+    ["events", { sessionThreadId, kind }] as const,
+  referenceResolution: (referenceKey: string) =>
+    ["reference-resolution", referenceKey] as const,
+  deduction: (deductionId: string) => ["deduction", deductionId] as const,
   agentProjection: (sessionThreadId: string) =>
     ["session", sessionThreadId, "agent-projection"] as const,
 };

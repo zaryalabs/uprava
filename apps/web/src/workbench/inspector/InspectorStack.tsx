@@ -11,6 +11,7 @@ import type {
   InventorySnapshot,
   Message,
   ResourceBadge,
+  ReferenceResolution,
   SessionEvidenceProjection,
   SessionEvidenceProjectionNode,
   SessionDetail,
@@ -70,6 +71,12 @@ export function InspectorStack() {
       selected && sessionThreadId && selected.kind === "artifact",
     ),
   });
+  const selectedKey = selected ? JSON.stringify(selected) : "";
+  const resolution = useQuery({
+    queryKey: queryKeys.referenceResolution(selectedKey),
+    queryFn: () => coreApi.resolveReference(selected as UpravaRef),
+    enabled: Boolean(selected),
+  });
 
   useEffect(() => {
     if (stack.length === 0) return;
@@ -84,11 +91,13 @@ export function InspectorStack() {
   }, [setSearchParams, stack.length]);
 
   const detail = selected
-    ? buildInspectorDetail(selected, {
-        inventory: inventory.data,
-        session: session.data,
-        evidenceProjection: evidenceProjection.data,
-      })
+    ? resolution.data
+      ? buildResolvedInspectorDetail(resolution.data)
+      : buildInspectorDetail(selected, {
+          inventory: inventory.data,
+          session: session.data,
+          evidenceProjection: evidenceProjection.data,
+        })
     : null;
 
   const closeTop = () => setSearchParams((current) => popInspectorRef(current));
@@ -108,6 +117,46 @@ export function InspectorStack() {
       selectStackIndex={selectStackIndex}
     />
   );
+}
+
+export function buildResolvedInspectorDetail(
+  resolution: ReferenceResolution,
+): InspectorDetail {
+  const status =
+    resolution.status === "resolved"
+      ? "resolved"
+      : resolution.status === "unsupported"
+        ? "not_implemented"
+        : "not_available";
+  return {
+    title: resolution.title,
+    status,
+    rows: [
+      { label: "status", value: resolution.status },
+      { label: "summary", value: resolution.summary },
+      { label: "reason", value: resolution.unavailable_reason },
+      { label: "raw truncated", value: resolution.raw_truncated },
+    ],
+    refs: [
+      ...resolvedRefLinks("source", resolution.source_refs),
+      ...resolvedRefLinks("evidence", resolution.evidence_refs),
+      ...resolvedRefLinks("cause", resolution.cause_refs),
+      ...resolvedRefLinks("result", resolution.result_refs),
+      ...resolvedRefLinks("raw", resolution.raw_refs),
+    ],
+    payload: resolution.raw_payload ?? undefined,
+  };
+}
+
+function resolvedRefLinks(
+  aspect: NonNullable<InspectorRefLink["aspect"]>,
+  refs: UpravaRef[],
+): InspectorRefLink[] {
+  return refs.map((ref, index) => ({
+    label: `${aspect} ${index + 1}`,
+    ref,
+    aspect,
+  }));
 }
 
 export function buildInspectorDetail(
@@ -733,9 +782,15 @@ function messageRefs(message: Message): InspectorRefLink[] {
 }
 
 function refLinks(label: string, refs: UpravaRef[]): InspectorRefLink[] {
+  const aspect = ["source", "evidence", "cause", "result", "raw"].includes(
+    label,
+  )
+    ? (label as NonNullable<InspectorRefLink["aspect"]>)
+    : "related";
   return refs.map((ref, index) => ({
     label: `${label} ${index + 1}`,
     ref,
+    aspect,
   }));
 }
 

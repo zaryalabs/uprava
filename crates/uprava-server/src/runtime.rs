@@ -57,32 +57,38 @@ use tracing::Instrument;
 use uprava_protocol::{
     is_supported_protocol_version, serde_json_value::JsonValue, AcknowledgeWarningRequest,
     ActionCapability, ActorRef, AgentProjection, ApiError, ApprovalId, ApprovalState,
-    ApproveNodeEnrollmentResponse, CapabilitySummary, CapabilityValue,
-    ClientCreateNodeEnrollmentRequest, ClientLogLevel, ClientLogRequest, ClientLogResponse,
-    CommandAcceptedResponse, CommandEnvelope, CommandId, CommandKind, CommandPayload, CommandState,
-    CommandTarget, ControlFrame, CorrelationId, CreateJobRequest, CreatePlacementRequest,
-    CreateScheduledMessageRequest, CreateSessionRequest, EnrollmentId, EnrollmentState,
-    EventEnvelope, EventId, EventKind, EventPayload, EvidenceId, HealthResponse, InventorySnapshot,
-    JobDetail, JobId, JobOverlapPolicy, JobRunId, JobRunState, JobRunSummary, JobRunTrigger,
-    JobSchedule, JobSummary, Message, MessageId, MessageRole, NodeCredentialRotationResponse,
-    NodeDeletionResponse, NodeEnrollmentClaimRequest, NodeEnrollmentClaimResponse,
-    NodeEnrollmentRequest, NodeEnrollmentRequestedResponse, NodeEnrollmentSummary,
-    NodeHeartbeatRequest, NodeHeartbeatResponse, NodeId, NodePresence, NodeRevocationResponse,
+    ApproveNodeEnrollmentResponse, ArtifactId, BlockId, CapabilitySummary, CapabilityValue,
+    CausalityLinks, ClientCreateNodeEnrollmentRequest, ClientLogLevel, ClientLogRequest,
+    ClientLogResponse, CommandAcceptedResponse, CommandEnvelope, CommandId, CommandKind,
+    CommandPayload, CommandState, CommandTarget, ControlFrame, CorrelationId,
+    CreateDeductionRequest, CreateJobRequest, CreatePlacementRequest,
+    CreateScheduledMessageRequest, CreateSessionRequest, DeductionAcceptedResponse, DeductionBlock,
+    DeductionClassification, DeductionEvidenceEvent, DeductionId, DeductionInputPackage,
+    DeductionProvenance, DeductionProviderOutput, DeductionProviderResult, DeductionRecord,
+    DeductionState, EnrollmentId, EnrollmentState, EventEnvelope, EventId, EventKind, EventLogPage,
+    EventPayload, EvidenceId, HealthResponse, InventorySnapshot, JobDetail, JobId,
+    JobOverlapPolicy, JobRunId, JobRunState, JobRunSummary, JobRunTrigger, JobSchedule, JobSummary,
+    Message, MessageId, MessageRole, NodeCredentialRotationResponse, NodeDeletionResponse,
+    NodeEnrollmentClaimRequest, NodeEnrollmentClaimResponse, NodeEnrollmentRequest,
+    NodeEnrollmentRequestedResponse, NodeEnrollmentSummary, NodeHeartbeatRequest,
+    NodeHeartbeatResponse, NodeId, NodePresence, NodeRevocationResponse, PersistDeductionResponse,
     PlacementDeletionResponse, PlacementState, ProjectId, ProjectPlacementId,
-    ProjectPlacementSummary, ProviderQuotaState, ProviderQuotaStatus, ResolveApprovalRequest,
-    ResourceBadge, RunJobRequest, RuntimeSessionId, RuntimeSessionState, RuntimeSummary,
-    ScheduledMessageFailure, ScheduledMessageState, ScheduledSessionMessage, ScopeRef,
-    SecurityMode, SecurityStatus, SendTurnRequest, SessionDetail, SessionEvidenceProjection,
-    SessionEvidenceProjectionNode, SessionSummary, SessionThreadId, SessionThreadState, SleepHint,
-    TerminalId, TurnId, TurnState, UpdateJobRequest, UpdateScheduledMessageRequest, UpravaRef,
-    VersionResponse, WarningAcknowledgementResponse, WarningSeverity, WebAuthLoginRequest,
-    WebAuthResponse, WebAuthSetupRequest, WebAuthStatusResponse, WorkspaceCommandHistoryItem,
-    WorkspaceCommandHistoryResponse, WorkspaceCommandRunRequest, WorkspaceCommandRunResponse,
-    WorkspaceDiffResponse, WorkspaceFileContentResponse, WorkspaceFileWriteRequest,
-    WorkspaceFileWriteResponse, WorkspaceSnapshot, WorkspaceTerminalClientFrame,
-    WorkspaceTerminalListResponse, WorkspaceTerminalOpenRequest, WorkspaceTerminalOpenResponse,
-    WorkspaceTerminalState, WorkspaceTerminalStreamFrame, WorkspaceTerminalSummary,
-    WorkspaceTreeResponse, CURRENT_PROTOCOL_VERSION as API_VERSION,
+    ProjectPlacementSummary, ProviderQuotaState, ProviderQuotaStatus, ReferenceResolution,
+    ReferenceResolutionStatus, ResolveApprovalRequest, ResolveReferenceRequest, ResourceBadge,
+    RunJobRequest, RuntimeSessionId, RuntimeSessionState, RuntimeSummary, ScheduledMessageFailure,
+    ScheduledMessageState, ScheduledSessionMessage, ScopeRef, SecurityMode, SecurityStatus,
+    SendTurnRequest, SessionDetail, SessionEvidenceProjection, SessionEvidenceProjectionNode,
+    SessionSummary, SessionThreadId, SessionThreadState, SessionTraceProjection, SleepHint,
+    TerminalId, TextRange, TracePrecision, TraceStep, TurnId, TurnState, UpdateJobRequest,
+    UpdateScheduledMessageRequest, UpravaRef, VersionResponse, WarningAcknowledgementResponse,
+    WarningSeverity, WebAuthLoginRequest, WebAuthResponse, WebAuthSetupRequest,
+    WebAuthStatusResponse, WorkspaceCommandHistoryItem, WorkspaceCommandHistoryResponse,
+    WorkspaceCommandRunRequest, WorkspaceCommandRunResponse, WorkspaceDiffResponse,
+    WorkspaceFileContentResponse, WorkspaceFileWriteRequest, WorkspaceFileWriteResponse,
+    WorkspaceSnapshot, WorkspaceTerminalClientFrame, WorkspaceTerminalListResponse,
+    WorkspaceTerminalOpenRequest, WorkspaceTerminalOpenResponse, WorkspaceTerminalState,
+    WorkspaceTerminalStreamFrame, WorkspaceTerminalSummary, WorkspaceTreeResponse,
+    CURRENT_PROTOCOL_VERSION as API_VERSION,
 };
 use uuid::Uuid;
 
@@ -113,6 +119,13 @@ const CSRF_COOKIE: &str = "uprava_csrf";
 const MAX_CLIENT_LOG_FIELD_CHARS: usize = 2_000;
 const MAX_CLIENT_LOG_DETAIL_CHARS: usize = 8_000;
 const MAX_CLIENT_LOG_BYTES: u64 = 5 * 1024 * 1024;
+const DEFAULT_EVENT_LOG_LIMIT: usize = 100;
+const MAX_EVENT_LOG_LIMIT: usize = 500;
+const MAX_DEDUCTION_EVENTS: usize = 100;
+const MAX_DEDUCTION_TRACE_STEPS: usize = 80;
+const MAX_DEDUCTION_QUESTION_CHARS: usize = 2_000;
+const MAX_DEDUCTION_RAW_CHARS: usize = 32_000;
+const DEDUCTION_SCHEMA_VERSION: &str = "uprava.deduction.v1";
 const MAX_CLIENT_LOG_FILES: usize = 3;
 const MIN_LOCAL_PASSWORD_CHARS: usize = 12;
 const AUTH_FAILURE_LIMIT: usize = 10;
@@ -644,16 +657,36 @@ pub fn build_router(state: Arc<AppState>) -> Router {
             get(session_messages),
         )
         .route("/sessions/{session_thread_id}/events", get(session_events))
+        .route("/events", get(event_log_route))
+        .route("/events/{event_id}", get(event_detail_route))
+        .route("/references/resolve", post(resolve_reference_route))
         .route("/sessions/{session_thread_id}/stream", get(session_stream))
         .route(
             "/sessions/{session_thread_id}/evidence-projection",
             get(session_evidence_projection),
         )
         .route(
+            "/sessions/{session_thread_id}/trace",
+            get(session_trace_projection),
+        )
+        .route(
             "/sessions/{session_thread_id}/agent-projection",
             get(session_agent_projection),
         )
         .route("/sessions/{session_thread_id}/turns", post(send_turn_route))
+        .route(
+            "/sessions/{session_thread_id}/deductions",
+            post(create_deduction_route),
+        )
+        .route("/deductions/{deduction_id}", get(deduction_detail_route))
+        .route(
+            "/deductions/{deduction_id}/cancel",
+            post(cancel_deduction_route),
+        )
+        .route(
+            "/deductions/{deduction_id}/persist",
+            post(persist_deduction_route),
+        )
         .route(
             "/sessions/{session_thread_id}/scheduled-messages",
             post(create_scheduled_message_route),
@@ -2029,7 +2062,8 @@ async fn handle_node_control_frame(
                 command_state = ?status,
                 "node command acknowledged"
             );
-            update_command_state(state, &command_id, status).await
+            update_command_state(state, &command_id, status).await?;
+            mark_deduction_running(state, &command_id).await
         }
         ControlFrame::CommandResult {
             command_id,
@@ -2048,6 +2082,7 @@ async fn handle_node_control_frame(
                 .command_results
                 .fetch_add(1, Ordering::Relaxed);
             update_command_result(state, &command_id, status, &payload).await?;
+            project_deduction_command_result(state, &command_id, status, &payload).await?;
             let notice = CommandResultNotice {
                 command_id,
                 status,
@@ -2360,6 +2395,25 @@ fn validate_command_result_echo(
                 .terminal
                 .placement_id,
         ),
+        CommandKind::RequestDeduction => {
+            let result = decode_control_result::<DeductionProviderOutput>(payload)?;
+            let CommandPayload::RequestDeduction { package } = &command.payload else {
+                return Err(AppError::bad_request(
+                    "control.command_result_payload_invalid",
+                    "Deduction command payload is invalid",
+                ));
+            };
+            if result.deduction_id != package.deduction_id
+                || result.evidence_snapshot_hash != package.evidence_snapshot_hash
+                || result.schema_version != DEDUCTION_SCHEMA_VERSION
+            {
+                return Err(AppError::bad_request(
+                    "control.command_result_target_mismatch",
+                    "Deduction result does not match its evidence package",
+                ));
+            }
+            None
+        }
         _ => None,
     };
     if let Some(actual_placement) = actual_placement {
@@ -2380,6 +2434,306 @@ fn decode_control_result<T: DeserializeOwned>(payload: &JsonValue) -> Result<T, 
             "Command result payload does not match its command kind",
         )
     })
+}
+
+async fn mark_deduction_running(state: &AppState, command_id: &CommandId) -> Result<(), AppError> {
+    sqlx::query(
+        "update deductions set state = 'running', updated_at = ?2 where command_id = ?1 and state = 'requested'",
+    )
+    .bind(command_id.as_str())
+    .bind(Utc::now())
+    .execute(&state.pool)
+    .await?;
+    Ok(())
+}
+
+async fn project_deduction_command_result(
+    state: &AppState,
+    command_id: &CommandId,
+    status: CommandState,
+    payload: &JsonValue,
+) -> Result<(), AppError> {
+    let row = sqlx::query(
+        r#"
+        select deduction_id, session_thread_id, scope_ref_json, state, input_package_json
+        from deductions where command_id = ?1
+        "#,
+    )
+    .bind(command_id.as_str())
+    .fetch_optional(&state.pool)
+    .await?;
+    let Some(row) = row else {
+        return Ok(());
+    };
+    let current_state: String = row.try_get("state")?;
+    if matches!(
+        current_state.as_str(),
+        "completed" | "invalid" | "failed" | "cancelled"
+    ) {
+        return Ok(());
+    }
+    let deduction_id = DeductionId::from(row.try_get::<String, _>("deduction_id")?);
+    let session_id = SessionThreadId::from(row.try_get::<String, _>("session_thread_id")?);
+    let scope_ref: UpravaRef = serde_json::from_str(&row.try_get::<String, _>("scope_ref_json")?)?;
+    let package: DeductionInputPackage =
+        serde_json::from_str(&row.try_get::<String, _>("input_package_json")?)?;
+    if status != CommandState::Completed {
+        let code = payload
+            .0
+            .get("error_code")
+            .and_then(serde_json::Value::as_str)
+            .unwrap_or("deduction.provider_failed");
+        let message = payload
+            .0
+            .get("error_message")
+            .or_else(|| payload.0.get("message"))
+            .and_then(serde_json::Value::as_str)
+            .unwrap_or("Deduction provider execution failed");
+        update_deduction_failure(
+            state,
+            &deduction_id,
+            "failed",
+            code,
+            message,
+            payload
+                .0
+                .get("raw_text")
+                .and_then(serde_json::Value::as_str),
+            payload
+                .0
+                .get("raw_truncated")
+                .and_then(serde_json::Value::as_bool)
+                .unwrap_or(false),
+        )
+        .await?;
+        append_core_session_event(
+            state,
+            &session_id,
+            Some(command_id.clone()),
+            EventKind::DeductionFailed,
+            json!({
+                "deduction_id": deduction_id.as_str(),
+                "code": code,
+                "message": message,
+            }),
+            vec![UpravaRef::Deduction {
+                deduction_id: deduction_id.clone(),
+            }],
+            vec![scope_ref],
+            vec![],
+        )
+        .await?;
+        return Ok(());
+    }
+
+    let output: DeductionProviderOutput = serde_json::from_value(payload.0.clone())?;
+    match validate_deduction_output(&output, &package) {
+        Ok(result) => {
+            let provenance = DeductionProvenance {
+                provider: output.provider,
+                model: output.model,
+                session_thread_id: session_id.clone(),
+                schema_version: output.schema_version,
+                evidence_snapshot_hash: output.evidence_snapshot_hash,
+                generated_at: Utc::now(),
+            };
+            let evidence_refs = result
+                .steps
+                .iter()
+                .flat_map(|step| step.support_refs.iter().cloned())
+                .collect::<Vec<_>>();
+            let block = DeductionBlock {
+                deduction_id: deduction_id.clone(),
+                scope_ref: scope_ref.clone(),
+                result,
+                provenance,
+            };
+            let (raw_fallback, raw_truncated) =
+                bounded_deduction_raw(&output.raw_text, output.raw_truncated);
+            sqlx::query(
+                r#"
+                update deductions
+                set state = 'completed', block_json = ?2, raw_fallback = ?3,
+                    raw_truncated = ?4, error_code = null, error_message = null,
+                    updated_at = ?5
+                where deduction_id = ?1 and state in ('requested', 'running')
+                "#,
+            )
+            .bind(deduction_id.as_str())
+            .bind(serde_json::to_string(&block)?)
+            .bind(raw_fallback)
+            .bind(i64::from(raw_truncated))
+            .bind(Utc::now())
+            .execute(&state.pool)
+            .await?;
+            append_core_session_event(
+                state,
+                &session_id,
+                Some(command_id.clone()),
+                EventKind::DeductionCompleted,
+                json!({ "deduction_id": deduction_id.as_str() }),
+                vec![UpravaRef::Deduction {
+                    deduction_id: deduction_id.clone(),
+                }],
+                vec![scope_ref],
+                evidence_refs,
+            )
+            .await?;
+        }
+        Err((code, message)) => {
+            let (raw_fallback, raw_truncated) =
+                bounded_deduction_raw(&output.raw_text, output.raw_truncated);
+            update_deduction_failure(
+                state,
+                &deduction_id,
+                "invalid",
+                code,
+                &message,
+                raw_fallback.as_deref(),
+                raw_truncated,
+            )
+            .await?;
+            append_core_session_event(
+                state,
+                &session_id,
+                Some(command_id.clone()),
+                EventKind::DeductionInvalid,
+                json!({
+                    "deduction_id": deduction_id.as_str(),
+                    "code": code,
+                    "message": message,
+                }),
+                vec![UpravaRef::Deduction {
+                    deduction_id: deduction_id.clone(),
+                }],
+                vec![scope_ref],
+                vec![],
+            )
+            .await?;
+        }
+    }
+    Ok(())
+}
+
+fn validate_deduction_output(
+    output: &DeductionProviderOutput,
+    package: &DeductionInputPackage,
+) -> Result<DeductionProviderResult, (&'static str, String)> {
+    if output.deduction_id != package.deduction_id
+        || output.evidence_snapshot_hash != package.evidence_snapshot_hash
+        || output.schema_version != DEDUCTION_SCHEMA_VERSION
+    {
+        return Err((
+            "deduction.provenance_mismatch",
+            "Deduction provenance does not match the requested evidence snapshot".to_owned(),
+        ));
+    }
+    if let Some(code) = output.error_code.as_deref() {
+        return Err((
+            "deduction.provider_reported_error",
+            output
+                .error_message
+                .clone()
+                .unwrap_or_else(|| format!("Provider reported {code}")),
+        ));
+    }
+    let result = output.result.clone().ok_or_else(|| {
+        (
+            "deduction.result_missing",
+            "Structured Deduction result is missing".to_owned(),
+        )
+    })?;
+    if result.title.trim().is_empty() || result.conclusion.trim().is_empty() {
+        return Err((
+            "deduction.result_incomplete",
+            "Deduction title and conclusion are required".to_owned(),
+        ));
+    }
+    if result.steps.is_empty() || result.steps.len() > 100 {
+        return Err((
+            "deduction.steps_invalid",
+            "Deduction must contain between 1 and 100 steps".to_owned(),
+        ));
+    }
+    let allowed = package
+        .allowed_refs
+        .iter()
+        .filter_map(|reference| serde_json::to_string(reference).ok())
+        .collect::<HashSet<_>>();
+    let mut step_ids = HashSet::new();
+    for step in &result.steps {
+        if step.step_id.trim().is_empty() || !step_ids.insert(step.step_id.as_str()) {
+            return Err((
+                "deduction.step_id_invalid",
+                "Deduction step ids must be non-empty and unique".to_owned(),
+            ));
+        }
+        if step.summary.trim().is_empty() || step.summary.chars().count() > 2_000 {
+            return Err((
+                "deduction.step_summary_invalid",
+                "Deduction step summary is empty or too large".to_owned(),
+            ));
+        }
+        if step.classification == DeductionClassification::Observed && step.support_refs.is_empty()
+        {
+            return Err((
+                "deduction.observed_step_unsupported",
+                "Every observed Deduction step must carry a support reference".to_owned(),
+            ));
+        }
+        if step.support_refs.iter().any(|reference| {
+            serde_json::to_string(reference)
+                .ok()
+                .is_none_or(|key| !allowed.contains(&key))
+        }) {
+            return Err((
+                "deduction.support_ref_invalid",
+                "Deduction returned a reference outside its evidence package".to_owned(),
+            ));
+        }
+    }
+    Ok(result)
+}
+
+async fn update_deduction_failure(
+    state: &AppState,
+    deduction_id: &DeductionId,
+    state_value: &str,
+    code: &str,
+    message: &str,
+    raw: Option<&str>,
+    raw_truncated: bool,
+) -> Result<(), AppError> {
+    let raw = raw.map(|value| truncate_chars(value, MAX_DEDUCTION_RAW_CHARS));
+    sqlx::query(
+        r#"
+        update deductions
+        set state = ?2, raw_fallback = ?3, raw_truncated = ?4,
+            error_code = ?5, error_message = ?6, updated_at = ?7
+        where deduction_id = ?1 and state in ('requested', 'running')
+        "#,
+    )
+    .bind(deduction_id.as_str())
+    .bind(state_value)
+    .bind(raw)
+    .bind(i64::from(raw_truncated))
+    .bind(code)
+    .bind(message)
+    .bind(Utc::now())
+    .execute(&state.pool)
+    .await?;
+    Ok(())
+}
+
+fn bounded_deduction_raw(value: &str, provider_truncated: bool) -> (Option<String>, bool) {
+    if value.is_empty() {
+        return (None, provider_truncated);
+    }
+    let core_truncated = value.chars().count() > MAX_DEDUCTION_RAW_CHARS;
+    (
+        Some(truncate_chars(value, MAX_DEDUCTION_RAW_CHARS)),
+        provider_truncated || core_truncated,
+    )
 }
 
 fn is_terminal_command_state(state: CommandState) -> bool {
@@ -4287,6 +4641,15 @@ struct EventsQuery {
     after_seq: Option<i64>,
 }
 
+#[derive(Debug, Deserialize)]
+struct EventLogQuery {
+    session_thread_id: Option<String>,
+    placement_id: Option<String>,
+    kind: Option<String>,
+    cursor: Option<String>,
+    limit: Option<usize>,
+}
+
 async fn session_events(
     State(state): State<Arc<AppState>>,
     Path(session_thread_id): Path<String>,
@@ -4299,6 +4662,29 @@ async fn session_events(
     )
     .await
     .map(Json)
+}
+
+async fn event_log_route(
+    State(state): State<Arc<AppState>>,
+    Query(query): Query<EventLogQuery>,
+) -> Result<Json<EventLogPage>, AppError> {
+    load_event_log_page(&state, query).await.map(Json)
+}
+
+async fn event_detail_route(
+    State(state): State<Arc<AppState>>,
+    Path(event_id): Path<String>,
+) -> Result<Json<EventEnvelope>, AppError> {
+    load_event_by_id(&state, &EventId::from(event_id))
+        .await
+        .map(Json)
+}
+
+async fn resolve_reference_route(
+    State(state): State<Arc<AppState>>,
+    Json(request): Json<ResolveReferenceRequest>,
+) -> Result<Json<ReferenceResolution>, AppError> {
+    resolve_reference(&state, request.reference).await.map(Json)
 }
 
 async fn session_stream(
@@ -4389,6 +4775,15 @@ async fn session_evidence_projection(
         .map(Json)
 }
 
+async fn session_trace_projection(
+    State(state): State<Arc<AppState>>,
+    Path(session_thread_id): Path<String>,
+) -> Result<Json<SessionTraceProjection>, AppError> {
+    build_session_trace_projection(&state, &SessionThreadId::from(session_thread_id))
+        .await
+        .map(Json)
+}
+
 async fn session_agent_projection(
     State(state): State<Arc<AppState>>,
     Path(session_thread_id): Path<String>,
@@ -4437,6 +4832,616 @@ async fn send_turn_with_correlation(
     correlation_id: CorrelationId,
 ) -> Result<CommandAcceptedResponse, AppError> {
     submit_turn_with_correlation(state, session_id, request.content, correlation_id).await
+}
+
+async fn create_deduction_route(
+    State(state): State<Arc<AppState>>,
+    headers: HeaderMap,
+    Path(session_thread_id): Path<String>,
+    Json(request): Json<CreateDeductionRequest>,
+) -> Result<(StatusCode, Json<DeductionAcceptedResponse>), AppError> {
+    create_deduction(
+        &state,
+        SessionThreadId::from(session_thread_id),
+        request,
+        request_correlation_id(&headers),
+    )
+    .await
+    .map(|response| (StatusCode::ACCEPTED, Json(response)))
+}
+
+async fn deduction_detail_route(
+    State(state): State<Arc<AppState>>,
+    Path(deduction_id): Path<String>,
+) -> Result<Json<DeductionRecord>, AppError> {
+    load_deduction_record(&state, &DeductionId::from(deduction_id))
+        .await
+        .map(Json)
+}
+
+async fn cancel_deduction_route(
+    State(state): State<Arc<AppState>>,
+    headers: HeaderMap,
+    Path(deduction_id): Path<String>,
+) -> Result<Json<DeductionAcceptedResponse>, AppError> {
+    cancel_deduction(
+        &state,
+        &DeductionId::from(deduction_id),
+        request_correlation_id(&headers),
+    )
+    .await
+    .map(Json)
+}
+
+async fn persist_deduction_route(
+    State(state): State<Arc<AppState>>,
+    Path(deduction_id): Path<String>,
+) -> Result<Json<PersistDeductionResponse>, AppError> {
+    persist_deduction(&state, &DeductionId::from(deduction_id))
+        .await
+        .map(Json)
+}
+
+async fn create_deduction(
+    state: &AppState,
+    session_id: SessionThreadId,
+    request: CreateDeductionRequest,
+    correlation_id: CorrelationId,
+) -> Result<DeductionAcceptedResponse, AppError> {
+    let detail = load_session_detail(state, &session_id).await?;
+    ensure_session_commandable(state, &detail, CommandKind::RequestDeduction).await?;
+    ensure_provider_quota_admission(
+        state,
+        &detail.session.runtime.provider,
+        false,
+        "deduction.request",
+    )
+    .await?;
+    let active_count: i64 = sqlx::query_scalar(
+        "select count(*) from deductions where session_thread_id = ?1 and state in ('requested', 'running')",
+    )
+    .bind(session_id.as_str())
+    .fetch_one(&state.pool)
+    .await?;
+    if active_count > 0 {
+        return Err(AppError::bad_request(
+            "deduction.already_active",
+            "This session already has an active Deduction",
+        ));
+    }
+    let question = request
+        .question
+        .as_deref()
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .unwrap_or("Explain the observable steps that led to this result")
+        .to_owned();
+    if question.chars().count() > MAX_DEDUCTION_QUESTION_CHARS {
+        return Err(AppError::bad_request(
+            "deduction.question_too_large",
+            "Deduction question exceeds the character limit",
+        ));
+    }
+    let deduction_id = DeductionId::new();
+    let package = build_deduction_input_package(
+        state,
+        &detail,
+        deduction_id.clone(),
+        request.scope_ref.clone(),
+        question.clone(),
+    )
+    .await?;
+    let command_id = CommandId::new();
+    let now = Utc::now();
+    let command = CommandEnvelope {
+        command_id: command_id.clone(),
+        kind: CommandKind::RequestDeduction,
+        target: CommandTarget::SessionRuntime {
+            node_id: detail.placement.node_id.clone(),
+            project_placement_id: detail.placement.project_placement_id.clone(),
+            session_thread_id: session_id.clone(),
+            runtime_session_id: detail.session.runtime.runtime_session_id.clone(),
+        },
+        actor_ref: ActorRef::local_user(),
+        source_refs: vec![request.scope_ref.clone()],
+        cause_refs: vec![UpravaRef::Session {
+            session_thread_id: session_id.clone(),
+        }],
+        issued_at: now,
+        correlation_id,
+        payload: CommandPayload::RequestDeduction {
+            package: Box::new(package.clone()),
+        },
+    };
+    let mut transaction = state.pool.begin().await?;
+    record_command_on_connection(&mut transaction, &command).await?;
+    sqlx::query(
+        r#"
+        insert into deductions (
+            deduction_id, session_thread_id, scope_ref_json, question, state,
+            command_id, evidence_snapshot_hash, input_package_json, created_at, updated_at
+        ) values (?1, ?2, ?3, ?4, 'requested', ?5, ?6, ?7, ?8, ?8)
+        "#,
+    )
+    .bind(deduction_id.as_str())
+    .bind(session_id.as_str())
+    .bind(serde_json::to_string(&request.scope_ref)?)
+    .bind(&question)
+    .bind(command_id.as_str())
+    .bind(&package.evidence_snapshot_hash)
+    .bind(serde_json::to_string(&package)?)
+    .bind(now)
+    .execute(&mut *transaction)
+    .await?;
+    transaction.commit().await?;
+    append_core_session_event(
+        state,
+        &session_id,
+        Some(command_id.clone()),
+        EventKind::DeductionRequested,
+        json!({
+            "deduction_id": deduction_id.as_str(),
+            "scope_ref": request.scope_ref,
+            "question": question,
+        }),
+        vec![UpravaRef::Deduction {
+            deduction_id: deduction_id.clone(),
+        }],
+        vec![package.scope_ref.clone()],
+        vec![],
+    )
+    .await?;
+    dispatch_pending_commands(state, &detail.placement.node_id).await?;
+    Ok(DeductionAcceptedResponse {
+        deduction_id,
+        command_id,
+    })
+}
+
+async fn cancel_deduction(
+    state: &AppState,
+    deduction_id: &DeductionId,
+    correlation_id: CorrelationId,
+) -> Result<DeductionAcceptedResponse, AppError> {
+    let deduction = load_deduction_record(state, deduction_id).await?;
+    if !matches!(
+        deduction.state,
+        DeductionState::Requested | DeductionState::Running
+    ) {
+        return Err(AppError::bad_request(
+            "deduction.not_active",
+            "Only a requested or running Deduction can be cancelled",
+        ));
+    }
+    let detail = load_session_detail(state, &deduction.session_thread_id).await?;
+    ensure_node_commandable(state, &detail.placement.node_id).await?;
+    let command_id = CommandId::new();
+    let now = Utc::now();
+    let command = CommandEnvelope {
+        command_id: command_id.clone(),
+        kind: CommandKind::CancelDeduction,
+        target: CommandTarget::SessionRuntime {
+            node_id: detail.placement.node_id.clone(),
+            project_placement_id: detail.placement.project_placement_id.clone(),
+            session_thread_id: detail.session.session_thread_id.clone(),
+            runtime_session_id: detail.session.runtime.runtime_session_id.clone(),
+        },
+        actor_ref: ActorRef::local_user(),
+        source_refs: vec![UpravaRef::Deduction {
+            deduction_id: deduction_id.clone(),
+        }],
+        cause_refs: vec![UpravaRef::Command {
+            command_id: deduction.command_id.clone(),
+        }],
+        issued_at: now,
+        correlation_id,
+        payload: CommandPayload::CancelDeduction {
+            deduction_id: deduction_id.clone(),
+        },
+    };
+    let mut transaction = state.pool.begin().await?;
+    record_command_on_connection(&mut transaction, &command).await?;
+    sqlx::query(
+        r#"
+        update commands
+        set state = 'failed',
+            result_payload_json = ?2,
+            completed_at = ?3
+        where command_id = ?1 and state in ('recorded', 'pending_dispatch')
+        "#,
+    )
+    .bind(deduction.command_id.as_str())
+    .bind(serde_json::to_string(&JsonValue(json!({
+        "error_code": "deduction.cancelled",
+        "message": "Deduction was cancelled before provider completion",
+    })))?)
+    .bind(now)
+    .execute(&mut *transaction)
+    .await?;
+    sqlx::query(
+        "update deductions set state = 'cancelled', updated_at = ?2 where deduction_id = ?1 and state in ('requested', 'running')",
+    )
+    .bind(deduction_id.as_str())
+    .bind(now)
+    .execute(&mut *transaction)
+    .await?;
+    transaction.commit().await?;
+    append_core_session_event(
+        state,
+        &deduction.session_thread_id,
+        Some(command_id.clone()),
+        EventKind::DeductionCancelled,
+        json!({ "deduction_id": deduction_id.as_str() }),
+        vec![UpravaRef::Deduction {
+            deduction_id: deduction_id.clone(),
+        }],
+        vec![deduction.scope_ref],
+        vec![],
+    )
+    .await?;
+    dispatch_pending_commands(state, &detail.placement.node_id).await?;
+    Ok(DeductionAcceptedResponse {
+        deduction_id: deduction_id.clone(),
+        command_id,
+    })
+}
+
+async fn build_deduction_input_package(
+    state: &AppState,
+    detail: &SessionDetail,
+    deduction_id: DeductionId,
+    scope_ref: UpravaRef,
+    question: String,
+) -> Result<DeductionInputPackage, AppError> {
+    let trace = build_session_trace_projection(state, &detail.session.session_thread_id).await?;
+    let mut allowed_refs = vec![UpravaRef::Session {
+        session_thread_id: detail.session.session_thread_id.clone(),
+    }];
+    for step in &trace.steps {
+        allowed_refs.push(step.primary_ref.clone());
+        extend_causality_refs(&mut allowed_refs, &step.links);
+    }
+    let events = detail
+        .events
+        .iter()
+        .rev()
+        .take(MAX_DEDUCTION_EVENTS)
+        .rev()
+        .map(|event| {
+            let primary_event_ref = event_ref(event);
+            allowed_refs.push(primary_event_ref.clone());
+            allowed_refs.extend(event.source_refs.iter().cloned());
+            allowed_refs.extend(event.evidence_refs.iter().cloned());
+            allowed_refs.extend(event.cause_refs.iter().cloned());
+            allowed_refs.extend(event.result_refs.iter().cloned());
+            DeductionEvidenceEvent {
+                event_ref: primary_event_ref.clone(),
+                kind: event.kind,
+                summary: event_summary(event),
+                happened_at: event.happened_at,
+                links: CausalityLinks {
+                    source_refs: event.source_refs.clone(),
+                    evidence_refs: event.evidence_refs.clone(),
+                    cause_refs: event.cause_refs.clone(),
+                    result_refs: event.result_refs.clone(),
+                    raw_refs: vec![primary_event_ref],
+                },
+                raw_excerpt: serde_json::to_string(&event.payload)
+                    .ok()
+                    .map(|value| truncate_chars(&value, 1_500)),
+            }
+        })
+        .collect::<Vec<_>>();
+    deduplicate_refs(&mut allowed_refs);
+    if !deduction_scope_belongs_to_session(state, detail, &scope_ref, &allowed_refs).await? {
+        return Err(AppError::bad_request(
+            "deduction.scope_invalid",
+            "Deduction scope is not visible in this session",
+        ));
+    }
+    allowed_refs.push(scope_ref.clone());
+    deduplicate_refs(&mut allowed_refs);
+    let trace_was_truncated = trace.steps.len() > MAX_DEDUCTION_TRACE_STEPS;
+    let mut package = DeductionInputPackage {
+        deduction_id,
+        session_thread_id: detail.session.session_thread_id.clone(),
+        scope_ref,
+        question,
+        evidence_snapshot_hash: String::new(),
+        trace_steps: trace
+            .steps
+            .into_iter()
+            .take(MAX_DEDUCTION_TRACE_STEPS)
+            .collect(),
+        events,
+        allowed_refs,
+        truncated: detail.events.len() > MAX_DEDUCTION_EVENTS || trace_was_truncated,
+        generated_at: Utc::now(),
+    };
+    let encoded = serde_json::to_vec(&package)?;
+    package.evidence_snapshot_hash = format!("{:x}", Sha256::digest(encoded));
+    Ok(package)
+}
+
+fn extend_causality_refs(refs: &mut Vec<UpravaRef>, links: &CausalityLinks) {
+    refs.extend(links.source_refs.iter().cloned());
+    refs.extend(links.evidence_refs.iter().cloned());
+    refs.extend(links.cause_refs.iter().cloned());
+    refs.extend(links.result_refs.iter().cloned());
+    refs.extend(links.raw_refs.iter().cloned());
+}
+
+fn deduplicate_refs(refs: &mut Vec<UpravaRef>) {
+    let mut keys = HashSet::new();
+    refs.retain(|reference| {
+        serde_json::to_string(reference)
+            .ok()
+            .is_some_and(|key| keys.insert(key))
+    });
+}
+
+async fn deduction_scope_belongs_to_session(
+    state: &AppState,
+    detail: &SessionDetail,
+    scope_ref: &UpravaRef,
+    visible_refs: &[UpravaRef],
+) -> Result<bool, AppError> {
+    if visible_refs.iter().any(|reference| reference == scope_ref) {
+        return Ok(true);
+    }
+    let session_id = &detail.session.session_thread_id;
+    let runtime_id = &detail.session.runtime.runtime_session_id;
+    let placement_id = &detail.placement.project_placement_id;
+    match scope_ref {
+        UpravaRef::Session { session_thread_id } => Ok(session_thread_id == session_id),
+        UpravaRef::Runtime { runtime_session_id } => Ok(runtime_session_id == runtime_id),
+        UpravaRef::Placement {
+            placement_id: candidate,
+        }
+        | UpravaRef::Workspace {
+            placement_id: candidate,
+        }
+        | UpravaRef::File {
+            placement_id: candidate,
+            ..
+        }
+        | UpravaRef::FileRange {
+            placement_id: candidate,
+            ..
+        }
+        | UpravaRef::WorkspaceDiff {
+            placement_id: candidate,
+            ..
+        }
+        | UpravaRef::Terminal {
+            placement_id: candidate,
+            ..
+        } => Ok(candidate == placement_id),
+        UpravaRef::Message { message_id } => {
+            let count: i64 = sqlx::query_scalar(
+                "select count(*) from messages where message_id = ?1 and session_thread_id = ?2",
+            )
+            .bind(message_id.as_str())
+            .bind(session_id.as_str())
+            .fetch_one(&state.pool)
+            .await?;
+            Ok(count > 0)
+        }
+        UpravaRef::Turn { turn_id } => {
+            let count: i64 = sqlx::query_scalar(
+                "select count(*) from events where turn_id = ?1 and session_thread_id = ?2",
+            )
+            .bind(turn_id.as_str())
+            .bind(session_id.as_str())
+            .fetch_one(&state.pool)
+            .await?;
+            Ok(count > 0)
+        }
+        UpravaRef::Event { event_id, .. } => {
+            let event = load_event_by_id(state, event_id).await.ok();
+            Ok(event.is_some_and(|event| {
+                event.session_thread_id.as_ref() == Some(session_id)
+                    || event.runtime_session_id.as_ref() == Some(runtime_id)
+                    || matches!(
+                        &event.scope_ref,
+                        ScopeRef::Placement {
+                            project_placement_id
+                        } if project_placement_id == placement_id
+                    )
+            }))
+        }
+        UpravaRef::Command { command_id } => {
+            let command_json: Option<String> =
+                sqlx::query_scalar("select command_json from commands where command_id = ?1")
+                    .bind(command_id.as_str())
+                    .fetch_optional(&state.pool)
+                    .await?;
+            Ok(command_json
+                .and_then(|value| serde_json::from_str::<CommandEnvelope>(&value).ok())
+                .is_some_and(|command| command.target.session_thread_id() == Some(session_id)))
+        }
+        UpravaRef::Deduction { deduction_id } => {
+            let count: i64 = sqlx::query_scalar(
+                "select count(*) from deductions where deduction_id = ?1 and session_thread_id = ?2",
+            )
+            .bind(deduction_id.as_str())
+            .bind(session_id.as_str())
+            .fetch_one(&state.pool)
+            .await?;
+            Ok(count > 0)
+        }
+        UpravaRef::Artifact { artifact_id } => {
+            let count: i64 = sqlx::query_scalar(
+                "select count(*) from causality_narratives where artifact_id = ?1 and session_thread_id = ?2",
+            )
+            .bind(artifact_id.as_str())
+            .bind(session_id.as_str())
+            .fetch_one(&state.pool)
+            .await?;
+            Ok(count > 0)
+        }
+        UpravaRef::Node { .. }
+        | UpravaRef::Project { .. }
+        | UpravaRef::Block { .. }
+        | UpravaRef::Approval { .. }
+        | UpravaRef::Warning { .. }
+        | UpravaRef::ToolCall { .. }
+        | UpravaRef::TerminalCommand { .. }
+        | UpravaRef::TerminalOutputRange { .. }
+        | UpravaRef::DiffHunk { .. }
+        | UpravaRef::CheckResult { .. }
+        | UpravaRef::WorkspaceEdit { .. }
+        | UpravaRef::TraceEvent { .. }
+        | UpravaRef::ExternalEntity { .. }
+        | UpravaRef::Unknown { .. } => Ok(false),
+    }
+}
+
+async fn load_deduction_record(
+    state: &AppState,
+    deduction_id: &DeductionId,
+) -> Result<DeductionRecord, AppError> {
+    let row = sqlx::query(
+        r#"
+        select deduction_id, session_thread_id, scope_ref_json, question, state,
+               command_id, block_json, raw_fallback, raw_truncated, error_code,
+               error_message, artifact_id, created_at, updated_at
+        from deductions where deduction_id = ?1
+        "#,
+    )
+    .bind(deduction_id.as_str())
+    .fetch_optional(&state.pool)
+    .await?
+    .ok_or_else(|| AppError::not_found("deduction.not_found", "Deduction not found"))?;
+    Ok(DeductionRecord {
+        deduction_id: DeductionId::from(row.try_get::<String, _>("deduction_id")?),
+        session_thread_id: SessionThreadId::from(row.try_get::<String, _>("session_thread_id")?),
+        scope_ref: serde_json::from_str(&row.try_get::<String, _>("scope_ref_json")?)?,
+        question: row.try_get("question")?,
+        state: parse_deduction_state(&row.try_get::<String, _>("state")?),
+        command_id: CommandId::from(row.try_get::<String, _>("command_id")?),
+        block: row
+            .try_get::<Option<String>, _>("block_json")?
+            .map(|value| serde_json::from_str(&value))
+            .transpose()?,
+        raw_fallback: row.try_get("raw_fallback")?,
+        raw_truncated: row.try_get::<i64, _>("raw_truncated")? != 0,
+        error_code: row.try_get("error_code")?,
+        error_message: row.try_get("error_message")?,
+        artifact_id: row
+            .try_get::<Option<String>, _>("artifact_id")?
+            .map(ArtifactId::from),
+        created_at: row.try_get("created_at")?,
+        updated_at: row.try_get("updated_at")?,
+    })
+}
+
+async fn persist_deduction(
+    state: &AppState,
+    deduction_id: &DeductionId,
+) -> Result<PersistDeductionResponse, AppError> {
+    let deduction = load_deduction_record(state, deduction_id).await?;
+    let block = deduction.block.ok_or_else(|| {
+        AppError::bad_request(
+            "deduction.not_completed",
+            "Only a completed valid Deduction can be persisted",
+        )
+    })?;
+    let now = Utc::now();
+    let mut transaction = state.pool.begin().await?;
+    let existing: Option<(String, i64)> = sqlx::query_as(
+        "select artifact_id, current_version from causality_narratives where deduction_id = ?1",
+    )
+    .bind(deduction_id.as_str())
+    .fetch_optional(&mut *transaction)
+    .await?;
+    let (artifact_id, version) = existing.map_or_else(
+        || (ArtifactId::new(), 1_i64),
+        |(artifact_id, version)| (ArtifactId::from(artifact_id), version + 1),
+    );
+    sqlx::query(
+        r#"
+        insert into causality_narratives (
+            artifact_id, deduction_id, session_thread_id, current_version, created_at, updated_at
+        ) values (?1, ?2, ?3, ?4, ?5, ?5)
+        on conflict(deduction_id) do update set
+            current_version = excluded.current_version,
+            updated_at = excluded.updated_at
+        "#,
+    )
+    .bind(artifact_id.as_str())
+    .bind(deduction_id.as_str())
+    .bind(deduction.session_thread_id.as_str())
+    .bind(version)
+    .bind(now)
+    .execute(&mut *transaction)
+    .await?;
+    sqlx::query(
+        "insert into causality_narrative_versions (artifact_id, version, block_json, provenance_json, created_at) values (?1, ?2, ?3, ?4, ?5)",
+    )
+    .bind(artifact_id.as_str())
+    .bind(version)
+    .bind(serde_json::to_string(&block)?)
+    .bind(serde_json::to_string(&block.provenance)?)
+    .bind(now)
+    .execute(&mut *transaction)
+    .await?;
+    sqlx::query("update deductions set artifact_id = ?2, updated_at = ?3 where deduction_id = ?1")
+        .bind(deduction_id.as_str())
+        .bind(artifact_id.as_str())
+        .bind(now)
+        .execute(&mut *transaction)
+        .await?;
+    transaction.commit().await?;
+    Ok(PersistDeductionResponse {
+        deduction_id: deduction_id.clone(),
+        artifact_id,
+        version: u64::try_from(version).unwrap_or(u64::MAX),
+    })
+}
+
+#[expect(
+    clippy::too_many_arguments,
+    reason = "durable session events keep command identity, payload, and causal aspects explicit"
+)]
+async fn append_core_session_event(
+    state: &AppState,
+    session_id: &SessionThreadId,
+    command_id: Option<CommandId>,
+    kind: EventKind,
+    payload: serde_json::Value,
+    result_refs: Vec<UpravaRef>,
+    source_refs: Vec<UpravaRef>,
+    evidence_refs: Vec<UpravaRef>,
+) -> Result<EventEnvelope, AppError> {
+    let scope_ref = ScopeRef::Session {
+        session_thread_id: session_id.clone(),
+    };
+    let seq = next_seq(state, &scope_key(&scope_ref)).await?;
+    let event = EventEnvelope {
+        event_id: EventId::new(),
+        command_id: command_id.clone(),
+        correlation_id: None,
+        actor_ref: ActorRef::System,
+        scope_ref,
+        node_id: None,
+        runtime_session_id: None,
+        session_thread_id: Some(session_id.clone()),
+        turn_id: None,
+        seq,
+        session_projection_seq: None,
+        kind,
+        happened_at: Utc::now(),
+        source_refs,
+        evidence_refs,
+        cause_refs: command_id
+            .map(|command_id| vec![UpravaRef::Command { command_id }])
+            .unwrap_or_default(),
+        result_refs,
+        payload: EventPayload::from_json(kind, payload),
+    };
+    accept_node_event(state, event.clone()).await?;
+    Ok(event)
 }
 
 async fn submit_turn_with_correlation(
@@ -7823,7 +8828,10 @@ async fn ensure_session_commandable(
 fn command_requires_startable_placement(command_kind: CommandKind) -> bool {
     matches!(
         command_kind,
-        CommandKind::StartRuntime | CommandKind::SendTurn | CommandKind::ResumeRuntime
+        CommandKind::StartRuntime
+            | CommandKind::SendTurn
+            | CommandKind::ResumeRuntime
+            | CommandKind::RequestDeduction
     )
 }
 
@@ -7832,7 +8840,7 @@ fn ensure_runtime_accepts_command(
     command_kind: CommandKind,
 ) -> Result<(), AppError> {
     let accepts = match command_kind {
-        CommandKind::SendTurn => matches!(
+        CommandKind::SendTurn | CommandKind::RequestDeduction => matches!(
             runtime.state,
             RuntimeSessionState::Ready | RuntimeSessionState::Running
         ),
@@ -7865,7 +8873,8 @@ fn ensure_runtime_accepts_command(
         | CommandKind::AttachWorkspaceTerminal
         | CommandKind::ResizeWorkspaceTerminal
         | CommandKind::WriteWorkspaceTerminal
-        | CommandKind::CloseWorkspaceTerminal => true,
+        | CommandKind::CloseWorkspaceTerminal
+        | CommandKind::CancelDeduction => true,
         CommandKind::Extension => false,
     };
     if accepts {
@@ -7910,6 +8919,7 @@ fn command_requires_provider_capability(command_kind: CommandKind) -> bool {
             | CommandKind::ResumeRuntime
             | CommandKind::SendTurn
             | CommandKind::ResolveApproval
+            | CommandKind::RequestDeduction
     )
 }
 
@@ -8362,6 +9372,812 @@ async fn load_events(
             Ok(event)
         })
         .collect()
+}
+
+async fn load_event_log_page(
+    state: &AppState,
+    query: EventLogQuery,
+) -> Result<EventLogPage, AppError> {
+    let limit = query
+        .limit
+        .unwrap_or(DEFAULT_EVENT_LOG_LIMIT)
+        .clamp(1, MAX_EVENT_LOG_LIMIT);
+    let (cursor_at, cursor_id) = query
+        .cursor
+        .as_deref()
+        .map(parse_event_log_cursor)
+        .transpose()?
+        .map_or((None, None), |(at, id)| (Some(at), Some(id)));
+    let kind = query
+        .kind
+        .as_deref()
+        .map(parse_event_kind_filter)
+        .transpose()?;
+    let rows = sqlx::query(
+        r#"
+        select event_json
+        from events
+        where (?1 is null or session_thread_id = ?1)
+          and (
+            ?2 is null
+            or scope_key = ('placement:' || ?2)
+            or session_thread_id in (
+                select session_thread_id from session_threads where project_placement_id = ?2
+            )
+          )
+          and (?3 is null or kind = ?3)
+          and (
+            ?4 is null
+            or happened_at < ?4
+            or (happened_at = ?4 and event_id < ?5)
+          )
+        order by happened_at desc, event_id desc
+        limit ?6
+        "#,
+    )
+    .bind(query.session_thread_id.as_deref())
+    .bind(query.placement_id.as_deref())
+    .bind(kind.as_deref())
+    .bind(cursor_at)
+    .bind(cursor_id.as_deref())
+    .bind(i64::try_from(limit + 1).unwrap_or(i64::MAX))
+    .fetch_all(&state.pool)
+    .await?;
+    let mut events = rows
+        .into_iter()
+        .map(|row| {
+            let event_json: String = row.try_get("event_json")?;
+            serde_json::from_str(&event_json).map_err(AppError::from)
+        })
+        .collect::<Result<Vec<EventEnvelope>, AppError>>()?;
+    let has_more = events.len() > limit;
+    events.truncate(limit);
+    let next_cursor = has_more
+        .then(|| events.last().map(event_log_cursor))
+        .flatten();
+    Ok(EventLogPage {
+        events,
+        next_cursor,
+    })
+}
+
+fn parse_event_kind_filter(value: &str) -> Result<String, AppError> {
+    serde_json::from_value::<EventKind>(json!(value))
+        .map(|kind| format!("{kind:?}"))
+        .map_err(|_| AppError::bad_request("event.kind_invalid", "Unknown event kind filter"))
+}
+
+fn parse_event_log_cursor(value: &str) -> Result<(DateTime<Utc>, String), AppError> {
+    let (at, event_id) = value.rsplit_once('|').ok_or_else(|| {
+        AppError::bad_request("event.cursor_invalid", "Event cursor is malformed")
+    })?;
+    let at = at.parse::<DateTime<Utc>>().map_err(|_| {
+        AppError::bad_request("event.cursor_invalid", "Event cursor timestamp is invalid")
+    })?;
+    if event_id.is_empty() {
+        return Err(AppError::bad_request(
+            "event.cursor_invalid",
+            "Event cursor id is missing",
+        ));
+    }
+    Ok((at, event_id.to_owned()))
+}
+
+fn event_log_cursor(event: &EventEnvelope) -> String {
+    format!("{}|{}", event.happened_at.to_rfc3339(), event.event_id)
+}
+
+async fn load_event_by_id(state: &AppState, event_id: &EventId) -> Result<EventEnvelope, AppError> {
+    let event_json: String =
+        sqlx::query_scalar("select event_json from events where event_id = ?1")
+            .bind(event_id.as_str())
+            .fetch_optional(&state.pool)
+            .await?
+            .ok_or_else(|| AppError::not_found("event.not_found", "Event not found"))?;
+    serde_json::from_str(&event_json).map_err(AppError::from)
+}
+
+async fn build_session_trace_projection(
+    state: &AppState,
+    session_id: &SessionThreadId,
+) -> Result<SessionTraceProjection, AppError> {
+    let detail = load_session_detail(state, session_id).await?;
+    let mut ordered_steps = Vec::new();
+    for message in &detail.messages {
+        let primary_ref = UpravaRef::Message {
+            message_id: message.message_id.clone(),
+        };
+        let source_refs = message_source_refs(message, &detail.events);
+        ordered_steps.push((
+            message.created_at,
+            TraceStep {
+                block_id: BlockId::from(format!("trace:message:{}", message.message_id)),
+                title: format!("{:?} message", message.role),
+                summary: truncate_chars(&message.content, 500),
+                actor_ref: match message.role {
+                    MessageRole::User => ActorRef::local_user(),
+                    MessageRole::Assistant => ActorRef::Provider {
+                        provider: detail.session.runtime.provider.clone(),
+                    },
+                    _ => ActorRef::System,
+                },
+                started_at: message.created_at,
+                completed_at: message.completed_at,
+                precision: if source_refs.is_empty() {
+                    TracePrecision::Unknown
+                } else {
+                    TracePrecision::Exact
+                },
+                primary_ref,
+                links: CausalityLinks {
+                    source_refs,
+                    cause_refs: message
+                        .turn_id
+                        .clone()
+                        .map(|turn_id| vec![UpravaRef::Turn { turn_id }])
+                        .unwrap_or_default(),
+                    ..CausalityLinks::default()
+                },
+            },
+        ));
+    }
+
+    let mut activity_groups: HashMap<String, Vec<&EventEnvelope>> = HashMap::new();
+    for event in &detail.events {
+        if event.kind == EventKind::ProviderOutputDelta {
+            continue;
+        }
+        if event.kind == EventKind::ProviderActivity {
+            let key = event
+                .turn_id
+                .as_ref()
+                .map(ToString::to_string)
+                .unwrap_or_else(|| event.event_id.to_string());
+            activity_groups.entry(key).or_default().push(event);
+            continue;
+        }
+        ordered_steps.push((event.happened_at, trace_step_for_event(event)));
+    }
+    for events in activity_groups.into_values() {
+        if let Some(step) = trace_step_for_activity_group(&events) {
+            ordered_steps.push((step.started_at, step));
+        }
+    }
+    ordered_steps.sort_by(|left, right| {
+        left.0
+            .cmp(&right.0)
+            .then_with(|| left.1.block_id.as_str().cmp(right.1.block_id.as_str()))
+    });
+    Ok(SessionTraceProjection {
+        session_thread_id: session_id.clone(),
+        precision: TracePrecision::Coarse,
+        steps: ordered_steps.into_iter().map(|(_, step)| step).collect(),
+        raw_event_count: u64::try_from(detail.events.len()).unwrap_or(u64::MAX),
+        generated_at: Utc::now(),
+    })
+}
+
+fn trace_step_for_event(event: &EventEnvelope) -> TraceStep {
+    let event_ref = event_ref(event);
+    TraceStep {
+        block_id: BlockId::from(format!("trace:event:{}", event.event_id)),
+        title: event_kind_label(event.kind),
+        summary: event_summary(event),
+        actor_ref: event.actor_ref.clone(),
+        started_at: event.happened_at,
+        completed_at: Some(event.happened_at),
+        precision: if event.source_refs.is_empty()
+            && event.evidence_refs.is_empty()
+            && event.cause_refs.is_empty()
+        {
+            TracePrecision::Unknown
+        } else {
+            TracePrecision::Exact
+        },
+        primary_ref: event_ref.clone(),
+        links: CausalityLinks {
+            source_refs: event.source_refs.clone(),
+            evidence_refs: event.evidence_refs.clone(),
+            cause_refs: event.cause_refs.clone(),
+            result_refs: event.result_refs.clone(),
+            raw_refs: vec![event_ref],
+        },
+    }
+}
+
+fn trace_step_for_activity_group(events: &[&EventEnvelope]) -> Option<TraceStep> {
+    let first = *events.first()?;
+    let last = *events.last()?;
+    let raw_refs = events
+        .iter()
+        .map(|event| event_ref(event))
+        .collect::<Vec<_>>();
+    let summaries = events
+        .iter()
+        .map(|event| event_summary(event))
+        .filter(|summary| !summary.is_empty())
+        .take(4)
+        .collect::<Vec<_>>();
+    Some(TraceStep {
+        block_id: BlockId::from(format!(
+            "trace:activity:{}",
+            first
+                .turn_id
+                .as_ref()
+                .map(ToString::to_string)
+                .unwrap_or_else(|| first.event_id.to_string())
+        )),
+        title: "Provider activity".to_owned(),
+        summary: if summaries.is_empty() {
+            format!("{} provider events", events.len())
+        } else {
+            summaries.join("; ")
+        },
+        actor_ref: first.actor_ref.clone(),
+        started_at: first.happened_at,
+        completed_at: Some(last.happened_at),
+        precision: TracePrecision::Coarse,
+        primary_ref: event_ref(first),
+        links: CausalityLinks {
+            source_refs: events
+                .iter()
+                .flat_map(|event| event.source_refs.iter().cloned())
+                .collect(),
+            evidence_refs: events
+                .iter()
+                .flat_map(|event| event.evidence_refs.iter().cloned())
+                .collect(),
+            cause_refs: events
+                .iter()
+                .flat_map(|event| event.cause_refs.iter().cloned())
+                .collect(),
+            result_refs: events
+                .iter()
+                .flat_map(|event| event.result_refs.iter().cloned())
+                .collect(),
+            raw_refs,
+        },
+    })
+}
+
+fn event_ref(event: &EventEnvelope) -> UpravaRef {
+    UpravaRef::Event {
+        event_id: event.event_id.clone(),
+        scope_ref: Box::new(event.scope_ref.clone()),
+        seq: event.seq,
+    }
+}
+
+fn event_kind_label(kind: EventKind) -> String {
+    serde_json::to_value(kind)
+        .ok()
+        .and_then(|value| value.as_str().map(str::to_owned))
+        .unwrap_or_else(|| format!("{kind:?}"))
+}
+
+fn event_summary(event: &EventEnvelope) -> String {
+    for key in ["summary", "message", "content", "prompt", "question"] {
+        if let Some(value) = event.payload.0.get(key).and_then(serde_json::Value::as_str) {
+            return truncate_chars(value, 500);
+        }
+    }
+    event_kind_label(event.kind)
+}
+
+async fn resolve_reference(
+    state: &AppState,
+    reference: UpravaRef,
+) -> Result<ReferenceResolution, AppError> {
+    let missing_reference = reference.clone();
+    match resolve_reference_inner(state, reference).await {
+        Err(AppError::NotFound { message, .. }) => {
+            Ok(missing_resolution(missing_reference, &message))
+        }
+        result => result,
+    }
+}
+
+async fn resolve_reference_inner(
+    state: &AppState,
+    reference: UpravaRef,
+) -> Result<ReferenceResolution, AppError> {
+    match &reference {
+        UpravaRef::Event { event_id, .. } => {
+            let event = load_event_by_id(state, event_id).await?;
+            Ok(ReferenceResolution {
+                reference: reference.clone(),
+                status: ReferenceResolutionStatus::Resolved,
+                title: event_kind_label(event.kind),
+                summary: Some(event_summary(&event)),
+                links: CausalityLinks {
+                    source_refs: event.source_refs.clone(),
+                    evidence_refs: event.evidence_refs.clone(),
+                    cause_refs: event.cause_refs.clone(),
+                    result_refs: event.result_refs.clone(),
+                    raw_refs: vec![event_ref(&event)],
+                },
+                raw_payload: Some(JsonValue(event.payload.0.clone())),
+                raw_truncated: event_payload_is_truncated(&event),
+                unavailable_reason: None,
+            })
+        }
+        UpravaRef::Message { message_id } => {
+            resolve_message_reference(state, reference.clone(), message_id).await
+        }
+        UpravaRef::Command { command_id } => {
+            resolve_command_reference(state, reference.clone(), command_id).await
+        }
+        UpravaRef::Deduction { deduction_id } => {
+            let deduction = load_deduction_record(state, deduction_id).await?;
+            Ok(ReferenceResolution {
+                reference,
+                status: if deduction.block.is_some() {
+                    ReferenceResolutionStatus::Resolved
+                } else if deduction.raw_fallback.is_some() {
+                    ReferenceResolutionStatus::RawOnly
+                } else {
+                    ReferenceResolutionStatus::Missing
+                },
+                title: format!("Deduction {}", deduction.deduction_id),
+                summary: deduction
+                    .block
+                    .as_ref()
+                    .map(|block| block.result.conclusion.clone())
+                    .or_else(|| deduction.error_message.clone()),
+                links: deduction
+                    .block
+                    .as_ref()
+                    .map(deduction_links)
+                    .unwrap_or_default(),
+                raw_payload: deduction
+                    .raw_fallback
+                    .as_ref()
+                    .map(|raw| JsonValue(json!({ "raw": raw }))),
+                raw_truncated: deduction.raw_truncated,
+                unavailable_reason: deduction.error_message,
+            })
+        }
+        UpravaRef::File {
+            placement_id,
+            path,
+            version,
+        }
+        | UpravaRef::FileRange {
+            placement_id,
+            path,
+            version,
+            ..
+        } => {
+            let placement = load_placement(state, placement_id).await?;
+            Ok(ReferenceResolution {
+                reference: reference.clone(),
+                status: if placement.state == PlacementState::Missing {
+                    ReferenceResolutionStatus::Offline
+                } else {
+                    ReferenceResolutionStatus::Resolved
+                },
+                title: path.clone(),
+                summary: Some(format!(
+                    "Workspace file in {}{}",
+                    placement.display_name,
+                    version
+                        .as_deref()
+                        .map(|version| format!(" at {version}"))
+                        .unwrap_or_default()
+                )),
+                links: CausalityLinks {
+                    source_refs: vec![UpravaRef::Workspace {
+                        placement_id: placement_id.clone(),
+                    }],
+                    ..CausalityLinks::default()
+                },
+                raw_payload: None,
+                raw_truncated: false,
+                unavailable_reason: None,
+            })
+        }
+        UpravaRef::WorkspaceDiff {
+            diff_id,
+            placement_id,
+        } => {
+            resolve_workspace_diff_reference(state, reference.clone(), diff_id, placement_id).await
+        }
+        UpravaRef::TerminalCommand {
+            terminal_command_id,
+            ..
+        }
+        | UpravaRef::TerminalOutputRange {
+            terminal_command_id,
+            ..
+        } => {
+            resolve_terminal_command_reference(state, reference.clone(), terminal_command_id).await
+        }
+        UpravaRef::CheckResult { check_run_id, .. } => {
+            resolve_terminal_command_reference(state, reference.clone(), check_run_id).await
+        }
+        _ => Ok(ReferenceResolution {
+            title: reference_title(&reference),
+            reference,
+            status: ReferenceResolutionStatus::Unsupported,
+            summary: None,
+            links: CausalityLinks::default(),
+            raw_payload: None,
+            raw_truncated: false,
+            unavailable_reason: Some(
+                "This reference type has no Core resolver in the current deployment".to_owned(),
+            ),
+        }),
+    }
+}
+
+async fn resolve_message_reference(
+    state: &AppState,
+    reference: UpravaRef,
+    message_id: &MessageId,
+) -> Result<ReferenceResolution, AppError> {
+    let row = sqlx::query(
+        "select session_thread_id, turn_id, role, content, source_event_id from messages where message_id = ?1",
+    )
+    .bind(message_id.as_str())
+    .fetch_optional(&state.pool)
+    .await?
+    .ok_or_else(|| AppError::not_found("message.not_found", "Message not found"))?;
+    let source_event_id: Option<String> = row.try_get("source_event_id")?;
+    let turn_id: Option<String> = row.try_get("turn_id")?;
+    let session_thread_id: String = row.try_get("session_thread_id")?;
+    let source_refs = source_event_id
+        .map(|event_id| {
+            vec![UpravaRef::Event {
+                event_id: EventId::from(event_id),
+                scope_ref: Box::new(ScopeRef::Session {
+                    session_thread_id: SessionThreadId::from(session_thread_id),
+                }),
+                seq: 0,
+            }]
+        })
+        .unwrap_or_default();
+    Ok(ReferenceResolution {
+        reference,
+        status: ReferenceResolutionStatus::Resolved,
+        title: format!("{} message", row.try_get::<String, _>("role")?),
+        summary: Some(truncate_chars(&row.try_get::<String, _>("content")?, 500)),
+        links: CausalityLinks {
+            source_refs,
+            cause_refs: turn_id
+                .map(|turn_id| {
+                    vec![UpravaRef::Turn {
+                        turn_id: TurnId::from(turn_id),
+                    }]
+                })
+                .unwrap_or_default(),
+            ..CausalityLinks::default()
+        },
+        raw_payload: Some(JsonValue(json!({
+            "content": row.try_get::<String, _>("content")?
+        }))),
+        raw_truncated: false,
+        unavailable_reason: None,
+    })
+}
+
+async fn resolve_command_reference(
+    state: &AppState,
+    reference: UpravaRef,
+    command_id: &CommandId,
+) -> Result<ReferenceResolution, AppError> {
+    let row = sqlx::query(
+        "select state, command_json, result_payload_json from commands where command_id = ?1",
+    )
+    .bind(command_id.as_str())
+    .fetch_optional(&state.pool)
+    .await?
+    .ok_or_else(|| AppError::not_found("command.not_found", "Command not found"))?;
+    let command: CommandEnvelope =
+        serde_json::from_str(&row.try_get::<String, _>("command_json")?)?;
+    let result_payload = row
+        .try_get::<Option<String>, _>("result_payload_json")?
+        .map(|value| serde_json::from_str::<JsonValue>(&value))
+        .transpose()?;
+    let links = command_result_links(&command, result_payload.as_ref());
+    Ok(ReferenceResolution {
+        reference,
+        status: ReferenceResolutionStatus::Resolved,
+        title: format!("{:?}", command.kind),
+        summary: Some(format!(
+            "Command state: {}",
+            row.try_get::<String, _>("state")?
+        )),
+        links,
+        raw_payload: Some(JsonValue(json!({
+            "command": command,
+            "result": result_payload,
+        }))),
+        raw_truncated: result_payload
+            .as_ref()
+            .is_some_and(command_result_is_truncated),
+        unavailable_reason: None,
+    })
+}
+
+async fn resolve_workspace_diff_reference(
+    state: &AppState,
+    reference: UpravaRef,
+    diff_id: &str,
+    placement_id: &ProjectPlacementId,
+) -> Result<ReferenceResolution, AppError> {
+    let rows = sqlx::query(
+        "select command_id, result_payload_json from commands where project_placement_id = ?1 and kind = 'ReadWorkspaceDiff' and result_payload_json is not null order by completed_at desc limit 100",
+    )
+    .bind(placement_id.as_str())
+    .fetch_all(&state.pool)
+    .await?;
+    for row in rows {
+        let raw: String = row.try_get("result_payload_json")?;
+        let result: WorkspaceDiffResponse = serde_json::from_str(&raw)?;
+        if result.diff_id != diff_id {
+            continue;
+        }
+        let command_id = CommandId::from(row.try_get::<String, _>("command_id")?);
+        return Ok(ReferenceResolution {
+            reference,
+            status: ReferenceResolutionStatus::Resolved,
+            title: "Workspace diff".to_owned(),
+            summary: Some(result.summary.clone()),
+            links: CausalityLinks {
+                source_refs: vec![UpravaRef::Workspace {
+                    placement_id: placement_id.clone(),
+                }],
+                cause_refs: vec![UpravaRef::Command { command_id }],
+                ..CausalityLinks::default()
+            },
+            raw_payload: Some(JsonValue(json!({ "diff": result.diff }))),
+            raw_truncated: result.diff_truncated || result.summary_truncated,
+            unavailable_reason: None,
+        });
+    }
+    Ok(raw_only_resolution(
+        reference,
+        "Workspace diff snapshot is no longer present in bounded command history",
+    ))
+}
+
+async fn resolve_terminal_command_reference(
+    state: &AppState,
+    reference: UpravaRef,
+    terminal_command_id: &str,
+) -> Result<ReferenceResolution, AppError> {
+    let rows = sqlx::query(
+        "select command_id, result_payload_json from commands where kind = 'RunWorkspaceCommand' and result_payload_json is not null order by completed_at desc limit 500",
+    )
+    .fetch_all(&state.pool)
+    .await?;
+    for row in rows {
+        let raw: String = row.try_get("result_payload_json")?;
+        let result: WorkspaceCommandRunResponse = serde_json::from_str(&raw)?;
+        if result.terminal_command_id != terminal_command_id {
+            continue;
+        }
+        let command_id = CommandId::from(row.try_get::<String, _>("command_id")?);
+        return Ok(ReferenceResolution {
+            reference,
+            status: ReferenceResolutionStatus::Resolved,
+            title: result
+                .label
+                .clone()
+                .unwrap_or_else(|| result.command.clone()),
+            summary: Some(format!(
+                "{} · exit {} · {} ms",
+                if result.success {
+                    "succeeded"
+                } else {
+                    "failed"
+                },
+                result
+                    .exit_code
+                    .map_or_else(|| "unknown".to_owned(), |code| code.to_string()),
+                result.duration_ms
+            )),
+            links: CausalityLinks {
+                source_refs: vec![UpravaRef::Workspace {
+                    placement_id: result.placement_id.clone(),
+                }],
+                evidence_refs: vec![UpravaRef::TerminalOutputRange {
+                    terminal_command_id: result.terminal_command_id.clone(),
+                    range: TextRange {
+                        start_line: None,
+                        end_line: None,
+                        start_offset: Some(0),
+                        end_offset: i64::try_from(result.stdout.len() + result.stderr.len()).ok(),
+                    },
+                }],
+                cause_refs: vec![UpravaRef::Command { command_id }],
+                ..CausalityLinks::default()
+            },
+            raw_payload: Some(JsonValue(json!({
+                "stdout": result.stdout,
+                "stderr": result.stderr,
+            }))),
+            raw_truncated: result.stdout_truncated || result.stderr_truncated,
+            unavailable_reason: None,
+        });
+    }
+    Ok(raw_only_resolution(
+        reference,
+        "Terminal command output is no longer present in bounded command history",
+    ))
+}
+
+fn command_result_links(
+    command: &CommandEnvelope,
+    result_payload: Option<&JsonValue>,
+) -> CausalityLinks {
+    let result_refs = result_payload
+        .and_then(|payload| result_refs_for_command(command.kind, payload))
+        .unwrap_or_default();
+    CausalityLinks {
+        source_refs: command.source_refs.clone(),
+        cause_refs: command.cause_refs.clone(),
+        result_refs,
+        ..CausalityLinks::default()
+    }
+}
+
+fn result_refs_for_command(kind: CommandKind, payload: &JsonValue) -> Option<Vec<UpravaRef>> {
+    match kind {
+        CommandKind::WriteWorkspaceFile => {
+            let result: WorkspaceFileWriteResponse =
+                serde_json::from_value(payload.0.clone()).ok()?;
+            Some(vec![
+                UpravaRef::WorkspaceEdit {
+                    edit_id: result.edit_id,
+                    placement_id: Some(result.placement_id.clone()),
+                    path: Some(result.path.clone()),
+                },
+                UpravaRef::File {
+                    placement_id: result.placement_id,
+                    path: result.path,
+                    version: None,
+                },
+            ])
+        }
+        CommandKind::RunWorkspaceCommand => {
+            let result: WorkspaceCommandRunResponse =
+                serde_json::from_value(payload.0.clone()).ok()?;
+            let mut refs = vec![UpravaRef::TerminalCommand {
+                terminal_command_id: result.terminal_command_id.clone(),
+                terminal_id: None,
+            }];
+            if result.intent == uprava_protocol::WorkspaceCommandIntent::Check {
+                refs.push(UpravaRef::CheckResult {
+                    check_run_id: result.terminal_command_id,
+                    failure_id: (!result.success).then(|| "command_failed".to_owned()),
+                });
+            }
+            Some(refs)
+        }
+        CommandKind::ReadWorkspaceDiff => {
+            let result: WorkspaceDiffResponse = serde_json::from_value(payload.0.clone()).ok()?;
+            Some(vec![UpravaRef::WorkspaceDiff {
+                diff_id: result.diff_id,
+                placement_id: result.placement_id,
+            }])
+        }
+        _ => None,
+    }
+}
+
+fn event_payload_is_truncated(event: &EventEnvelope) -> bool {
+    [
+        "raw_event_truncated",
+        "stdout_truncated",
+        "stderr_truncated",
+        "diff_truncated",
+        "summary_truncated",
+    ]
+    .iter()
+    .any(|key| {
+        event
+            .payload
+            .0
+            .get(key)
+            .and_then(serde_json::Value::as_bool)
+            .unwrap_or(false)
+    })
+}
+
+fn command_result_is_truncated(payload: &JsonValue) -> bool {
+    [
+        "stdout_truncated",
+        "stderr_truncated",
+        "diff_truncated",
+        "summary_truncated",
+    ]
+    .iter()
+    .any(|key| {
+        payload
+            .0
+            .get(key)
+            .and_then(serde_json::Value::as_bool)
+            .unwrap_or(false)
+    })
+}
+
+fn deduction_links(block: &DeductionBlock) -> CausalityLinks {
+    CausalityLinks {
+        evidence_refs: block
+            .result
+            .steps
+            .iter()
+            .flat_map(|step| step.support_refs.iter().cloned())
+            .collect(),
+        cause_refs: vec![block.scope_ref.clone()],
+        ..CausalityLinks::default()
+    }
+}
+
+fn raw_only_resolution(reference: UpravaRef, reason: &str) -> ReferenceResolution {
+    ReferenceResolution {
+        title: reference_title(&reference),
+        reference,
+        status: ReferenceResolutionStatus::RawOnly,
+        summary: None,
+        links: CausalityLinks::default(),
+        raw_payload: None,
+        raw_truncated: false,
+        unavailable_reason: Some(reason.to_owned()),
+    }
+}
+
+fn missing_resolution(reference: UpravaRef, reason: &str) -> ReferenceResolution {
+    ReferenceResolution {
+        title: reference_title(&reference),
+        reference,
+        status: ReferenceResolutionStatus::Missing,
+        summary: None,
+        links: CausalityLinks::default(),
+        raw_payload: None,
+        raw_truncated: false,
+        unavailable_reason: Some(reason.to_owned()),
+    }
+}
+
+fn reference_title(reference: &UpravaRef) -> String {
+    match reference {
+        UpravaRef::Node { node_id } => format!("Node {node_id}"),
+        UpravaRef::Project { project_id } => format!("Project {project_id}"),
+        UpravaRef::Placement { placement_id } | UpravaRef::Workspace { placement_id } => {
+            format!("Workspace {placement_id}")
+        }
+        UpravaRef::Session { session_thread_id } => format!("Session {session_thread_id}"),
+        UpravaRef::Runtime { runtime_session_id } => format!("Runtime {runtime_session_id}"),
+        UpravaRef::Turn { turn_id } => format!("Turn {turn_id}"),
+        UpravaRef::Message { message_id } => format!("Message {message_id}"),
+        UpravaRef::Block { block_id } => format!("Block {block_id}"),
+        UpravaRef::Artifact { artifact_id } => format!("Artifact {artifact_id}"),
+        UpravaRef::Deduction { deduction_id } => format!("Deduction {deduction_id}"),
+        UpravaRef::Event { event_id, .. } => format!("Event {event_id}"),
+        UpravaRef::Command { command_id } => format!("Command {command_id}"),
+        UpravaRef::Approval { approval_id } => format!("Approval {approval_id}"),
+        UpravaRef::Warning { warning_kind, .. } => format!("Warning {warning_kind}"),
+        UpravaRef::ToolCall { tool_call_id } => format!("Tool call {tool_call_id}"),
+        UpravaRef::File { path, .. } | UpravaRef::FileRange { path, .. } => path.clone(),
+        UpravaRef::Terminal { terminal_id, .. } => format!("Terminal {terminal_id}"),
+        UpravaRef::TerminalCommand {
+            terminal_command_id,
+            ..
+        }
+        | UpravaRef::TerminalOutputRange {
+            terminal_command_id,
+            ..
+        } => format!("Terminal command {terminal_command_id}"),
+        UpravaRef::DiffHunk { diff_id, hunk_id } => format!("Diff {diff_id} hunk {hunk_id}"),
+        UpravaRef::WorkspaceDiff { diff_id, .. } => format!("Workspace diff {diff_id}"),
+        UpravaRef::CheckResult { check_run_id, .. } => format!("Check {check_run_id}"),
+        UpravaRef::WorkspaceEdit { edit_id, .. } => format!("Workspace edit {edit_id}"),
+        UpravaRef::TraceEvent { trace_event_id } => format!("Trace event {trace_event_id}"),
+        UpravaRef::ExternalEntity { external_id, .. } => format!("External entity {external_id}"),
+        UpravaRef::Unknown { ref_type, .. } => format!("Unknown {ref_type}"),
+    }
 }
 
 async fn build_session_evidence_projection(
@@ -8845,6 +10661,13 @@ fn available_commands(
     }
     if has_active_warnings {
         commands.push(ActionCapability::WarningAcknowledge);
+    }
+    if matches!(
+        runtime_state,
+        RuntimeSessionState::Ready | RuntimeSessionState::Running
+    ) && can_start_or_continue_runtime
+    {
+        commands.push(ActionCapability::DeductionRequest);
     }
     commands.push(ActionCapability::ReferenceOpenInInspector);
     commands.push(ActionCapability::ReferenceCopy);
@@ -10125,6 +11948,17 @@ fn format_session_state(value: SessionThreadState) -> &'static str {
     }
 }
 
+fn parse_deduction_state(value: &str) -> DeductionState {
+    match value {
+        "running" => DeductionState::Running,
+        "completed" => DeductionState::Completed,
+        "invalid" => DeductionState::Invalid,
+        "failed" => DeductionState::Failed,
+        "cancelled" => DeductionState::Cancelled,
+        _ => DeductionState::Requested,
+    }
+}
+
 fn parse_runtime_state(value: &str) -> RuntimeSessionState {
     match value {
         "ready" => RuntimeSessionState::Ready,
@@ -10897,6 +12731,58 @@ const MIGRATION_9: &[&str] = &[
     "#,
 ];
 
+const MIGRATION_10: &[&str] = &[
+    r#"
+    create table if not exists deductions (
+        deduction_id text primary key,
+        session_thread_id text not null references session_threads(session_thread_id) on delete cascade,
+        scope_ref_json text not null,
+        question text not null,
+        state text not null check (state in ('requested', 'running', 'completed', 'invalid', 'failed', 'cancelled')),
+        command_id text not null unique references commands(command_id),
+        evidence_snapshot_hash text not null,
+        input_package_json text not null,
+        block_json text,
+        raw_fallback text,
+        raw_truncated integer not null default 0,
+        error_code text,
+        error_message text,
+        artifact_id text,
+        created_at text not null,
+        updated_at text not null
+    )
+    "#,
+    r#"
+    create index if not exists deductions_session_idx
+    on deductions(session_thread_id, created_at desc, deduction_id)
+    "#,
+    r#"
+    create unique index if not exists deductions_one_active_idx
+    on deductions(session_thread_id)
+    where state in ('requested', 'running')
+    "#,
+    r#"
+    create table if not exists causality_narratives (
+        artifact_id text primary key,
+        deduction_id text not null unique references deductions(deduction_id) on delete cascade,
+        session_thread_id text not null references session_threads(session_thread_id) on delete cascade,
+        current_version integer not null,
+        created_at text not null,
+        updated_at text not null
+    )
+    "#,
+    r#"
+    create table if not exists causality_narrative_versions (
+        artifact_id text not null references causality_narratives(artifact_id) on delete cascade,
+        version integer not null,
+        block_json text not null,
+        provenance_json text not null,
+        created_at text not null,
+        primary key (artifact_id, version)
+    )
+    "#,
+];
+
 const MIGRATIONS: &[Migration] = &[
     Migration {
         version: 1,
@@ -10941,6 +12827,11 @@ const MIGRATIONS: &[Migration] = &[
     Migration {
         version: 9,
         statements: MIGRATION_9,
+        ignore_duplicate_columns: false,
+    },
+    Migration {
+        version: 10,
+        statements: MIGRATION_10,
         ignore_duplicate_columns: false,
     },
 ];

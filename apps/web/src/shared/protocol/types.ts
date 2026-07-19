@@ -392,6 +392,51 @@ export type EventPayload =
     }
   | ({ type: "workspace_validated" } & WorkspaceSnapshotEventData)
   | ({ type: "resource_snapshot_updated" } & WorkspaceSnapshotEventData)
+  | {
+      type: "workspace_file_written";
+      placement_id: string;
+      path: string;
+      edit_id: string;
+    }
+  | {
+      type: "workspace_command_completed";
+      placement_id: string;
+      terminal_command_id: string;
+      success: boolean;
+      exit_code: number | null;
+      stdout_truncated: boolean;
+      stderr_truncated: boolean;
+    }
+  | {
+      type: "workspace_check_completed";
+      placement_id: string;
+      check_run_id: string;
+      success: boolean;
+      exit_code: number | null;
+      stdout_truncated: boolean;
+      stderr_truncated: boolean;
+    }
+  | {
+      type: "workspace_diff_observed";
+      placement_id: string;
+      diff_id: string;
+      summary_truncated: boolean;
+      diff_truncated: boolean;
+    }
+  | {
+      type: "deduction_requested";
+      deduction_id: string;
+      scope_ref: UpravaRef;
+      question: string;
+    }
+  | { type: "deduction_completed"; deduction_id: string }
+  | { type: "deduction_cancelled"; deduction_id: string }
+  | {
+      type: "deduction_invalid" | "deduction_failed";
+      deduction_id: string;
+      code: string;
+      message: string;
+    }
   | { type: "extension"; name: string; value: unknown };
 
 type RuntimeStatePayloadType =
@@ -701,6 +746,7 @@ export type UpravaRef =
   | { kind: "message"; message_id: string }
   | { kind: "block"; block_id: string }
   | { kind: "artifact"; artifact_id: string }
+  | { kind: "deduction"; deduction_id: string }
   | { kind: "event"; event_id: string; scope_ref: unknown; seq: number }
   | { kind: "command"; command_id: string }
   | { kind: "approval"; approval_id: string }
@@ -731,6 +777,7 @@ export type UpravaRef =
       range: TextRange;
     }
   | { kind: "diff_hunk"; diff_id: string; hunk_id: string }
+  | { kind: "workspace_diff"; diff_id: string; placement_id: string }
   | { kind: "check_result"; check_run_id: string; failure_id?: string | null }
   | {
       kind: "workspace_edit";
@@ -748,6 +795,138 @@ export type TextRange = {
   end_line?: number | null;
   start_offset?: number | null;
   end_offset?: number | null;
+};
+
+export type TracePrecision = "exact" | "coarse" | "agent_authored" | "unknown";
+
+export type ReferenceResolutionStatus =
+  | "resolved"
+  | "missing"
+  | "offline"
+  | "redacted"
+  | "unsupported"
+  | "raw_only";
+
+export type CausalityLinks = {
+  source_refs: UpravaRef[];
+  evidence_refs: UpravaRef[];
+  cause_refs: UpravaRef[];
+  result_refs: UpravaRef[];
+  raw_refs: UpravaRef[];
+};
+
+export type TraceStep = CausalityLinks & {
+  block_id: string;
+  title: string;
+  summary: string;
+  actor_ref: unknown;
+  started_at: string;
+  completed_at: string | null;
+  precision: TracePrecision;
+  primary_ref: UpravaRef;
+};
+
+export type SessionTraceProjection = {
+  session_thread_id: string;
+  precision: TracePrecision;
+  steps: TraceStep[];
+  raw_event_count: number;
+  generated_at: string;
+};
+
+export type ReferenceResolution = CausalityLinks & {
+  reference: UpravaRef;
+  status: ReferenceResolutionStatus;
+  title: string;
+  summary: string | null;
+  raw_payload: unknown | null;
+  raw_truncated: boolean;
+  unavailable_reason: string | null;
+};
+
+export type EventLogPage = {
+  events: EventEnvelope[];
+  next_cursor: string | null;
+};
+
+export type DeductionState =
+  | "requested"
+  | "running"
+  | "completed"
+  | "invalid"
+  | "failed"
+  | "cancelled";
+
+export type DeductionClassification =
+  | "observed"
+  | "inference"
+  | "assumption"
+  | "unknown"
+  | "alternative";
+
+export type DeductionCertainty = "high" | "medium" | "low" | "unknown";
+
+export type DeductionStep = {
+  step_id: string;
+  classification: DeductionClassification;
+  summary: string;
+  support_refs: UpravaRef[];
+};
+
+export type DeductionProviderResult = {
+  title: string;
+  conclusion: string;
+  certainty: DeductionCertainty;
+  steps: DeductionStep[];
+  assumptions: string[];
+  unknowns: string[];
+  alternatives: string[];
+};
+
+export type DeductionBlock = DeductionProviderResult & {
+  deduction_id: string;
+  scope_ref: UpravaRef;
+  provenance: {
+    provider: string;
+    model: string | null;
+    session_thread_id: string;
+    schema_version: string;
+    evidence_snapshot_hash: string;
+    generated_at: string;
+  };
+};
+
+export type CreateDeductionRequest = {
+  scope_ref: UpravaRef;
+  question?: string | null;
+};
+
+export type DeductionAcceptedResponse = {
+  deduction_id: string;
+  command_id: string;
+};
+
+export type DeductionRecord = {
+  deduction_id: string;
+  session_thread_id: string;
+  scope_ref: UpravaRef;
+  question: string;
+  state: DeductionState;
+  command_id: string;
+  block: DeductionBlock | null;
+  raw_fallback: string | null;
+  raw_truncated: boolean;
+  error_code: string | null;
+  error_message: string | null;
+  artifact_id: string | null;
+  created_at: string;
+  updated_at: string;
+};
+
+export type PersistDeductionResponse = {
+  deduction_id: string;
+  artifact_id: string;
+  version: number;
 };
 
 export type SessionEvidenceProjectionNode = {

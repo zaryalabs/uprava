@@ -18,6 +18,7 @@ export type InspectorRow = {
 export type InspectorRefLink = {
   label: string;
   ref: UpravaRef;
+  aspect?: "source" | "evidence" | "cause" | "result" | "raw" | "related";
 };
 
 export type InspectorDetail = {
@@ -120,26 +121,36 @@ export function InspectorPresentation({
           {detail.refs.length > 0 ? (
             <div className="mt-4 space-y-2">
               <div className="text-xs font-bold text-[var(--color-muted)]">
-                References
+                Causality
               </div>
-              <div className="flex flex-wrap gap-1.5">
-                {detail.refs.map((item, index) => (
-                  <button
-                    key={`${index}:${refTitle(item.ref)}`}
-                    type="button"
-                    className="max-w-full truncate border border-[var(--color-muted)] bg-[var(--color-bg)] px-2 py-1 text-left text-xs hover:border-[var(--color-ink)] hover:bg-[var(--color-bg-muted)]"
-                    title={refTitle(item.ref)}
-                    onClick={() => {
-                      void runWorkbenchCommand("reference.openInInspector", {
-                        reference: item.ref,
-                        openReference,
-                      });
-                    }}
-                  >
-                    {item.label}
-                  </button>
-                ))}
-              </div>
+              {groupRefLinks(detail.refs).map(([aspect, refs]) => (
+                <div key={aspect} className="border-l border-black/10 pl-2">
+                  <div className="mb-1 text-[10px] font-bold uppercase tracking-wide text-[var(--color-muted)]">
+                    {aspect}
+                  </div>
+                  <div className="flex flex-wrap gap-1.5">
+                    {refs.map((item, index) => (
+                      <button
+                        key={`${index}:${refTitle(item.ref)}`}
+                        type="button"
+                        className="max-w-full truncate border border-[var(--color-muted)] bg-[var(--color-bg)] px-2 py-1 text-left text-xs hover:border-[var(--color-ink)] hover:bg-[var(--color-bg-muted)]"
+                        title={refTitle(item.ref)}
+                        onClick={() => {
+                          void runWorkbenchCommand(
+                            "reference.openInInspector",
+                            {
+                              reference: item.ref,
+                              openReference,
+                            },
+                          );
+                        }}
+                      >
+                        {item.label}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              ))}
             </div>
           ) : null}
           {detail.payload !== undefined ? (
@@ -155,6 +166,26 @@ export function InspectorPresentation({
       )}
     </section>
   );
+}
+
+function groupRefLinks(refs: InspectorRefLink[]) {
+  const order: NonNullable<InspectorRefLink["aspect"]>[] = [
+    "source",
+    "evidence",
+    "cause",
+    "result",
+    "raw",
+    "related",
+  ];
+  return order
+    .map(
+      (aspect) =>
+        [
+          aspect,
+          refs.filter((item) => (item.aspect ?? "related") === aspect),
+        ] as const,
+    )
+    .filter(([, items]) => items.length > 0);
 }
 
 function formatValue(value: InspectorRow["value"]) {

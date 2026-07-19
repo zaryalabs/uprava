@@ -33,6 +33,9 @@ pub enum UpravaRef {
     Artifact {
         artifact_id: ArtifactId,
     },
+    Deduction {
+        deduction_id: DeductionId,
+    },
     Event {
         event_id: EventId,
         scope_ref: Box<ScopeRef>,
@@ -78,6 +81,10 @@ pub enum UpravaRef {
         diff_id: String,
         hunk_id: String,
     },
+    WorkspaceDiff {
+        diff_id: String,
+        placement_id: ProjectPlacementId,
+    },
     CheckResult {
         check_run_id: String,
         failure_id: Option<String>,
@@ -106,6 +113,199 @@ pub struct TextRange {
     pub end_line: Option<i64>,
     pub start_offset: Option<i64>,
     pub end_offset: Option<i64>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum TracePrecision {
+    Exact,
+    Coarse,
+    AgentAuthored,
+    Unknown,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum ReferenceResolutionStatus {
+    Resolved,
+    Missing,
+    Offline,
+    Redacted,
+    Unsupported,
+    RawOnly,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Default, Serialize, Deserialize)]
+pub struct CausalityLinks {
+    #[serde(default)]
+    pub source_refs: Vec<UpravaRef>,
+    #[serde(default)]
+    pub evidence_refs: Vec<UpravaRef>,
+    #[serde(default)]
+    pub cause_refs: Vec<UpravaRef>,
+    #[serde(default)]
+    pub result_refs: Vec<UpravaRef>,
+    #[serde(default)]
+    pub raw_refs: Vec<UpravaRef>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct TraceStep {
+    pub block_id: BlockId,
+    pub title: String,
+    pub summary: String,
+    pub actor_ref: ActorRef,
+    pub started_at: DateTime<Utc>,
+    pub completed_at: Option<DateTime<Utc>>,
+    pub precision: TracePrecision,
+    pub primary_ref: UpravaRef,
+    #[serde(flatten)]
+    pub links: CausalityLinks,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct SessionTraceProjection {
+    pub session_thread_id: SessionThreadId,
+    pub precision: TracePrecision,
+    #[serde(default)]
+    pub steps: Vec<TraceStep>,
+    pub raw_event_count: u64,
+    pub generated_at: DateTime<Utc>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ReferenceResolution {
+    pub reference: UpravaRef,
+    pub status: ReferenceResolutionStatus,
+    pub title: String,
+    pub summary: Option<String>,
+    #[serde(flatten)]
+    pub links: CausalityLinks,
+    pub raw_payload: Option<serde_json_value::JsonValue>,
+    pub raw_truncated: bool,
+    pub unavailable_reason: Option<String>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct EventLogPage {
+    #[serde(default)]
+    pub events: Vec<EventEnvelope>,
+    pub next_cursor: Option<String>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum DeductionState {
+    Requested,
+    Running,
+    Completed,
+    Invalid,
+    Failed,
+    Cancelled,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum DeductionClassification {
+    Observed,
+    Inference,
+    Assumption,
+    Unknown,
+    Alternative,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum DeductionCertainty {
+    High,
+    Medium,
+    Low,
+    Unknown,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct DeductionStep {
+    pub step_id: String,
+    pub classification: DeductionClassification,
+    pub summary: String,
+    #[serde(default)]
+    pub support_refs: Vec<UpravaRef>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct DeductionProviderResult {
+    pub title: String,
+    pub conclusion: String,
+    pub certainty: DeductionCertainty,
+    #[serde(default)]
+    pub steps: Vec<DeductionStep>,
+    #[serde(default)]
+    pub assumptions: Vec<String>,
+    #[serde(default)]
+    pub unknowns: Vec<String>,
+    #[serde(default)]
+    pub alternatives: Vec<String>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct DeductionProvenance {
+    pub provider: String,
+    pub model: Option<String>,
+    pub session_thread_id: SessionThreadId,
+    pub schema_version: String,
+    pub evidence_snapshot_hash: String,
+    pub generated_at: DateTime<Utc>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct DeductionBlock {
+    pub deduction_id: DeductionId,
+    pub scope_ref: UpravaRef,
+    #[serde(flatten)]
+    pub result: DeductionProviderResult,
+    pub provenance: DeductionProvenance,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct DeductionEvidenceEvent {
+    pub event_ref: UpravaRef,
+    pub kind: EventKind,
+    pub summary: String,
+    pub happened_at: DateTime<Utc>,
+    #[serde(flatten)]
+    pub links: CausalityLinks,
+    pub raw_excerpt: Option<String>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct DeductionInputPackage {
+    pub deduction_id: DeductionId,
+    pub session_thread_id: SessionThreadId,
+    pub scope_ref: UpravaRef,
+    pub question: String,
+    pub evidence_snapshot_hash: String,
+    #[serde(default)]
+    pub trace_steps: Vec<TraceStep>,
+    #[serde(default)]
+    pub events: Vec<DeductionEvidenceEvent>,
+    #[serde(default)]
+    pub allowed_refs: Vec<UpravaRef>,
+    pub truncated: bool,
+    pub generated_at: DateTime<Utc>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct DeductionProviderOutput {
+    pub deduction_id: DeductionId,
+    pub provider: String,
+    pub model: Option<String>,
+    pub schema_version: String,
+    pub evidence_snapshot_hash: String,
+    pub result: Option<DeductionProviderResult>,
+    pub raw_text: String,
+    pub raw_truncated: bool,
+    pub error_code: Option<String>,
+    pub error_message: Option<String>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]

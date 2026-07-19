@@ -202,12 +202,79 @@ export const eventPayloadSchema = z.union([
     .strict(),
   z
     .object({
+      type: z.literal("workspace_file_written"),
+      placement_id: z.string(),
+      path: z.string(),
+      edit_id: z.string(),
+    })
+    .strict(),
+  z
+    .object({
+      type: z.literal("workspace_command_completed"),
+      placement_id: z.string(),
+      terminal_command_id: z.string(),
+      success: z.boolean(),
+      exit_code: nullableNumber,
+      stdout_truncated: z.boolean(),
+      stderr_truncated: z.boolean(),
+    })
+    .strict(),
+  z
+    .object({
+      type: z.literal("workspace_check_completed"),
+      placement_id: z.string(),
+      check_run_id: z.string(),
+      success: z.boolean(),
+      exit_code: nullableNumber,
+      stdout_truncated: z.boolean(),
+      stderr_truncated: z.boolean(),
+    })
+    .strict(),
+  z
+    .object({
+      type: z.literal("workspace_diff_observed"),
+      placement_id: z.string(),
+      diff_id: z.string(),
+      summary_truncated: z.boolean(),
+      diff_truncated: z.boolean(),
+    })
+    .strict(),
+  z
+    .object({
+      type: z.literal("deduction_requested"),
+      deduction_id: z.string(),
+      scope_ref: protocolRefSchema,
+      question: z.string(),
+    })
+    .strict(),
+  z
+    .object({
+      type: z.literal("deduction_completed"),
+      deduction_id: z.string(),
+    })
+    .strict(),
+  z
+    .object({
+      type: z.literal("deduction_cancelled"),
+      deduction_id: z.string(),
+    })
+    .strict(),
+  z
+    .object({
+      type: z.enum(["deduction_invalid", "deduction_failed"]),
+      deduction_id: z.string(),
+      code: z.string(),
+      message: z.string(),
+    })
+    .strict(),
+  z
+    .object({
       type: z.literal("extension"),
       name: z.string(),
       value: z.unknown(),
     })
     .strict(),
-]) satisfies z.ZodType<EventPayload>;
+]) as z.ZodType<EventPayload>;
 
 const payloadTypeByEventKind: Record<EventKind, EventPayload["type"]> = {
   "runtime.starting": "runtime_starting",
@@ -229,6 +296,15 @@ const payloadTypeByEventKind: Record<EventKind, EventPayload["type"]> = {
   "coordination.warning_acknowledged": "coordination_warning_acknowledged",
   "workspace.validated": "workspace_validated",
   "resource.snapshot.updated": "resource_snapshot_updated",
+  "workspace.file.written": "workspace_file_written",
+  "workspace.command.completed": "workspace_command_completed",
+  "workspace.check.completed": "workspace_check_completed",
+  "workspace.diff.observed": "workspace_diff_observed",
+  "deduction.requested": "deduction_requested",
+  "deduction.completed": "deduction_completed",
+  "deduction.invalid": "deduction_invalid",
+  "deduction.failed": "deduction_failed",
+  "deduction.cancelled": "deduction_cancelled",
   extension: "extension",
 };
 

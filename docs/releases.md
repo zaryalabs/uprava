@@ -2,7 +2,7 @@
 
 Статус: `active`
 
-Current release baseline: `0.2.6`.
+Current release baseline: `0.2.7`.
 
 Этот ledger фиксирует implementation baselines. Он не заменяет
 [`feature-queue.md`](product/feature-queue.md), где остается ранжированная очередь
@@ -27,16 +27,30 @@ future work.
 | `0.2.3` | 2026-07-12 | shipped | Clean-bootstrap four-phase CI/CD, containerized prepare, explicit deploy/finalize boundaries and state-neutral delivery |
 | `0.2.4` | 2026-07-12 | shipped | Отложенные сообщения в сессии: долговечные Core-owned одноразовые будущие turn с guarded dispatch |
 | `0.2.5` | 2026-07-12 | shipped | Background Jobs и scheduled agent runs с наблюдаемыми per-run sessions и quota admission |
-| `0.2.6` | 2026-07-13 | current | Workspace-centered Web UI: Node/Workspace navigation и workspace Agent, Workbench, Jobs surfaces |
+| `0.2.6` | 2026-07-13 | shipped | Workspace-centered Web UI: Node/Workspace navigation и workspace Agent, Workbench, Jobs surfaces |
+| `0.2.7` | 2026-07-19 | current | Causality/Trace UX, raw event/ref resolution и isolated structured Deduction |
 
 ## Current Baseline
 
-`0.2.6` включает protocol-v2 baseline `0.2.0`, завершённое Zarya 0.1 Web UI/UX
+`0.2.7` включает protocol-v2 baseline `0.2.0`, завершённое Zarya 0.1 Web UI/UX
 alignment и clean-bootstrap four-phase delivery path. Текущая реализация включает
 первый working distributed
-control panel, восемь закрытых
+control panel, девять закрытых
 feature queue slices после `0.1.0`, unified audit hardening slice и workspace
 renderer/PTY terminal layer, а также первый deployable self-hosted release path:
+
+- coarse session trace с precision markers и типизированными
+  source/evidence/cause/result/raw links;
+- глобальный cursor-based event log, raw event detail и server-side reference
+  resolver с явными unavailable states;
+- workspace file/command/check/diff causality events, сохраняемые через
+  Core-owned event log;
+- isolated Deduction execution без resume live session, в ephemeral read-only
+  Codex process со structured output schema;
+- bounded evidence snapshots, Core-side ref allowlist/provenance validation,
+  raw fallback, cancellation и explicit persistence в versioned
+  `CausalityNarrative`;
+- Web trace, aspect-based Context Inspector, raw event log и Deduction panel.
 
 - controlled-development security baseline;
 - runtime/session hardening;

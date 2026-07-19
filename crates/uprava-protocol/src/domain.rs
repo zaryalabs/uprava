@@ -188,6 +188,8 @@ pub enum CommandKind {
     ResizeWorkspaceTerminal,
     WriteWorkspaceTerminal,
     CloseWorkspaceTerminal,
+    RequestDeduction,
+    CancelDeduction,
     Extension,
 }
 
@@ -213,6 +215,8 @@ pub enum ActionCapability {
     ReferenceOpenInInspector,
     #[serde(rename = "reference.copy")]
     ReferenceCopy,
+    #[serde(rename = "deduction.request")]
+    DeductionRequest,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -256,6 +260,24 @@ pub enum EventKind {
     WorkspaceValidated,
     #[serde(rename = "resource.snapshot.updated")]
     ResourceSnapshotUpdated,
+    #[serde(rename = "workspace.file.written")]
+    WorkspaceFileWritten,
+    #[serde(rename = "workspace.command.completed")]
+    WorkspaceCommandCompleted,
+    #[serde(rename = "workspace.check.completed")]
+    WorkspaceCheckCompleted,
+    #[serde(rename = "workspace.diff.observed")]
+    WorkspaceDiffObserved,
+    #[serde(rename = "deduction.requested")]
+    DeductionRequested,
+    #[serde(rename = "deduction.completed")]
+    DeductionCompleted,
+    #[serde(rename = "deduction.invalid")]
+    DeductionInvalid,
+    #[serde(rename = "deduction.failed")]
+    DeductionFailed,
+    #[serde(rename = "deduction.cancelled")]
+    DeductionCancelled,
     #[serde(rename = "extension")]
     Extension,
 }

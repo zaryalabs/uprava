@@ -38,23 +38,25 @@ use tokio_tungstenite::{
     tungstenite::{client::IntoClientRequest, http::HeaderValue, Message as WsMessage},
 };
 use uprava_logging::init_tracing;
+#[cfg(test)]
+use uprava_protocol::CommandTarget;
 use uprava_protocol::{
     is_supported_protocol_version, serde_json_value::JsonValue, ActorRef, ApiError, ApprovalId,
     CapabilitySummary, CapabilityValue, CommandEnvelope, CommandId, CommandKind, CommandPayload,
-    CommandState, ControlFrame, CorrelationId, EnrollmentId, EventEnvelope, EventId, EventKind,
-    EventPayload, NodeEnrollmentClaimRequest, NodeEnrollmentClaimResponse, NodeEnrollmentRequest,
+    CommandState, ControlFrame, CorrelationId, DeductionInputPackage, DeductionProviderOutput,
+    DeductionProviderResult, EnrollmentId, EventEnvelope, EventId, EventKind, EventPayload,
+    NodeEnrollmentClaimRequest, NodeEnrollmentClaimResponse, NodeEnrollmentRequest,
     NodeEnrollmentRequestedResponse, NodeHeartbeatRequest, NodeHeartbeatResponse, NodeId,
     PlacementState, ProjectPlacementId, ResourceBadge, RuntimeSessionId, RuntimeSessionState,
-    ScopeRef, SessionThreadId, SleepHint, TerminalId, TurnId, WarningSeverity,
-    WorkspaceCommandRunRequest, WorkspaceCommandRunResponse, WorkspaceDiffResponse, WorkspaceEntry,
+    ScopeRef, SessionThreadId, SleepHint, TerminalId, TextRange, TurnId, UpravaRef,
+    WarningSeverity, WorkspaceCommandIntent, WorkspaceCommandRunRequest,
+    WorkspaceCommandRunResponse, WorkspaceDiffResponse, WorkspaceEntry,
     WorkspaceEntryClassification, WorkspaceEntryKind, WorkspaceEntryStatus,
     WorkspaceFileContentResponse, WorkspaceFileWriteRequest, WorkspaceFileWriteResponse,
     WorkspaceSnapshot, WorkspaceTerminalOpenRequest, WorkspaceTerminalOpenResponse,
     WorkspaceTerminalOutputFrame, WorkspaceTerminalState, WorkspaceTerminalSummary,
     WorkspaceTreeResponse, CURRENT_PROTOCOL_VERSION as API_VERSION,
 };
-#[cfg(test)]
-use uprava_protocol::{CommandTarget, WorkspaceCommandIntent};
 use uuid::Uuid;
 
 #[path = "config.rs"]
@@ -100,6 +102,9 @@ const MAX_PROVIDER_ACTIVITY_LINE_CHARS: usize = 4_000;
 const MAX_PROVIDER_ACTIVITY_EVENTS: usize = 512;
 const MAX_PROVIDER_PROCESS_OUTPUT_BYTES: usize = 256 * 1024;
 const MAX_PROVIDER_APPROVAL_REQUESTS: usize = 16;
+const MAX_DEDUCTION_RAW_CHARS: usize = 32_000;
+const MAX_CANCELLED_DEDUCTION_TOMBSTONES: usize = 1_024;
+const DEDUCTION_SCHEMA_VERSION: &str = "uprava.deduction.v1";
 const PROVIDER_PROCESS_SHUTDOWN_TIMEOUT: Duration = Duration::from_secs(3);
 const NODE_STATE_SLOT: &str = "0.2.0";
 const NODE_STATE_SCHEMA_VERSION: u32 = 1;
@@ -164,6 +169,8 @@ struct NodeLocalState {
     #[serde(default)]
     runtime_provider_resume_refs: HashMap<String, ProviderResumeRef>,
     #[serde(default)]
+    cancelled_deductions: HashSet<String>,
+    #[serde(default)]
     placement_seqs: HashMap<String, i64>,
     #[serde(default)]
     reconnect_attempts: u64,
@@ -206,6 +213,7 @@ impl Default for NodeLocalState {
             runtime_states: HashMap::new(),
             runtime_transcripts: HashMap::new(),
             runtime_provider_resume_refs: HashMap::new(),
+            cancelled_deductions: HashSet::new(),
             placement_seqs: HashMap::new(),
             reconnect_attempts: 0,
             dropped_event_count: 0,
@@ -252,6 +260,7 @@ impl std::fmt::Debug for NodeLocalState {
                 "runtime_provider_resume_ref_count",
                 &runtime_provider_resume_ref_count,
             )
+            .field("cancelled_deductions", &self.cancelled_deductions)
             .field("placement_seqs", &self.placement_seqs)
             .field("reconnect_attempts", &self.reconnect_attempts)
             .field("dropped_event_count", &self.dropped_event_count)
@@ -566,6 +575,7 @@ impl NodeLocalState {
             state_slot: self.state_slot.clone(),
             schema_version: self.schema_version,
             daemon_installation_id: self.daemon_installation_id.clone(),
+            cancelled_deductions: self.cancelled_deductions.clone(),
             ..Self::default()
         }
     }
@@ -669,6 +679,18 @@ impl NodeLocalState {
             &baseline.runtime_provider_resume_refs,
             &command_state.runtime_provider_resume_refs,
         );
+        for deduction_id in command_state
+            .cancelled_deductions
+            .difference(&baseline.cancelled_deductions)
+        {
+            remember_cancelled_deduction(&mut self.cancelled_deductions, deduction_id.clone());
+        }
+        for deduction_id in baseline
+            .cancelled_deductions
+            .difference(&command_state.cancelled_deductions)
+        {
+            self.cancelled_deductions.remove(deduction_id);
+        }
         for (placement_id, seq) in &command_state.placement_seqs {
             if baseline.placement_seqs.get(placement_id) != Some(seq) {
                 let current = self.placement_seqs.entry(placement_id.clone()).or_default();
@@ -682,6 +704,18 @@ impl NodeLocalState {
             .heartbeat_failures
             .max(command_state.heartbeat_failures);
     }
+}
+
+fn remember_cancelled_deduction(tombstones: &mut HashSet<String>, deduction_id: String) {
+    if tombstones.contains(&deduction_id) {
+        return;
+    }
+    if tombstones.len() >= MAX_CANCELLED_DEDUCTION_TOMBSTONES {
+        if let Some(expired) = tombstones.iter().next().cloned() {
+            tombstones.remove(&expired);
+        }
+    }
+    tombstones.insert(deduction_id);
 }
 
 /// The single owner boundary for durable Node state mutations.
@@ -1617,7 +1651,7 @@ async fn run_control_channel(
         match frame {
             ControlFrame::CommandDispatch { command, .. } => {
                 let command = *command;
-                let dispatch_result = if is_runtime_cancellation_command(&command) {
+                let dispatch_result = if is_priority_cancellation_command(&command) {
                     priority_dispatch_tx.try_send(CommandDispatchJob { command })
                 } else {
                     dispatch_tx.try_send(CommandDispatchJob { command })
@@ -1708,51 +1742,59 @@ impl CommandExecutionLocks {
 }
 
 #[derive(Clone, Default)]
-struct RuntimeCancellationRegistry {
-    senders: Arc<Mutex<HashMap<String, watch::Sender<bool>>>>,
+struct ExecutionCancellationRegistry {
+    state: Arc<Mutex<ExecutionCancellationState>>,
 }
 
-struct RuntimeCancellationGuard {
-    runtime_id: String,
+#[derive(Default)]
+struct ExecutionCancellationState {
+    senders: HashMap<String, watch::Sender<bool>>,
+    pending: HashSet<String>,
+}
+
+struct ExecutionCancellationGuard {
+    key: String,
     sender: watch::Sender<bool>,
     receiver: watch::Receiver<bool>,
 }
 
-impl RuntimeCancellationRegistry {
-    async fn begin(&self, runtime_session_id: &RuntimeSessionId) -> RuntimeCancellationGuard {
-        let (sender, receiver) = watch::channel(false);
-        let runtime_id = runtime_session_id.to_string();
-        self.senders
-            .lock()
-            .await
-            .insert(runtime_id.clone(), sender.clone());
-        RuntimeCancellationGuard {
-            runtime_id,
+impl ExecutionCancellationRegistry {
+    async fn begin(&self, key: String) -> ExecutionCancellationGuard {
+        let mut state = self.state.lock().await;
+        let initially_cancelled = state.pending.remove(&key);
+        let (sender, receiver) = watch::channel(initially_cancelled);
+        state.senders.insert(key.clone(), sender.clone());
+        ExecutionCancellationGuard {
+            key,
             sender,
             receiver,
         }
     }
 
-    async fn cancel(&self, runtime_session_id: &RuntimeSessionId) -> bool {
-        let senders = self.senders.lock().await;
-        let Some(sender) = senders.get(runtime_session_id.as_str()) else {
-            return false;
-        };
-        sender.send(true).is_ok()
+    async fn cancel(&self, key: String, remember_if_pending: bool) -> bool {
+        let mut state = self.state.lock().await;
+        if let Some(sender) = state.senders.get(&key) {
+            return sender.send(true).is_ok();
+        }
+        if remember_if_pending {
+            state.pending.insert(key);
+        }
+        false
     }
 
-    async fn finish(&self, guard: RuntimeCancellationGuard) {
-        let mut senders = self.senders.lock().await;
-        if senders
-            .get(guard.runtime_id.as_str())
+    async fn finish(&self, guard: ExecutionCancellationGuard) {
+        let mut state = self.state.lock().await;
+        if state
+            .senders
+            .get(&guard.key)
             .is_some_and(|sender| sender.same_channel(&guard.sender))
         {
-            senders.remove(guard.runtime_id.as_str());
+            state.senders.remove(&guard.key);
         }
     }
 }
 
-impl RuntimeCancellationGuard {
+impl ExecutionCancellationGuard {
     fn receiver(&self) -> watch::Receiver<bool> {
         self.receiver.clone()
     }
@@ -1772,7 +1814,7 @@ async fn run_command_dispatcher(
         sender,
         terminal_supervisor,
         locks: CommandExecutionLocks::default(),
-        cancellations: RuntimeCancellationRegistry::default(),
+        cancellations: ExecutionCancellationRegistry::default(),
         concurrency: Arc::new(Semaphore::new(NODE_COMMAND_DISPATCH_CONCURRENCY)),
     };
     let mut tasks = tokio::task::JoinSet::new();
@@ -1809,7 +1851,7 @@ struct CommandDispatcherShared {
     sender: ControlFrameSender,
     terminal_supervisor: TerminalSupervisor,
     locks: CommandExecutionLocks,
-    cancellations: RuntimeCancellationRegistry,
+    cancellations: ExecutionCancellationRegistry,
     concurrency: Arc<Semaphore>,
 }
 
@@ -1834,14 +1876,13 @@ fn spawn_command_dispatch_task(
             .lock_for(command_execution_key(&job.command))
             .await;
         let _guard = execution_lock.lock().await;
-        let cancellation_runtime_id = runtime_command_cancellation_target(&job.command).cloned();
-        let cancellation_guard = match cancellation_runtime_id.as_ref() {
-            Some(runtime_session_id) => Some(shared.cancellations.begin(runtime_session_id).await),
+        let cancellation_guard = match execution_cancellation_key(&job.command) {
+            Some(key) => Some(shared.cancellations.begin(key).await),
             None => None,
         };
         let cancellation_receiver = cancellation_guard
             .as_ref()
-            .map(RuntimeCancellationGuard::receiver);
+            .map(ExecutionCancellationGuard::receiver);
         let baseline = match shared.shared_state.snapshot().await {
             Ok(snapshot) => snapshot,
             Err(error) => {
@@ -1881,17 +1922,12 @@ fn spawn_command_dispatch_task(
 
 async fn prepare_command_dispatch_task(
     command: &CommandEnvelope,
-    cancellations: &RuntimeCancellationRegistry,
+    cancellations: &ExecutionCancellationRegistry,
     concurrency: Arc<Semaphore>,
 ) -> Option<tokio::sync::OwnedSemaphorePermit> {
-    if is_runtime_cancellation_command(command) {
-        if let Some(runtime_session_id) = command.target.runtime_session_id() {
-            let cancelled = cancellations.cancel(runtime_session_id).await;
-            tracing::debug!(
-                cancelled,
-                "runtime cancellation command signalled active provider"
-            );
-        }
+    if let Some((key, remember_if_pending)) = cancellation_signal(command) {
+        let cancelled = cancellations.cancel(key.clone(), remember_if_pending).await;
+        tracing::debug!(cancelled, key, "cancellation command signalled provider");
     }
     match concurrency.acquire_owned().await {
         Ok(permit) => Some(permit),
@@ -1902,17 +1938,46 @@ async fn prepare_command_dispatch_task(
     }
 }
 
-fn is_runtime_cancellation_command(command: &CommandEnvelope) -> bool {
+fn runtime_cancellation_key(runtime_session_id: &RuntimeSessionId) -> String {
+    format!("runtime:{}", runtime_session_id.as_str())
+}
+
+fn is_priority_cancellation_command(command: &CommandEnvelope) -> bool {
     matches!(
         command.kind,
-        CommandKind::InterruptRuntime | CommandKind::StopRuntime
+        CommandKind::InterruptRuntime | CommandKind::StopRuntime | CommandKind::CancelDeduction
     )
 }
 
-fn runtime_command_cancellation_target(command: &CommandEnvelope) -> Option<&RuntimeSessionId> {
-    matches!(command.kind, CommandKind::SendTurn)
-        .then_some(command.target.runtime_session_id())
-        .flatten()
+fn deduction_cancellation_key(deduction_id: &uprava_protocol::DeductionId) -> String {
+    format!("deduction:{}", deduction_id.as_str())
+}
+
+fn execution_cancellation_key(command: &CommandEnvelope) -> Option<String> {
+    match (&command.kind, &command.payload) {
+        (CommandKind::SendTurn, _) => command
+            .target
+            .runtime_session_id()
+            .map(runtime_cancellation_key),
+        (CommandKind::RequestDeduction, CommandPayload::RequestDeduction { package }) => {
+            Some(deduction_cancellation_key(&package.deduction_id))
+        }
+        _ => None,
+    }
+}
+
+fn cancellation_signal(command: &CommandEnvelope) -> Option<(String, bool)> {
+    match (&command.kind, &command.payload) {
+        (CommandKind::InterruptRuntime | CommandKind::StopRuntime, _) => command
+            .target
+            .runtime_session_id()
+            .map(runtime_cancellation_key)
+            .map(|key| (key, false)),
+        (CommandKind::CancelDeduction, CommandPayload::CancelDeduction { deduction_id }) => {
+            Some((deduction_cancellation_key(deduction_id), true))
+        }
+        _ => None,
+    }
 }
 
 fn command_execution_key(command: &CommandEnvelope) -> String {
@@ -2732,33 +2797,21 @@ async fn prepare_command_dispatch_with_live_socket(
         }
         CommandKind::WriteWorkspaceFile => {
             let (status, payload) = workspace_file_write_command_result(config, command);
-            record_command_result_payload(local_state, command, status, &payload);
-            return CommandDispatchOutcome {
-                status,
-                events_to_send: vec![],
-                result_payload: payload,
-                state_changed: true,
-            };
+            let events =
+                causal_workspace_events(command, status, &payload, &mut local_state.placement_seqs);
+            return workspace_command_outcome(local_state, command, status, payload, events);
         }
         CommandKind::RunWorkspaceCommand => {
             let (status, payload) = workspace_command_run_command_result(config, command).await;
-            record_command_result_payload(local_state, command, status, &payload);
-            return CommandDispatchOutcome {
-                status,
-                events_to_send: vec![],
-                result_payload: payload,
-                state_changed: true,
-            };
+            let events =
+                causal_workspace_events(command, status, &payload, &mut local_state.placement_seqs);
+            return workspace_command_outcome(local_state, command, status, payload, events);
         }
         CommandKind::ReadWorkspaceDiff => {
             let (status, payload) = workspace_diff_command_result(config, command).await;
-            record_command_result_payload(local_state, command, status, &payload);
-            return CommandDispatchOutcome {
-                status,
-                events_to_send: vec![],
-                result_payload: payload,
-                state_changed: true,
-            };
+            let events =
+                causal_workspace_events(command, status, &payload, &mut local_state.placement_seqs);
+            return workspace_command_outcome(local_state, command, status, payload, events);
         }
         CommandKind::OpenWorkspaceTerminal => {
             let (status, payload) = workspace_terminal_open_command_result(
@@ -2771,6 +2824,78 @@ async fn prepare_command_dispatch_with_live_socket(
             record_command_result_payload(local_state, command, status, &payload);
             return CommandDispatchOutcome {
                 status,
+                events_to_send: vec![],
+                result_payload: payload,
+                state_changed: true,
+            };
+        }
+        CommandKind::RequestDeduction => {
+            let deduction_id = match &command.payload {
+                CommandPayload::RequestDeduction { package } => package.deduction_id.to_string(),
+                _ => String::new(),
+            };
+            if local_state.cancelled_deductions.remove(&deduction_id) {
+                let (status, payload) = deduction_error_payload(
+                    command,
+                    "cancelled",
+                    "deduction.cancelled",
+                    "Deduction was cancelled before provider execution",
+                );
+                record_command_result_payload(local_state, command, status, &payload);
+                return CommandDispatchOutcome {
+                    status,
+                    events_to_send: vec![],
+                    result_payload: payload,
+                    state_changed: true,
+                };
+            }
+            if cancellation
+                .as_ref()
+                .is_some_and(|receiver| *receiver.borrow())
+            {
+                let (status, payload) = deduction_error_payload(
+                    command,
+                    "cancelled",
+                    "deduction.cancelled",
+                    "Deduction was cancelled before provider execution",
+                );
+                record_command_result_payload(local_state, command, status, &payload);
+                return CommandDispatchOutcome {
+                    status,
+                    events_to_send: vec![],
+                    result_payload: payload,
+                    state_changed: true,
+                };
+            }
+            let provider_key =
+                provider_for_command(local_state, command).unwrap_or_else(|| "unknown".to_owned());
+            let workspace_path = workspace_path_for_command(local_state, command);
+            let (status, payload) = RuntimeManager::for_provider(&provider_key, config)
+                .execute_deduction(command, workspace_path.as_deref(), cancellation)
+                .await;
+            record_command_result_payload(local_state, command, status, &payload);
+            return CommandDispatchOutcome {
+                status,
+                events_to_send: vec![],
+                result_payload: payload,
+                state_changed: true,
+            };
+        }
+        CommandKind::CancelDeduction => {
+            let CommandPayload::CancelDeduction { deduction_id } = &command.payload else {
+                unreachable!("command payload kind was validated before dispatch")
+            };
+            remember_cancelled_deduction(
+                &mut local_state.cancelled_deductions,
+                deduction_id.to_string(),
+            );
+            let payload = JsonValue(serde_json::json!({
+                "deduction_id": deduction_id.as_str(),
+                "cancelled": true,
+            }));
+            record_command_result_payload(local_state, command, CommandState::Completed, &payload);
+            return CommandDispatchOutcome {
+                status: CommandState::Completed,
                 events_to_send: vec![],
                 result_payload: payload,
                 state_changed: true,
@@ -2843,6 +2968,136 @@ fn record_command_result_payload(
     local_state
         .command_result_payloads
         .insert(command.command_id.to_string(), payload.clone());
+}
+
+fn workspace_command_outcome(
+    local_state: &mut NodeLocalState,
+    command: &CommandEnvelope,
+    status: CommandState,
+    payload: JsonValue,
+    events: Vec<EventEnvelope>,
+) -> CommandDispatchOutcome {
+    record_command_result_payload(local_state, command, status, &payload);
+    local_state.event_outbox.extend(events.iter().cloned());
+    let retention_notices = enforce_event_outbox_retention(local_state, MAX_EVENT_OUTBOX_EVENTS);
+    let mut events_to_send = events;
+    events_to_send.extend(retention_notices);
+    CommandDispatchOutcome {
+        status,
+        events_to_send,
+        result_payload: payload,
+        state_changed: true,
+    }
+}
+
+fn causal_workspace_events(
+    command: &CommandEnvelope,
+    status: CommandState,
+    payload: &JsonValue,
+    placement_seqs: &mut HashMap<String, i64>,
+) -> Vec<EventEnvelope> {
+    if status != CommandState::Completed {
+        return vec![];
+    }
+    let mut event = match command.kind {
+        CommandKind::WriteWorkspaceFile => {
+            let Ok(result) =
+                serde_json::from_value::<WorkspaceFileWriteResponse>(payload.0.clone())
+            else {
+                return vec![];
+            };
+            let mut event = placement_event_for_command(
+                command,
+                placement_seqs,
+                result.placement_id.clone(),
+                EventKind::WorkspaceFileWritten,
+                payload.0.clone(),
+            );
+            event.result_refs = vec![
+                UpravaRef::WorkspaceEdit {
+                    edit_id: result.edit_id,
+                    placement_id: Some(result.placement_id.clone()),
+                    path: Some(result.path.clone()),
+                },
+                UpravaRef::File {
+                    placement_id: result.placement_id,
+                    path: result.path,
+                    version: result.metadata.modified_at.map(|value| value.to_rfc3339()),
+                },
+            ];
+            event
+        }
+        CommandKind::RunWorkspaceCommand => {
+            let Ok(result) =
+                serde_json::from_value::<WorkspaceCommandRunResponse>(payload.0.clone())
+            else {
+                return vec![];
+            };
+            let event_kind = if result.intent == WorkspaceCommandIntent::Check {
+                EventKind::WorkspaceCheckCompleted
+            } else {
+                EventKind::WorkspaceCommandCompleted
+            };
+            let mut event = placement_event_for_command(
+                command,
+                placement_seqs,
+                result.placement_id,
+                event_kind,
+                payload.0.clone(),
+            );
+            let terminal_command_ref = UpravaRef::TerminalCommand {
+                terminal_command_id: result.terminal_command_id.clone(),
+                terminal_id: None,
+            };
+            event.evidence_refs = vec![UpravaRef::TerminalOutputRange {
+                terminal_command_id: result.terminal_command_id.clone(),
+                range: TextRange {
+                    start_line: Some(1),
+                    end_line: None,
+                    start_offset: Some(0),
+                    end_offset: Some(
+                        result
+                            .stdout
+                            .chars()
+                            .count()
+                            .saturating_add(result.stderr.chars().count())
+                            as i64,
+                    ),
+                },
+            }];
+            event.result_refs = vec![terminal_command_ref];
+            if result.intent == WorkspaceCommandIntent::Check {
+                event.result_refs.push(UpravaRef::CheckResult {
+                    check_run_id: result.terminal_command_id,
+                    failure_id: (!result.success).then(|| "command_failed".to_owned()),
+                });
+            }
+            event
+        }
+        CommandKind::ReadWorkspaceDiff => {
+            let Ok(result) = serde_json::from_value::<WorkspaceDiffResponse>(payload.0.clone())
+            else {
+                return vec![];
+            };
+            let mut event = placement_event_for_command(
+                command,
+                placement_seqs,
+                result.placement_id.clone(),
+                EventKind::WorkspaceDiffObserved,
+                payload.0.clone(),
+            );
+            event.result_refs = vec![UpravaRef::WorkspaceDiff {
+                diff_id: result.diff_id,
+                placement_id: result.placement_id,
+            }];
+            event
+        }
+        _ => return vec![],
+    };
+    event.cause_refs.push(UpravaRef::Command {
+        command_id: command.command_id.clone(),
+    });
+    vec![event]
 }
 
 fn command_status_for_events(events: &[EventEnvelope]) -> CommandState {
@@ -4825,6 +5080,30 @@ impl RuntimeManager {
             Self::Unsupported(provider) => provider.events_for_command(command, runtime_seqs),
         }
     }
+
+    async fn execute_deduction(
+        &self,
+        command: &CommandEnvelope,
+        workspace_path: Option<&str>,
+        cancellation: Option<watch::Receiver<bool>>,
+    ) -> (CommandState, JsonValue) {
+        match self {
+            Self::Codex(provider) => {
+                provider
+                    .execute_deduction(command, workspace_path, cancellation)
+                    .await
+            }
+            Self::Unsupported(provider) => deduction_error_payload(
+                command,
+                &provider.provider_key,
+                "deduction.provider_unsupported",
+                format!(
+                    "Provider `{}` cannot execute structured deductions",
+                    provider.provider_key
+                ),
+            ),
+        }
+    }
 }
 
 #[derive(Debug, Clone)]
@@ -4882,6 +5161,153 @@ impl CodexProviderAdapter {
     ) -> Result<String, WorkspaceInspectError> {
         canonical_workspace_root_for_allowed_paths(&self.workspace_paths, workspace_path)
             .map(|path| path.display().to_string())
+    }
+
+    async fn execute_deduction(
+        &self,
+        command_context: &CommandEnvelope,
+        workspace_path: Option<&str>,
+        cancellation: Option<watch::Receiver<bool>>,
+    ) -> (CommandState, JsonValue) {
+        let CommandPayload::RequestDeduction { package } = &command_context.payload else {
+            return deduction_error_payload(
+                command_context,
+                self.provider_key(),
+                "protocol.command_payload_mismatch",
+                "RequestDeduction payload does not match its command kind",
+            );
+        };
+        let Some(runtime_session_id) = command_context.target.runtime_session_id().cloned() else {
+            return deduction_error_payload(
+                command_context,
+                self.provider_key(),
+                "deduction.runtime_missing",
+                "Deduction command is missing a runtime session target",
+            );
+        };
+        let Some(workspace_path) = workspace_path.filter(|value| !value.trim().is_empty()) else {
+            return deduction_error_payload(
+                command_context,
+                self.provider_key(),
+                "deduction.workspace_missing",
+                "Deduction requires the session workspace path",
+            );
+        };
+        let workspace_path = match self.authorized_workspace_path(workspace_path) {
+            Ok(path) => path,
+            Err(error) => {
+                return deduction_error_payload(
+                    command_context,
+                    self.provider_key(),
+                    error.code,
+                    error.message,
+                );
+            }
+        };
+
+        let last_message_path = codex_last_message_path(&command_context.command_id);
+        let schema_path = codex_deduction_schema_path(&command_context.command_id);
+        let schema = deduction_output_schema(package);
+        if let Err(error) = std::fs::write(
+            &schema_path,
+            serde_json::to_vec_pretty(&schema).unwrap_or_default(),
+        ) {
+            return deduction_error_payload(
+                command_context,
+                self.provider_key(),
+                "deduction.schema_write_failed",
+                format!("Could not write the temporary deduction schema: {error}"),
+            );
+        }
+        let prompt = deduction_prompt(package);
+        let mut command = TokioCommand::new(&self.codex_binary);
+        command.arg("exec");
+        if self.ignore_user_config {
+            command.arg("--ignore-user-config");
+        }
+        command
+            .arg("--cd")
+            .arg(&workspace_path)
+            .arg("--ephemeral")
+            .arg("--sandbox")
+            .arg("read-only")
+            .arg("--skip-git-repo-check")
+            .arg("--json")
+            .arg("--output-schema")
+            .arg(&schema_path)
+            .arg("--output-last-message")
+            .arg(&last_message_path)
+            .arg(prompt)
+            .current_dir(&workspace_path)
+            .stdout(Stdio::piped())
+            .stderr(Stdio::piped())
+            .kill_on_drop(true);
+        configure_provider_process(&mut command);
+
+        let mut isolated_seqs = HashMap::new();
+        let output = self
+            .run_codex_command(
+                command,
+                "Codex deduction",
+                command_context,
+                &mut isolated_seqs,
+                &runtime_session_id,
+                None,
+                None,
+                cancellation,
+            )
+            .await;
+        let raw_text = std::fs::read_to_string(&last_message_path).unwrap_or_default();
+        let _ = std::fs::remove_file(&last_message_path);
+        let _ = std::fs::remove_file(&schema_path);
+        let raw_truncated = raw_text.chars().count() > MAX_DEDUCTION_RAW_CHARS;
+        let raw_text = bounded_text(&raw_text, MAX_DEDUCTION_RAW_CHARS);
+
+        match output {
+            Ok(output) if output.status.success() => {
+                let parsed = serde_json::from_str::<DeductionProviderResult>(raw_text.trim());
+                let (result, error_code, error_message) = match parsed {
+                    Ok(result) => (Some(result), None, None),
+                    Err(error) => (
+                        None,
+                        Some("deduction.output_invalid_json".to_owned()),
+                        Some(format!(
+                            "Structured deduction output could not be parsed: {error}"
+                        )),
+                    ),
+                };
+                deduction_output_payload(
+                    package,
+                    self.provider_key(),
+                    result,
+                    raw_text,
+                    raw_truncated,
+                    error_code,
+                    error_message,
+                    CommandState::Completed,
+                )
+            }
+            Ok(output) => deduction_output_payload(
+                package,
+                self.provider_key(),
+                None,
+                raw_text,
+                raw_truncated,
+                Some("deduction.provider_failed".to_owned()),
+                Some(codex_failure_message(&output)),
+                CommandState::Failed,
+            ),
+            Err(error) => deduction_output_payload(
+                package,
+                self.provider_key(),
+                None,
+                raw_text,
+                raw_truncated,
+                Some(error.code.to_owned()),
+                Some(error.message),
+                CommandState::Failed,
+            ),
+        }
     }
 
     #[expect(
@@ -6300,6 +6726,151 @@ fn codex_last_message_path(command_id: &CommandId) -> PathBuf {
         sanitize_filename_segment(command_id.as_str()),
         Uuid::new_v4()
     ))
+}
+
+fn codex_deduction_schema_path(command_id: &CommandId) -> PathBuf {
+    std::env::temp_dir().join(format!(
+        "uprava-deduction-schema-{}-{}.json",
+        sanitize_filename_segment(command_id.as_str()),
+        Uuid::new_v4()
+    ))
+}
+
+fn deduction_output_schema(package: &DeductionInputPackage) -> serde_json::Value {
+    let allowed_refs = package
+        .allowed_refs
+        .iter()
+        .filter_map(|reference| serde_json::to_value(reference).ok())
+        .collect::<Vec<_>>();
+    serde_json::json!({
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+            "title", "conclusion", "certainty", "steps", "assumptions", "unknowns", "alternatives"
+        ],
+        "properties": {
+            "title": { "type": "string", "minLength": 1, "maxLength": 240 },
+            "conclusion": { "type": "string", "minLength": 1, "maxLength": 4000 },
+            "certainty": { "type": "string", "enum": ["high", "medium", "low", "unknown"] },
+            "steps": {
+                "type": "array",
+                "minItems": 1,
+                "maxItems": 100,
+                "items": {
+                    "type": "object",
+                    "additionalProperties": false,
+                    "required": ["step_id", "classification", "summary", "support_refs"],
+                    "properties": {
+                        "step_id": { "type": "string", "minLength": 1, "maxLength": 120 },
+                        "classification": {
+                            "type": "string",
+                            "enum": ["observed", "inference", "assumption", "unknown", "alternative"]
+                        },
+                        "summary": { "type": "string", "minLength": 1, "maxLength": 1600 },
+                        "support_refs": {
+                            "type": "array",
+                            "maxItems": 100,
+                            "items": { "enum": allowed_refs }
+                        }
+                    }
+                }
+            },
+            "assumptions": {
+                "type": "array",
+                "maxItems": 100,
+                "items": { "type": "string", "maxLength": 1000 }
+            },
+            "unknowns": {
+                "type": "array",
+                "maxItems": 100,
+                "items": { "type": "string", "maxLength": 1000 }
+            },
+            "alternatives": {
+                "type": "array",
+                "maxItems": 100,
+                "items": { "type": "string", "maxLength": 1000 }
+            }
+        }
+    })
+}
+
+fn deduction_prompt(package: &DeductionInputPackage) -> String {
+    let package_json = serde_json::to_string_pretty(package).unwrap_or_else(|_| "{}".to_owned());
+    format!(
+        "You are Uprava's isolated causality analyst. Analyze only the bounded evidence package below.\n\
+         Do not edit files, run commands, continue the interactive agent session, or invent references.\n\
+         Classify direct facts as observed, derived claims as inference, unsupported premises as assumption,\n\
+         missing information as unknown, and competing explanations as alternative.\n\
+         Every observed step must cite one or more exact support_refs copied from allowed_refs.\n\
+         Never cite a reference outside allowed_refs. Return only JSON matching the supplied schema.\n\n\
+         EVIDENCE PACKAGE:\n{package_json}"
+    )
+}
+
+#[expect(
+    clippy::too_many_arguments,
+    reason = "deduction provider envelope keeps output, fallback, error, and command state explicit"
+)]
+fn deduction_output_payload(
+    package: &DeductionInputPackage,
+    provider: &str,
+    result: Option<DeductionProviderResult>,
+    raw_text: String,
+    raw_truncated: bool,
+    error_code: Option<String>,
+    error_message: Option<String>,
+    status: CommandState,
+) -> (CommandState, JsonValue) {
+    let output = DeductionProviderOutput {
+        deduction_id: package.deduction_id.clone(),
+        provider: provider.to_owned(),
+        model: None,
+        schema_version: DEDUCTION_SCHEMA_VERSION.to_owned(),
+        evidence_snapshot_hash: package.evidence_snapshot_hash.clone(),
+        result,
+        raw_text,
+        raw_truncated,
+        error_code,
+        error_message,
+    };
+    match serde_json::to_value(output) {
+        Ok(value) => (status, JsonValue(value)),
+        Err(error) => (
+            CommandState::Failed,
+            JsonValue(serde_json::json!({
+                "error_code": "deduction.output_serialization_failed",
+                "message": error.to_string(),
+            })),
+        ),
+    }
+}
+
+fn deduction_error_payload(
+    command: &CommandEnvelope,
+    provider: &str,
+    code: impl Into<String>,
+    message: impl Into<String>,
+) -> (CommandState, JsonValue) {
+    if let CommandPayload::RequestDeduction { package } = &command.payload {
+        return deduction_output_payload(
+            package,
+            provider,
+            None,
+            String::new(),
+            false,
+            Some(code.into()),
+            Some(message.into()),
+            CommandState::Failed,
+        );
+    }
+    (
+        CommandState::Failed,
+        JsonValue(serde_json::json!({
+            "error_code": code.into(),
+            "message": message.into(),
+        })),
+    )
 }
 
 fn sanitize_filename_segment(value: &str) -> String {
@@ -8218,6 +8789,21 @@ mod tests {
         assert_eq!(outcome.status, CommandState::Completed);
         assert_eq!(response.path, "README.md");
         assert_eq!(written, "after");
+        assert_eq!(
+            event_kinds(&outcome.events_to_send),
+            vec![EventKind::WorkspaceFileWritten]
+        );
+        assert!(outcome.events_to_send[0]
+            .cause_refs
+            .iter()
+            .any(|reference| matches!(
+                reference,
+                UpravaRef::Command { command_id } if command_id == &command.command_id
+            )));
+        assert!(outcome.events_to_send[0]
+            .result_refs
+            .iter()
+            .any(|reference| matches!(reference, UpravaRef::WorkspaceEdit { .. })));
     }
 
     #[tokio::test]
@@ -8568,6 +9154,109 @@ mod tests {
                 .map(Vec::len),
             Some(0)
         );
+    }
+
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn codex_deduction_is_ephemeral_read_only_and_returns_structured_output() {
+        let capture_path =
+            std::env::temp_dir().join(format!("uprava-deduction-args-{}", Uuid::new_v4()));
+        let codex_binary = fake_codex_deduction_binary(&capture_path);
+        let config = config_fixture_with_codex_binary(codex_binary.display().to_string());
+        let scope_ref = UpravaRef::Session {
+            session_thread_id: SessionThreadId::from("session-1"),
+        };
+        let package = DeductionInputPackage {
+            deduction_id: uprava_protocol::DeductionId::from("deduction-1"),
+            session_thread_id: SessionThreadId::from("session-1"),
+            scope_ref: scope_ref.clone(),
+            question: "What caused the result?".to_owned(),
+            evidence_snapshot_hash: "snapshot-hash-1".to_owned(),
+            trace_steps: vec![],
+            events: vec![],
+            allowed_refs: vec![scope_ref],
+            truncated: false,
+            generated_at: Utc::now(),
+        };
+        let mut command = command_fixture("command-deduction", CommandKind::RequestDeduction);
+        command.payload = CommandPayload::RequestDeduction {
+            package: Box::new(package),
+        };
+        let mut local_state = NodeLocalState::default();
+        local_state
+            .runtime_providers
+            .insert("runtime-1".to_owned(), "codex".to_owned());
+        local_state.runtime_workspace_paths.insert(
+            "runtime-1".to_owned(),
+            std::env::temp_dir().display().to_string(),
+        );
+
+        let outcome = prepare_command_dispatch(&config, &mut local_state, &command).await;
+        let output = serde_json::from_value::<DeductionProviderOutput>(outcome.result_payload.0)
+            .expect("deduction output decodes");
+        let args = std::fs::read_to_string(&capture_path).expect("deduction args captured");
+
+        std::fs::remove_file(codex_binary).expect("codex fixture removes");
+        std::fs::remove_file(capture_path).expect("capture fixture removes");
+        assert_eq!(outcome.status, CommandState::Completed);
+        assert!(outcome.events_to_send.is_empty());
+        assert_eq!(output.deduction_id.as_str(), "deduction-1");
+        assert_eq!(output.schema_version, DEDUCTION_SCHEMA_VERSION);
+        assert!(output.result.is_some());
+        assert!(args.lines().any(|arg| arg == "--ephemeral"));
+        assert!(args.lines().any(|arg| arg == "read-only"));
+        assert!(args.lines().any(|arg| arg == "--output-schema"));
+        assert!(!args.contains("dangerously-bypass-approvals-and-sandbox"));
+        assert!(!args.lines().any(|arg| arg == "resume"));
+        assert!(local_state.runtime_transcripts.is_empty());
+        assert!(local_state.runtime_provider_resume_refs.is_empty());
+    }
+
+    #[tokio::test]
+    async fn cancelled_deduction_tombstone_prevents_late_provider_start() {
+        let config = config_fixture_with_codex_binary("missing-codex-that-must-not-start");
+        let mut cancel = command_fixture("command-cancel-deduction", CommandKind::CancelDeduction);
+        cancel.payload = CommandPayload::CancelDeduction {
+            deduction_id: uprava_protocol::DeductionId::from("deduction-cancelled"),
+        };
+        let scope_ref = UpravaRef::Session {
+            session_thread_id: SessionThreadId::from("session-1"),
+        };
+        let mut request = command_fixture("command-late-deduction", CommandKind::RequestDeduction);
+        request.payload = CommandPayload::RequestDeduction {
+            package: Box::new(DeductionInputPackage {
+                deduction_id: uprava_protocol::DeductionId::from("deduction-cancelled"),
+                session_thread_id: SessionThreadId::from("session-1"),
+                scope_ref: scope_ref.clone(),
+                question: "Why?".to_owned(),
+                evidence_snapshot_hash: "snapshot-hash".to_owned(),
+                trace_steps: vec![],
+                events: vec![],
+                allowed_refs: vec![scope_ref],
+                truncated: false,
+                generated_at: Utc::now(),
+            }),
+        };
+        let mut local_state = NodeLocalState::default();
+        local_state
+            .runtime_providers
+            .insert("runtime-1".to_owned(), "codex".to_owned());
+        local_state.runtime_workspace_paths.insert(
+            "runtime-1".to_owned(),
+            std::env::temp_dir().display().to_string(),
+        );
+
+        let cancelled = prepare_command_dispatch(&config, &mut local_state, &cancel).await;
+        let late = prepare_command_dispatch(&config, &mut local_state, &request).await;
+        let output = serde_json::from_value::<DeductionProviderOutput>(late.result_payload.0)
+            .expect("cancelled provider output decodes");
+
+        assert_eq!(cancelled.status, CommandState::Completed);
+        assert_eq!(late.status, CommandState::Failed);
+        assert_eq!(output.error_code.as_deref(), Some("deduction.cancelled"));
+        assert!(!local_state
+            .cancelled_deductions
+            .contains("deduction-cancelled"));
     }
 
     #[tokio::test]
@@ -9299,9 +9988,11 @@ mod tests {
 
     #[tokio::test]
     async fn runtime_cancellation_signals_before_dispatch_capacity_is_available() {
-        let cancellations = RuntimeCancellationRegistry::default();
+        let cancellations = ExecutionCancellationRegistry::default();
         let guard = cancellations
-            .begin(&RuntimeSessionId::from("runtime-1"))
+            .begin(runtime_cancellation_key(&RuntimeSessionId::from(
+                "runtime-1",
+            )))
             .await;
         let mut cancellation = guard.receiver();
         let command = command_fixture("command-cancel-saturated", CommandKind::InterruptRuntime);
@@ -9321,6 +10012,63 @@ mod tests {
         let _ = task.await;
         cancellations.finish(guard).await;
         assert!(*cancellation.borrow());
+    }
+
+    #[tokio::test]
+    async fn deduction_cancellation_is_scoped_away_from_live_turns() {
+        let cancellations = ExecutionCancellationRegistry::default();
+        let live_guard = cancellations
+            .begin(runtime_cancellation_key(&RuntimeSessionId::from(
+                "runtime-1",
+            )))
+            .await;
+        let deduction_guard = cancellations
+            .begin(deduction_cancellation_key(
+                &uprava_protocol::DeductionId::from("deduction-1"),
+            ))
+            .await;
+        let live_cancellation = live_guard.receiver();
+        let mut deduction_cancellation = deduction_guard.receiver();
+        let mut command = command_fixture("command-cancel-deduction", CommandKind::CancelDeduction);
+        command.payload = CommandPayload::CancelDeduction {
+            deduction_id: uprava_protocol::DeductionId::from("deduction-1"),
+        };
+
+        let permit =
+            prepare_command_dispatch_task(&command, &cancellations, Arc::new(Semaphore::new(1)))
+                .await;
+
+        assert!(permit.is_some());
+        assert!(!live_cancellation.has_changed().expect("live sender exists"));
+        deduction_cancellation
+            .changed()
+            .await
+            .expect("deduction sender remains available");
+        assert!(*deduction_cancellation.borrow());
+        cancellations.finish(live_guard).await;
+        cancellations.finish(deduction_guard).await;
+
+        let mut early_cancel = command_fixture(
+            "command-cancel-early-deduction",
+            CommandKind::CancelDeduction,
+        );
+        early_cancel.payload = CommandPayload::CancelDeduction {
+            deduction_id: uprava_protocol::DeductionId::from("deduction-early"),
+        };
+        let permit = prepare_command_dispatch_task(
+            &early_cancel,
+            &cancellations,
+            Arc::new(Semaphore::new(1)),
+        )
+        .await;
+        assert!(permit.is_some());
+        let early_guard = cancellations
+            .begin(deduction_cancellation_key(
+                &uprava_protocol::DeductionId::from("deduction-early"),
+            ))
+            .await;
+        assert!(*early_guard.receiver().borrow());
+        cancellations.finish(early_guard).await;
     }
 
     #[cfg(unix)]
@@ -9463,6 +10211,38 @@ fi
 printf '%s\n' "$@" > '{}'
 printf '%s\n' 'Codex resume accepted' > "$output_path"
 printf '%s\n' '{{"type":"response.completed","session_id":"codex-session-1","resume_cursor":"cursor-2"}}'
+"#,
+            capture_path.display()
+        ))
+    }
+
+    #[cfg(unix)]
+    fn fake_codex_deduction_binary(capture_path: &Path) -> PathBuf {
+        fake_codex_binary(&format!(
+            r#"#!/bin/sh
+output_path=""
+schema_path=""
+capture_next=""
+for arg in "$@"; do
+  if [ "$capture_next" = "output" ]; then
+    output_path="$arg"
+    capture_next=""
+  elif [ "$capture_next" = "schema" ]; then
+    schema_path="$arg"
+    capture_next=""
+  elif [ "$arg" = "--output-last-message" ]; then
+    capture_next="output"
+  elif [ "$arg" = "--output-schema" ]; then
+    capture_next="schema"
+  fi
+done
+if [ -z "$output_path" ] || [ -z "$schema_path" ] || [ ! -f "$schema_path" ]; then
+  echo "missing structured output paths" >&2
+  exit 2
+fi
+printf '%s\n' "$@" > '{}'
+printf '%s\n' '{{"title":"Root cause","conclusion":"The session evidence supports the result.","certainty":"high","steps":[{{"step_id":"step-1","classification":"observed","summary":"The session is the bounded scope.","support_refs":[{{"kind":"session","session_thread_id":"session-1"}}]}}],"assumptions":[],"unknowns":[],"alternatives":[]}}' > "$output_path"
+printf '%s\n' '{{"type":"response.completed"}}'
 "#,
             capture_path.display()
         ))

@@ -20,6 +20,7 @@ import { AgentProjectionPanel } from "../agent-projection/AgentProjectionPanel";
 import { EvidenceProjection } from "../artifacts/EvidenceProjection";
 import { routeWithSearch, workspaceAgentRoute } from "../workspaces/routes";
 import { ChatComposer } from "./ChatComposer";
+import { CausalityPanel } from "./CausalityPanel";
 import { LifecycleControls } from "./LifecycleControls";
 import { ScheduledMessagesPanel } from "./ScheduledMessagesPanel";
 import { SessionTimeline } from "./SessionTimeline";
@@ -204,6 +205,9 @@ export function SessionSurface({
           sessionThreadId={session.data.session.session_thread_id}
           messages={session.data.scheduled_messages ?? []}
           onChanged={invalidateSession}
+        />
+        <CausalityPanel
+          sessionThreadId={session.data.session.session_thread_id}
         />
         <details className="border-t border-black/10 pt-4">
           <summary className="cursor-pointer text-sm font-bold">

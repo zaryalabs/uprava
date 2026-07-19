@@ -232,6 +232,48 @@ pub struct AcknowledgeWarningRequest {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct CreateDeductionRequest {
+    pub scope_ref: UpravaRef,
+    pub question: Option<String>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct DeductionAcceptedResponse {
+    pub deduction_id: DeductionId,
+    pub command_id: CommandId,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct DeductionRecord {
+    pub deduction_id: DeductionId,
+    pub session_thread_id: SessionThreadId,
+    pub scope_ref: UpravaRef,
+    pub question: String,
+    pub state: DeductionState,
+    pub command_id: CommandId,
+    pub block: Option<DeductionBlock>,
+    pub raw_fallback: Option<String>,
+    pub raw_truncated: bool,
+    pub error_code: Option<String>,
+    pub error_message: Option<String>,
+    pub artifact_id: Option<ArtifactId>,
+    pub created_at: DateTime<Utc>,
+    pub updated_at: DateTime<Utc>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct PersistDeductionResponse {
+    pub deduction_id: DeductionId,
+    pub artifact_id: ArtifactId,
+    pub version: u64,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ResolveReferenceRequest {
+    pub reference: UpravaRef,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct ClientLogRequest {
     pub level: ClientLogLevel,
     pub source: String,

@@ -12,6 +12,7 @@ export const ACTION_CAPABILITY_VALUES = [
   "warning.acknowledge",
   "reference.openInInspector",
   "reference.copy",
+  "deduction.request",
 ] as const;
 
 export const DEPLOYMENT_PROFILE_VALUES = ["controlled_dev"] as const;
@@ -96,6 +97,8 @@ export const COMMAND_KIND_VALUES = [
   "ResizeWorkspaceTerminal",
   "WriteWorkspaceTerminal",
   "CloseWorkspaceTerminal",
+  "RequestDeduction",
+  "CancelDeduction",
   "Extension",
 ] as const;
 
@@ -119,6 +122,15 @@ export const EVENT_KIND_VALUES = [
   "coordination.warning_acknowledged",
   "workspace.validated",
   "resource.snapshot.updated",
+  "workspace.file.written",
+  "workspace.command.completed",
+  "workspace.check.completed",
+  "workspace.diff.observed",
+  "deduction.requested",
+  "deduction.completed",
+  "deduction.invalid",
+  "deduction.failed",
+  "deduction.cancelled",
   "extension",
 ] as const;
 

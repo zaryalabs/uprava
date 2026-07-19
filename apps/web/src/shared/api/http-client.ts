@@ -8,6 +8,10 @@ import type {
   CreatePlacementRequest,
   CreateJobRequest,
   CreateSessionRequest,
+  CreateDeductionRequest,
+  DeductionAcceptedResponse,
+  DeductionRecord,
+  EventLogPage,
   HealthResponse,
   NodeCredentialRotationResponse,
   NodeDeletionResponse,
@@ -23,8 +27,12 @@ import type {
   JobRunSummary,
   JobSummary,
   ProviderQuotaStatus,
+  PersistDeductionResponse,
+  ReferenceResolution,
   UpdateJobRequest,
   SessionDetail,
+  SessionTraceProjection,
+  UpravaRef,
   VersionResponse,
   WebAuthLoginRequest,
   WebAuthResponse,
@@ -423,6 +431,51 @@ export const coreApi = {
   sessionEvidenceProjection: (sessionThreadId: string) =>
     apiGet<import("../protocol/types").SessionEvidenceProjection>(
       `/sessions/${encodeURIComponent(sessionThreadId)}/evidence-projection`,
+    ),
+  sessionTrace: (sessionThreadId: string) =>
+    apiGet<SessionTraceProjection>(
+      `/sessions/${encodeURIComponent(sessionThreadId)}/trace`,
+    ),
+  events: (
+    filters: {
+      sessionThreadId?: string;
+      placementId?: string;
+      kind?: string;
+      cursor?: string;
+      limit?: number;
+    } = {},
+  ) => {
+    const params = new URLSearchParams();
+    if (filters.sessionThreadId) {
+      params.set("session_thread_id", filters.sessionThreadId);
+    }
+    if (filters.placementId) params.set("placement_id", filters.placementId);
+    if (filters.kind) params.set("kind", filters.kind);
+    if (filters.cursor) params.set("cursor", filters.cursor);
+    if (filters.limit !== undefined) params.set("limit", String(filters.limit));
+    const query = params.size > 0 ? `?${params.toString()}` : "";
+    return apiGet<EventLogPage>(`/events${query}`);
+  },
+  event: (eventId: string) =>
+    apiGet<import("../protocol/types").EventEnvelope>(
+      `/events/${encodeURIComponent(eventId)}`,
+    ),
+  resolveReference: (reference: UpravaRef) =>
+    apiPost<ReferenceResolution>("/references/resolve", { reference }),
+  createDeduction: (sessionThreadId: string, request: CreateDeductionRequest) =>
+    apiPost<DeductionAcceptedResponse>(
+      `/sessions/${encodeURIComponent(sessionThreadId)}/deductions`,
+      request,
+    ),
+  deduction: (deductionId: string) =>
+    apiGet<DeductionRecord>(`/deductions/${encodeURIComponent(deductionId)}`),
+  cancelDeduction: (deductionId: string) =>
+    apiPost<DeductionAcceptedResponse>(
+      `/deductions/${encodeURIComponent(deductionId)}/cancel`,
+    ),
+  persistDeduction: (deductionId: string) =>
+    apiPost<PersistDeductionResponse>(
+      `/deductions/${encodeURIComponent(deductionId)}/persist`,
     ),
   agentProjection: (sessionThreadId: string) =>
     apiGet<import("../protocol/types").AgentProjection>(

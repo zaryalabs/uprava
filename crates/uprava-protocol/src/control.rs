@@ -81,6 +81,12 @@ pub enum CommandPayload {
     CloseWorkspaceTerminal {
         request: WorkspaceTerminalCloseRequest,
     },
+    RequestDeduction {
+        package: Box<DeductionInputPackage>,
+    },
+    CancelDeduction {
+        deduction_id: DeductionId,
+    },
     Extension {
         name: String,
         value: serde_json_value::JsonValue,
@@ -146,6 +152,8 @@ impl CommandPayload {
                     CommandKind::CloseWorkspaceTerminal,
                     Self::CloseWorkspaceTerminal { .. }
                 )
+                | (CommandKind::RequestDeduction, Self::RequestDeduction { .. })
+                | (CommandKind::CancelDeduction, Self::CancelDeduction { .. })
                 | (CommandKind::Extension, Self::Extension { .. })
         )
     }
@@ -435,6 +443,54 @@ pub enum EventPayloadKind {
         state: PlacementState,
         resource_badges: Vec<ResourceBadge>,
     },
+    WorkspaceFileWritten {
+        placement_id: ProjectPlacementId,
+        path: String,
+        edit_id: String,
+    },
+    WorkspaceCommandCompleted {
+        placement_id: ProjectPlacementId,
+        terminal_command_id: String,
+        success: bool,
+        exit_code: Option<i32>,
+        stdout_truncated: bool,
+        stderr_truncated: bool,
+    },
+    WorkspaceCheckCompleted {
+        placement_id: ProjectPlacementId,
+        check_run_id: String,
+        success: bool,
+        exit_code: Option<i32>,
+        stdout_truncated: bool,
+        stderr_truncated: bool,
+    },
+    WorkspaceDiffObserved {
+        placement_id: ProjectPlacementId,
+        diff_id: String,
+        summary_truncated: bool,
+        diff_truncated: bool,
+    },
+    DeductionRequested {
+        deduction_id: DeductionId,
+        scope_ref: UpravaRef,
+        question: String,
+    },
+    DeductionCompleted {
+        deduction_id: DeductionId,
+    },
+    DeductionInvalid {
+        deduction_id: DeductionId,
+        code: String,
+        message: String,
+    },
+    DeductionFailed {
+        deduction_id: DeductionId,
+        code: String,
+        message: String,
+    },
+    DeductionCancelled {
+        deduction_id: DeductionId,
+    },
     Extension {
         name: String,
         value: serde_json_value::JsonValue,
@@ -518,6 +574,42 @@ impl EventPayload {
                 | (
                     EventKind::ResourceSnapshotUpdated,
                     EventPayloadKind::ResourceSnapshotUpdated { .. }
+                )
+                | (
+                    EventKind::WorkspaceFileWritten,
+                    EventPayloadKind::WorkspaceFileWritten { .. }
+                )
+                | (
+                    EventKind::WorkspaceCommandCompleted,
+                    EventPayloadKind::WorkspaceCommandCompleted { .. }
+                )
+                | (
+                    EventKind::WorkspaceCheckCompleted,
+                    EventPayloadKind::WorkspaceCheckCompleted { .. }
+                )
+                | (
+                    EventKind::WorkspaceDiffObserved,
+                    EventPayloadKind::WorkspaceDiffObserved { .. }
+                )
+                | (
+                    EventKind::DeductionRequested,
+                    EventPayloadKind::DeductionRequested { .. }
+                )
+                | (
+                    EventKind::DeductionCompleted,
+                    EventPayloadKind::DeductionCompleted { .. }
+                )
+                | (
+                    EventKind::DeductionInvalid,
+                    EventPayloadKind::DeductionInvalid { .. }
+                )
+                | (
+                    EventKind::DeductionFailed,
+                    EventPayloadKind::DeductionFailed { .. }
+                )
+                | (
+                    EventKind::DeductionCancelled,
+                    EventPayloadKind::DeductionCancelled { .. }
                 )
                 | (EventKind::Extension, EventPayloadKind::Extension { .. })
         )
@@ -649,6 +741,62 @@ impl EventPayload {
                     }
                 }
             }
+            EventKind::WorkspaceFileWritten => EventPayloadKind::WorkspaceFileWritten {
+                placement_id: ProjectPlacementId::from(text("placement_id")),
+                path: text("path"),
+                edit_id: text("edit_id"),
+            },
+            EventKind::WorkspaceCommandCompleted => EventPayloadKind::WorkspaceCommandCompleted {
+                placement_id: ProjectPlacementId::from(text("placement_id")),
+                terminal_command_id: text("terminal_command_id"),
+                success: bool_field(&value, "success"),
+                exit_code: i32_field(&value, "exit_code"),
+                stdout_truncated: bool_field(&value, "stdout_truncated"),
+                stderr_truncated: bool_field(&value, "stderr_truncated"),
+            },
+            EventKind::WorkspaceCheckCompleted => EventPayloadKind::WorkspaceCheckCompleted {
+                placement_id: ProjectPlacementId::from(text("placement_id")),
+                check_run_id: optional_text(&value, "check_run_id")
+                    .unwrap_or_else(|| text("terminal_command_id")),
+                success: bool_field(&value, "success"),
+                exit_code: i32_field(&value, "exit_code"),
+                stdout_truncated: bool_field(&value, "stdout_truncated"),
+                stderr_truncated: bool_field(&value, "stderr_truncated"),
+            },
+            EventKind::WorkspaceDiffObserved => EventPayloadKind::WorkspaceDiffObserved {
+                placement_id: ProjectPlacementId::from(text("placement_id")),
+                diff_id: text("diff_id"),
+                summary_truncated: bool_field(&value, "summary_truncated"),
+                diff_truncated: bool_field(&value, "diff_truncated"),
+            },
+            EventKind::DeductionRequested => EventPayloadKind::DeductionRequested {
+                deduction_id: DeductionId::from(text("deduction_id")),
+                scope_ref: value
+                    .get("scope_ref")
+                    .cloned()
+                    .and_then(|value| serde_json::from_value(value).ok())
+                    .unwrap_or_else(|| UpravaRef::Unknown {
+                        ref_type: "deduction_scope".to_owned(),
+                        locator: serde_json_value::JsonValue::default(),
+                    }),
+                question: text("question"),
+            },
+            EventKind::DeductionCompleted => EventPayloadKind::DeductionCompleted {
+                deduction_id: DeductionId::from(text("deduction_id")),
+            },
+            EventKind::DeductionInvalid => EventPayloadKind::DeductionInvalid {
+                deduction_id: DeductionId::from(text("deduction_id")),
+                code: text("code"),
+                message: text("message"),
+            },
+            EventKind::DeductionFailed => EventPayloadKind::DeductionFailed {
+                deduction_id: DeductionId::from(text("deduction_id")),
+                code: text("code"),
+                message: text("message"),
+            },
+            EventKind::DeductionCancelled => EventPayloadKind::DeductionCancelled {
+                deduction_id: DeductionId::from(text("deduction_id")),
+            },
             EventKind::Extension => EventPayloadKind::Extension {
                 name: optional_text(&value, "name").unwrap_or_else(|| "unknown".to_owned()),
                 value: value.get("value").cloned().unwrap_or_default().into(),
@@ -706,6 +854,20 @@ fn optional_text(value: &serde_json::Value, key: &str) -> Option<String> {
         .get(key)
         .and_then(serde_json::Value::as_str)
         .map(str::to_owned)
+}
+
+fn bool_field(value: &serde_json::Value, key: &str) -> bool {
+    value
+        .get(key)
+        .and_then(serde_json::Value::as_bool)
+        .unwrap_or(false)
+}
+
+fn i32_field(value: &serde_json::Value, key: &str) -> Option<i32> {
+    value
+        .get(key)
+        .and_then(serde_json::Value::as_i64)
+        .and_then(|value| i32::try_from(value).ok())
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]

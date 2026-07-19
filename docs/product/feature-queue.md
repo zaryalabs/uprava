@@ -37,13 +37,12 @@ dependency, complexity, risk and value. Позиции могут двигать
 
 ## Обзор очереди
 
-Current release baseline: `0.2.6`. Закрытые пункты `0` through `8`, unified
+Current release baseline: `0.2.7`. Закрытые пункты `0` through `9`, unified
 audit hardening release и `5a` workspace renderer release соответствуют shipped
 versions, зафиксированным в [`releases.md`](../releases.md). Пункт `6` включает
 workbench alignment, первый стабильный self-hosted deployment path и
-workspace-centered UI follow-up `0.2.6`. Следующий плановый пункт очереди —
-Causality and trace UX; навигационный follow-up не закрывает пункт `9` и не
-подменяет будущий глобальный event/causality projection.
+workspace-centered UI follow-up `0.2.6` и Causality/Trace/Deduction slice
+`0.2.7`. Следующий плановый пункт очереди — Git and review basics.
 
 | Order | Done | Mechanism / Feature Slice | First Useful Slice | Dependency | Complexity |
 | --- | --- | --- | --- | --- | --- |
@@ -57,7 +56,7 @@ Causality and trace UX; навигационный follow-up не закрыва
 | 6 | + | Daily-use hardening and deployment readiness | Stable panel layout, product polish, server deploy path, CI/CD baseline | `0.1.8` deployable workbench, security baseline | High |
 | 7 | + | Отложенные сообщения в сессии | Долговечные одноразовые будущие turn существующей сессии | Runtime/session guards, Core-owned persistence | Medium |
 | 8 | + | Background Jobs и scheduled agent runs | Долговечные определения unattended agent work, расписания и наблюдаемые runs | Placements, provider runtime, durable events | High |
-| 9 | - | Causality and trace UX | Coarse source/cause links with raw fallback | Workspace refs, event log | Medium |
+| 9 | + | Causality and trace UX | Coarse source/cause links with raw fallback | Workspace refs, event log | Medium |
 | 10 | - | Git and review basics | Better diff, branch/worktree awareness, check results | Workspace intervention, trace | Medium |
 | 11 | - | Tool Registry v1 | Real tool metadata, permissions, routing and audit policy | V01 capability model, events | High |
 | 12 | - | Plugin Registry v1 | Installed plugin metadata, configuration, exposed tools and artifact types | Tool Registry v1 | High |
@@ -343,6 +342,15 @@ workspace. Web фильтрует глобальный Core `/jobs` read endpoin
 и Job Run links разрешаются в nested workspace routes с ownership guards.
 
 ### 9. Causality and trace UX
+
+**Реализовано в `0.2.7`:** Core хранит типизированные workspace causality
+events и отдает глобальный cursor-based event log, coarse
+`SessionTraceProjection`, raw event detail и permission-aware ref resolver.
+Web показывает trace steps, aspect-based Inspector и фильтруемый raw fallback.
+Явный Deduction запускается на Node отдельным ephemeral/read-only provider
+process, получает bounded evidence snapshot, проходит Core validation по схеме
+и allowlist refs, поддерживает cancel и может быть сохранён как versioned
+`CausalityNarrative`.
 
 **Value:** Снижает стоимость review, связывая result с evidence без выгрузки raw
 logs в пользовательский интерфейс.

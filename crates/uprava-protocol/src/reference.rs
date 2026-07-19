@@ -66,6 +66,7 @@ id_type!(ArtifactId);
 id_type!(EvidenceId);
 id_type!(BlockId);
 id_type!(CorrelationId);
+id_type!(DeductionId);
 id_type!(JobId);
 id_type!(JobRunId);
 

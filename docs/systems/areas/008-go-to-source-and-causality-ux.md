@@ -1,9 +1,35 @@
 # A-008 Go to Source and Causality UX
 
-Статус: `working-position`
+Статус: `implemented-0.2.7; target-direction-active`
 
 Этот документ фиксирует корневую позицию по ключевой механике `A-008 Go to
 Source and Causality UX`.
+
+## Реализованный baseline 0.2.7
+
+Первый useful slice реализует честную coarse causality поверх существующего
+event log:
+
+- `SessionTraceProjection` группирует messages, runtime/provider activity,
+  commands и workspace observations в steps с `exact`, `coarse` или `unknown`
+  precision;
+- Core API предоставляет cursor-based `/events`, raw event detail и
+  `/references/resolve` с явными состояниями `resolved`, `missing`, `offline`,
+  `redacted`, `unsupported` и `raw_only`;
+- Node создаёт типизированные события для file write, workspace command,
+  check и diff observation с source/evidence/cause/result refs;
+- Web Session surface показывает causal steps, фильтруемый raw event log и
+  aspect-based Context Inspector;
+- Deduction является отдельной командой, а не продолжением live transcript:
+  Node запускает Codex как `ephemeral` read-only process со structured output
+  schema, Core ограничивает evidence package, проверяет provenance и allowlist
+  refs, сохраняет invalid raw fallback и поддерживает cancellation;
+- валидный `DeductionBlock` остаётся transient, пока пользователь явно не
+  сохранит его как versioned `CausalityNarrative`.
+
+Baseline не заявляет exact per-edit provenance, полный cause graph или доступ к
+внутреннему reasoning provider. Такие пробелы остаются явными через precision и
+raw fallback.
 
 Главная позиция: `A-008` - это не отдельный trace viewer и не попытка показать
 пользователю весь raw log. Это **механика перехода от видимого результата к
