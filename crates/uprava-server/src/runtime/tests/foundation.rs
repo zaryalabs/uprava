@@ -216,7 +216,16 @@ async fn migration_creates_baseline_schema_from_empty_database() {
                   'provider_quota_snapshots',
                   'deductions',
                   'causality_narratives',
-                  'causality_narrative_versions'
+                  'causality_narrative_versions',
+                  'tool_sources',
+                  'tool_definitions',
+                  'integration_connections',
+                  'mcp_dependency_instances',
+                  'observed_capabilities',
+                  'tool_calls',
+                  'tool_call_events',
+                  'session_tool_snapshots',
+                  'mcp_access_leases'
               )
             "#,
     )
@@ -224,14 +233,17 @@ async fn migration_creates_baseline_schema_from_empty_database() {
     .await
     .expect("baseline tables count loads");
 
-    assert_eq!(table_count, 23);
+    assert_eq!(table_count, 32);
 
     let applied_versions: Vec<i64> =
         sqlx::query_scalar("select version from schema_migrations order by version")
             .fetch_all(&state.pool)
             .await
             .expect("migration versions load");
-    assert_eq!(applied_versions, vec![1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11]);
+    assert_eq!(
+        applied_versions,
+        vec![1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12]
+    );
 
     let metadata: (String, i64) =
         sqlx::query_as("select slot, schema_version from core_schema_meta")
@@ -256,7 +268,58 @@ async fn migration_runner_is_idempotent_and_does_not_duplicate_versions() {
         .fetch_one(&state.pool)
         .await
         .expect("migration count loads");
-    assert_eq!(migration_count, 11);
+    assert_eq!(migration_count, 12);
+}
+
+#[tokio::test]
+async fn migration_upgrades_the_0_2_10_numbered_baseline() {
+    let pool = memory_pool().await;
+    sqlx::query(
+        "create table schema_migrations (version integer primary key, checksum text not null, applied_at text not null)",
+    )
+    .execute(&pool)
+    .await
+    .expect("migration history table creates");
+    for migration in MIGRATIONS
+        .iter()
+        .filter(|migration| migration.version <= 11)
+    {
+        for statement in migration.statements {
+            if let Err(error) = sqlx::query(statement).execute(&pool).await {
+                assert!(
+                    migration.ignore_duplicate_columns && is_duplicate_column_error(&error),
+                    "0.2.10 migration {} failed: {error}",
+                    migration.version
+                );
+            }
+        }
+        sqlx::query(
+            "insert into schema_migrations (version, checksum, applied_at) values (?1, ?2, ?3)",
+        )
+        .bind(migration.version)
+        .bind(migration.checksum())
+        .bind(Utc::now())
+        .execute(&pool)
+        .await
+        .expect("0.2.10 migration history records");
+    }
+
+    let state = AppState::new(test_config(86_400), pool)
+        .await
+        .expect("0.2.10 state upgrades");
+    let latest_version: i64 = sqlx::query_scalar("select max(version) from schema_migrations")
+        .fetch_one(&state.pool)
+        .await
+        .expect("latest migration loads");
+    let tooling_table_count: i64 = sqlx::query_scalar(
+        "select count(*) from sqlite_master where type = 'table' and name in ('tool_definitions', 'tool_calls', 'mcp_access_leases')",
+    )
+    .fetch_one(&state.pool)
+    .await
+    .expect("tooling tables count loads");
+
+    assert_eq!(latest_version, 12);
+    assert_eq!(tooling_table_count, 3);
 }
 
 #[tokio::test]
@@ -470,7 +533,7 @@ async fn migration_concurrent_file_backed_starts_share_one_numbered_history() {
         .fetch_one(&pool)
         .await
         .expect("migration count loads");
-    assert_eq!(count, 11);
+    assert_eq!(count, 12);
     drop(first);
     drop(second);
     pool.close().await;

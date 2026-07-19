@@ -12,4 +12,6 @@ mod migrations;
 mod node;
 
 pub(crate) use event::*;
+#[cfg(test)]
+pub(crate) use migrations::{is_duplicate_column_error, MIGRATIONS};
 pub(crate) use node::*;

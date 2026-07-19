@@ -40,7 +40,7 @@ use axum::{
 use chrono::{DateTime, Duration as ChronoDuration, Timelike, Utc};
 use futures_util::{SinkExt, Stream, StreamExt};
 use jiff::{civil::Weekday, Timestamp};
-use rand_core::OsRng;
+use rand_core::{OsRng, RngCore};
 use serde::{de::DeserializeOwned, Deserialize, Serialize};
 use serde_json::json;
 use sha2::{Digest, Sha256};
@@ -192,10 +192,13 @@ pub struct AppState {
     public_requests: RwLock<HashMap<String, Vec<DateTime<Utc>>>>,
     public_concurrency: Arc<Semaphore>,
     core_metrics: Arc<CoreMetrics>,
+    mcp_lease_signing_key: [u8; 32],
 }
 
 impl AppState {
     pub async fn new(config: AppConfig, pool: SqlitePool) -> Result<Arc<Self>, AppError> {
+        let mut mcp_lease_signing_key = [0u8; 32];
+        OsRng.fill_bytes(&mut mcp_lease_signing_key);
         let state = Arc::new(Self {
             config,
             pool,
@@ -213,13 +216,27 @@ impl AppState {
             public_requests: RwLock::new(HashMap::new()),
             public_concurrency: Arc::new(Semaphore::new(PUBLIC_CONCURRENCY_LIMIT)),
             core_metrics: Arc::new(CoreMetrics::default()),
+            mcp_lease_signing_key,
         });
         state.migrate().await?;
+        revoke_all_mcp_leases_for_credential_rotation(&state).await?;
+        seed_uprava_native_tools(&state).await?;
         recover_interrupted_scheduled_messages(&state).await?;
         spawn_scheduled_message_dispatcher(Arc::downgrade(&state));
         recover_job_runs(&state).await?;
         spawn_job_scheduler(Arc::downgrade(&state));
         Ok(state)
+    }
+
+    /// Issues and rotates a short-lived session-scoped credential for the
+    /// Uprava MCP endpoint. The returned token must stay outside model input
+    /// and transcripts.
+    pub async fn create_mcp_access_lease(
+        &self,
+        session_id: &SessionThreadId,
+        actor_ref: ActorRef,
+    ) -> Result<(String, uprava_protocol::McpAccessLeaseClaims), AppError> {
+        issue_mcp_access_lease(self, session_id, actor_ref).await
     }
 }
 

@@ -715,6 +715,148 @@ pub(crate) const MIGRATION_10: &[&str] = &[
 pub(crate) const MIGRATION_11: &[&str] =
     &["alter table project_placements add column git_snapshot_json text"];
 
+pub(crate) const MIGRATION_12: &[&str] = &[
+    r#"
+    create table if not exists tool_sources (
+        source_id text primary key,
+        source_kind text not null,
+        display_name text not null,
+        enabled integer not null default 1,
+        created_at text not null,
+        updated_at text not null
+    )
+    "#,
+    r#"
+    create table if not exists tool_definitions (
+        tool_id text primary key,
+        source_id text not null references tool_sources(source_id),
+        source_tool_name text not null,
+        version integer not null,
+        schema_hash text not null,
+        state text not null,
+        definition_json text not null,
+        search_document text not null,
+        created_at text not null,
+        updated_at text not null,
+        unique(source_id, source_tool_name)
+    )
+    "#,
+    r#"
+    create index if not exists tool_definitions_search_refresh_idx
+    on tool_definitions(state, updated_at, tool_id)
+    "#,
+    r#"
+    create table if not exists integration_connections (
+        integration_id text primary key,
+        source_id text not null references tool_sources(source_id),
+        provider text not null,
+        desired_state text not null,
+        auth_state text not null,
+        node_id text references nodes(node_id),
+        connection_json text not null,
+        credential_generation integer not null default 0,
+        created_at text not null,
+        updated_at text not null
+    )
+    "#,
+    r#"
+    create table if not exists mcp_dependency_instances (
+        dependency_instance_id text primary key,
+        integration_id text not null references integration_connections(integration_id),
+        node_id text not null references nodes(node_id),
+        desired_state text not null,
+        actual_state text not null,
+        status_json text not null,
+        updated_at text not null,
+        unique(integration_id, node_id)
+    )
+    "#,
+    r#"
+    create table if not exists observed_capabilities (
+        node_id text not null references nodes(node_id) on delete cascade,
+        capability_key text not null,
+        capability_json text not null,
+        observed_at text not null,
+        primary key(node_id, capability_key)
+    )
+    "#,
+    r#"
+    create table if not exists tool_calls (
+        tool_call_id text primary key,
+        tool_id text not null references tool_definitions(tool_id),
+        schema_hash text not null,
+        actor_ref_json text not null,
+        scope_json text not null,
+        source_kind text not null,
+        state text not null,
+        policy_decision text not null,
+        policy_version text not null,
+        route text not null,
+        correlation_id text not null,
+        command_id text,
+        integration_id text,
+        dependency_instance_id text,
+        argument_hash text,
+        result_hash text,
+        result_size_bytes integer,
+        redacted_arguments_summary text,
+        redacted_result_summary text,
+        trace_refs_json text not null default '[]',
+        result_refs_json text not null default '[]',
+        error_json text,
+        requested_at text not null,
+        started_at text,
+        completed_at text
+    )
+    "#,
+    r#"
+    create index if not exists tool_calls_recent_scope_idx
+    on tool_calls(requested_at desc, tool_call_id)
+    "#,
+    r#"
+    create unique index if not exists tool_calls_command_correlation_idx
+    on tool_calls(command_id, correlation_id)
+    where command_id is not null
+    "#,
+    r#"
+    create table if not exists tool_call_events (
+        tool_call_id text not null references tool_calls(tool_call_id) on delete cascade,
+        sequence integer not null,
+        state text not null,
+        event_json text not null,
+        happened_at text not null,
+        primary key(tool_call_id, sequence)
+    )
+    "#,
+    r#"
+    create table if not exists session_tool_snapshots (
+        session_thread_id text not null references session_threads(session_thread_id) on delete cascade,
+        tool_id text not null references tool_definitions(tool_id),
+        schema_hash text not null,
+        definition_version integer not null,
+        captured_at text not null,
+        primary key(session_thread_id, tool_id)
+    )
+    "#,
+    r#"
+    create table if not exists mcp_access_leases (
+        lease_id text primary key,
+        session_thread_id text not null references session_threads(session_thread_id) on delete cascade,
+        claims_json text not null,
+        credential_version integer not null,
+        issued_at text not null,
+        expires_at text not null,
+        revoked_at text,
+        revocation_reason text
+    )
+    "#,
+    r#"
+    create index if not exists mcp_access_leases_session_active_idx
+    on mcp_access_leases(session_thread_id, expires_at)
+    where revoked_at is null
+    "#,
+];
+
 pub(crate) const MIGRATIONS: &[Migration] = &[
     Migration {
         version: 1,
@@ -770,5 +912,10 @@ pub(crate) const MIGRATIONS: &[Migration] = &[
         version: 11,
         statements: MIGRATION_11,
         ignore_duplicate_columns: true,
+    },
+    Migration {
+        version: 12,
+        statements: MIGRATION_12,
+        ignore_duplicate_columns: false,
     },
 ];

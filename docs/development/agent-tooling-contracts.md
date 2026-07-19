@@ -4,6 +4,14 @@
 
 Целевой срез: `0.2.11`
 
+Реализация Core baseline: Epic 1 завершён 2026-07-19. Контракты обслуживаются
+SQLite migration `12`, application services Registry/Search/Inspect/Execute и
+Uprava MCP Streamable HTTP endpoint `/mcp` на pinned `rmcp 2.2.0`. Доступ к MCP
+требует short-lived session lease; Web read routes для definitions,
+availability и calls используют те же application services. External
+ToolHive/Linear execution и integration mutations остаются последующими
+эпиками.
+
 Этот документ фиксирует общий язык Core, Node, Uprava MCP и Web до начала
 реализации отдельных эпиков. Канонические Rust-типы находятся в
 `crates/uprava-protocol/src/tooling.rs`; документ задаёт их семантику,

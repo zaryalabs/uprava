@@ -4,6 +4,22 @@ use super::super::*;
 
 pub fn build_router(state: Arc<AppState>) -> Router {
     let cors = cors_layer(&state.config);
+    let mcp_factory_state = state.clone();
+    let mcp_service: rmcp::transport::streamable_http_server::StreamableHttpService<
+        UpravaMcpServer,
+        rmcp::transport::streamable_http_server::session::local::LocalSessionManager,
+    > = rmcp::transport::streamable_http_server::StreamableHttpService::new(
+        move || Ok(UpravaMcpServer::new(mcp_factory_state.clone())),
+        Default::default(),
+        rmcp::transport::streamable_http_server::StreamableHttpServerConfig::default()
+            .with_json_response(true),
+    );
+    let mcp = Router::new()
+        .nest_service(UPRAVA_MCP_PATH, mcp_service)
+        .route_layer(middleware::from_fn_with_state(
+            state.clone(),
+            require_mcp_lease,
+        ));
     let public_api = Router::new()
         .route("/health", get(health))
         .route("/version", get(version))
@@ -105,6 +121,11 @@ pub fn build_router(state: Arc<AppState>) -> Router {
         .route("/sessions/{session_thread_id}/events", get(session_events))
         .route("/events", get(event_log_route))
         .route("/events/{event_id}", get(event_detail_route))
+        .route("/tool-definitions", get(tool_definitions_route))
+        .route("/tool-definitions/{tool_id}", get(tool_definition_route))
+        .route("/tool-availability", get(tool_availability_route))
+        .route("/tool-calls", get(tool_calls_route))
+        .route("/tool-calls/{tool_call_id}", get(tool_call_detail_route))
         .route("/references/resolve", post(resolve_reference_route))
         .route("/sessions/{session_thread_id}/stream", get(session_stream))
         .route(
@@ -175,6 +196,7 @@ pub fn build_router(state: Arc<AppState>) -> Router {
         ));
 
     Router::new()
+        .merge(mcp)
         .nest("/api/v1", public_api.merge(client_api))
         .route_layer(middleware::from_fn_with_state(
             state.clone(),

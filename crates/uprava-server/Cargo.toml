@@ -19,8 +19,10 @@ chrono.workspace = true
 uprava-logging = { path = "../uprava-logging" }
 uprava-protocol = { path = "../uprava-protocol" }
 futures-util.workspace = true
+hmac.workspace = true
 jiff.workspace = true
 rand_core.workspace = true
+rmcp.workspace = true
 serde.workspace = true
 serde_json.workspace = true
 sha2.workspace = true

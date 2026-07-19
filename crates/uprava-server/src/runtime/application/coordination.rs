@@ -266,6 +266,9 @@ pub(crate) async fn lifecycle_command(
         },
     )
     .await?;
+    if kind == CommandKind::StopRuntime {
+        revoke_session_mcp_leases(state, &session_id, "session_stop_requested").await?;
+    }
 
     Ok(CommandAcceptedResponse {
         command_id,

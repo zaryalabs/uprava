@@ -37,6 +37,26 @@ Native agent tools remain native.
 Версионированный foundation contract для среза `0.2.11` находится в
 [`agent-tooling-contracts.md`](../../development/agent-tooling-contracts.md).
 
+## Реализованный baseline Core
+
+Эпик 1 среза `0.2.11` реализует Core-owned часть решения:
+
+- SQLite Tool Registry, atomic definition/search-document update и раздельную
+  effective availability;
+- bounded permission-first BM25 Search с подписанным scope/query/filter-bound
+  cursor, Inspect одной current definition и Execute с fresh checks;
+- пять явных native tools для Node, workspace, session, trace и capability
+  inspection без автоматического экспорта HTTP routes;
+- Uprava MCP Streamable HTTP endpoint `/mcp` на `rmcp 2.2.0` с постоянной
+  surface из трёх discovery meta-tools;
+- short-lived session-scoped lease, tool-call lifecycle journal, redacted
+  summaries, hashes, refs и session tool snapshots;
+- Web-authenticated Core read routes для definitions, availability и calls.
+
+External MCP execution, ToolHive desired/actual reconciliation, integration
+OAuth и Web management остаются границами эпиков 2–3. Незавершённый внешний
+Linear gate не включён в production fallback и не меняет Core contract.
+
 ## Vision
 
 ### Проблема
@@ -850,20 +870,16 @@ Observed `bash`, files and git capabilities остаются native. Managed too
 external MCP integrations уважают workspace boundaries, Node placement and
 project-scoped trace.
 
-## Open implementation questions
+## Оставшиеся implementation questions
 
 Архитектурный vision определён; implementation plan должен закрыть:
 
-- Core-hosted gateway или split Core policy + Node MCP bridge transport;
-- точный scoped credential lifecycle для agent runtime;
 - первый реальный external MCP server для acceptance scenario;
 - ToolHive CLI/API integration boundary and supported versions;
-- keyword/BM25 index implementation and update transaction;
 - session snapshot retention policy;
 - safe native CLI auth probes for `gh`/`glab`;
 - direct dynamic mounting support в первом Codex adapter или только
   `execute_tool` fallback;
-- exact event payloads and redaction policy;
 - schema drift behavior during long persistent sessions.
 
 Эти вопросы не меняют ключевые решения: MCP-first, ToolHive-backed,
