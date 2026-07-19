@@ -492,7 +492,7 @@ impl CodexProviderAdapter {
         workspace_path: Option<&str>,
         runtime_transcripts: &mut HashMap<String, Vec<ProviderTranscriptMessage>>,
         runtime_provider_resume_refs: &mut HashMap<String, ProviderResumeRef>,
-        live_event_sink: Option<&mut NodeLiveEventSink<'_>>,
+        mut live_event_sink: Option<&mut NodeLiveEventSink<'_>>,
         cancellation: Option<watch::Receiver<bool>>,
     ) -> Vec<EventEnvelope> {
         let CommandPayload::SendTurn { content, turn_id } = &command.payload else {
@@ -527,6 +527,11 @@ impl CodexProviderAdapter {
                 serde_json::json!({}),
             ),
         ];
+        if let Some(sink) = live_event_sink.as_mut() {
+            for event in &events {
+                sink.emit(event);
+            }
+        }
 
         let Some(workspace_path) = workspace_path.filter(|value| !value.trim().is_empty()) else {
             events.push(runtime_error_event(

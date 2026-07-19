@@ -1,11 +1,13 @@
-import { useState, type ComponentType, type ReactNode } from "react";
+import { useEffect, useState, type ComponentType, type ReactNode } from "react";
 import {
   Activity,
   AlertTriangle,
   Bot,
   CheckCircle2,
   CircleDot,
+  Clock3,
   HelpCircle,
+  LoaderCircle,
   User,
 } from "lucide-react";
 
@@ -33,6 +35,7 @@ export type BlockRendererRegistration = {
 const rendererRegistrations: BlockRendererRegistration[] = [
   register("core.user-message", MessageBlock),
   register("core.assistant-message", MessageBlock),
+  register("core.session-activity", SessionActivityBlock),
   register("core.turn-activity", TurnActivityBlock),
   register("core.provider-output-stream", EventBlock),
   register("core.runtime-event", EventBlock),
@@ -89,7 +92,7 @@ function register(
 function MessageBlock({ block, actions }: BlockRendererProps) {
   const data = blockData(block);
   const isAssistant = block.type === "core.assistant-message";
-  const label = isAssistant ? "Agent Output" : "Operator Input";
+  const label = isAssistant ? "Agent" : "You";
   const Icon = isAssistant ? Bot : User;
 
   return (
@@ -103,7 +106,7 @@ function MessageBlock({ block, actions }: BlockRendererProps) {
             : "mb-1 flex items-center gap-1.5 text-xs font-bold text-[var(--color-muted)]"
         }
       >
-        <Icon size={14} />
+        <Icon size={14} aria-hidden="true" />
         {label}
       </div>
       <p className="whitespace-pre-wrap break-words text-sm">
@@ -111,10 +114,52 @@ function MessageBlock({ block, actions }: BlockRendererProps) {
       </p>
       {isAssistant ? (
         <div className="mt-2 text-xs text-[var(--color-muted)]">
-          Evidence & source are available through the <strong>+</strong>{" "}
-          reference layer.
+          Evidence and source are available through the reference action.
         </div>
       ) : null}
+      <BlockActions actions={actions} />
+    </article>
+  );
+}
+
+function SessionActivityBlock({ block, actions }: BlockRendererProps) {
+  const data = blockData(block);
+  const rows = arrayField(data, "rows").filter(isRecord);
+  const completed = booleanField(data, "completed", false);
+  const [expanded, setExpanded] = useState(false);
+  const durationMs = durationBetween(
+    stringField(data, "startedAt", ""),
+    stringField(data, "completedAt", ""),
+  );
+
+  return (
+    <article className="border-l-2 border-[var(--color-muted)] py-2 pl-3 text-sm">
+      <div className="flex flex-wrap items-center justify-between gap-2">
+        <div className="flex min-w-0 items-center gap-2">
+          <DisclosureControl
+            expanded={expanded}
+            label="session initialization"
+            onClick={() => setExpanded((current) => !current)}
+          />
+          <div className="min-w-0">
+            <div className="font-bold">
+              {completed ? "Session initialized" : "Initializing session…"}
+            </div>
+            <div className="text-xs text-[var(--color-muted)]">
+              {completed
+                ? "Runtime is ready for agent turns."
+                : "Waiting for the runtime to become ready."}
+            </div>
+          </div>
+        </div>
+        <div className="flex flex-wrap gap-1.5">
+          <ActivityCounter label="events" value={rows.length} />
+          {durationMs > 0 ? (
+            <ActivityCounter label="time" value={formatDuration(durationMs)} />
+          ) : null}
+        </div>
+      </div>
+      {expanded ? <ActivityRows rows={rows} className="mt-3" /> : null}
       <BlockActions actions={actions} />
     </article>
   );
@@ -167,9 +212,32 @@ function TurnActivityBlock({ block, actions }: BlockRendererProps) {
   const [manualExpanded, setManualExpanded] = useState<boolean | null>(null);
   const expanded = manualExpanded ?? !completed;
   const durationMs = numberField(data, "durationMs", 0);
+  const providerEventCount = numberField(data, "providerEventCount", 0);
+  const lastObservedAt = stringField(data, "lastObservedAt", "");
+  const now = useCurrentTime(!completed);
+  const silentForMs = lastObservedAt
+    ? Math.max(0, now - new Date(lastObservedAt).getTime())
+    : 0;
+  const stalled = !completed && silentForMs >= 30_000;
+  const terminalKind = stringField(data, "terminalKind", "");
+  const failed = terminalKind === "runtime.error";
+  const stateLabel = completed
+    ? failed
+      ? "Agent failed"
+      : terminalKind === "turn.interrupted"
+        ? "Interrupted"
+        : terminalKind === "runtime.blocked"
+          ? "Blocked"
+          : "Completed"
+    : stalled
+      ? "No recent activity"
+      : "Agent is working";
 
   return (
-    <article className="border-l-2 border-[var(--color-muted)] py-3 pl-3">
+    <article
+      className={`border-l-2 py-3 pl-3 ${stalled || failed ? "border-[var(--color-notice)] bg-[var(--color-notice-soft)]" : "border-[var(--color-muted)]"}`}
+      aria-live="polite"
+    >
       <div className="flex flex-wrap items-center justify-between gap-2">
         <div className="flex min-w-0 items-center gap-2">
           <DisclosureControl
@@ -179,16 +247,28 @@ function TurnActivityBlock({ block, actions }: BlockRendererProps) {
           />
           <div className="min-w-0">
             <div className="flex items-center gap-1.5 text-xs font-bold text-[var(--color-muted)]">
-              <Activity size={14} />
-              Turn Activity
+              {failed ? (
+                <AlertTriangle size={14} aria-hidden="true" />
+              ) : completed ? (
+                <CheckCircle2 size={14} aria-hidden="true" />
+              ) : stalled ? (
+                <Clock3 size={14} aria-hidden="true" />
+              ) : (
+                <LoaderCircle size={14} aria-hidden="true" />
+              )}
+              {stateLabel}
             </div>
-            <div className="truncate font-mono text-xs text-[var(--color-muted)]">
-              {stringField(data, "turnId", "turn")}
+            <div className="truncate text-xs text-[var(--color-muted)]">
+              {completed
+                ? "Observed work for this turn"
+                : stalled
+                  ? `No observed event for ${formatDuration(silentForMs)}`
+                  : "Observed events appear here as they arrive"}
             </div>
           </div>
         </div>
         <div className="flex flex-wrap items-center gap-1.5">
-          <ActivityCounter label="events" value={rows.length} />
+          <ActivityCounter label="activity" value={providerEventCount} />
           <ActivityCounter
             label="commands"
             value={numberField(data, "commandCount", 0)}
@@ -196,10 +276,6 @@ function TurnActivityBlock({ block, actions }: BlockRendererProps) {
           <ActivityCounter
             label="files"
             value={numberField(data, "fileChangeCount", 0)}
-          />
-          <ActivityCounter
-            label="reasoning"
-            value={numberField(data, "reasoningCount", 0)}
           />
           <ActivityCounter
             label="warnings"
@@ -211,19 +287,41 @@ function TurnActivityBlock({ block, actions }: BlockRendererProps) {
         </div>
       </div>
       {expanded ? (
-        <div className="mt-3 max-h-80 overflow-y-auto border-t border-[var(--color-muted)] pt-2">
-          <div className="space-y-2">
-            {rows.map((row, index) => (
-              <ActivityRow
-                key={stringField(row, "eventId", `activity-row-${index}`)}
-                row={row}
-              />
-            ))}
-          </div>
-        </div>
+        <>
+          {providerEventCount === 0 && !completed ? (
+            <div className="mt-3 border-t border-[var(--color-muted)] pt-3 text-sm text-[var(--color-muted)]">
+              The provider process started, but no agent activity has been
+              observed yet.
+            </div>
+          ) : null}
+          <ActivityRows rows={rows} className="mt-3" />
+        </>
       ) : null}
       <BlockActions actions={actions} />
     </article>
+  );
+}
+
+function ActivityRows({
+  rows,
+  className = "",
+}: {
+  rows: Record<string, unknown>[];
+  className?: string;
+}) {
+  return (
+    <div
+      className={`${className} max-h-80 overflow-y-auto border-t border-[var(--color-muted)] pt-2`}
+    >
+      <div className="space-y-2">
+        {rows.map((row, index) => (
+          <ActivityRow
+            key={stringField(row, "eventId", `activity-row-${index}`)}
+            row={row}
+          />
+        ))}
+      </div>
+    </div>
   );
 }
 
@@ -448,4 +546,22 @@ function formatDuration(durationMs: number) {
   const minutes = Math.floor(seconds / 60);
   const remainingSeconds = Math.round(seconds % 60);
   return `${minutes}m ${remainingSeconds}s`;
+}
+
+function durationBetween(startedAt: string, completedAt: string) {
+  if (!startedAt || !completedAt) return 0;
+  return Math.max(
+    0,
+    new Date(completedAt).getTime() - new Date(startedAt).getTime(),
+  );
+}
+
+function useCurrentTime(active: boolean) {
+  const [now, setNow] = useState(() => Date.now());
+  useEffect(() => {
+    if (!active) return;
+    const timer = window.setInterval(() => setNow(Date.now()), 1_000);
+    return () => window.clearInterval(timer);
+  }, [active]);
+  return now;
 }

@@ -14,6 +14,7 @@ import {
   workspaceAgentSessionRoute,
 } from "../workspaces/routes";
 import { SessionSurface } from "./SessionSurface";
+import { sessionAttention } from "./session-attention";
 import { StartSessionControl } from "./StartSessionControl";
 
 export function WorkspaceAgentRoute() {
@@ -184,7 +185,12 @@ function SessionListLink({
   session: SessionSummary;
   to: string;
 }) {
-  const attention = sessionAttention(session);
+  const attention = sessionAttention(
+    session.state,
+    session.runtime.state,
+    session.runtime.degraded_reason,
+    session.runtime.last_runtime_step_at,
+  );
 
   return (
     <Link
@@ -228,18 +234,4 @@ export function orderWorkspaceSessions(sessions: SessionSummary[]) {
       left.session_thread_id.localeCompare(right.session_thread_id)
     );
   });
-}
-
-function sessionAttention(session: SessionSummary) {
-  if (session.runtime.state === "error" || session.state === "degraded") {
-    return "degraded";
-  }
-  if (
-    session.runtime.state === "blocked" ||
-    session.runtime.state === "stale" ||
-    Boolean(session.runtime.degraded_reason)
-  ) {
-    return session.runtime.state === "blocked" ? "blocked" : "warning";
-  }
-  return "clear";
 }

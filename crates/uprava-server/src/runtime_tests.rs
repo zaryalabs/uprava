@@ -26,22 +26,36 @@ const CORE_CONFIG_ENV_VARS: &[&str] = &[
     "UPRAVA_WEB_SESSION_TTL_SECONDS",
     "UPRAVA_COOKIE_SECURE",
     "UPRAVA_CORE_SHUTDOWN_TIMEOUT_SECONDS",
+    "UPRAVA_PUBLIC_RATE_WINDOW_SECONDS",
+    "UPRAVA_PUBLIC_GLOBAL_RATE_LIMIT",
+    "UPRAVA_PUBLIC_PEER_RATE_LIMIT",
 ];
 
 #[test]
 fn public_peer_rate_policy_keeps_sensitive_budgets_independent() {
-    assert_eq!(public_peer_rate_policy("/api/v1/auth/status"), ("auth", 30));
     assert_eq!(
-        public_peer_rate_policy("/api/v1/node-enrollments"),
+        public_peer_rate_policy("/api/v1/auth/status", 600),
+        ("auth", 30)
+    );
+    assert_eq!(
+        public_peer_rate_policy("/api/v1/node-enrollments", 600),
         ("enrollment", 30)
     );
     assert_eq!(
-        public_peer_rate_policy("/api/v1/client/logs"),
+        public_peer_rate_policy("/api/v1/client/logs", 600),
         ("client_logs", 120)
     );
     assert_eq!(
-        public_peer_rate_policy("/api/v1/inventory"),
-        ("general", PUBLIC_PEER_RATE_LIMIT)
+        public_peer_rate_policy("/api/v1/node/heartbeat", 600),
+        ("node", PUBLIC_NODE_RATE_LIMIT)
+    );
+    assert_eq!(
+        public_peer_rate_policy("/api/v1/sessions/session-1/stream", 600),
+        ("stream", PUBLIC_STREAM_RATE_LIMIT)
+    );
+    assert_eq!(
+        public_peer_rate_policy("/api/v1/inventory", 600),
+        ("ui", 600)
     );
 }
 
@@ -138,6 +152,9 @@ fn test_config(runtime_expiry_seconds: i64) -> AppConfig {
         web_session_ttl_seconds: 86_400,
         cookie_secure: false,
         core_shutdown_timeout_seconds: 5,
+        public_rate_window_seconds: 60,
+        public_global_rate_limit: 5_000,
+        public_peer_rate_limit: 600,
     }
 }
 

@@ -24,6 +24,9 @@ pub struct AppConfig {
     pub web_session_ttl_seconds: i64,
     pub cookie_secure: bool,
     pub core_shutdown_timeout_seconds: i64,
+    pub public_rate_window_seconds: i64,
+    pub public_global_rate_limit: usize,
+    pub public_peer_rate_limit: usize,
 }
 
 impl AppConfig {
@@ -57,6 +60,15 @@ impl AppConfig {
                 "UPRAVA_CORE_SHUTDOWN_TIMEOUT_SECONDS",
                 5,
             )?,
+            public_rate_window_seconds: parse_env_positive_i64(
+                "UPRAVA_PUBLIC_RATE_WINDOW_SECONDS",
+                60,
+            )?,
+            public_global_rate_limit: parse_env_positive_usize(
+                "UPRAVA_PUBLIC_GLOBAL_RATE_LIMIT",
+                5_000,
+            )?,
+            public_peer_rate_limit: parse_env_positive_usize("UPRAVA_PUBLIC_PEER_RATE_LIMIT", 600)?,
         })
     }
 }
@@ -82,6 +94,8 @@ pub enum ConfigError {
         name: String,
         source: std::num::ParseIntError,
     },
+    #[error("integer environment variable `{name}` must be positive")]
+    NonPositiveInteger { name: String },
 }
 
 fn parse_profile(value: Option<String>) -> Result<DeploymentProfile, ConfigError> {
@@ -156,6 +170,36 @@ fn parse_env_i64(name: &str, fallback: i64) -> Result<i64, ConfigError> {
                 name: name.to_owned(),
                 source,
             }),
+        Err(_) => Ok(fallback),
+    }
+}
+
+fn parse_env_positive_i64(name: &str, fallback: i64) -> Result<i64, ConfigError> {
+    let value = parse_env_i64(name, fallback)?;
+    if value <= 0 {
+        return Err(ConfigError::NonPositiveInteger {
+            name: name.to_owned(),
+        });
+    }
+    Ok(value)
+}
+
+fn parse_env_positive_usize(name: &str, fallback: usize) -> Result<usize, ConfigError> {
+    match std::env::var(name) {
+        Ok(value) => {
+            let value = value
+                .parse::<usize>()
+                .map_err(|source| ConfigError::InvalidInteger {
+                    name: name.to_owned(),
+                    source,
+                })?;
+            if value == 0 {
+                return Err(ConfigError::NonPositiveInteger {
+                    name: name.to_owned(),
+                });
+            }
+            Ok(value)
+        }
         Err(_) => Ok(fallback),
     }
 }

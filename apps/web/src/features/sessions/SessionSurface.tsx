@@ -1,7 +1,7 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { FolderOpen } from "lucide-react";
+import { FolderOpen, ListTree, MessageSquareText } from "lucide-react";
 import { useEffect } from "react";
-import { Link, useLocation } from "react-router-dom";
+import { Link, useLocation, useSearchParams } from "react-router-dom";
 
 import { coreApi } from "../../shared/api/http-client";
 import { queryKeys } from "../../shared/api/query-keys";
@@ -23,6 +23,7 @@ import { ChatComposer } from "./ChatComposer";
 import { CausalityPanel } from "./CausalityPanel";
 import { LifecycleControls } from "./LifecycleControls";
 import { ScheduledMessagesPanel } from "./ScheduledMessagesPanel";
+import { sessionAttention } from "./session-attention";
 import { SessionTimeline } from "./SessionTimeline";
 
 export function SessionSurface({
@@ -31,6 +32,9 @@ export function SessionSurface({
   sessionThreadId: string;
 }) {
   const location = useLocation();
+  const [searchParams, setSearchParams] = useSearchParams();
+  const sessionView =
+    searchParams.get("agentView") === "trace" ? "trace" : "conversation";
   const queryClient = useQueryClient();
   const session = useQuery({
     queryKey: queryKeys.session(sessionThreadId),
@@ -108,6 +112,12 @@ export function SessionSurface({
     workspaceAgentRoute(session.data.placement.project_placement_id),
     location.search,
   );
+  const selectSessionView = (view: "conversation" | "trace") => {
+    const next = new URLSearchParams(searchParams);
+    if (view === "conversation") next.delete("agentView");
+    else next.set("agentView", view);
+    setSearchParams(next, { replace: true });
+  };
 
   return (
     <article className="min-w-0" aria-labelledby="session-surface-title">
@@ -161,6 +171,8 @@ export function SessionSurface({
             value={sessionAttention(
               session.data.session.state,
               session.data.session.runtime.state,
+              session.data.session.runtime.degraded_reason,
+              session.data.session.runtime.last_runtime_step_at,
             )}
           />
         </div>
@@ -189,26 +201,55 @@ export function SessionSurface({
       </section>
 
       <div className="space-y-4 pt-4">
-        <SessionTimeline
-          detail={session.data}
-          availableCommands={agentProjection.data?.available_commands ?? []}
-        />
-        {sendTurn.isError ? (
-          <ErrorNotice error={sendTurn.error} title="Send failed" />
-        ) : null}
-        <ChatComposer
-          pending={sendTurn.isPending}
-          disabled={!canSendTurn}
-          onSend={(content) => sendTurn.mutateAsync(content).then(() => {})}
-        />
-        <ScheduledMessagesPanel
-          sessionThreadId={session.data.session.session_thread_id}
-          messages={session.data.scheduled_messages ?? []}
-          onChanged={invalidateSession}
-        />
-        <CausalityPanel
-          sessionThreadId={session.data.session.session_thread_id}
-        />
+        <nav
+          aria-label="Session view"
+          className="inline-flex border border-[var(--color-muted)] bg-[var(--color-bg)] p-0.5"
+        >
+          <button
+            type="button"
+            aria-pressed={sessionView === "conversation"}
+            className={`inline-flex h-8 items-center gap-2 px-3 text-sm font-medium ${sessionView === "conversation" ? "bg-[var(--color-ink)] text-[var(--color-bg)]" : "hover:bg-[var(--color-bg-muted)]"}`}
+            onClick={() => selectSessionView("conversation")}
+          >
+            <MessageSquareText size={15} aria-hidden="true" />
+            Conversation
+          </button>
+          <button
+            type="button"
+            aria-pressed={sessionView === "trace"}
+            className={`inline-flex h-8 items-center gap-2 px-3 text-sm font-medium ${sessionView === "trace" ? "bg-[var(--color-ink)] text-[var(--color-bg)]" : "hover:bg-[var(--color-bg-muted)]"}`}
+            onClick={() => selectSessionView("trace")}
+          >
+            <ListTree size={15} aria-hidden="true" />
+            Trace
+          </button>
+        </nav>
+
+        {sessionView === "conversation" ? (
+          <>
+            <SessionTimeline
+              detail={session.data}
+              availableCommands={agentProjection.data?.available_commands ?? []}
+            />
+            {sendTurn.isError ? (
+              <ErrorNotice error={sendTurn.error} title="Send failed" />
+            ) : null}
+            <ChatComposer
+              pending={sendTurn.isPending}
+              disabled={!canSendTurn}
+              onSend={(content) => sendTurn.mutateAsync(content).then(() => {})}
+            />
+            <ScheduledMessagesPanel
+              sessionThreadId={session.data.session.session_thread_id}
+              messages={session.data.scheduled_messages ?? []}
+              onChanged={invalidateSession}
+            />
+          </>
+        ) : (
+          <CausalityPanel
+            sessionThreadId={session.data.session.session_thread_id}
+          />
+        )}
         <details className="border-t border-black/10 pt-4">
           <summary className="cursor-pointer text-sm font-bold">
             Session details
@@ -228,13 +269,4 @@ export function SessionSurface({
       </div>
     </article>
   );
-}
-
-function sessionAttention(sessionState: string, runtimeState: string) {
-  if (sessionState === "degraded" || runtimeState === "error") {
-    return "degraded";
-  }
-  if (runtimeState === "blocked") return "blocked";
-  if (runtimeState === "stale" || runtimeState === "expired") return "warning";
-  return "clear";
 }

@@ -371,7 +371,19 @@ Rules:
 - Core deduplicates by `event_id`;
 - Core can detect gaps by `seq`;
 - UI projection is built per `session_thread_id`;
+- session UI применяет contiguous event непосредственно к локальной read model;
+  snapshot endpoints используются для bootstrap, reconnect и sequence gap, а
+  не как обязательный refetch после каждого события;
+- inventory/session summary, открытые trace/evidence и raw event log могут
+  обновляться из того же event envelope. Серверная canonical projection
+  перечитывается только там, где UI не может безопасно вывести производное
+  состояние из события;
 - V01 does not need global event ordering across all nodes.
+
+Такой push-first contract сохраняет реакцию UI на каждый provider event, но не
+превращает одно push-сообщение в каскад независимых HTTP GET. SSE остаётся
+подходящим transport для `Core -> UI`; переход на WebSocket сам по себе этот
+инвариант не меняет.
 
 ### Stale and offline
 

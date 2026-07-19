@@ -44,7 +44,7 @@ describe("TimelineBlockRenderer", () => {
       <TimelineBlockRenderer block={turnActivityBlock({ completed: false })} />,
     );
 
-    expect(screen.getByText("Turn Activity")).toBeVisible();
+    expect(screen.getByText("Agent is working")).toBeVisible();
     expect(screen.getByText("make c")).toBeVisible();
     expect(screen.getByText("item.completed")).toBeVisible();
 
@@ -61,7 +61,7 @@ describe("TimelineBlockRenderer", () => {
       <TimelineBlockRenderer block={turnActivityBlock({ completed: true })} />,
     );
 
-    expect(screen.getByText("Turn Activity")).toBeVisible();
+    expect(screen.getByText("Completed")).toBeVisible();
     expect(screen.queryByText("make c")).not.toBeInTheDocument();
   });
 });
@@ -93,7 +93,10 @@ function turnActivityBlock({ completed }: { completed: boolean }): UiBlock {
     data: {
       turnId: "turn-1",
       completed,
+      terminalKind: completed ? "turn.completed" : null,
+      lastObservedAt: new Date().toISOString(),
       durationMs: completed ? 1500 : null,
+      providerEventCount: 1,
       commandCount: 1,
       fileChangeCount: 0,
       reasoningCount: 0,

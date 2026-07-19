@@ -2,7 +2,7 @@
 
 Статус: `active`
 
-Current release baseline: `0.2.8`.
+Current release baseline: `0.2.9`.
 
 Этот ledger фиксирует implementation baselines. Он не заменяет
 [`feature-queue.md`](product/feature-queue.md), где остается ранжированная очередь
@@ -29,11 +29,12 @@ future work.
 | `0.2.5` | 2026-07-12 | shipped | Background Jobs и scheduled agent runs с наблюдаемыми per-run sessions и quota admission |
 | `0.2.6` | 2026-07-13 | shipped | Workspace-centered Web UI: Node/Workspace navigation и workspace Agent, Workbench, Jobs surfaces |
 | `0.2.7` | 2026-07-19 | shipped | Causality/Trace UX, raw event/ref resolution и isolated structured Deduction |
-| `0.2.8` | 2026-07-19 | current | Модульные Core/Node runtime boundaries, capability-oriented tests и автоматический architecture gate |
+| `0.2.8` | 2026-07-19 | shipped | Модульные Core/Node runtime boundaries, capability-oriented tests и автоматический architecture gate |
+| `0.2.9` | 2026-07-19 | current | Прозрачный agent timeline: Conversation/Trace modes, сгруппированные live-события и stalled activity state |
 
 ## Current Baseline
 
-`0.2.8` включает protocol-v2 baseline `0.2.0`, завершённое Zarya 0.1 Web UI/UX
+`0.2.9` включает protocol-v2 baseline `0.2.0`, завершённое Zarya 0.1 Web UI/UX
 alignment и clean-bootstrap four-phase delivery path. Текущая реализация включает
 первый working distributed
 control panel, девять закрытых
@@ -52,6 +53,23 @@ renderer/PTY terminal layer, а также первый deployable self-hosted r
   raw fallback, cancellation и explicit persistence в versioned
   `CausalityNarrative`;
 - Web trace, aspect-based Context Inspector, raw event log и Deduction panel.
+- Conversation и Trace разделены на URL-addressable режимы одной session
+  surface; runtime bootstrap и события каждого agent turn сгруппированы в
+  компактные раскрываемые блоки.
+- Provider activity поступает в Core во время выполнения, а не только после
+  завершения process; отсутствие новых событий у running turn становится
+  видимым stalled attention state.
+- Session SSE применяется как push-first read-model stream: каждый event
+  немедленно обновляет session timeline, inventory summary, открытые trace,
+  evidence и raw-event caches без каскада snapshot GET. Полные server
+  projections остаются bootstrap/recovery boundary и обновляются только на
+  значимых lifecycle/message границах.
+- Public ingress разделяет authenticated UI, Node, stream, auth, enrollment и
+  client-log buckets; UI/global budgets конфигурируются environment и имеют
+  controlled-development defaults `600/5000` на минутное окно.
+- Trace остаётся session-wide подробной летописью, Deduction и raw payload
+  убраны на дополнительный уровень раскрытия, а reference actions используют
+  явные inspect/copy controls.
 - Core и Node composition roots отделены от application, transport,
   persistence, workspace, terminal и provider modules; прежние runtime и test
   монолиты разложены по capability boundaries без изменения protocol или state

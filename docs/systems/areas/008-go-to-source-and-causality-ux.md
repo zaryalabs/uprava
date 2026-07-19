@@ -207,6 +207,22 @@ provider-normalized edit events.
 - **Chat Trace** — история выбранного file, command, check, artifact или
   message через всю сессию.
 
+### Live projection contract
+
+Session event stream является realtime read-model input, а не сигналом
+перезагрузить все projections. Contiguous event сразу добавляется в conversation
+и открытые trace/evidence/raw views, патчит session summary внутри inventory и
+обновляет известные runtime поля Agent Projection. Поэтому network coalescing
+не снижает визуальную частоту обновлений.
+
+Canonical Core snapshots остаются обязательными для initial load, reconnect,
+sequence gap и полей, которые нельзя честно вывести из одного event envelope.
+Например, полный набор `available_commands` перечитывается на lifecycle,
+approval и workspace boundaries, но `provider.activity` не запускает такой
+refetch. При message/approval/error boundary Trace и Evidence после мгновенного
+локального update сверяются с canonical projection, чтобы заменить временные
+client refs durable Core identifiers.
+
 ### Главная модель
 
 Любой важный видимый объект Uprava должен иметь stable reference and optional
@@ -610,6 +626,28 @@ Permissions
 
 The default view should be compact and readable. Raw trace should stay one
 click deeper unless the object itself is raw output.
+
+В Web baseline `0.2.9` session surface разделяет два уровня наблюдаемости:
+
+- `Conversation` — основной рабочий режим. Системный bootstrap до первого
+  пользовательского сообщения и работа между user message и terminal outcome
+  представлены отдельными компактными disclosure groups. Активный turn раскрыт
+  автоматически, дополняется provider activity в реальном времени и явно
+  показывает отсутствие новых событий после bounded интервала;
+- `Trace` — session-wide подробная летопись, доступная переключателем вместо
+  чата и сохранённая в URL через `agentView=trace`. Здесь остаются coarse causal
+  steps, raw event log и isolated Deduction;
+- terminal events (`turn.completed`, interruption, block, runtime error) закрывают
+  live group. Provider activity доставляется маленькими live frames и затем
+  повторяется через durable bounded batches; Core idempotently принимает
+  повторные event ids;
+- Deduction, raw payload и raw event bodies по умолчанию находятся на один
+  disclosure level глубже. Они не конкурируют с основным conversation flow за
+  визуальный вес.
+
+Такое разделение не отменяет source/cause graph: reference action остаётся на
+message, grouped activity и trace steps, а Context Inspector показывает
+человекочитаемый resolution status и раскрываемый raw payload.
 
 В Web baseline `0.2.6` общий Context Inspector закрыт по умолчанию и вообще не
 монтируется при пустом reference stack. Он резервирует отдельную колонку только

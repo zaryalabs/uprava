@@ -33,6 +33,10 @@ export function buildSessionTimelineBlocks(
   const groupedActivityTurnIds = new Set(
     activityGroups.map((group) => group.turnId),
   );
+  const sessionActivity = sessionActivityGroup(detail);
+  const groupedSessionEventIds = new Set(
+    sessionActivity?.events.map((event) => event.event_id) ?? [],
+  );
   const pendingApprovals = pendingApprovalIds(detail.events);
   const messageSourceEventIds = new Set(
     detail.messages
@@ -58,11 +62,22 @@ export function buildSessionTimelineBlocks(
       detail.messages.length + sourceIndex,
     ),
   );
+  const sessionActivityBlocks = sessionActivity
+    ? [
+        orderedTimelineBlockItem(
+          { block: blockFromSessionActivity(sessionActivity) },
+          sessionActivity.events[0]?.happened_at ?? "",
+          sessionActivity.events[0]?.seq ?? 0,
+          detail.messages.length + activityBlocks.length,
+        ),
+      ]
+    : [];
   const eventBlocks = detail.events
     .filter(
       (event) =>
         !messageSourceEventIds.has(event.event_id) &&
         !groupedActivityEventIds.has(event.event_id) &&
+        !groupedSessionEventIds.has(event.event_id) &&
         !isGroupedTurnBoundaryEvent(event, groupedActivityTurnIds),
     )
     .map((event, sourceIndex) =>
@@ -70,11 +85,19 @@ export function buildSessionTimelineBlocks(
         blockFromEvent(event, { pendingApprovals }),
         event.happened_at,
         event.seq,
-        detail.messages.length + activityBlocks.length + sourceIndex,
+        detail.messages.length +
+          activityBlocks.length +
+          sessionActivityBlocks.length +
+          sourceIndex,
       ),
     );
 
-  return [...messageBlocks, ...activityBlocks, ...eventBlocks]
+  return [
+    ...messageBlocks,
+    ...sessionActivityBlocks,
+    ...activityBlocks,
+    ...eventBlocks,
+  ]
     .sort(compareTimelineBlockItems)
     .map(({ item }) => item);
 }
@@ -162,31 +185,130 @@ export function blockFromEvent(
 
 type TurnActivityGroup = {
   turnId: string;
+  commandId?: string;
   startedAt?: string;
   completedAt?: string;
+  terminalKind?: string;
   events: EventEnvelope[];
 };
 
 function turnActivityGroups(events: EventEnvelope[]): TurnActivityGroup[] {
-  const byTurn = new Map<string, EventEnvelope[]>();
+  const turnCommandIds = new Map<string, string>();
   for (const event of events) {
-    if (event.kind !== "provider.activity" || !event.turn_id) continue;
-    const group = byTurn.get(event.turn_id) ?? [];
-    group.push(event);
-    byTurn.set(event.turn_id, group);
+    if (event.turn_id && event.command_id) {
+      turnCommandIds.set(event.turn_id, event.command_id);
+    }
   }
+  const turnIds = new Set(
+    events
+      .filter(
+        (event) =>
+          Boolean(event.turn_id) &&
+          (event.kind === "turn.started" || event.kind === "provider.activity"),
+      )
+      .map((event) => event.turn_id as string),
+  );
 
-  return Array.from(byTurn.entries())
-    .map(([turnId, groupEvents]) => {
+  return Array.from(turnIds)
+    .map((turnId) => {
+      const commandId = turnCommandIds.get(turnId);
+      const groupEvents = events.filter(
+        (event) =>
+          isTurnActivityEvent(event) &&
+          (event.turn_id === turnId ||
+            Boolean(commandId && event.command_id === commandId)),
+      );
       const sortedEvents = [...groupEvents].sort(compareEvents);
+      const terminalEvent = [...sortedEvents]
+        .reverse()
+        .find((event) => isTurnTerminalEvent(event));
       return {
         turnId,
+        commandId,
         startedAt: eventTime(events, turnId, "turn.started"),
-        completedAt: eventTime(events, turnId, "turn.completed"),
+        completedAt: terminalEvent?.happened_at,
+        terminalKind: terminalEvent?.kind,
         events: sortedEvents,
       };
     })
+    .filter((group) => group.events.length > 0)
     .sort((left, right) => compareEvents(left.events[0]!, right.events[0]!));
+}
+
+function isTurnActivityEvent(event: EventEnvelope) {
+  return (
+    event.kind === "runtime.running" ||
+    event.kind === "runtime.ready" ||
+    event.kind === "runtime.blocked" ||
+    event.kind === "runtime.error" ||
+    event.kind === "runtime.stopped" ||
+    event.kind === "turn.started" ||
+    event.kind === "turn.completed" ||
+    event.kind === "turn.interrupted" ||
+    event.kind === "provider.activity" ||
+    event.kind.startsWith("provider.output.")
+  );
+}
+
+function isTurnTerminalEvent(event: EventEnvelope) {
+  return (
+    event.kind === "turn.completed" ||
+    event.kind === "turn.interrupted" ||
+    event.kind === "runtime.blocked" ||
+    event.kind === "runtime.error" ||
+    event.kind === "runtime.stopped"
+  );
+}
+
+type SessionActivityGroup = {
+  events: EventEnvelope[];
+  completed: boolean;
+};
+
+function sessionActivityGroup(
+  detail: SessionDetail,
+): SessionActivityGroup | null {
+  const firstUserMessageAt = detail.messages
+    .filter((message) => message.role === "user")
+    .map((message) => message.created_at)
+    .sort()[0];
+  const events = detail.events
+    .filter(
+      (event) =>
+        !event.turn_id &&
+        (event.kind === "runtime.starting" || event.kind === "runtime.ready") &&
+        (!firstUserMessageAt || event.happened_at <= firstUserMessageAt),
+    )
+    .sort(compareEvents);
+  if (events.length === 0) return null;
+  return {
+    events,
+    completed: events.some((event) => event.kind === "runtime.ready"),
+  };
+}
+
+function blockFromSessionActivity(group: SessionActivityGroup): UiBlock {
+  const first = group.events[0];
+  if (!first) {
+    throw new Error("session activity group must contain at least one event");
+  }
+  const last = group.events.at(-1);
+  return baseBlock({
+    blockId: `session-activity:${first.event_id}`,
+    type: "core.session-activity",
+    primaryRef: eventRef(first),
+    sourceRefs: group.events.map(eventRef),
+    data: {
+      completed: group.completed,
+      startedAt: first.happened_at,
+      completedAt: group.completed ? (last?.happened_at ?? null) : null,
+      eventCount: group.events.length,
+      rows: group.events.map(turnActivityRow),
+    },
+    fallbackText: group.completed
+      ? "Session initialized"
+      : "Session initialization in progress",
+  });
 }
 
 function blockFromTurnActivity(
@@ -218,8 +340,14 @@ function blockFromTurnActivity(
       startedAt: group.startedAt ?? null,
       completedAt: group.completedAt ?? null,
       completed: Boolean(group.completedAt),
+      terminalKind: group.terminalKind ?? null,
+      lastObservedAt:
+        group.events.at(-1)?.happened_at ?? group.startedAt ?? null,
       durationMs: durationMs !== null && durationMs >= 0 ? durationMs : null,
       eventCount: rows.length,
+      providerEventCount: group.events.filter(
+        (event) => event.kind === "provider.activity",
+      ).length,
       commandCount: counts.commandCount,
       fileChangeCount: counts.fileChangeCount,
       reasoningCount: counts.reasoningCount,
@@ -246,13 +374,20 @@ function turnActivityRow(event: EventEnvelope) {
     event.payload.type === "provider_activity" ? event.payload : null;
   const providerEventType = stringValue(
     payload?.provider_event_type,
-    "provider.activity",
+    event.kind,
   );
   const providerItemType = optionalString(payload?.provider_item_type);
   const providerItemId = optionalString(payload?.provider_item_id);
   const phase = optionalString(payload?.phase);
   const status = optionalString(payload?.status);
-  const summary = stringValue(payload?.summary, providerEventType);
+  const summary = stringValue(
+    payload?.summary,
+    event.kind === "turn.started"
+      ? "Agent turn started"
+      : event.kind === "turn.completed"
+        ? "Agent turn completed"
+        : event.kind,
+  );
 
   return {
     eventId: event.event_id,

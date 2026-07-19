@@ -247,23 +247,28 @@ pub(crate) async fn public_ingress_guard(
         .get::<ConnectInfo<SocketAddr>>()
         .map(|ConnectInfo(address)| address.ip().to_string())
         .unwrap_or_else(|| "unknown".to_owned());
-    enforce_public_rate(&state, "global", PUBLIC_GLOBAL_RATE_LIMIT).await?;
-    let (peer_bucket, peer_limit) = public_peer_rate_policy(path);
+    enforce_public_rate(&state, "global", state.config.public_global_rate_limit).await?;
+    let (peer_bucket, peer_limit) =
+        public_peer_rate_policy(path, state.config.public_peer_rate_limit);
     enforce_public_rate(&state, &format!("peer:{peer}:{peer_bucket}"), peer_limit).await?;
     let response = next.run(request).await;
     drop(permit);
     Ok(response)
 }
 
-pub(crate) fn public_peer_rate_policy(path: &str) -> (&'static str, usize) {
+pub(crate) fn public_peer_rate_policy(path: &str, ui_limit: usize) -> (&'static str, usize) {
     if path.contains("/auth/") {
         ("auth", 30)
     } else if path.contains("enrollment") {
         ("enrollment", 30)
     } else if path.ends_with("/client/logs") {
         ("client_logs", 120)
+    } else if path.starts_with("/api/v1/node/") {
+        ("node", PUBLIC_NODE_RATE_LIMIT)
+    } else if path.ends_with("/stream") {
+        ("stream", PUBLIC_STREAM_RATE_LIMIT)
     } else {
-        ("general", PUBLIC_PEER_RATE_LIMIT)
+        ("ui", ui_limit)
     }
 }
 
@@ -273,7 +278,7 @@ pub(crate) async fn enforce_public_rate(
     limit: usize,
 ) -> Result<(), AppError> {
     let now = Utc::now();
-    let cutoff = now - chrono::Duration::seconds(PUBLIC_RATE_WINDOW_SECONDS);
+    let cutoff = now - chrono::Duration::seconds(state.config.public_rate_window_seconds);
     let mut requests = state.public_requests.write().await;
     let entries = requests.entry(key.to_owned()).or_default();
     entries.retain(|timestamp| *timestamp > cutoff);

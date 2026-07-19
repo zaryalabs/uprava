@@ -475,7 +475,8 @@ fn live_event_sink_only_records_until_durable_dispatch_phase() {
         None,
     );
     let mut runtime_states = HashMap::new();
-    let mut sink = NodeLiveEventSink::new(&mut runtime_states);
+    let (sender, mut receiver) = mpsc::channel(1);
+    let mut sink = NodeLiveEventSink::new(&mut runtime_states, &sender);
 
     sink.emit(&event);
 
@@ -483,4 +484,6 @@ fn live_event_sink_only_records_until_durable_dispatch_phase() {
         runtime_states.get("runtime-durable-live-event"),
         Some(&RuntimeSessionState::Error)
     );
+    let frame = receiver.try_recv().expect("live event queued");
+    assert!(matches!(frame, ControlFrame::EventBatch { events, .. } if events == vec![event]));
 }

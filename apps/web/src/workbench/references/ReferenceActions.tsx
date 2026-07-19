@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { Clipboard, Search } from "lucide-react";
 import type { UpravaRef } from "../../shared/protocol/types";
 import { Button } from "../../shared/ui/button";
 import { runWorkbenchCommand } from "../commands/registry";
@@ -43,9 +44,7 @@ export function ReferenceActions({
           title={`Open ${title} in inspector`}
           onClick={inspect}
         >
-          <span aria-hidden="true" className="text-base leading-none">
-            +
-          </span>
+          <Search size={14} aria-hidden="true" />
         </Button>
       ) : null}
       {showCopy ? (
@@ -63,9 +62,7 @@ export function ReferenceActions({
           }
           onClick={copy}
         >
-          <span aria-hidden="true" className="text-sm leading-none">
-            ⧉
-          </span>
+          <Clipboard size={14} aria-hidden="true" />
         </Button>
       ) : null}
     </span>

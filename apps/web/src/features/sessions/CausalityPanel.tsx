@@ -23,7 +23,7 @@ import { LoadingState } from "../../shared/ui/system";
 import { Textarea } from "../../shared/ui/textarea";
 import { runWorkbenchCommand } from "../../workbench/commands/registry";
 import { ReferenceActions } from "../../workbench/references/ReferenceActions";
-import { refTitle, sameRef } from "../../workbench/references/refs";
+import { refTitle } from "../../workbench/references/refs";
 import { useOpenReference } from "../../workbench/references/use-inspector-stack";
 
 export function CausalityPanel({
@@ -37,7 +37,6 @@ export function CausalityPanel({
     kind: "session",
     session_thread_id: sessionThreadId,
   };
-  const [scopeRef, setScopeRef] = useState<UpravaRef>(sessionRef);
   const [question, setQuestion] = useState("");
   const [deductionId, setDeductionId] = useState<string | null>(null);
   const trace = useQuery({
@@ -47,7 +46,7 @@ export function CausalityPanel({
   const createDeduction = useMutation({
     mutationFn: () =>
       coreApi.createDeduction(sessionThreadId, {
-        scope_ref: scopeRef,
+        scope_ref: sessionRef,
         question: question.trim() || null,
       }),
     onSuccess: (accepted) => {
@@ -95,14 +94,13 @@ export function CausalityPanel({
   return (
     <section
       className="space-y-4 border-t border-black/10 pt-4"
-      aria-label="Causality and Deduction"
+      aria-label="Session trace"
     >
       <header className="flex flex-wrap items-end justify-between gap-3">
         <div>
-          <div className="zarya-label">Causality Trace</div>
+          <div className="zarya-label">Session Trace</div>
           <p className="mt-1 text-sm text-[var(--color-muted)]">
-            Coarse causal steps with exact references where the event log has
-            them.
+            Detailed session history with causal links and raw evidence.
           </p>
         </div>
         {trace.data ? (
@@ -122,13 +120,7 @@ export function CausalityPanel({
       ) : trace.data ? (
         <div className="space-y-2">
           {trace.data.steps.map((step) => (
-            <TraceStepCard
-              key={step.block_id}
-              step={step}
-              openRef={openRef}
-              onDeduce={() => setScopeRef(step.primary_ref)}
-              selected={sameRef(scopeRef, step.primary_ref)}
-            />
+            <TraceStepCard key={step.block_id} step={step} openRef={openRef} />
           ))}
           {trace.data.steps.length === 0 ? (
             <p className="text-sm text-[var(--color-muted)]">
@@ -141,53 +133,58 @@ export function CausalityPanel({
         <LoadingState stage="Loading causality trace" />
       )}
 
-      <div className="grid gap-4 border-l-2 border-[var(--color-notice)] pl-4 xl:grid-cols-[minmax(0,1fr)_minmax(18rem,0.8fr)]">
-        <div>
-          <div className="zarya-label">Deduction</div>
-          <p className="mt-1 text-sm">
-            Scope: <strong>{refTitle(scopeRef)}</strong>
-          </p>
-          <Textarea
-            className="mt-3"
-            value={question}
-            maxLength={2_000}
-            placeholder="What caused this result? Leave empty for the default question."
-            aria-label="Deduction question"
-            onChange={(event) => setQuestion(event.target.value)}
-          />
-          <div className="mt-2 flex flex-wrap gap-2">
-            <Button
-              variant="primary"
-              disabled={createDeduction.isPending}
-              onClick={() => createDeduction.mutate()}
-            >
-              {createDeduction.isPending ? "Starting…" : "Run Deduction"}
-            </Button>
-            <Button variant="ghost" onClick={() => setScopeRef(sessionRef)}>
-              Use whole session
-            </Button>
-            <ReferenceActions reference={scopeRef} showCopy={false} />
-          </div>
-          {createDeduction.isError ? (
-            <div className="mt-3">
-              <ErrorNotice
-                error={createDeduction.error}
-                title="Deduction could not start"
-              />
+      <details className="border-t border-black/10 pt-3">
+        <summary className="cursor-pointer text-sm font-bold">
+          Explain this session with Deduction
+          <span className="ml-2 font-normal text-[var(--color-muted)]">
+            Isolated analysis
+          </span>
+        </summary>
+        <div className="mt-4 grid gap-4 border-l-2 border-[var(--color-notice)] pl-4 xl:grid-cols-[minmax(0,1fr)_minmax(18rem,0.8fr)]">
+          <div>
+            <div className="zarya-label">Deduction</div>
+            <p className="mt-1 text-sm">
+              Scope: <strong>whole session</strong>
+            </p>
+            <Textarea
+              className="mt-3"
+              value={question}
+              maxLength={2_000}
+              placeholder="What caused this result? Leave empty for the default question."
+              aria-label="Deduction question"
+              onChange={(event) => setQuestion(event.target.value)}
+            />
+            <div className="mt-2 flex flex-wrap gap-2">
+              <Button
+                variant="primary"
+                disabled={createDeduction.isPending}
+                onClick={() => createDeduction.mutate()}
+              >
+                {createDeduction.isPending ? "Starting…" : "Run Deduction"}
+              </Button>
+              <ReferenceActions reference={sessionRef} showCopy={false} />
             </div>
-          ) : null}
+            {createDeduction.isError ? (
+              <div className="mt-3">
+                <ErrorNotice
+                  error={createDeduction.error}
+                  title="Deduction could not start"
+                />
+              </div>
+            ) : null}
+          </div>
+          <DeductionResult
+            deduction={deduction.data}
+            loading={Boolean(deductionId && !deduction.data)}
+            error={deduction.error}
+            persistPending={persist.isPending}
+            cancelPending={cancel.isPending}
+            onPersist={(id) => persist.mutate(id)}
+            onCancel={(id) => cancel.mutate(id)}
+            openRef={openRef}
+          />
         </div>
-        <DeductionResult
-          deduction={deduction.data}
-          loading={Boolean(deductionId && !deduction.data)}
-          error={deduction.error}
-          persistPending={persist.isPending}
-          cancelPending={cancel.isPending}
-          onPersist={(id) => persist.mutate(id)}
-          onCancel={(id) => cancel.mutate(id)}
-          openRef={openRef}
-        />
-      </div>
+      </details>
 
       <RawEventLog sessionThreadId={sessionThreadId} />
     </section>
@@ -196,23 +193,13 @@ export function CausalityPanel({
 
 function TraceStepCard({
   step,
-  selected,
-  onDeduce,
   openRef,
 }: {
   step: TraceStep;
-  selected: boolean;
-  onDeduce: () => void;
   openRef: (reference: UpravaRef) => void;
 }) {
   return (
-    <article
-      className={`border-l-2 p-3 ${
-        selected
-          ? "border-[var(--color-notice)] bg-[var(--color-bg-muted)]"
-          : "border-black/20"
-      }`}
-    >
+    <article className="border-l-2 border-black/20 p-3">
       <div className="flex flex-wrap items-start justify-between gap-2">
         <div className="min-w-0">
           <div className="flex flex-wrap items-center gap-2">
@@ -223,12 +210,7 @@ function TraceStepCard({
             {step.summary}
           </p>
         </div>
-        <div className="flex gap-2">
-          <Button variant="ghost" onClick={onDeduce}>
-            Deduce this
-          </Button>
-          <ReferenceActions reference={step.primary_ref} showCopy={false} />
-        </div>
+        <ReferenceActions reference={step.primary_ref} showCopy={false} />
       </div>
       <AspectLinks links={step} openRef={openRef} />
     </article>

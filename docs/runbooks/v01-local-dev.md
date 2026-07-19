@@ -45,6 +45,12 @@ Default ports and paths:
 - Web auth mode: `UPRAVA_WEB_AUTH`, default `auto`
 - Web session TTL: `UPRAVA_WEB_SESSION_TTL_SECONDS`, default `86400`
 - Secure cookie flag: `UPRAVA_COOKIE_SECURE`, default `false` for local HTTP
+- Public ingress window: `UPRAVA_PUBLIC_RATE_WINDOW_SECONDS`, default `60`
+- Global ingress budget per window: `UPRAVA_PUBLIC_GLOBAL_RATE_LIMIT`, default
+  `5000`
+- Authenticated UI budget per peer and window:
+  `UPRAVA_PUBLIC_PEER_RATE_LIMIT`, default `600`; auth, enrollment, Node и
+  session stream используют независимые buckets
 
 Core creates and migrates the SQLite schema on startup. Migration coverage
 includes a clean empty database and previous dev `nodes` table shape without

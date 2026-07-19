@@ -4,15 +4,35 @@ use super::super::*;
 
 pub(crate) struct NodeLiveEventSink<'a> {
     pub(crate) runtime_states: &'a mut HashMap<String, RuntimeSessionState>,
+    pub(crate) sender: ControlFrameSender,
 }
 
 impl<'a> NodeLiveEventSink<'a> {
-    pub(crate) fn new(runtime_states: &'a mut HashMap<String, RuntimeSessionState>) -> Self {
-        Self { runtime_states }
+    pub(crate) fn new(
+        runtime_states: &'a mut HashMap<String, RuntimeSessionState>,
+        sender: &ControlFrameSender,
+    ) -> Self {
+        Self {
+            runtime_states,
+            sender: sender.clone(),
+        }
     }
 
     pub(crate) fn emit(&mut self, event: &EventEnvelope) {
         apply_runtime_state_projection_for_event(self.runtime_states, event);
+        if let Err(error) = self.sender.try_send(ControlFrame::EventBatch {
+            frame_id: Uuid::new_v4().to_string(),
+            protocol_version: API_VERSION.to_owned(),
+            sent_at: Utc::now(),
+            events: vec![event.clone()],
+        }) {
+            tracing::warn!(
+                error = %error,
+                event_id = %event.event_id,
+                kind = ?event.kind,
+                "live provider event could not be queued; durable delivery will retry it"
+            );
+        }
     }
 }
 
@@ -212,8 +232,8 @@ pub(crate) async fn prepare_command_dispatch_with_live_socket(
             } else {
                 let provider_key = provider_for_command(local_state, command);
                 let workspace_path = workspace_path_for_command(local_state, command);
-                let mut live_event_sink =
-                    live_sender.map(|_| NodeLiveEventSink::new(&mut local_state.runtime_states));
+                let mut live_event_sink = live_sender
+                    .map(|sender| NodeLiveEventSink::new(&mut local_state.runtime_states, sender));
                 let events = if let Some(provider_key) = provider_key {
                     RuntimeManager::for_provider(&provider_key, config)
                         .execute_command(

@@ -120,6 +120,48 @@ describe("session timeline blocks", () => {
     ]);
   });
 
+  it("groups runtime bootstrap before the first user message", () => {
+    const detail = detailWithApproval();
+    const blocks = buildSessionTimelineBlocks({
+      ...detail,
+      messages: [
+        {
+          message_id: "message-user",
+          session_thread_id: "session-1",
+          turn_id: "turn-1",
+          role: "user",
+          content: "Hello",
+          created_at: "2026-06-17T00:00:02Z",
+          completed_at: "2026-06-17T00:00:02Z",
+          source_event_id: null,
+        },
+      ],
+      events: [
+        {
+          ...eventWithPayload("runtime.starting", {}),
+          event_id: "event-runtime-starting",
+          seq: 1,
+          happened_at: "2026-06-17T00:00:00Z",
+        },
+        {
+          ...eventWithPayload("runtime.ready", {}),
+          event_id: "event-runtime-ready",
+          seq: 2,
+          happened_at: "2026-06-17T00:00:01Z",
+        },
+      ],
+    });
+
+    expect(blocks.map((item) => item.block.type)).toEqual([
+      "core.session-activity",
+      "core.user-message",
+    ]);
+    expect(blocks[0].block.data).toMatchObject({
+      completed: true,
+      eventCount: 2,
+    });
+  });
+
   it("groups provider activity events into one turn block before the assistant message", () => {
     const providerMessage = {
       ...eventWithPayload("provider.message.completed", {
@@ -210,7 +252,8 @@ describe("session timeline blocks", () => {
     expect(blocks[1].block.type).toBe("core.turn-activity");
     expect(blocks[1].block.data).toMatchObject({
       turnId: "turn-1",
-      eventCount: 2,
+      eventCount: 4,
+      providerEventCount: 2,
       commandCount: 1,
       warningErrorCount: 1,
       completed: true,
@@ -218,6 +261,7 @@ describe("session timeline blocks", () => {
   });
 
   it("keeps the v01 renderer registry explicit", () => {
+    expect(registeredTimelineBlockTypes()).toContain("core.session-activity");
     expect(registeredTimelineBlockTypes()).toContain("core.turn-activity");
     expect(registeredTimelineBlockTypes()).toContain("core.approval-request");
     expect(registeredTimelineBlockTypes()).toContain("core.unknown");

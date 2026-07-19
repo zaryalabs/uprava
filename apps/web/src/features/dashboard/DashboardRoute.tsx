@@ -18,6 +18,7 @@ import {
 import { EmptyState, LoadingState, PageHeader } from "../../shared/ui/system";
 import { useHealth, useInventory } from "../inventory/api";
 import { isJobRunActive } from "../jobs/status";
+import { sessionAttention } from "../sessions/session-attention";
 import {
   workspaceAgentSessionRoute,
   workspaceJobRunRoute,
@@ -309,22 +310,13 @@ function activityForSession(
       session.session_thread_id,
     ),
     lifecycle: session.state,
-    attention: sessionAttention(session),
+    attention: sessionAttention(
+      session.state,
+      session.runtime.state,
+      session.runtime.degraded_reason,
+      session.runtime.last_runtime_step_at,
+    ),
   };
-}
-
-function sessionAttention(session: SessionSummary) {
-  if (session.runtime.state === "error" || session.state === "degraded") {
-    return "degraded";
-  }
-  if (
-    session.runtime.state === "blocked" ||
-    session.runtime.state === "stale" ||
-    Boolean(session.runtime.degraded_reason)
-  ) {
-    return session.runtime.state === "blocked" ? "blocked" : "warning";
-  }
-  return "clear";
 }
 
 function formatDateTime(value: string) {

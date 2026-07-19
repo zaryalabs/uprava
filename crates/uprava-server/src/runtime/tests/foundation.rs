@@ -35,6 +35,9 @@ fn app_config_from_env_uses_documented_defaults() {
     assert_eq!(config.web_session_ttl_seconds, 86_400);
     assert!(!config.cookie_secure);
     assert_eq!(config.core_shutdown_timeout_seconds, 5);
+    assert_eq!(config.public_rate_window_seconds, 60);
+    assert_eq!(config.public_global_rate_limit, 5_000);
+    assert_eq!(config.public_peer_rate_limit, 600);
 }
 
 #[test]
@@ -57,6 +60,9 @@ fn app_config_from_env_parses_overrides() {
     std::env::set_var("UPRAVA_COOKIE_SECURE", "true");
     std::env::set_var("UPRAVA_CORE_SHUTDOWN_TIMEOUT_SECONDS", "2");
     std::env::set_var("UPRAVA_AUTO_APPROVE_NODE_NAME", " Zarya Server ");
+    std::env::set_var("UPRAVA_PUBLIC_RATE_WINDOW_SECONDS", "30");
+    std::env::set_var("UPRAVA_PUBLIC_GLOBAL_RATE_LIMIT", "9000");
+    std::env::set_var("UPRAVA_PUBLIC_PEER_RATE_LIMIT", "900");
 
     let config = AppConfig::from_env().expect("overridden core config parses");
 
@@ -88,6 +94,9 @@ fn app_config_from_env_parses_overrides() {
     assert_eq!(config.web_session_ttl_seconds, 3600);
     assert!(config.cookie_secure);
     assert_eq!(config.core_shutdown_timeout_seconds, 2);
+    assert_eq!(config.public_rate_window_seconds, 30);
+    assert_eq!(config.public_global_rate_limit, 9_000);
+    assert_eq!(config.public_peer_rate_limit, 900);
 }
 
 #[test]
@@ -146,6 +155,21 @@ fn app_config_from_env_rejects_invalid_integer() {
         error,
         ConfigError::InvalidInteger { name, .. }
             if name == "UPRAVA_HEARTBEAT_STALE_SECONDS"
+    ));
+}
+
+#[test]
+fn app_config_from_env_rejects_zero_rate_limit() {
+    let _lock = env_lock();
+    let _env = EnvGuard::cleared(CORE_CONFIG_ENV_VARS);
+    std::env::set_var("UPRAVA_PUBLIC_PEER_RATE_LIMIT", "0");
+
+    let error = AppConfig::from_env().expect_err("zero rate limit should fail");
+
+    assert!(matches!(
+        error,
+        ConfigError::NonPositiveInteger { name }
+            if name == "UPRAVA_PUBLIC_PEER_RATE_LIMIT"
     ));
 }
 

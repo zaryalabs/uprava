@@ -3,6 +3,11 @@ import type { QueryClient } from "@tanstack/react-query";
 import { queryKeys } from "../../shared/api/query-keys";
 import type { EventEnvelope, SessionDetail } from "../../shared/protocol/types";
 import { applySessionEvent } from "./apply-session-event";
+import {
+  applyLiveSessionProjections,
+  shouldRefreshAgentProjection,
+  shouldRefreshCanonicalProjections,
+} from "./live-session-projections";
 
 export type SessionStreamCacheResult =
   | { kind: "applied" }
@@ -22,6 +27,7 @@ export async function applySessionStreamEventToCache(
     kind: "reloaded",
     reason: "missing-cache",
   };
+  let projectedDetail: SessionDetail | undefined;
 
   queryClient.setQueryData<SessionDetail>(
     queryKeys.session(sessionThreadId),
@@ -38,6 +44,7 @@ export async function applySessionStreamEventToCache(
         return current;
       }
       result = { kind: "applied" };
+      projectedDetail = projection.detail;
       return projection.detail;
     },
   );
@@ -47,7 +54,33 @@ export async function applySessionStreamEventToCache(
     return result;
   }
 
-  await invalidateSessionSnapshots(queryClient, sessionThreadId, false);
+  if (projectedDetail) {
+    applyLiveSessionProjections(
+      queryClient,
+      sessionThreadId,
+      projectedDetail,
+      event,
+    );
+  }
+  const refreshes: Promise<unknown>[] = [];
+  if (shouldRefreshAgentProjection(event)) {
+    refreshes.push(
+      queryClient.invalidateQueries({
+        queryKey: queryKeys.agentProjection(sessionThreadId),
+      }),
+    );
+  }
+  if (shouldRefreshCanonicalProjections(event)) {
+    refreshes.push(
+      queryClient.invalidateQueries({
+        queryKey: queryKeys.sessionEvidenceProjection(sessionThreadId),
+      }),
+      queryClient.invalidateQueries({
+        queryKey: queryKeys.sessionTrace(sessionThreadId),
+      }),
+    );
+  }
+  await Promise.all(refreshes);
   return result;
 }
 
@@ -67,6 +100,12 @@ export async function invalidateSessionSnapshots(
     }),
     queryClient.invalidateQueries({
       queryKey: queryKeys.sessionEvidenceProjection(sessionThreadId),
+    }),
+    queryClient.invalidateQueries({
+      queryKey: queryKeys.sessionTrace(sessionThreadId),
+    }),
+    queryClient.invalidateQueries({
+      queryKey: queryKeys.eventLogRoot(sessionThreadId),
     }),
     queryClient.invalidateQueries({ queryKey: queryKeys.inventory }),
   ]);

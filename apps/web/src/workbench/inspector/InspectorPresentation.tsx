@@ -99,7 +99,9 @@ export function InspectorPresentation({
         <article className="border-t border-black/10 pt-4">
           <div className="mb-3 flex items-start justify-between gap-2">
             <div className="min-w-0">
-              <Badge tone={statusTone(detail.status)}>{detail.status}</Badge>
+              <Badge tone={statusTone(detail.status)}>
+                {statusLabel(detail.status)}
+              </Badge>
               <h3 className="mt-2 break-words text-base font-bold">
                 {detail.title}
               </h3>
@@ -154,9 +156,14 @@ export function InspectorPresentation({
             </div>
           ) : null}
           {detail.payload !== undefined ? (
-            <pre className="mt-4 max-h-64 overflow-auto border-l border-[var(--color-muted)] bg-[var(--color-bg-muted)] p-2 text-xs text-[var(--color-ink)]">
-              {safeJson(detail.payload)}
-            </pre>
+            <details className="mt-4 border-t border-black/10 pt-3">
+              <summary className="cursor-pointer text-xs font-bold text-[var(--color-muted)]">
+                Raw payload
+              </summary>
+              <pre className="mt-2 max-h-64 overflow-auto border-l border-[var(--color-muted)] bg-[var(--color-bg-muted)] p-2 text-xs text-[var(--color-ink)]">
+                {safeJson(detail.payload)}
+              </pre>
+            </details>
           ) : null}
         </article>
       ) : (
@@ -207,4 +214,10 @@ function statusTone(status: InspectorStatus) {
   if (status === "resolved") return "good" as const;
   if (status === "not_implemented") return "info" as const;
   return "warn" as const;
+}
+
+function statusLabel(status: InspectorStatus) {
+  if (status === "resolved") return "Reference available";
+  if (status === "not_implemented") return "Preview unavailable";
+  return "Reference unavailable";
 }

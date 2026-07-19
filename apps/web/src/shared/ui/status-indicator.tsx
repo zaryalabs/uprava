@@ -71,6 +71,11 @@ const mappings: Record<StatusDimension, Record<string, StatusPresentation>> = {
   attention: {
     clear: { label: "Clear", tone: "neutral", icon: CircleCheck },
     warning: { label: "Needs attention", tone: "warn", icon: TriangleAlert },
+    stalled: {
+      label: "No recent activity",
+      tone: "warn",
+      icon: TriangleAlert,
+    },
     blocked: { label: "Blocked", tone: "warn", icon: CircleAlert },
     degraded: { label: "Degraded", tone: "bad", icon: CircleAlert },
     error: { label: "Error", tone: "bad", icon: XCircle },

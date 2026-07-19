@@ -289,6 +289,18 @@ pub(crate) async fn handle_command_dispatch(
     local_state: &mut NodeLocalState,
     baseline: &NodeLocalState,
 ) -> anyhow::Result<()> {
+    send_frame(
+        context.sender,
+        ControlFrame::CommandAck {
+            frame_id: Uuid::new_v4().to_string(),
+            protocol_version: API_VERSION.to_owned(),
+            sent_at: Utc::now(),
+            command_id: command.command_id.clone(),
+            status: CommandState::Acknowledged,
+        },
+    )
+    .await?;
+
     let outcome = prepare_command_dispatch_with_live_socket(
         context.config,
         local_state,
@@ -305,19 +317,7 @@ pub(crate) async fn handle_command_dispatch(
             .await?;
     }
 
-    send_frame(
-        context.sender,
-        ControlFrame::CommandAck {
-            frame_id: Uuid::new_v4().to_string(),
-            protocol_version: API_VERSION.to_owned(),
-            sent_at: Utc::now(),
-            command_id: command.command_id.clone(),
-            status: CommandState::Acknowledged,
-        },
-    )
-    .await?;
-
-    send_event_batch(context.sender, outcome.events_to_send).await?;
+    send_event_batches(context.sender, outcome.events_to_send).await?;
     send_command_result(
         context.sender,
         &command.command_id,
@@ -355,7 +355,19 @@ pub(crate) async fn replay_event_outbox(
         return Ok(());
     }
     tracing::info!(events = events.len(), "replaying control event outbox");
-    send_event_batch(sender, events.to_vec()).await
+    send_event_batches(sender, events.to_vec()).await
+}
+
+const EVENT_DELIVERY_BATCH_SIZE: usize = 32;
+
+pub(crate) async fn send_event_batches(
+    sender: &ControlFrameSender,
+    events: Vec<EventEnvelope>,
+) -> anyhow::Result<()> {
+    for batch in events.chunks(EVENT_DELIVERY_BATCH_SIZE) {
+        send_event_batch(sender, batch.to_vec()).await?;
+    }
+    Ok(())
 }
 
 pub(crate) async fn send_event_batch(
@@ -365,16 +377,15 @@ pub(crate) async fn send_event_batch(
     if events.is_empty() {
         return Ok(());
     }
-    send_frame(
-        sender,
-        ControlFrame::EventBatch {
+    sender
+        .send(ControlFrame::EventBatch {
             frame_id: Uuid::new_v4().to_string(),
             protocol_version: API_VERSION.to_owned(),
             sent_at: Utc::now(),
             events,
-        },
-    )
-    .await
+        })
+        .await
+        .context("control event batch send failed")
 }
 
 pub(crate) async fn send_dispatch_busy_result(
