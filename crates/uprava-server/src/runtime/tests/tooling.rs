@@ -1,9 +1,10 @@
 use uprava_protocol::{
     compute_tool_schema_hash, ExecuteToolRequest, InspectToolRequest, IntegrationAuthState,
     IntegrationConnectionSummary, IntegrationDesiredState, IntegrationId, McpDependencyActualState,
-    McpDependencyInstanceId, McpDependencyStatus, SearchToolsRequest, ToolAvailabilityState,
-    ToolCallState, ToolExecutionErrorCode, ToolExecutionKind, ToolId, ToolScope, ToolSearchFilters,
-    ToolSourceId, ToolSourceKind, ToolUnavailableReason,
+    McpDependencyInstanceId, McpDependencyStatus, PolicyDecision, SearchToolsRequest,
+    ToolAvailabilityState, ToolCallId, ToolCallState, ToolCallSummary, ToolExecutionErrorCode,
+    ToolExecutionKind, ToolId, ToolScope, ToolSearchFilters, ToolSourceId, ToolSourceKind,
+    ToolUnavailableReason,
 };
 
 use super::*;
@@ -16,6 +17,48 @@ fn scope_for(node_id: &NodeId, detail: &SessionDetail, actor_ref: ActorRef) -> T
         project_placement_id: Some(detail.placement.project_placement_id.clone()),
         session_thread_id: Some(detail.session.session_thread_id.clone()),
     }
+}
+
+#[test]
+fn tool_call_scope_filter_does_not_leak_other_sessions() {
+    let summary = ToolCallSummary {
+        tool_call_id: ToolCallId::from("tool-call-1"),
+        tool_id: ToolId::from("uprava.session.inspect"),
+        schema_hash: "sha256:fixture".to_owned(),
+        actor_ref: ActorRef::Provider {
+            provider: "codex".to_owned(),
+        },
+        scope: ToolScope {
+            actor_ref: ActorRef::Provider {
+                provider: "codex".to_owned(),
+            },
+            node_id: Some(NodeId::from("node-1")),
+            project_id: Some(ProjectId::from("project-1")),
+            project_placement_id: Some(ProjectPlacementId::from("placement-1")),
+            session_thread_id: Some(SessionThreadId::from("session-1")),
+        },
+        source_kind: ToolSourceKind::UpravaNative,
+        state: ToolCallState::Completed,
+        policy_decision: PolicyDecision::Allow,
+        route: "core_native".to_owned(),
+        requested_at: Utc::now(),
+        started_at: Some(Utc::now()),
+        completed_at: Some(Utc::now()),
+        correlation_id: CorrelationId::from("correlation-1"),
+    };
+    let current = ToolCallsQuery {
+        limit: Some(50),
+        node_id: Some("node-1".to_owned()),
+        project_id: Some("project-1".to_owned()),
+        project_placement_id: Some("placement-1".to_owned()),
+        session_thread_id: Some("session-1".to_owned()),
+    };
+    let foreign = ToolCallsQuery {
+        session_thread_id: Some("session-2".to_owned()),
+        ..current
+    };
+
+    assert!(!tool_call_matches_query(&summary, &foreign));
 }
 
 #[tokio::test]
@@ -488,6 +531,70 @@ async fn leases_reject_rotation_expiry_revocation_and_foreign_scope() {
         first_claims.session_thread_id,
         detail.session.session_thread_id
     );
+    let _ = std::fs::remove_dir_all(workspace_path);
+}
+
+#[tokio::test]
+async fn node_provider_access_issues_ephemeral_codex_lease_without_persisting_token() {
+    let state = test_state().await;
+    let (node_id, detail, workspace_path) = create_test_session(&state).await;
+    set_session_runtime_state(&state, &detail, RuntimeSessionState::Ready).await;
+    let turn = send_turn(
+        State(state.clone()),
+        Path(detail.session.session_thread_id.to_string()),
+        Json(SendTurnRequest {
+            content: "inspect available tools".to_owned(),
+        }),
+    )
+    .await
+    .expect("turn sends")
+    .0;
+    let rotated = rotate_node_credential(State(state.clone()), Path(node_id.to_string()))
+        .await
+        .expect("node credential rotates")
+        .0;
+    let mut headers = HeaderMap::new();
+    headers.insert(
+        "x-uprava-node-id",
+        HeaderValue::from_str(node_id.as_str()).expect("node header builds"),
+    );
+    headers.insert(
+        AUTHORIZATION,
+        HeaderValue::from_str(&format!("Bearer {}", rotated.credential))
+            .expect("authorization header builds"),
+    );
+
+    let access = node_provider_mcp_access(
+        State(state.clone()),
+        headers,
+        Json(ProviderMcpAccessRequest {
+            command_id: turn.command_id.clone(),
+        }),
+    )
+    .await
+    .expect("provider access issues")
+    .0;
+    let token = access.access_token.expose_secret().to_owned();
+    let claims = validate_mcp_access_lease(&state, &token)
+        .await
+        .expect("issued lease validates");
+    let command_json: String =
+        sqlx::query_scalar("select command_json from commands where command_id = ?1")
+            .bind(turn.command_id.as_str())
+            .fetch_one(&state.pool)
+            .await
+            .expect("command loads");
+    let audit_metadata: String = sqlx::query_scalar(
+        "select metadata_json from security_audit_events where kind = 'provider.mcp_access.issued' order by happened_at desc limit 1",
+    )
+    .fetch_one(&state.pool)
+    .await
+    .expect("provider access audit loads");
+
+    assert_eq!(access.endpoint_url, "/mcp");
+    assert_eq!(claims.session_thread_id, detail.session.session_thread_id);
+    assert!(!command_json.contains(&token));
+    assert!(!audit_metadata.contains(&token));
     let _ = std::fs::remove_dir_all(workspace_path);
 }
 

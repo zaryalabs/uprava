@@ -39,6 +39,10 @@ pub(crate) async fn require_mcp_lease(
         .and_then(|value| value.strip_prefix("Bearer "))
         .filter(|value| !value.is_empty());
     let Some(access_token) = access_token else {
+        state
+            .core_metrics
+            .mcp_lease_rejections
+            .fetch_add(1, Ordering::Relaxed);
         return AppError::auth("mcp_lease.missing", "Missing Uprava MCP lease").into_response();
     };
     match validate_mcp_access_lease(&state, access_token).await {
@@ -47,6 +51,10 @@ pub(crate) async fn require_mcp_lease(
             next.run(request).await
         }
         Err(error) => {
+            state
+                .core_metrics
+                .mcp_lease_rejections
+                .fetch_add(1, Ordering::Relaxed);
             tracing::warn!(error_code = ?error.code, "Uprava MCP lease rejected");
             AppError::auth("mcp_lease.invalid", "Invalid or expired Uprava MCP lease")
                 .into_response()

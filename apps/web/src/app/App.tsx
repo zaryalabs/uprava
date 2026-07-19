@@ -85,6 +85,11 @@ const RuntimeSettingsRoute = lazy(() =>
     default: module.RuntimeSettingsRoute,
   })),
 );
+const ToolingRoute = lazy(() =>
+  import("../features/tooling/ToolingRoute").then((module) => ({
+    default: module.ToolingRoute,
+  })),
+);
 const SessionCompatibilityRoute = lazy(() =>
   import("../features/sessions/WorkspaceAgentRoute").then((module) => ({
     default: module.SessionCompatibilityRoute,
@@ -296,6 +301,14 @@ export function App() {
               element={
                 <LazyRoute>
                   <RuntimeSettingsRoute />
+                </LazyRoute>
+              }
+            />
+            <Route
+              path="/settings/tooling"
+              element={
+                <LazyRoute>
+                  <ToolingRoute />
                 </LazyRoute>
               }
             />

@@ -4,6 +4,7 @@ use super::super::*;
 
 pub(crate) async fn control_channel_loop(
     config: NodeConfig,
+    client: reqwest::Client,
     store: NodeStateStore,
     terminal_supervisor: TerminalSupervisor,
 ) {
@@ -11,7 +12,7 @@ pub(crate) async fn control_channel_loop(
         if let Err(error) = store.persist_reconnect_attempt().await {
             tracing::warn!(error = %error, "failed to persist reconnect metric");
         }
-        match run_control_channel(&config, &store, &terminal_supervisor).await {
+        match run_control_channel(&config, &client, &store, &terminal_supervisor).await {
             Ok(()) => tracing::warn!("control channel closed"),
             Err(error) => tracing::warn!(error = %error, "control channel failed"),
         }
@@ -21,6 +22,7 @@ pub(crate) async fn control_channel_loop(
 
 pub(crate) async fn run_control_channel(
     config: &NodeConfig,
+    client: &reqwest::Client,
     store: &NodeStateStore,
     terminal_supervisor: &TerminalSupervisor,
 ) -> anyhow::Result<()> {
@@ -76,6 +78,7 @@ pub(crate) async fn run_control_channel(
         mpsc::channel::<CommandDispatchJob>(NODE_PRIORITY_COMMAND_DISPATCH_QUEUE_CAPACITY);
     let dispatcher_task = tokio::spawn(run_command_dispatcher(
         config.clone(),
+        client.clone(),
         store.clone(),
         outbound_tx.clone(),
         terminal_supervisor.clone(),

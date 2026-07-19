@@ -1,4 +1,4 @@
-import { LayoutDashboard, Menu, Settings } from "lucide-react";
+import { LayoutDashboard, Menu, Settings, Wrench } from "lucide-react";
 import { useState } from "react";
 import { Link, NavLink, Outlet, useSearchParams } from "react-router-dom";
 
@@ -73,6 +73,14 @@ export function AppShell() {
           </span>
         </div>
         <div className="flex h-full items-center justify-end border-l border-black/10 px-3">
+          <Link
+            to="/settings/tooling"
+            className="inline-flex h-8 items-center gap-2 border border-transparent px-2 text-xs hover:border-[var(--color-muted)] hover:bg-[var(--color-bg-muted)]"
+            aria-label="Agent Tooling"
+          >
+            <Wrench size={15} aria-hidden="true" />
+            <span className="max-sm:sr-only">Tooling</span>
+          </Link>
           <Link
             to="/settings/runtime"
             className="inline-flex h-8 items-center gap-2 border border-transparent px-2 text-xs hover:border-[var(--color-muted)] hover:bg-[var(--color-bg-muted)]"

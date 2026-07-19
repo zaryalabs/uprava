@@ -36,7 +36,7 @@ impl NodeConfig {
         let workspace_paths = parse_workspace_paths()?;
         let codex_binary =
             std::env::var("UPRAVA_CODEX_BINARY").unwrap_or_else(|_| "codex".to_owned());
-        let codex_ignore_user_config = parse_env_bool("UPRAVA_CODEX_IGNORE_USER_CONFIG", false)?;
+        let codex_ignore_user_config = parse_env_bool("UPRAVA_CODEX_IGNORE_USER_CONFIG", true)?;
         let codex_timeout =
             parse_env_duration_seconds("UPRAVA_CODEX_TIMEOUT_SECONDS", 24 * 60 * 60)?;
         let toolhive_binary =

@@ -59,7 +59,17 @@ ToolHive CLI boundary, bounded local MCP bridge, external availability и
 terminal trace recovery. Реальный Linear OAuth, `tools/list`, read-only call и
 remote revocation по-прежнему требуют разрешённого acceptance workspace;
 незавершённый внешний gate не включён в production fallback и не меняет Core
-contract. Web management и provider delivery остаются границей эпика 3.
+contract.
+
+Локальный baseline эпика 3 добавляет Web management surface для integration,
+managed/observed capabilities и redacted tool-call trace. Primary Codex path
+получает Uprava MCP endpoint и краткоживущий lease перед каждым новым turn через
+authenticated Node transport: token не входит в durable command, process args,
+prompt или transcript и передаётся Codex только через environment. Connect и
+Reconnect остаются disabled до внешнего Linear gate, disconnect немедленно
+закрывает effective availability и не выдаёт локальное действие за
+подтверждённый remote revoke. Operational детали находятся в
+[`agent-tooling-toolhive-linear.md`](../../runbooks/agent-tooling-toolhive-linear.md).
 
 ## Vision
 

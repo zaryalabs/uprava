@@ -31,6 +31,7 @@ pub fn build_router(state: Arc<AppState>) -> Router {
         .route("/node/enrollment-requests", post(node_enrollment_request))
         .route("/node/enrollment-claims", post(node_enrollment_claim))
         .route("/node/heartbeat", post(node_heartbeat_route))
+        .route("/node/provider-mcp-access", post(node_provider_mcp_access))
         .route("/node/control", get(node_control));
 
     let client_api = Router::new()

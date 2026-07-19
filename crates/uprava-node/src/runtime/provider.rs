@@ -2,6 +2,8 @@
 
 use super::*;
 
+pub(crate) const UPRAVA_MCP_TOKEN_ENV: &str = "UPRAVA_MCP_ACCESS_TOKEN";
+
 #[derive(Debug, Clone)]
 pub(crate) enum RuntimeManager {
     Codex(CodexProviderAdapter),
@@ -29,6 +31,7 @@ impl RuntimeManager {
         workspace_path: Option<&str>,
         runtime_transcripts: &mut HashMap<String, Vec<ProviderTranscriptMessage>>,
         runtime_provider_resume_refs: &mut HashMap<String, ProviderResumeRef>,
+        provider_mcp_access: Option<&ProviderMcpAccess>,
         live_event_sink: Option<&mut NodeLiveEventSink<'_>>,
         cancellation: Option<watch::Receiver<bool>>,
     ) -> Vec<EventEnvelope> {
@@ -41,6 +44,7 @@ impl RuntimeManager {
                         workspace_path,
                         runtime_transcripts,
                         runtime_provider_resume_refs,
+                        provider_mcp_access,
                         live_event_sink,
                         cancellation,
                     )
@@ -290,6 +294,7 @@ impl CodexProviderAdapter {
         workspace_path: Option<&str>,
         runtime_transcripts: &mut HashMap<String, Vec<ProviderTranscriptMessage>>,
         runtime_provider_resume_refs: &mut HashMap<String, ProviderResumeRef>,
+        provider_mcp_access: Option<&ProviderMcpAccess>,
         live_event_sink: Option<&mut NodeLiveEventSink<'_>>,
         cancellation: Option<watch::Receiver<bool>>,
     ) -> Vec<EventEnvelope> {
@@ -402,6 +407,7 @@ impl CodexProviderAdapter {
                     workspace_path,
                     runtime_transcripts,
                     runtime_provider_resume_refs,
+                    provider_mcp_access,
                     live_event_sink,
                     cancellation,
                 )
@@ -492,6 +498,7 @@ impl CodexProviderAdapter {
         workspace_path: Option<&str>,
         runtime_transcripts: &mut HashMap<String, Vec<ProviderTranscriptMessage>>,
         runtime_provider_resume_refs: &mut HashMap<String, ProviderResumeRef>,
+        provider_mcp_access: Option<&ProviderMcpAccess>,
         mut live_event_sink: Option<&mut NodeLiveEventSink<'_>>,
         cancellation: Option<watch::Receiver<bool>>,
     ) -> Vec<EventEnvelope> {
@@ -578,6 +585,7 @@ impl CodexProviderAdapter {
                 runtime_seqs,
                 &runtime_session_id,
                 turn_id.clone(),
+                provider_mcp_access,
                 live_event_sink,
                 cancellation,
             )
@@ -598,6 +606,7 @@ impl CodexProviderAdapter {
                 runtime_seqs,
                 &runtime_session_id,
                 turn_id.clone(),
+                provider_mcp_access,
                 live_event_sink,
                 cancellation,
             )
@@ -774,10 +783,12 @@ impl CodexProviderAdapter {
         runtime_seqs: &mut HashMap<String, i64>,
         runtime_session_id: &RuntimeSessionId,
         turn_id: Option<TurnId>,
+        provider_mcp_access: Option<&ProviderMcpAccess>,
         live_event_sink: Option<&mut NodeLiveEventSink<'_>>,
         cancellation: Option<watch::Receiver<bool>>,
     ) -> Result<CodexProcessOutput, ProviderStartFailure> {
         let mut command = TokioCommand::new(&self.codex_binary);
+        configure_uprava_mcp(&mut command, provider_mcp_access)?;
         command.arg("exec");
         if self.ignore_user_config {
             command.arg("--ignore-user-config");
@@ -824,10 +835,12 @@ impl CodexProviderAdapter {
         runtime_seqs: &mut HashMap<String, i64>,
         runtime_session_id: &RuntimeSessionId,
         turn_id: Option<TurnId>,
+        provider_mcp_access: Option<&ProviderMcpAccess>,
         live_event_sink: Option<&mut NodeLiveEventSink<'_>>,
         cancellation: Option<watch::Receiver<bool>>,
     ) -> Result<CodexProcessOutput, ProviderStartFailure> {
         let mut command = TokioCommand::new(&self.codex_binary);
+        configure_uprava_mcp(&mut command, provider_mcp_access)?;
         command.arg("exec");
         if self.ignore_user_config {
             command.arg("--ignore-user-config");
@@ -1061,6 +1074,42 @@ impl CodexProviderAdapter {
             }
         }
     }
+}
+
+pub(crate) fn configure_uprava_mcp(
+    command: &mut TokioCommand,
+    access: Option<&ProviderMcpAccess>,
+) -> Result<(), ProviderStartFailure> {
+    let Some(access) = access else {
+        return Ok(());
+    };
+    let endpoint = Url::parse(&access.endpoint_url).map_err(|_| {
+        ProviderStartFailure::new(
+            "provider.mcp_endpoint_invalid",
+            "Core returned an invalid Uprava MCP endpoint",
+        )
+    })?;
+    if !matches!(endpoint.scheme(), "http" | "https") {
+        return Err(ProviderStartFailure::new(
+            "provider.mcp_endpoint_invalid",
+            "Core returned an unsupported Uprava MCP endpoint",
+        ));
+    }
+    let endpoint_literal = serde_json::to_string(endpoint.as_str()).map_err(|_| {
+        ProviderStartFailure::new(
+            "provider.mcp_endpoint_invalid",
+            "Uprava MCP endpoint could not be encoded for Codex",
+        )
+    })?;
+    command
+        .arg("--config")
+        .arg(format!("mcp_servers.uprava.url={endpoint_literal}"))
+        .arg("--config")
+        .arg(format!(
+            "mcp_servers.uprava.bearer_token_env_var=\"{UPRAVA_MCP_TOKEN_ENV}\""
+        ))
+        .env(UPRAVA_MCP_TOKEN_ENV, access.access_token.expose_secret());
+    Ok(())
 }
 
 #[cfg(unix)]

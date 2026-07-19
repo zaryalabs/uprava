@@ -206,6 +206,53 @@ pub(crate) async fn send_heartbeat(
         .context("heartbeat response was not valid JSON")
 }
 
+pub(crate) async fn request_provider_mcp_access(
+    client: &reqwest::Client,
+    config: &NodeConfig,
+    local_state: &NodeLocalState,
+    command_id: &CommandId,
+) -> anyhow::Result<ProviderMcpAccess> {
+    let endpoint = config
+        .core_url
+        .join("/api/v1/node/provider-mcp-access")
+        .context("provider MCP access URL should be valid")?;
+    let node_id = local_state
+        .node_id
+        .as_ref()
+        .context("local node id missing")?;
+    let credential = local_state
+        .credential
+        .as_deref()
+        .context("local node credential missing")?;
+    let mut access = client
+        .post(endpoint)
+        .header("x-uprava-node-id", node_id.as_str())
+        .bearer_auth(credential)
+        .json(&ProviderMcpAccessRequest {
+            command_id: command_id.clone(),
+        })
+        .send()
+        .await
+        .context("provider MCP access request failed")?
+        .error_for_status()
+        .context("provider MCP access request returned an error status")?
+        .json::<ProviderMcpAccess>()
+        .await
+        .context("provider MCP access response was not valid JSON")?;
+    let mcp_endpoint = config
+        .core_url
+        .join(&access.endpoint_url)
+        .context("provider MCP endpoint URL should be valid")?;
+    if mcp_endpoint.origin() != config.core_url.origin() {
+        anyhow::bail!("provider MCP endpoint must use the configured Core origin");
+    }
+    if access.expires_at <= Utc::now() {
+        anyhow::bail!("provider MCP access expired before delivery");
+    }
+    access.endpoint_url = mcp_endpoint.to_string();
+    Ok(access)
+}
+
 pub(crate) fn node_diagnostics(local_state: &NodeLocalState) -> String {
     format!(
         "outbox_events={}; cached_commands={}; reconnect_attempts={}; dropped_events={}; heartbeat_failures={}; dropped_log_records={}; otlp_export_failures={}",

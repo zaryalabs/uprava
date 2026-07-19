@@ -42,13 +42,15 @@ pub(crate) async fn prepare_command_dispatch(
     local_state: &mut NodeLocalState,
     command: &CommandEnvelope,
 ) -> CommandDispatchOutcome {
-    prepare_command_dispatch_with_live_socket(config, local_state, command, None, None, None).await
+    prepare_command_dispatch_with_live_socket(config, local_state, command, None, None, None, None)
+        .await
 }
 
 pub(crate) async fn prepare_command_dispatch_with_live_socket(
     config: &NodeConfig,
     local_state: &mut NodeLocalState,
     command: &CommandEnvelope,
+    provider_mcp_access: Option<&ProviderMcpAccess>,
     live_sender: Option<&ControlFrameSender>,
     terminal_supervisor: Option<&TerminalSupervisor>,
     cancellation: Option<watch::Receiver<bool>>,
@@ -256,6 +258,7 @@ pub(crate) async fn prepare_command_dispatch_with_live_socket(
                             workspace_path.as_deref(),
                             &mut local_state.runtime_transcripts,
                             &mut local_state.runtime_provider_resume_refs,
+                            provider_mcp_access,
                             live_event_sink.as_mut(),
                             cancellation,
                         )
@@ -284,6 +287,48 @@ pub(crate) async fn prepare_command_dispatch_with_live_socket(
         status,
         events_to_send,
         result_payload,
+        state_changed: true,
+    }
+}
+
+pub(crate) fn provider_mcp_access_failure_outcome(
+    local_state: &mut NodeLocalState,
+    command: &CommandEnvelope,
+) -> CommandDispatchOutcome {
+    let provider_key =
+        provider_for_command(local_state, command).unwrap_or_else(|| "codex".to_owned());
+    let events = command
+        .target
+        .runtime_session_id()
+        .cloned()
+        .map(|runtime_session_id| {
+            vec![runtime_error_event(
+                &provider_key,
+                command,
+                &mut local_state.runtime_seqs,
+                runtime_session_id,
+                match &command.payload {
+                    CommandPayload::SendTurn { turn_id, .. } => Some(turn_id.clone()),
+                    _ => None,
+                },
+                "provider.mcp_access_unavailable",
+                "Uprava MCP access could not be issued for this turn",
+            )]
+        })
+        .unwrap_or_default();
+    apply_runtime_state_projection(local_state, &events);
+    local_state.event_outbox.extend(events.iter().cloned());
+    local_state
+        .command_status
+        .insert(command.command_id.to_string(), CommandState::Failed);
+    CommandDispatchOutcome {
+        status: CommandState::Failed,
+        events_to_send: events,
+        result_payload: JsonValue(serde_json::json!({
+            "error_code": "provider.mcp_access_unavailable",
+            "message": "Uprava MCP access could not be issued for this turn",
+            "retryable": true,
+        })),
         state_changed: true,
     }
 }

@@ -22,6 +22,59 @@ pub const TOOL_RESULT_MAX_BYTES: u64 = 1_048_576;
 /// Audience required on session-scoped Uprava MCP access leases.
 pub const UPRAVA_MCP_LEASE_AUDIENCE: &str = "uprava:mcp";
 
+/// Node request for ephemeral provider access to the Uprava MCP endpoint.
+///
+/// The durable command contains only this opaque command reference. Core
+/// resolves the authoritative session, Node and provider before issuing a
+/// short-lived credential.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ProviderMcpAccessRequest {
+    pub command_id: CommandId,
+}
+
+/// Short-lived MCP credential returned only across the authenticated Node
+/// transport boundary.
+#[derive(Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ProviderMcpAccess {
+    pub endpoint_url: String,
+    pub access_token: McpAccessToken,
+    pub expires_at: DateTime<Utc>,
+}
+
+/// Bearer credential with a redacted debug representation.
+#[derive(Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(transparent)]
+pub struct McpAccessToken(String);
+
+impl McpAccessToken {
+    #[must_use]
+    pub fn new(value: impl Into<String>) -> Self {
+        Self(value.into())
+    }
+
+    #[must_use]
+    pub fn expose_secret(&self) -> &str {
+        &self.0
+    }
+}
+
+impl std::fmt::Debug for McpAccessToken {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        formatter.write_str("McpAccessToken([REDACTED])")
+    }
+}
+
+impl std::fmt::Debug for ProviderMcpAccess {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        formatter
+            .debug_struct("ProviderMcpAccess")
+            .field("endpoint_url", &self.endpoint_url)
+            .field("access_token", &self.access_token)
+            .field("expires_at", &self.expires_at)
+            .finish()
+    }
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum ToolSourceKind {

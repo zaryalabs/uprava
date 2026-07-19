@@ -84,6 +84,7 @@ impl NodeSupervisor {
                     if response.open_control_channel && self.control_task.is_none() {
                         self.control_task = Some(tokio::spawn(control_channel_loop(
                             self.config.clone(),
+                            self.client.clone(),
                             self.state_store.clone(),
                             self.terminal_supervisor.clone(),
                         )));

@@ -26,12 +26,21 @@ import type {
   JobDetail,
   JobRunSummary,
   JobSummary,
+  IntegrationConnectionsResponse,
+  IntegrationDisconnectResponse,
+  McpDependencyStatusesResponse,
+  ObservedCapabilitiesResponse,
   ProviderQuotaStatus,
   PersistDeductionResponse,
   ReferenceResolution,
   UpdateJobRequest,
   SessionDetail,
   SessionTraceProjection,
+  ToolAvailabilityResponse,
+  ToolCallDetail,
+  ToolCallsResponse,
+  ToolDefinition,
+  ToolDefinitionsResponse,
   UpravaRef,
   VersionResponse,
   WebAuthLoginRequest,
@@ -66,6 +75,15 @@ import {
   workspaceReviewProjectionSchema,
   workspaceTerminalListResponseSchema,
   workspaceTerminalOpenResponseSchema,
+  integrationConnectionsResponseSchema,
+  integrationDisconnectResponseSchema,
+  mcpDependencyStatusesResponseSchema,
+  observedCapabilitiesResponseSchema,
+  toolAvailabilityResponseSchema,
+  toolCallDetailSchema,
+  toolCallsResponseSchema,
+  toolDefinitionSchema,
+  toolDefinitionsResponseSchema,
 } from "../protocol/validators";
 import { apiBase, apiWsBase } from "./config";
 import { logClientEvent } from "../logging/client-logger";
@@ -270,6 +288,79 @@ export const coreApi = {
   authLogout: () => apiPost<WebAuthResponse>("/auth/logout"),
   inventory: () =>
     apiGet<import("../protocol/types").InventorySnapshot>("/inventory"),
+  toolDefinitions: () =>
+    apiGet<ToolDefinitionsResponse>(
+      "/tool-definitions",
+      toolDefinitionsResponseSchema,
+    ),
+  toolDefinition: (toolId: string) =>
+    apiGet<ToolDefinition>(
+      `/tool-definitions/${encodeURIComponent(toolId)}`,
+      toolDefinitionSchema,
+    ),
+  toolAvailability: (scope: {
+    nodeId: string;
+    projectId: string | null;
+    placementId: string;
+    sessionThreadId: string;
+  }) => {
+    const query = new URLSearchParams({
+      node_id: scope.nodeId,
+      project_placement_id: scope.placementId,
+      session_thread_id: scope.sessionThreadId,
+    });
+    if (scope.projectId) query.set("project_id", scope.projectId);
+    return apiGet<ToolAvailabilityResponse>(
+      `/tool-availability?${query.toString()}`,
+      toolAvailabilityResponseSchema,
+    );
+  },
+  observedCapabilities: (nodeId: string) =>
+    apiGet<ObservedCapabilitiesResponse>(
+      `/nodes/${encodeURIComponent(nodeId)}/observed-capabilities`,
+      observedCapabilitiesResponseSchema,
+    ),
+  integrationConnections: () =>
+    apiGet<IntegrationConnectionsResponse>(
+      "/integrations",
+      integrationConnectionsResponseSchema,
+    ),
+  disconnectIntegration: (integrationId: string) =>
+    apiPost<IntegrationDisconnectResponse>(
+      `/integrations/${encodeURIComponent(integrationId)}/disconnect`,
+      { revoke_remote: true },
+      integrationDisconnectResponseSchema,
+    ),
+  mcpDependencies: () =>
+    apiGet<McpDependencyStatusesResponse>(
+      "/mcp-dependencies",
+      mcpDependencyStatusesResponseSchema,
+    ),
+  toolCalls: (scope: {
+    nodeId?: string;
+    projectId?: string | null;
+    placementId?: string;
+    sessionThreadId?: string;
+    limit?: number;
+  }) => {
+    const query = new URLSearchParams();
+    if (scope.nodeId) query.set("node_id", scope.nodeId);
+    if (scope.projectId) query.set("project_id", scope.projectId);
+    if (scope.placementId) query.set("project_placement_id", scope.placementId);
+    if (scope.sessionThreadId) {
+      query.set("session_thread_id", scope.sessionThreadId);
+    }
+    query.set("limit", String(scope.limit ?? 50));
+    return apiGet<ToolCallsResponse>(
+      `/tool-calls?${query.toString()}`,
+      toolCallsResponseSchema,
+    );
+  },
+  toolCall: (toolCallId: string) =>
+    apiGet<ToolCallDetail>(
+      `/tool-calls/${encodeURIComponent(toolCallId)}`,
+      toolCallDetailSchema,
+    ),
   jobs: () => apiGet<JobSummary[]>("/jobs"),
   createJob: (request: CreateJobRequest) =>
     apiPost<JobDetail>("/jobs", request),

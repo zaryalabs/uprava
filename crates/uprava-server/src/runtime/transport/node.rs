@@ -402,6 +402,97 @@ pub(crate) async fn node_heartbeat(
     }))
 }
 
+pub(crate) async fn node_provider_mcp_access(
+    State(state): State<Arc<AppState>>,
+    headers: HeaderMap,
+    Json(request): Json<ProviderMcpAccessRequest>,
+) -> Result<Json<ProviderMcpAccess>, AppError> {
+    let node_id = header_value(&headers, "x-uprava-node-id")
+        .map(NodeId::from)
+        .ok_or_else(|| AppError::auth("auth_dev.node_id_required", "Node id is required"))?;
+    let credential = bearer_token(&headers).ok_or_else(|| {
+        AppError::auth(
+            "auth_dev.credential_required",
+            "Node credential is required",
+        )
+    })?;
+    verify_node_credential(&state, &node_id, Some(&credential)).await?;
+
+    let (command_json, command_state): (String, String) = sqlx::query_as(
+        "select command_json, state from commands where command_id = ?1 and target_node_id = ?2",
+    )
+    .bind(request.command_id.as_str())
+    .bind(node_id.as_str())
+    .fetch_optional(&state.pool)
+    .await?
+    .ok_or_else(|| {
+        AppError::not_found("provider.command_not_found", "Provider command not found")
+    })?;
+    if matches!(
+        command_state.as_str(),
+        "completed" | "failed" | "blocked" | "expired"
+    ) {
+        return Err(AppError::bad_request(
+            "provider.command_terminal",
+            "Terminal provider command cannot receive new MCP access",
+        ));
+    }
+    let command: CommandEnvelope = serde_json::from_str(&command_json)?;
+    if command.kind != CommandKind::SendTurn {
+        return Err(AppError::bad_request(
+            "provider.command_not_eligible",
+            "Only a session turn can receive provider MCP access",
+        ));
+    }
+    let session_thread_id = command.target.session_thread_id().cloned().ok_or_else(|| {
+        AppError::bad_request(
+            "provider.session_required",
+            "Provider command is missing a session target",
+        )
+    })?;
+    let provider: String = sqlx::query_scalar(
+        r#"
+        select rs.provider
+        from runtime_sessions rs
+        where rs.session_thread_id = ?1
+        order by rs.updated_at desc
+        limit 1
+        "#,
+    )
+    .bind(session_thread_id.as_str())
+    .fetch_optional(&state.pool)
+    .await?
+    .ok_or_else(|| AppError::not_found("provider.runtime_not_found", "Runtime not found"))?;
+    if provider != "codex" {
+        return Err(AppError::bad_request(
+            "provider.mcp_delivery_unsupported",
+            "Provider does not support Uprava MCP delivery",
+        ));
+    }
+
+    let (access_token, claims) =
+        issue_mcp_access_lease(&state, &session_thread_id, ActorRef::Provider { provider }).await?;
+    audit_security_event(
+        &state,
+        "provider.mcp_access.issued",
+        Some(&node_id),
+        Some(session_thread_id.to_string()),
+        "accepted",
+        JsonValue(json!({
+            "command_id": request.command_id,
+            "lease_id": claims.lease_id,
+            "expires_at": claims.expires_at,
+        })),
+    )
+    .await?;
+
+    Ok(Json(ProviderMcpAccess {
+        endpoint_url: "/mcp".to_owned(),
+        access_token: McpAccessToken::new(access_token),
+        expires_at: claims.expires_at,
+    }))
+}
+
 pub(crate) async fn replace_observed_capabilities(
     state: &AppState,
     node_id: &NodeId,

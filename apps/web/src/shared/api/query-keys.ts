@@ -37,4 +37,13 @@ export const queryKeys = {
   deduction: (deductionId: string) => ["deduction", deductionId] as const,
   agentProjection: (sessionThreadId: string) =>
     ["session", sessionThreadId, "agent-projection"] as const,
+  toolDefinitions: ["tooling", "definitions"] as const,
+  toolAvailability: (sessionThreadId: string) =>
+    ["tooling", "availability", sessionThreadId] as const,
+  observedCapabilities: (nodeId: string) =>
+    ["tooling", "observed-capabilities", nodeId] as const,
+  integrationConnections: ["tooling", "integrations"] as const,
+  mcpDependencies: ["tooling", "dependencies"] as const,
+  toolCalls: (scopeKey: string) => ["tooling", "calls", scopeKey] as const,
+  toolCall: (toolCallId: string) => ["tooling", "calls", toolCallId] as const,
 };

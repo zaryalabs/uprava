@@ -183,6 +183,10 @@ pub(crate) async fn search_tools(
     state: &AppState,
     request: &SearchToolsRequest,
 ) -> Result<SearchToolsResponse, AppError> {
+    state
+        .core_metrics
+        .tool_registry_searches
+        .fetch_add(1, Ordering::Relaxed);
     if !tool_is_visible_to_actor(&request.scope.actor_ref) {
         return Ok(SearchToolsResponse {
             items: vec![],
@@ -301,6 +305,10 @@ pub(crate) async fn execute_tool(
     state: &AppState,
     request: &ExecuteToolRequest,
 ) -> Result<ExecuteToolResponse, AppError> {
+    state
+        .core_metrics
+        .tool_execution_requests
+        .fetch_add(1, Ordering::Relaxed);
     let tool_call_id = ToolCallId::new();
     let correlation_id = CorrelationId::new();
     let definition = match load_tool_definition(state, &request.tool_id).await {
@@ -342,6 +350,10 @@ pub(crate) async fn execute_tool(
     .await?;
 
     if policy == PolicyDecision::Deny {
+        state
+            .core_metrics
+            .tool_policy_denials
+            .fetch_add(1, Ordering::Relaxed);
         let error = tool_error(
             ToolExecutionErrorCode::PermissionDenied,
             "Tool policy denied this call",
@@ -396,6 +408,10 @@ pub(crate) async fn execute_tool(
     .await?;
     let availability = effective_tool_availability(state, &definition, &request.scope).await?;
     if availability.state != ToolAvailabilityState::Available {
+        state
+            .core_metrics
+            .tool_execution_failures
+            .fetch_add(1, Ordering::Relaxed);
         let error = tool_error(
             ToolExecutionErrorCode::Unavailable,
             "Tool is unavailable in this scope",
@@ -418,6 +434,10 @@ pub(crate) async fn execute_tool(
         });
     }
     if let Err(message) = validate_arguments(&definition.input_schema.0, &request.arguments.0) {
+        state
+            .core_metrics
+            .tool_execution_failures
+            .fetch_add(1, Ordering::Relaxed);
         let error = tool_error(ToolExecutionErrorCode::InvalidArguments, &message, false);
         finish_tool_call(
             state,
@@ -467,6 +487,10 @@ pub(crate) async fn execute_tool(
             })
         }
         Err(error) => {
+            state
+                .core_metrics
+                .tool_execution_failures
+                .fetch_add(1, Ordering::Relaxed);
             finish_tool_call(
                 state,
                 &tool_call_id,
@@ -934,17 +958,52 @@ pub(crate) async fn tool_availability_route(
 
 #[derive(Debug, Deserialize)]
 pub(crate) struct ToolCallsQuery {
-    limit: Option<usize>,
+    pub(crate) limit: Option<usize>,
+    pub(crate) node_id: Option<String>,
+    pub(crate) project_id: Option<String>,
+    pub(crate) project_placement_id: Option<String>,
+    pub(crate) session_thread_id: Option<String>,
 }
 
 pub(crate) async fn tool_calls_route(
     State(state): State<Arc<AppState>>,
     Query(query): Query<ToolCallsQuery>,
 ) -> Result<Json<ToolCallsResponse>, AppError> {
+    let limit = query.limit.unwrap_or(50).min(100);
+    let items = list_tool_calls(&state, 100)
+        .await?
+        .into_iter()
+        .filter(|item| tool_call_matches_query(item, &query))
+        .take(limit)
+        .collect();
     Ok(Json(ToolCallsResponse {
-        items: list_tool_calls(&state, query.limit.unwrap_or(50)).await?,
+        items,
         next_cursor: None,
     }))
+}
+
+pub(crate) fn tool_call_matches_query(item: &ToolCallSummary, query: &ToolCallsQuery) -> bool {
+    query.node_id.as_deref().is_none_or(|value| {
+        item.scope
+            .node_id
+            .as_ref()
+            .is_some_and(|id| id.as_str() == value)
+    }) && query.project_id.as_deref().is_none_or(|value| {
+        item.scope
+            .project_id
+            .as_ref()
+            .is_some_and(|id| id.as_str() == value)
+    }) && query.project_placement_id.as_deref().is_none_or(|value| {
+        item.scope
+            .project_placement_id
+            .as_ref()
+            .is_some_and(|id| id.as_str() == value)
+    }) && query.session_thread_id.as_deref().is_none_or(|value| {
+        item.scope
+            .session_thread_id
+            .as_ref()
+            .is_some_and(|id| id.as_str() == value)
+    })
 }
 
 pub(crate) async fn tool_call_detail_route(
@@ -1133,6 +1192,18 @@ pub(crate) async fn persist_dependency_status(
     state: &AppState,
     status: &McpDependencyStatus,
 ) -> Result<(), AppError> {
+    if matches!(
+        status.actual_state,
+        McpDependencyActualState::ToolhiveMissing
+            | McpDependencyActualState::MissingAuth
+            | McpDependencyActualState::Degraded
+            | McpDependencyActualState::Failed
+    ) {
+        state
+            .core_metrics
+            .tool_dependency_errors
+            .fetch_add(1, Ordering::Relaxed);
+    }
     sqlx::query(
         r#"
         insert into mcp_dependency_instances (
@@ -1455,6 +1526,10 @@ pub(crate) async fn issue_mcp_access_lease(
     .execute(&mut *transaction)
     .await?;
     transaction.commit().await?;
+    state
+        .core_metrics
+        .mcp_leases_issued
+        .fetch_add(1, Ordering::Relaxed);
     let signature = sign_lease(state, claims_json.as_bytes())?;
     Ok((
         format!("{}.{}", claims.lease_id, encode_hex(&signature)),

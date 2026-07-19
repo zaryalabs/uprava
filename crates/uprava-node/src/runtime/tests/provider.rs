@@ -368,6 +368,60 @@ async fn codex_send_turn_includes_required_noninteractive_flags() {
     assert_codex_launch_flags(&captured_args);
 }
 
+#[test]
+fn codex_mcp_delivery_keeps_lease_out_of_process_arguments_and_debug_output() {
+    let access = ProviderMcpAccess {
+        endpoint_url: "http://127.0.0.1:8080/mcp".to_owned(),
+        access_token: uprava_protocol::McpAccessToken::new("lease-secret-value"),
+        expires_at: Utc::now() + chrono::Duration::minutes(10),
+    };
+    let mut command = TokioCommand::new("codex");
+
+    configure_uprava_mcp(&mut command, Some(&access)).expect("MCP config applies");
+
+    let args = command
+        .as_std()
+        .get_args()
+        .map(|value| value.to_string_lossy().into_owned())
+        .collect::<Vec<_>>()
+        .join("\n");
+    let token_env = command
+        .as_std()
+        .get_envs()
+        .find(|(name, _)| name.to_string_lossy() == UPRAVA_MCP_TOKEN_ENV)
+        .and_then(|(_, value)| value)
+        .map(|value| value.to_string_lossy().into_owned());
+
+    assert!(args.contains("mcp_servers.uprava.url="));
+    assert!(args.contains("mcp_servers.uprava.bearer_token_env_var="));
+    assert!(!args.contains("lease-secret-value"));
+    assert_eq!(token_env.as_deref(), Some("lease-secret-value"));
+    assert!(!format!("{access:?}").contains("lease-secret-value"));
+}
+
+#[test]
+fn provider_mcp_access_failure_stops_turn_before_codex_launch() {
+    let command = command_fixture("command-mcp-unavailable", CommandKind::SendTurn);
+    let mut local_state = NodeLocalState::default();
+    local_state
+        .runtime_providers
+        .insert("runtime-1".to_owned(), "codex".to_owned());
+
+    let outcome = provider_mcp_access_failure_outcome(&mut local_state, &command);
+
+    assert_eq!(outcome.status, CommandState::Failed);
+    assert_eq!(outcome.events_to_send.len(), 1);
+    assert_eq!(outcome.events_to_send[0].kind, EventKind::RuntimeError);
+    assert_eq!(
+        outcome.events_to_send[0]
+            .payload
+            .0
+            .get("code")
+            .and_then(serde_json::Value::as_str),
+        Some("provider.mcp_access_unavailable")
+    );
+}
+
 #[cfg(unix)]
 #[tokio::test]
 async fn codex_send_turn_includes_prior_transcript_context() {
@@ -840,6 +894,7 @@ async fn codex_send_turn_cancellation_interrupts_active_process() {
         &config,
         &mut local_state,
         &command,
+        None,
         None,
         None,
         Some(cancel_rx),

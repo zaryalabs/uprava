@@ -83,6 +83,7 @@ impl ExecutionCancellationGuard {
 
 pub(crate) async fn run_command_dispatcher(
     config: NodeConfig,
+    client: reqwest::Client,
     shared_state: NodeStateStore,
     sender: ControlFrameSender,
     terminal_supervisor: TerminalSupervisor,
@@ -91,6 +92,7 @@ pub(crate) async fn run_command_dispatcher(
 ) {
     let shared = CommandDispatcherShared {
         config,
+        client,
         shared_state,
         sender,
         terminal_supervisor,
@@ -128,6 +130,7 @@ pub(crate) async fn run_command_dispatcher(
 #[derive(Clone)]
 pub(crate) struct CommandDispatcherShared {
     pub(crate) config: NodeConfig,
+    pub(crate) client: reqwest::Client,
     pub(crate) shared_state: NodeStateStore,
     pub(crate) sender: ControlFrameSender,
     pub(crate) terminal_supervisor: TerminalSupervisor,
@@ -185,6 +188,7 @@ pub(crate) fn spawn_command_dispatch_task(
         let mut local_state = baseline.clone();
         let context = CommandDispatchContext {
             config: &shared.config,
+            client: &shared.client,
             sender: &shared.sender,
             terminal_supervisor: &shared.terminal_supervisor,
             shared_state: &shared.shared_state,
@@ -308,6 +312,7 @@ pub(crate) fn command_execution_key(command: &CommandEnvelope) -> String {
 
 pub(crate) struct CommandDispatchContext<'a> {
     pub(crate) config: &'a NodeConfig,
+    pub(crate) client: &'a reqwest::Client,
     pub(crate) sender: &'a ControlFrameSender,
     pub(crate) terminal_supervisor: &'a TerminalSupervisor,
     pub(crate) shared_state: &'a NodeStateStore,
@@ -332,10 +337,52 @@ pub(crate) async fn handle_command_dispatch(
     )
     .await?;
 
+    let provider_mcp_access = if command.kind == CommandKind::SendTurn
+        && !local_state
+            .command_status
+            .contains_key(command.command_id.as_str())
+    {
+        match request_provider_mcp_access(
+            context.client,
+            context.config,
+            local_state,
+            &command.command_id,
+        )
+        .await
+        {
+            Ok(access) => Some(access),
+            Err(error) => {
+                tracing::warn!(
+                    error = %error,
+                    command_id = %command.command_id,
+                    "provider MCP access could not be issued"
+                );
+                let outcome = provider_mcp_access_failure_outcome(local_state, &command);
+                if outcome.state_changed {
+                    context
+                        .shared_state
+                        .persist_command_outcome(baseline, local_state)
+                        .await?;
+                }
+                send_event_batches(context.sender, outcome.events_to_send).await?;
+                return send_command_result(
+                    context.sender,
+                    &command.command_id,
+                    outcome.status,
+                    outcome.result_payload,
+                )
+                .await;
+            }
+        }
+    } else {
+        None
+    };
+
     let outcome = prepare_command_dispatch_with_live_socket(
         context.config,
         local_state,
         &command,
+        provider_mcp_access.as_ref(),
         Some(context.sender),
         Some(context.terminal_supervisor),
         context.cancellation,
