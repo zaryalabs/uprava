@@ -94,6 +94,7 @@ async fn memory_pool() -> SqlitePool {
         .connect_with(
             SqliteConnectOptions::new()
                 .filename(":memory:")
+                .busy_timeout(Duration::from_secs(5))
                 .create_if_missing(true),
         )
         .await
@@ -114,6 +115,7 @@ async fn sqlite_file_pool_with_connections(
         .connect_with(
             SqliteConnectOptions::new()
                 .filename(path)
+                .busy_timeout(Duration::from_secs(5))
                 .create_if_missing(true),
         )
         .await

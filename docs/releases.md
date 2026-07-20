@@ -2,7 +2,7 @@
 
 Статус: `active`
 
-Current release baseline: `0.2.12`.
+Current release baseline: `0.2.13`.
 
 Этот ledger фиксирует implementation baselines. Он не заменяет
 [`feature-queue.md`](product/feature-queue.md), где остается ранжированная очередь
@@ -33,16 +33,22 @@ future work.
 | `0.2.9` | 2026-07-19 | shipped | Прозрачный agent timeline: Conversation/Trace modes, сгруппированные live-события и stalled activity state |
 | `0.2.10` | 2026-07-19 | shipped | Git-aware Review: branch/worktree snapshots, scoped diffs, risk signals и traceable check results |
 | `0.2.11` | 2026-07-19 | shipped | Agent Tooling and Tool Registry v1: progressive Uprava MCP, scoped registry, ToolHive-backed Linear integration и traceable execution |
-| `0.2.12` | 2026-07-19 | current | Plugin Registry v1: Core-owned lifecycle, manifest-driven Web Extension Host и bundled data-only Dark Theme |
+| `0.2.12` | 2026-07-19 | shipped | Plugin Registry v1: Core-owned lifecycle, manifest-driven Web Extension Host и bundled data-only Dark Theme |
+| `0.2.13` | 2026-07-20 | current | CI visual baseline и SQLite migration reliability: синхронизированные Linux golden snapshots, per-connection busy timeout и изолированный concurrent migration test |
 
 ## Current Baseline
 
-`0.2.12` включает protocol-v2 baseline `0.2.0`, завершённое Zarya 0.1 Web UI/UX
+`0.2.13` включает baseline `0.2.12`, protocol-v2 baseline `0.2.0`, завершённое Zarya 0.1 Web UI/UX
 alignment и clean-bootstrap four-phase delivery path. Текущая реализация включает
 первый working distributed
-control panel, двенадцать закрытых
-feature queue slices после `0.1.0`, unified audit hardening slice и workspace
+control panel, тринадцать implementation slices после `0.1.0`, unified audit
+hardening slice и workspace
 renderer/PTY terminal layer, а также первый deployable self-hosted release path:
+
+- Linux visual regression baselines синхронизированы с pinned Playwright CI
+  environment; SQLite busy timeout применяется к каждой Core connection, а
+  concurrent migration test проверяет migration boundary без конкурирующего
+  application bootstrap;
 
 - Core-owned Plugin Registry отделён от Tool Registry и хранит immutable package
   metadata, installation state, compatibility, configuration revisions,

@@ -198,9 +198,23 @@ pub struct AppState {
 
 impl AppState {
     pub async fn new(config: AppConfig, pool: SqlitePool) -> Result<Arc<Self>, AppError> {
+        let state = Self::build_uninitialized(config, pool);
+        state.migrate().await?;
+        bootstrap_bundled_plugins(&state).await?;
+        revoke_all_mcp_leases_for_credential_rotation(&state).await?;
+        seed_uprava_native_tools(&state).await?;
+        seed_external_tool_sources(&state).await?;
+        recover_interrupted_scheduled_messages(&state).await?;
+        spawn_scheduled_message_dispatcher(Arc::downgrade(&state));
+        recover_job_runs(&state).await?;
+        spawn_job_scheduler(Arc::downgrade(&state));
+        Ok(state)
+    }
+
+    fn build_uninitialized(config: AppConfig, pool: SqlitePool) -> Arc<Self> {
         let mut mcp_lease_signing_key = [0u8; 32];
         OsRng.fill_bytes(&mut mcp_lease_signing_key);
-        let state = Arc::new(Self {
+        Arc::new(Self {
             config,
             pool,
             control_connections: ConnectionRegistry::new(),
@@ -218,17 +232,7 @@ impl AppState {
             public_concurrency: Arc::new(Semaphore::new(PUBLIC_CONCURRENCY_LIMIT)),
             core_metrics: Arc::new(CoreMetrics::default()),
             mcp_lease_signing_key,
-        });
-        state.migrate().await?;
-        bootstrap_bundled_plugins(&state).await?;
-        revoke_all_mcp_leases_for_credential_rotation(&state).await?;
-        seed_uprava_native_tools(&state).await?;
-        seed_external_tool_sources(&state).await?;
-        recover_interrupted_scheduled_messages(&state).await?;
-        spawn_scheduled_message_dispatcher(Arc::downgrade(&state));
-        recover_job_runs(&state).await?;
-        spawn_job_scheduler(Arc::downgrade(&state));
-        Ok(state)
+        })
     }
 
     /// Issues and rotates a short-lived session-scoped credential for the

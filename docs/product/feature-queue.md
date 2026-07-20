@@ -37,14 +37,15 @@ dependency, complexity, risk and value. Позиции могут двигать
 
 ## Обзор очереди
 
-Current release baseline: `0.2.12`. Закрытые пункты `0` through `12`, unified
+Current release baseline: `0.2.13`. Закрытые пункты `0` through `12`, unified
 audit hardening release и `5a` workspace renderer release соответствуют shipped
 versions, зафиксированным в [`releases.md`](../releases.md). Пункт `6` включает
 workbench alignment, первый стабильный self-hosted deployment path и
 workspace-centered UI follow-up `0.2.6` и Causality/Trace/Deduction slice
 `0.2.7`. Runtime boundary refactor зафиксирован implementation baseline
 `0.2.9`. Git and review basics зафиксирован implementation baseline `0.2.10`,
-Agent Tooling and Tool Registry v1 — `0.2.11`, Plugin Registry v1 — `0.2.12`.
+Agent Tooling and Tool Registry v1 — `0.2.11`, Plugin Registry v1 — `0.2.12`,
+CI/SQLite reliability fix slice — `0.2.13`.
 Следующий плановый пункт очереди — `13 Visual artifact system as plugins`.
 
 | Order | Done | Mechanism / Feature Slice | First Useful Slice | Dependency | Complexity |

@@ -5,29 +5,26 @@ use super::super::*;
 impl AppState {
     pub(crate) async fn migrate(&self) -> Result<(), AppError> {
         self.ensure_compatible_state().await?;
+        let mut connection = self.pool.acquire().await?;
         sqlx::query("pragma foreign_keys = on")
-            .execute(&self.pool)
-            .await?;
-        sqlx::query("pragma busy_timeout = 5000")
-            .execute(&self.pool)
+            .execute(&mut *connection)
             .await?;
         let journal_mode: String = sqlx::query_scalar("pragma journal_mode")
-            .fetch_one(&self.pool)
+            .fetch_one(&mut *connection)
             .await?;
         if !journal_mode.eq_ignore_ascii_case("wal") {
             sqlx::query("pragma journal_mode = wal")
-                .execute(&self.pool)
+                .execute(&mut *connection)
                 .await?;
         }
         sqlx::query(
             "create table if not exists schema_migrations (version integer primary key, checksum text not null, applied_at text not null)",
         )
-        .execute(&self.pool)
+        .execute(&mut *connection)
         .await?;
 
         for migration in MIGRATIONS {
             let checksum = migration.checksum();
-            let mut connection = self.pool.acquire().await?;
             sqlx::query("begin immediate")
                 .execute(&mut *connection)
                 .await?;

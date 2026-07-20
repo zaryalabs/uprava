@@ -43,6 +43,7 @@ async fn main() -> anyhow::Result<()> {
     let options = config
         .database_url
         .parse::<SqliteConnectOptions>()?
+        .busy_timeout(Duration::from_secs(5))
         .create_if_missing(true);
     let pool = SqlitePoolOptions::new()
         .max_connections(5)
@@ -116,6 +117,7 @@ async fn run_deployment_status(
     let options = config
         .database_url
         .parse::<SqliteConnectOptions>()?
+        .busy_timeout(Duration::from_secs(5))
         .read_only(true);
     let pool = SqlitePoolOptions::new()
         .max_connections(1)

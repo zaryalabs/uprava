@@ -518,24 +518,24 @@ async fn migration_concurrent_file_backed_starts_share_one_numbered_history() {
             SqliteConnectOptions::new()
                 .filename(&db_path)
                 .journal_mode(sqlx::sqlite::SqliteJournalMode::Wal)
+                .busy_timeout(Duration::from_secs(5))
                 .create_if_missing(true),
         )
         .await
         .expect("migration pool opens");
     let config = test_config(86_400);
-    let (first, second) = tokio::join!(
-        AppState::new(config.clone(), pool.clone()),
-        AppState::new(config, pool.clone()),
-    );
-    let first = first.expect("first migration succeeds");
-    let second = second.expect("second migration succeeds");
+    let first_state = AppState::build_uninitialized(config.clone(), pool.clone());
+    let second_state = AppState::build_uninitialized(config, pool.clone());
+    let (first, second) = tokio::join!(first_state.migrate(), second_state.migrate(),);
+    first.expect("first migration succeeds");
+    second.expect("second migration succeeds");
     let count: i64 = sqlx::query_scalar("select count(*) from schema_migrations")
         .fetch_one(&pool)
         .await
         .expect("migration count loads");
     assert_eq!(count, 13);
-    drop(first);
-    drop(second);
+    drop(first_state);
+    drop(second_state);
     pool.close().await;
     remove_sqlite_file_set(&db_path);
 }
