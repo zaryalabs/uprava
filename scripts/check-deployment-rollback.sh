@@ -44,6 +44,7 @@ write_manifest new bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb toolhive
 
 cat >"$tmp/bin/docker" <<'SH'
 #!/bin/sh
+printf '%s\n' "$*" >>"${MOCK_DOCKER_LOG:?}"
 case " $* " in
     *' exec -T toolhive thv version '*)
         test "${MOCK_HEALTH:-fail}" = pass && printf '%s\n' 'ToolHive 0.40.0'
@@ -76,7 +77,7 @@ make -C "$install" --no-print-directory remember-current SUDO= RELEASES_DIR="$re
 ln -sfn "$releases/new.env.release" "$install/.env.release"
 ln -sfn "$releases/new" "$install/current"
 
-if PATH="$tmp/bin:$PATH" SUDO="$tmp/bin/sudo" MAKE=make INSTALL_DIR="$install" \
+if PATH="$tmp/bin:$PATH" MOCK_DOCKER_LOG="$tmp/docker.log" SUDO="$tmp/bin/sudo" MAKE=make INSTALL_DIR="$install" \
     RELEASE_MANIFEST="$releases/new.env.release" UPRAVA_ROOT_PHASE=1 UPRAVA_DOMAIN=example.test \
     FINALIZE_RETRIES=1 bash "$repo/ci/finalize.sh" >"$tmp/finalize.log" 2>&1; then
     echo "Finalize unexpectedly accepted an unhealthy candidate" >&2
@@ -86,6 +87,9 @@ fi
 test "$(readlink "$install/.env.release")" = "$releases/old.env.release"
 test "$(readlink "$install/current")" = "$releases/old"
 grep -q 'automatic rollback completed' "$tmp/finalize.log"
+rollback_compose=$(tail -n 1 "$tmp/docker.log")
+case "$rollback_compose" in *' compose '*' up -d --remove-orphans') ;; *) echo "Rollback did not reapply Compose" >&2; exit 1 ;; esac
+case "$rollback_compose" in *'--profile toolhive'*) echo "Legacy rollback kept the ToolHive profile" >&2; exit 1 ;; esac
 
 ln -sfn "$releases/new.env.release" "$install/.env.release"
 ln -sfn "$releases/new" "$install/current"
@@ -98,7 +102,7 @@ cat >"$install/scripts/prune-uprava-images.sh" <<'SH'
 exit 0
 SH
 chmod 755 "$install/scripts/"*
-if PATH="$tmp/bin:$PATH" MOCK_HEALTH=pass SUDO="$tmp/bin/sudo" MAKE=make INSTALL_DIR="$install" \
+if PATH="$tmp/bin:$PATH" MOCK_HEALTH=pass MOCK_DOCKER_LOG="$tmp/docker.log" SUDO="$tmp/bin/sudo" MAKE=make INSTALL_DIR="$install" \
     RELEASE_MANIFEST="$releases/new.env.release" UPRAVA_ROOT_PHASE=1 UPRAVA_DOMAIN=example.test \
     FINALIZE_RETRIES=1 bash "$repo/ci/finalize.sh" >"$tmp/retention.log" 2>&1; then
     echo "Finalize unexpectedly accepted failed retention" >&2
@@ -112,7 +116,7 @@ test "$(readlink "$install/current")" = "$releases/new"
 rm -f "$install/.env.previous" "$install/previous"
 ln -sfn "$releases/new.env.release" "$install/.env.release"
 ln -sfn "$releases/new" "$install/current"
-if PATH="$tmp/bin:$PATH" SUDO="$tmp/bin/sudo" MAKE=make INSTALL_DIR="$install" \
+if PATH="$tmp/bin:$PATH" MOCK_DOCKER_LOG="$tmp/docker.log" SUDO="$tmp/bin/sudo" MAKE=make INSTALL_DIR="$install" \
     RELEASE_MANIFEST="$releases/new.env.release" UPRAVA_ROOT_PHASE=1 UPRAVA_DOMAIN=example.test \
     FINALIZE_RETRIES=1 bash "$repo/ci/finalize.sh" >"$tmp/bootstrap.log" 2>&1; then
     echo "Finalize unexpectedly accepted an unhealthy first release" >&2

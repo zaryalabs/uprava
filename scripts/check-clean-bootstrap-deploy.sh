@@ -34,6 +34,7 @@ EOF
 
 cat >"$tmp/bin/docker" <<SH
 #!/bin/sh
+printf '%s\n' "\$*" >>"$tmp/docker.log"
 if [ "\$1" = --config ]; then shift 2; fi
 case "\$1:\$2" in
     compose:*) exit 0 ;;
@@ -58,4 +59,5 @@ PATH="$tmp/bin:$PATH" make -f "$repo/ops/Makefile" --no-print-directory deploy \
 test "$(readlink "$tmp/.env.release")" = "$tmp/releases/test.env.release"
 test "$(readlink "$tmp/current")" = "$tmp/releases/test"
 test -x "$tmp/releases/test/uprava-node"
+grep -Eq -- 'compose .*--profile toolhive .* up -d --remove-orphans' "$tmp/docker.log"
 echo "Clean bootstrap deploy rehearsal passed in an isolated fixture"

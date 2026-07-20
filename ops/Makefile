@@ -146,6 +146,9 @@ pull: ## Pull Core/Web/ToolHive images and install the verified Node artifact
 	$(MAKE) --no-print-directory -f "$(firstword $(MAKEFILE_LIST))" node-artifact \
 		SUDO="$(SUDO)" RELEASES_DIR="$(RELEASES_DIR)" DOCKER_CONFIG="$(DOCKER_CONFIG)"
 
+compose-up: ## Apply the already-activated Compose release
+	$(COMPOSE_CMD) up -d --remove-orphans
+
 node-artifact: ## Extract and checksum the active Node artifact
 	@set -eu; \
 	. ./.env.release; \
@@ -174,13 +177,17 @@ deploy: validate ## Preserve the current release, then pull and apply the select
 		SUDO="$(SUDO)" RELEASES_DIR="$(RELEASES_DIR)" CORE_CONFIG="$(CORE_CONFIG)" \
 		NODE_CONFIG="$(NODE_CONFIG)" TOOLHIVE_CONFIG="$(TOOLHIVE_CONFIG)" \
 		COMPOSE_FILE="$(COMPOSE_FILE)" DOCKER_CONFIG="$(DOCKER_CONFIG)"
-	$(COMPOSE_CMD) up -d --remove-orphans
+	$(MAKE) --no-print-directory -f "$(firstword $(MAKEFILE_LIST))" compose-up \
+		SUDO="$(SUDO)" CORE_CONFIG="$(CORE_CONFIG)" TOOLHIVE_CONFIG="$(TOOLHIVE_CONFIG)" \
+		COMPOSE_FILE="$(COMPOSE_FILE)" DOCKER_CONFIG="$(DOCKER_CONFIG)"
 	$(SUDO) systemctl daemon-reload
 	$(SUDO) systemctl enable $(SYSTEMD_UNIT) >/dev/null
 	$(SUDO) systemctl restart $(SYSTEMD_UNIT)
 
 rollback: rollback-activate ## Reactivate the release preserved before deploy
-	$(COMPOSE_CMD) up -d --remove-orphans
+	$(MAKE) --no-print-directory -f "$(firstword $(MAKEFILE_LIST))" compose-up \
+		SUDO="$(SUDO)" CORE_CONFIG="$(CORE_CONFIG)" TOOLHIVE_CONFIG="$(TOOLHIVE_CONFIG)" \
+		COMPOSE_FILE="$(COMPOSE_FILE)" DOCKER_CONFIG="$(DOCKER_CONFIG)"
 	$(SUDO) systemctl daemon-reload
 	$(SUDO) systemctl restart $(SYSTEMD_UNIT)
 
@@ -212,4 +219,4 @@ restore-verify: ## Verify a SQLite backup archive without activating it
 	tar -xzf "$(BACKUP)" -C "$$tmp_dir"; \
 	"$(OPS_SCRIPT_DIR)/verify-sqlite-backup.sh" "$$(find "$$tmp_dir" -name core.sqlite -type f -print -quit)"
 
-.PHONY: help status logs releases require-release validate activate remember-current rollback-activate pull node-artifact deploy rollback deactivate down backup restore-verify
+.PHONY: help status logs releases require-release validate activate remember-current rollback-activate pull compose-up node-artifact deploy rollback deactivate down backup restore-verify
