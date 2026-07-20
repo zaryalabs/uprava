@@ -1,0 +1,44 @@
+FROM rust:1.88-bookworm@sha256:af306cfa71d987911a781c37b59d7d67d934f49684058f96cf72079c3626bfe0 AS builder
+WORKDIR /app
+ENV CARGO_BUILD_JOBS=1 \
+    CARGO_INCREMENTAL=0
+COPY . .
+RUN --mount=type=cache,target=/usr/local/cargo/registry,sharing=locked \
+    --mount=type=cache,target=/app/target,sharing=locked \
+    cargo build --locked --release -p uprava-toolhive --bin uprava-toolhive \
+    && cp /app/target/release/uprava-toolhive /app/uprava-toolhive
+
+FROM rust:1.88-bookworm@sha256:af306cfa71d987911a781c37b59d7d67d934f49684058f96cf72079c3626bfe0 AS toolhive
+ARG TARGETARCH
+ARG TOOLHIVE_VERSION=0.40.0
+RUN set -eu; \
+    case "$TARGETARCH" in \
+      amd64) checksum="01d7a8a12105cce01005104dee0b01424ff732371088065829dc2f2abec6267a" ;; \
+      arm64) checksum="778423ed74a418e45b8ffe8049ea7a6bd3a9be6d562392d4909c7cf756b98cf3" ;; \
+      *) echo "unsupported ToolHive architecture: $TARGETARCH" >&2; exit 1 ;; \
+    esac; \
+    archive="toolhive_${TOOLHIVE_VERSION}_linux_${TARGETARCH}.tar.gz"; \
+    curl --fail --location --proto '=https' --tlsv1.2 \
+      "https://github.com/stacklok/toolhive/releases/download/v${TOOLHIVE_VERSION}/${archive}" \
+      --output "/tmp/${archive}"; \
+    printf '%s  %s\n' "$checksum" "/tmp/${archive}" | sha256sum --check --strict; \
+    tar -xzf "/tmp/${archive}" -C /tmp thv; \
+    install -m 0755 /tmp/thv /usr/local/bin/thv
+
+FROM debian:bookworm-slim@sha256:60eac759739651111db372c07be67863818726f754804b8707c90979bda511df
+RUN install -d /var/lib/toolhive/.config /var/lib/toolhive/.local/share \
+        /var/lib/toolhive/.local/state /var/lib/toolhive/.local/logs
+COPY --from=builder --chown=0:0 /app/uprava-toolhive /usr/local/bin/uprava-toolhive
+COPY --from=toolhive --chown=0:0 /usr/local/bin/thv /usr/local/bin/thv
+COPY --from=builder --chown=0:0 /etc/ssl/certs/ca-certificates.crt /etc/ssl/certs/ca-certificates.crt
+ENV HOME=/var/lib/toolhive \
+    XDG_CONFIG_HOME=/var/lib/toolhive/.config \
+    XDG_DATA_HOME=/var/lib/toolhive/.local/share \
+    XDG_STATE_HOME=/var/lib/toolhive/.local/state \
+    UPRAVA_TOOLHIVE_BIND=0.0.0.0:18081 \
+    UPRAVA_TOOLHIVE_BINARY=/usr/local/bin/thv \
+    UPRAVA_TOOLHIVE_LOG_FILE=/var/lib/toolhive/.local/logs/bridge.log
+EXPOSE 18081 18765
+HEALTHCHECK --interval=5s --timeout=4s --retries=20 \
+    CMD ["uprava-toolhive", "healthcheck"]
+CMD ["uprava-toolhive"]

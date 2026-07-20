@@ -56,16 +56,18 @@ use uprava_protocol::{
     RuntimeSessionId, RuntimeSessionState, ScopeRef, SessionThreadId, SleepHint, TerminalId,
     TextRange, ToolCallId, ToolDefinition, ToolDefinitionState, ToolExecutionError,
     ToolExecutionErrorCode, ToolExecutionKind, ToolId, ToolRedactionPolicy, ToolResultEnvelope,
-    ToolRiskLevel, ToolSourceId, ToolSourceKind, ToolingCommandPayloadV1, ToolingCommandV1,
-    ToolingEventPayloadV1, ToolingEventV1, TurnId, UpravaRef, WarningSeverity,
+    ToolRiskLevel, ToolSourceId, ToolSourceKind, ToolhiveBridgeAuthorizationResponse,
+    ToolhiveBridgeMcpRequest, ToolhiveBridgeMcpResponse, ToolhiveBridgeVersionResponse,
+    ToolhiveBridgeWorkloadRequest, ToolhiveBridgeWorkloadStatusResponse, ToolingCommandPayloadV1,
+    ToolingCommandV1, ToolingEventPayloadV1, ToolingEventV1, TurnId, UpravaRef, WarningSeverity,
     WorkspaceCommandIntent, WorkspaceCommandRunRequest, WorkspaceCommandRunResponse,
     WorkspaceDiffHunk, WorkspaceDiffRequest, WorkspaceDiffResponse, WorkspaceDiffScope,
     WorkspaceEntry, WorkspaceEntryClassification, WorkspaceEntryKind, WorkspaceEntryStatus,
     WorkspaceFileContentResponse, WorkspaceFileWriteRequest, WorkspaceFileWriteResponse,
     WorkspaceSnapshot, WorkspaceTerminalOpenRequest, WorkspaceTerminalOpenResponse,
     WorkspaceTerminalOutputFrame, WorkspaceTerminalState, WorkspaceTerminalSummary,
-    WorkspaceTreeResponse, CURRENT_PROTOCOL_VERSION as API_VERSION, TOOLING_CONTRACT_VERSION_V1,
-    TOOL_RESULT_MAX_BYTES,
+    WorkspaceTreeResponse, CURRENT_PROTOCOL_VERSION as API_VERSION,
+    TOOLHIVE_BRIDGE_CONTRACT_VERSION_V1, TOOLING_CONTRACT_VERSION_V1, TOOL_RESULT_MAX_BYTES,
 };
 use uuid::Uuid;
 

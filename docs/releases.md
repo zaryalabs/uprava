@@ -2,7 +2,7 @@
 
 Статус: `active`
 
-Current release baseline: `0.2.13`.
+Current release baseline: `0.2.14`.
 
 Этот ledger фиксирует implementation baselines. Он не заменяет
 [`feature-queue.md`](product/feature-queue.md), где остается ранжированная очередь
@@ -34,14 +34,15 @@ future work.
 | `0.2.10` | 2026-07-19 | shipped | Git-aware Review: branch/worktree snapshots, scoped diffs, risk signals и traceable check results |
 | `0.2.11` | 2026-07-19 | shipped | Agent Tooling and Tool Registry v1: progressive Uprava MCP, scoped registry, ToolHive-backed Linear integration и traceable execution |
 | `0.2.12` | 2026-07-19 | shipped | Plugin Registry v1: Core-owned lifecycle, manifest-driven Web Extension Host и bundled data-only Dark Theme |
-| `0.2.13` | 2026-07-20 | current | CI visual baseline и SQLite migration reliability: синхронизированные Linux golden snapshots, per-connection busy timeout и изолированный concurrent migration test |
+| `0.2.13` | 2026-07-20 | shipped | CI visual baseline и SQLite migration reliability: синхронизированные Linux golden snapshots, per-connection busy timeout и изолированный concurrent migration test |
+| `0.2.14` | 2026-07-20 | current | ToolHive Compose topology: отдельный pinned runtime, bounded host Node bridge, persistent OAuth state, smoke и ручной Linear acceptance runbook |
 
 ## Current Baseline
 
-`0.2.13` включает baseline `0.2.12`, protocol-v2 baseline `0.2.0`, завершённое Zarya 0.1 Web UI/UX
+`0.2.14` включает baseline `0.2.13`, protocol-v2 baseline `0.2.0`, завершённое Zarya 0.1 Web UI/UX
 alignment и clean-bootstrap four-phase delivery path. Текущая реализация включает
 первый working distributed
-control panel, тринадцать implementation slices после `0.1.0`, unified audit
+control panel, четырнадцать implementation slices после `0.1.0`, unified audit
 hardening slice и workspace
 renderer/PTY terminal layer, а также первый deployable self-hosted release path:
 
@@ -58,14 +59,15 @@ renderer/PTY terminal layer, а также первый deployable self-hosted r
   semantic tokens, Monaco и xterm с безопасным `core.light` fallback;
 - Core-owned Tool Registry, permission-first progressive discovery
   `Search -> Inspect -> Execute` и session-scoped Uprava MCP leases;
-- Node-owned observed capability inventory, desired/actual ToolHive
-  reconciliation и bounded Linear MCP execution bridge;
+- Node-owned observed capability inventory and desired/actual reconciliation;
+  pinned ToolHive runtime вынесен в отдельный Compose service с bounded private
+  bridge к host Node;
 - Web management для integration lifecycle, availability и redacted tool-call
   trace; Linear OAuth URL передаётся только эфемерно и не сохраняется в durable
   state, audit или logs;
-- подтверждённый opt-in Linear E2E для OAuth callback, discovery, read-only call
-  и disconnect/revoke acceptance при сохранении консервативного локального
-  `remote_revocation_confirmed = false` без upstream proof;
+- Linear OAuth callback, discovery, read-only call и disconnect/reconnect
+  подготовлены к ручной opt-in приёмке, но пока не являются подтверждённым E2E;
+  `remote_revocation_confirmed = false` остаётся консервативным без upstream proof;
 
 - coarse session trace с precision markers и типизированными
   source/evidence/cause/result/raw links;

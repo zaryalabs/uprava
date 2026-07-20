@@ -54,11 +54,11 @@ Native agent tools remain native.
 - Web-authenticated Core read routes для definitions, availability и calls.
 
 Baseline эпика 2 реализует observed Node inventory, durable typed
-Tooling commands, desired/actual reconciliation после reconnect, pinned
-ToolHive CLI boundary, bounded local MCP bridge, external availability и
-terminal trace recovery. Opt-in Linear OAuth callback, `tools/list`, read-only
-call и disconnect/revoke scenario подтверждены `2026-07-19` без сохранения
-secret-bearing evidence.
+Tooling commands, desired/actual reconciliation после reconnect, отдельный
+Compose ToolHive service с pinned CLI, bounded HTTP/MCP bridge, external
+availability и terminal trace recovery. Ручная приёмка Linear OAuth callback,
+`tools/list`, read-only call и disconnect/reconnect в этой топологии ожидается;
+она не считается подтверждённой кодовыми и mock-проверками.
 
 Baseline эпика 3 добавляет Web management surface для integration,
 managed/observed capabilities и redacted tool-call trace. Primary Codex path
@@ -205,9 +205,9 @@ Node владеет:
 
 - actual Node capability inventory;
 - workspace-local execution context;
-- ToolHive adapter and local MCP bridge;
+- adapter к private ToolHive bridge и его bounded contract;
 - desired/actual reconciliation for enabled MCP dependencies;
-- local process/container lifecycle delegated to ToolHive;
+- desired/actual lifecycle orchestration, делегированным отдельному ToolHive service;
 - reporting discovered tools, schema hashes, health and failures;
 - bounded materialization of credentials where local runtime requires it;
 - local enforcement that complements Core policy.
@@ -224,6 +224,12 @@ ToolHive владеет MCP runtime concerns:
 - runtime health and logs;
 - runtime-level audit;
 - supported secrets and isolation mechanisms.
+
+ToolHive не встраивается в Node image/process. В локальном профиле это
+отдельный Compose service; pinned `thv` и OAuth state находятся в его XDG
+volume, а Node и Codex работают на bare metal. Bridge принимает только один
+зафиксированный Linear workload и методы `tools/list`/`tools/call`; MCP proxy
+не публикуется на host.
 
 ToolHive не владеет:
 
@@ -791,7 +797,7 @@ registry.
 - stable `search_tools`, `inspect_tool`, `execute_tool` surface;
 - permission-filtered keyword/BM25 search with bounded results;
 - несколько Uprava-native inspection/action tools;
-- ToolHive adapter on Node;
+- Node adapter к отдельному ToolHive bridge;
 - один реальный external MCP server/integration;
 - desired/actual dependency status;
 - schema hash/version and list-changed refresh;
@@ -835,7 +841,7 @@ registry.
 
 ```text
 Core: definitions, desired state, policy, progressive index, routing, trace
-Node: actual capabilities, ToolHive runtime, local bridge and enforcement
+Node: actual capabilities, ToolHive reconciliation, bridge client and enforcement
 ```
 
 Clients and agents не обходят Core policy при managed tool calls.

@@ -1,133 +1,209 @@
-# Эксплуатация Agent Tooling, ToolHive и Linear
+# Ручная приёмка Agent Tooling, ToolHive и Linear
 
-Статус: `active`
+Статус: `ready-for-manual-acceptance`
 
-Этот runbook описывает локально реализованный baseline `0.2.11`: Uprava MCP,
-Tool Registry, выдачу MCP-доступа Codex-сессиям, Node Tool Runtime и
-человеческую поверхность `/settings/tooling`.
+Runbook проверяет реальный путь Core → host Node → отдельный ToolHive service →
+Linear MCP. Автоматический `dev-smoke` намеренно ограничен health/version
+проверкой и не заменяет OAuth, discovery и tool call руками.
 
-Opt-in Linear OAuth callback, `tools/list`, read-only call и disconnect/revoke
-scenario прошли приёмку `2026-07-19`. Authorization URL, verifier и tokens в
-acceptance evidence не сохранялись.
+## Топология
 
-## Проверка компонентов
-
-1. Запустите Core, Node и Web обычным локальным профилем:
-
-   ```sh
-   make core-r
-   make node-r
-   make web-r
-   ```
-
-2. Откройте `/settings/tooling`.
-3. Выберите workspace и session. Экран должен отдельно показать:
-
-   - configured integration и её `desired`/`auth` state;
-   - actual ToolHive state на Node;
-   - effective availability managed tools в выбранной session;
-   - observed `git`, `gh`, `glab` без кнопки proxy execution;
-   - recent redacted tool calls и ссылки на session trace/result refs.
-
-4. Проверьте установленный runtime:
-
-   ```sh
-   thv version
-   ```
-
-Поддержанный compatibility baseline — ToolHive CLI `0.40.0`. Точные временные
-команды и checksum spike находятся в
-[`0.2.11-toolhive-linear-spike.md`](../tmp-plans/0.2.11-toolhive-linear-spike.md).
-Production Node использует `UPRAVA_TOOLHIVE_BINARY`, если binary не находится
-через обычный `PATH` daemon user.
-
-## Codex и Uprava MCP
-
-Перед каждым новым `SendTurn` Node получает у Core краткоживущий
-session-scoped lease через authenticated Node transport. Lease:
-
-- не сохраняется в durable command;
-- не добавляется в prompt, transcript или process arguments;
-- передаётся Codex только через `UPRAVA_MCP_ACCESS_TOKEN`;
-- ротирует предыдущий active lease этой session;
-- отзывается при stop session и ротации Core credential.
-
-Codex получает один Streamable HTTP MCP server `uprava`. Постоянная
-model-visible surface этого server состоит только из `search_tools`,
-`inspect_tool`, `execute_tool`. Полные schemas появляются только после Inspect.
-Default Node profile задаёт `UPRAVA_CODEX_IGNORE_USER_CONFIG=true`, чтобы
-managed session не наследовала произвольные пользовательские MCP mounts;
-Codex authentication при этом продолжает использовать `CODEX_HOME`.
-
-Если Core не может выдать lease, Node не запускает turn без tooling: command
-завершается с `provider.mcp_access_unavailable`. Следующий явный turn повторяет
-получение доступа и создаёт новый lease.
-
-## Подключение и отключение Linear
-
-Connect/Reconnect запускает Core-to-Node authorization command. Node поднимает
-pinned ToolHive workload в foreground, извлекает только валидированный HTTPS
-Linear authorization URL и возвращает его текущему Web-клиенту. URL существует
-только в памяти запроса, открывается пользователем в браузере и не попадает в
-durable command/result, audit metadata, event payload или logs. Heartbeat после
-callback переводит dependency в `running`, после чего Core обновляет discovery
-и effective availability.
-
-Reconnect использует тот же Node, что и существующая connection. Если окно URL
-истекло или callback не завершён, повторите Reconnect: новый запуск получает
-новые OAuth state и PKCE material.
-
-Disconnect доступен для существующей connection и выполняет две операции
-атомарно в Core:
-
-1. переводит desired state в `disabled` и auth state в `disconnected`;
-2. немедленно закрывает effective availability и отправляет новый desired
-   snapshot на Node.
-
-UI отдельно сообщает `remote_revocation_confirmed`. Текущий ToolHive boundary
-не предоставляет машинно проверяемого upstream revoke receipt, поэтому Core
-консервативно возвращает `false`, даже когда внешний acceptance scenario
-подтвердил корректный disconnect/revoke. Не считайте локальное удаление workload
-само по себе доказательством удаления remote grant.
-
-## Диагностика состояний
-
-| Состояние | Значение | Действие |
-| --- | --- | --- |
-| `toolhive_missing` | Node не нашёл pinned ToolHive binary | Установить `0.40.0` или задать `UPRAVA_TOOLHIVE_BINARY`, затем перезапустить Node |
-| `missing_auth` | Runtime запущен без usable Linear authorization | Нажать Connect/Reconnect и завершить OAuth flow по эфемерной ссылке |
-| `starting` / `installing` | Reconciler ещё не получил terminal actual state | Проверить heartbeat и дождаться следующего dependency report |
-| `degraded` | Runtime отвечает, но health/schema path ненадёжен | Проверить Node logs и безопасный ToolHive status без credential material |
-| `failed` | Reconciliation или bounded MCP call завершились ошибкой | Сопоставить `error_code`, Node command и tool-call trace |
-| `stopped` | Desired state отключён | Включить connection через Connect/Reconnect |
-| `node_offline` | Core закрыл availability по heartbeat | Восстановить Node/control channel; не подменять actual state вручную |
-| `policy_blocked` / `permission_denied` | Core policy запретила visibility или Execute | Проверить scope, actor, risk и approval policy |
-| `schema_changed` | Schema hash изменился после Inspect | Повторить Inspect и только затем Execute |
-
-## Метрики и безопасные логи
-
-Core `/api/v1/metrics` публикует low-cardinality counters:
-
-- `uprava_core_tool_registry_searches_total`;
-- `uprava_core_tool_execution_requests_total`;
-- `uprava_core_tool_execution_failures_total`;
-- `uprava_core_tool_policy_denials_total`;
-- `uprava_core_tool_dependency_errors_total`;
-- `uprava_core_mcp_leases_issued_total`;
-- `uprava_core_mcp_lease_rejections_total`.
-
-Диагностика должна использовать identifiers, states, error codes, hashes и
-bounded/redacted summaries. Нельзя писать OAuth URL state, verifier, bearer
-lease, access/refresh token, credential path или raw secret-bearing upstream
-payload в logs, events, tool-call summaries или UI.
-
-## Проверки перед handoff
-
-```sh
-make l
-make c
+```text
+browser ──> Web :5173 ──> Core :8080
+                              │
+                              │ authenticated control channel
+                              ▼
+                      Node + Codex on host
+                              │
+                              │ private HTTP, 127.0.0.1:18081
+                              ▼
+                 ToolHive bridge + thv 0.40.0 in Compose
+                              │
+                              ├── OAuth callback :18765
+                              └── internal MCP proxy :18766 ──> Linear
 ```
 
-Release `0.2.11` закрыт после clean migration from `0.2.10`, offline gates,
-dependency license/advisory review, threat-model review и подтверждённого
-opt-in ToolHive + Linear E2E.
+Node и Codex не входят в images. `thv` не устанавливается на host и не входит в
+Node image. ToolHive хранит XDG/OAuth state в volume
+`uprava-dev-toolhive-data`. MCP proxy `18766` не публикуется на host; Node
+вызывает только bounded bridge contract. Docker socket смонтирован только в
+ToolHive service, потому что ToolHive `0.40.0` создаёт container runtime manager
+даже для remote MCP workload. Доступ к socket эквивалентен высокому доверию к
+этому service.
+
+## 1. Предварительные условия
+
+- Docker Desktop/Engine запущен, `/var/run/docker.sock` доступен Compose.
+- На host установлены Rust toolchain и авторизованный Codex CLI.
+- Есть Linear account и workspace, где разрешён read-only acceptance call.
+- Порты `8080`, `5173`, `18081` и `18765` свободны.
+
+Полный reset удаляет также ToolHive OAuth state:
+
+```sh
+make dev-reset
+```
+
+Не выполняйте reset, если хотите проверить переживание обычного restart.
+
+## 2. Поднять инфраструктуру
+
+```sh
+SMOKE_WEB_PASSWORD='choose-a-local-password' make dev-smoke
+docker compose -f compose.dev.yaml ps
+docker compose -f compose.dev.yaml exec toolhive thv version
+```
+
+Ожидания:
+
+- Core и ToolHive имеют status `healthy`, Web доступен;
+- `http://127.0.0.1:18081/api/v1/version` возвращает ToolHive `0.40.0`;
+- smoke проходит без Node, Codex и Linear OAuth.
+
+На чистом Core smoke одновременно выполняет auth setup с переданным
+`SMOKE_WEB_PASSWORD`; используйте этот пароль для входа в Web. Если хотите
+выполнить setup только через UI, вместо smoke запустите `make dev-up` в
+отдельном терминале и проверьте version endpoint вручную.
+
+Если ToolHive не стартует, сначала проверьте socket и логи:
+
+```sh
+docker compose -f compose.dev.yaml logs toolhive
+ls -l /var/run/docker.sock
+```
+
+## 3. Запустить Node на host
+
+В отдельном терминале:
+
+```sh
+export UPRAVA_CORE_URL=http://127.0.0.1:8080
+export UPRAVA_TOOLHIVE_URL=http://127.0.0.1:18081
+export UPRAVA_TOOLHIVE_TIMEOUT_SECONDS=300
+export UPRAVA_NODE_WORKSPACES=/absolute/path/to/workspace
+make node-r
+```
+
+Через Web завершите первоначальный auth setup/login, approve Node enrollment,
+создайте placement на разрешённый workspace и session. На
+`/settings/tooling` выберите эту workspace/session.
+
+Ожидания до Linear Connect:
+
+- observed capability `ToolHive` доступна и показывает `0.40.0`;
+- `git`/`gh`/`glab` показаны как observed native capabilities, не как managed
+  proxy tools;
+- Linear integration имеет `missing_auth` или disconnected state;
+- model-visible Uprava MCP surface содержит только `search_tools`,
+  `inspect_tool`, `execute_tool`.
+
+## 4. Пройти Linear OAuth
+
+1. На `/settings/tooling` нажмите **Connect** у Linear.
+2. Откройте полученную HTTPS-ссылку Linear в том же браузере.
+3. Подтвердите нужный Linear workspace и permissions.
+4. Убедитесь, что redirect пришёл на
+   `http://localhost:18765/callback` и завершился без port/network error.
+5. Вернитесь в Uprava и дождитесь двух-трёх heartbeat cycles.
+
+Ожидания:
+
+- authorization URL появляется только в текущем Web flow и не восстанавливается
+  после reload;
+- dependency переходит `starting` → `running`;
+- `thv list --format json` внутри service содержит workload `uprava-linear`;
+- на Tooling screen появились discovered Linear definitions и effective
+  availability для выбранной session.
+
+Безопасно посмотреть runtime status:
+
+```sh
+docker compose -f compose.dev.yaml exec toolhive thv list --format json
+```
+
+Не копируйте в evidence authorization URL, OAuth `state`, verifier, tokens или
+содержимое ToolHive credential storage.
+
+## 5. Проверить Search → Inspect → Execute
+
+В выбранной Codex session попросите агента:
+
+1. через `search_tools` найти read-only Linear tool для поиска issues;
+2. через `inspect_tool` показать schema найденного tool;
+3. через `execute_tool` выполнить безопасный запрос по известному тексту или
+   issue identifier в разрешённом workspace;
+4. не выполнять create/update/delete operations.
+
+Ожидания:
+
+- до Inspect полная upstream schema не появляется в model context;
+- Execute использует schema hash текущей definition и проходит через Node и
+  ToolHive bridge, а не прямой Linear HTTP fallback;
+- `/settings/tooling` показывает terminal call, redacted summary и trace/result
+  refs;
+- reload сохраняет definitions, availability и terminal trace;
+- Core DB/API и общие логи не содержат bearer lease, OAuth URL, credential
+  paths или material; opaque non-secret reference допустим в desired state.
+
+## 6. Проверить restart и негативные состояния
+
+### Restart ToolHive без удаления volume
+
+```sh
+docker compose -f compose.dev.yaml restart toolhive
+```
+
+На следующей reconciliation Node должен восстановить workload из desired state.
+Повторный read-only Execute должен пройти без нового Connect, если сохранённый
+OAuth state usable. Если upstream требует повторную авторизацию, UI должен
+показать `missing_auth`, а не делать direct fallback.
+
+### ToolHive unavailable
+
+```sh
+docker compose -f compose.dev.yaml stop toolhive
+```
+
+После heartbeat ожидания:
+
+- observed ToolHive и Linear availability закрываются;
+- dependency получает явный `toolhive_missing`/unavailable diagnostic;
+- crafted Execute отклоняется.
+
+Вернуть service:
+
+```sh
+docker compose -f compose.dev.yaml up -d toolhive
+```
+
+### Node offline/reconnect
+
+Остановите host `make node-r`, дождитесь offline state в Web и убедитесь, что
+Execute закрыт. Запустите Node снова с тем же state file: control reconnect
+должен повторно получить desired snapshot и восстановить actual state.
+
+### Disconnect/Reconnect
+
+Нажмите **Disconnect**. Core должен немедленно закрыть availability, Node —
+вызвать ToolHive stop/remove. `remote_revocation_confirmed=false` допустим:
+локальный cleanup не является доказательством отзыва remote grant. Затем
+нажмите **Reconnect**, пройдите новый OAuth flow и повторите один read-only call.
+
+## 7. Итоговый acceptance checklist
+
+- [ ] Compose поднимает Core/Web/ToolHive, `dev-smoke` видит `0.40.0`.
+- [ ] Host Node видит bridge через `UPRAVA_TOOLHIVE_URL`; host `thv` не нужен.
+- [ ] Linear OAuth callback достигает container через `localhost:18765`.
+- [ ] Discovery публикует bounded definitions и effective availability.
+- [ ] Codex видит только три meta-tools.
+- [ ] Реальный read-only Search → Inspect → Execute проходит через ToolHive.
+- [ ] Trace/result refs и redacted call видны после reload.
+- [ ] ToolHive restart восстанавливается или честно требует Reconnect.
+- [ ] ToolHive missing и Node offline закрывают Execute без fallback.
+- [ ] Disconnect удаляет workload; Reconnect создаёт новый OAuth flow.
+- [ ] OAuth URL, bearer token, credential path/material не найдены в durable
+  DB/log/API evidence; opaque non-secret reference не раскрывает secret.
+
+После ручной приёмки обновите статус этого runbook и acceptance checklist в
+`docs/development/agent-tooling-contracts.md`; только тогда реальный Linear E2E
+можно считать закрытым.

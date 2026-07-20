@@ -43,7 +43,7 @@ Desktop Client      Tauri later, wraps Web Control Panel or talks to Core
 
 ## Local development environment
 
-Docker Compose - canonical local Core/Web bootstrap and smoke-test environment
+Docker Compose - canonical local Core/Web/ToolHive bootstrap and smoke-test environment
 для V01 development. Это не production deployment model, а инструмент
 стабильности: browser-facing Core/Web startup, hardened local auth and basic
 diagnostics должны воспроизводимо стартовать на каждой машине. Node-facing
@@ -54,13 +54,13 @@ provider access.
 
 - predictable ports для Core and Web;
 - persistent but resettable SQLite/Core state volumes;
-- hardened Core/Web smoke path, который работает без Codex;
+- hardened Core/Web/ToolHive smoke path, который работает без Codex;
 - host Node Daemon path для реальных local workspaces and host credentials;
 - health checks, useful for `make`, Playwright and CI;
 - documented reset and log-collection commands.
 
 Для реального контроля local workspace может понадобиться Node Daemon на host.
-Compose остается стабильным способом стартовать Core/Web and infrastructure
+Compose остается стабильным способом стартовать Core/Web/ToolHive and infrastructure
 smoke path, while `make node-r` and `make codex-smoke` cover host Node
 enrollment, workspace access and real provider execution там, где Codex
 установлен.
@@ -124,7 +124,8 @@ Node Daemon должен быть максимально переносимым.
 
 Основной machine interface агента к Core и integrations — Uprava MCP с
 progressive discovery `Search -> Inspect -> Execute`. External MCP runtime
-строится через ToolHive на Node.
+строится через отдельный ToolHive bridge в Compose; Node остаётся на host и
+обращается к bridge по ограниченному loopback HTTP contract.
 
 Версии dependencies, wire vocabulary, auth/redaction policy и API shapes
 зафиксированы в

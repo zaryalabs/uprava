@@ -1,5 +1,5 @@
 [package]
-name = "uprava-node"
+name = "uprava-toolhive"
 version = "0.2.14"
 edition.workspace = true
 license.workspace = true
@@ -12,18 +12,13 @@ workspace = true
 
 [dependencies]
 anyhow.workspace = true
+axum.workspace = true
 chrono.workspace = true
-uprava-logging = { path = "../uprava-logging" }
-uprava-protocol = { path = "../uprava-protocol" }
-futures-util.workspace = true
-libc.workspace = true
-pty-process.workspace = true
 reqwest.workspace = true
 serde.workspace = true
 serde_json.workspace = true
-sha2.workspace = true
-sqlx.workspace = true
 tokio.workspace = true
-tokio-tungstenite.workspace = true
+tower-http.workspace = true
 tracing.workspace = true
-uuid.workspace = true
+uprava-logging = { path = "../uprava-logging" }
+uprava-protocol = { path = "../uprava-protocol" }

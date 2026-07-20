@@ -11,8 +11,11 @@ Uprava MCP Streamable HTTP endpoint `/mcp` на pinned `rmcp 2.2.0` и typed
 durable `CommandKind::Tooling` path до Node. Доступ к MCP требует short-lived
 session lease; Web read routes для definitions, observed capabilities,
 dependency state, availability и calls используют те же application services.
-Реальный Linear OAuth acceptance остаётся заблокирован внешним gate из spike;
-production path не подменяет его mock credential или direct upstream fallback.
+Production topology подготовлена к ручному Linear OAuth acceptance: ToolHive
+работает отдельным Compose service, а host Node использует private bridge.
+Ручной callback, discovery, read-only Execute и disconnect/reconnect ещё должны
+быть подтверждены оператором; mock credential или direct upstream fallback их
+не подменяют.
 
 Этот документ фиксирует общий язык Core, Node, Uprava MCP и Web до начала
 реализации отдельных эпиков. Канонические Rust-типы находятся в
@@ -25,7 +28,8 @@ production path не подменяет его mock credential или direct ups
 - MCP revision: стабильная `2025-11-25`.
 - Rust SDK для Uprava MCP: `rmcp = 2.2.0`, exact pin `=2.2.0` при добавлении
   runtime dependency.
-- Node external runtime baseline: ToolHive CLI `0.40.0`.
+- External runtime baseline: отдельный ToolHive service с CLI `0.40.0`; Node и
+  Codex устанавливаются на host.
 - Model-visible surface по умолчанию содержит только `search_tools`,
   `inspect_tool`, `execute_tool`.
 - Shared wire payload version: `TOOLING_CONTRACT_VERSION_V1 = 1`.
@@ -83,6 +87,14 @@ Windows amd64/arm64. Локально проверен macOS arm64 artifact с S
 
 ```text
 77dbd6f657fa2ad9676b284beab8630e11f36e9014045993c0b7e6db3cd62dbb
+```
+
+`Dockerfile.toolhive` принимает только Linux release artifacts с закреплёнными
+checksum:
+
+```text
+linux/amd64 01d7a8a12105cce01005104dee0b01424ff732371088065829dc2f2abec6267a
+linux/arm64 778423ed74a418e45b8ffe8049ea7a6bd3a9be6d562392d4909c7cf756b98cf3
 ```
 
 Результат конкретного Linear spike и exact commands находятся во временной
@@ -297,11 +309,11 @@ duplicate определяется outer `command_id`, tool execution duplicate 
   `glab`; auth status ограничен значениями `authenticated | not_authenticated`;
 - Core повторно отправляет desired dependency snapshot после Node reconnect, а
   Node сохраняет его в private local state;
-- ToolHive CLI boundary принимает только pinned Linear upstream и безопасные
-  workload/namespace identifiers;
-- local MCP bridge выполняет `initialize`, `notifications/initialized`,
-  `tools/list` и `tools/call`, проверяет current schema hash перед вызовом и
-  ограничивает metadata, schema, process output и MCP result;
+- private ToolHive bridge принимает только pinned Linear upstream, fixed
+  workload/ports и версионированные Node requests;
+- bridge внутри ToolHive service выполняет `initialize`, `notifications/initialized`,
+  `tools/list` и `tools/call` и ограничивает process output/MCP result; Node
+  проверяет current schema hash и ограничивает metadata/schema до Core;
 - timeout и cancel используют общий Node cancellation registry, duplicate outer
   command возвращает сохранённый terminal result;
 - Core проецирует actual status и discovered definitions, вычисляет
@@ -438,6 +450,6 @@ literal drift и fixture drift.
 - [x] Tool call имеет terminal-state invariant и correlation refs.
 - [x] Core-to-Node использует typed versioned payload, не Extension.
 - [x] MCP stable revision закреплена; future revision не принимается молча.
-- [ ] Linear OAuth, discovery, read-only call и disconnect подтверждены в
-  разрешённом test workspace — текущий внешний gate заблокирован политикой
-  доступа к Linear, см. spike note.
+- [ ] Вручную подтверждены Compose ToolHive startup, Linear OAuth callback,
+  discovery, read-only call и disconnect/reconnect в разрешённом workspace;
+  автоматический smoke проверяет только version/health boundary.

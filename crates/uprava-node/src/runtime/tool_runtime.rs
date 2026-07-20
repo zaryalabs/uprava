@@ -3,6 +3,8 @@
 use super::*;
 
 const LINEAR_MCP_URL: &str = "https://mcp.linear.app/mcp";
+const LINEAR_PROXY_PORT: u16 = 18_766;
+const LINEAR_CALLBACK_PORT: u16 = 18_765;
 const TOOL_PROBE_TIMEOUT: Duration = Duration::from_secs(3);
 const MCP_REQUEST_TIMEOUT: Duration = Duration::from_secs(30);
 const MAX_TOOL_METADATA_CHARS: usize = 4_096;
@@ -10,9 +12,6 @@ const MAX_TOOL_DEFINITIONS: usize = 256;
 const MAX_TOOLHIVE_PROCESS_OUTPUT_BYTES: usize = 256 * 1024;
 const MAX_TOOL_SCHEMA_BYTES: usize = 128 * 1024;
 const MAX_TOOL_SCHEMA_DEPTH: usize = 32;
-const INTEGRATION_AUTHORIZATION_TIMEOUT: Duration = Duration::from_secs(5 * 60);
-const AUTHORIZATION_URL_CAPTURE_TIMEOUT: Duration = Duration::from_secs(45);
-const MAX_AUTHORIZATION_OUTPUT_BYTES: usize = 256 * 1024;
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub(crate) struct ToolDependencyDesired {
@@ -57,7 +56,7 @@ pub(crate) async fn observed_dependency_statuses(
 }
 
 async fn probe_toolhive(config: &NodeConfig, node_id: &NodeId) -> ObservedCapability {
-    let result = bounded_command(&config.toolhive_binary, &["version"], TOOL_PROBE_TIMEOUT).await;
+    let result = toolhive_version(config).await;
     observed_from_probe(node_id, "runtime.toolhive", "ToolHive", result, None)
 }
 
@@ -338,12 +337,15 @@ pub(crate) async fn execute_tooling_command(
                 .unwrap_or(tool_id.as_str());
             let max_bytes = (*max_result_bytes).min(TOOL_RESULT_MAX_BYTES);
             match call_external_tool(
-                &desired,
-                tool_name,
-                arguments,
-                schema_hash,
-                max_bytes,
-                remaining,
+                config,
+                ExternalToolCallRequest {
+                    desired: &desired,
+                    tool_name,
+                    arguments,
+                    expected_schema_hash: schema_hash,
+                    max_result_bytes: max_bytes,
+                    deadline: remaining,
+                },
                 cancellation,
             )
             .await
@@ -427,9 +429,8 @@ fn valid_identifier(value: &str) -> bool {
             .all(|byte| byte.is_ascii_lowercase() || byte.is_ascii_digit() || byte == b'-')
 }
 
-fn dependency_proxy_port(id: &McpDependencyInstanceId) -> u16 {
-    let digest = Sha256::digest(id.as_str().as_bytes());
-    19_000 + u16::from_be_bytes([digest[0], digest[1]]) % 1_000
+fn dependency_proxy_port(_id: &McpDependencyInstanceId) -> u16 {
+    LINEAR_PROXY_PORT
 }
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -519,24 +520,23 @@ async fn reconcile_dependency(
     desired: &ToolDependencyDesired,
 ) -> (McpDependencyStatus, Vec<ToolDefinition>) {
     let now = Utc::now();
-    let version =
-        match bounded_command(&config.toolhive_binary, &["version"], TOOL_PROBE_TIMEOUT).await {
-            Ok(version) => version,
-            Err(_) => {
-                return (
-                    dependency_status(
-                        desired,
-                        node_id,
-                        McpDependencyActualState::ToolhiveMissing,
-                        None,
-                        None,
-                        Some("toolhive_missing"),
-                        now,
-                    ),
-                    vec![],
-                )
-            }
-        };
+    let version = match toolhive_version(config).await {
+        Ok(version) => version,
+        Err(_) => {
+            return (
+                dependency_status(
+                    desired,
+                    node_id,
+                    McpDependencyActualState::ToolhiveMissing,
+                    None,
+                    None,
+                    Some("toolhive_missing"),
+                    now,
+                ),
+                vec![],
+            )
+        }
+    };
     if desired.desired_state == IntegrationDesiredState::Disabled {
         let _ = toolhive_cleanup(config, desired).await;
         return (
@@ -582,7 +582,7 @@ async fn reconcile_dependency(
             vec![],
         );
     }
-    match discover_tools(desired).await {
+    match discover_tools(config, desired).await {
         Ok(definitions) => {
             let schema_set_hash = schema_set_hash(&definitions);
             (
@@ -643,21 +643,20 @@ async fn observe_dependency_status(
     desired: &ToolDependencyDesired,
 ) -> McpDependencyStatus {
     let now = Utc::now();
-    let version =
-        match bounded_command(&config.toolhive_binary, &["version"], TOOL_PROBE_TIMEOUT).await {
-            Ok(version) => version,
-            Err(_) => {
-                return dependency_status(
-                    desired,
-                    node_id,
-                    McpDependencyActualState::ToolhiveMissing,
-                    None,
-                    None,
-                    Some("toolhive_missing"),
-                    now,
-                )
-            }
-        };
+    let version = match toolhive_version(config).await {
+        Ok(version) => version,
+        Err(_) => {
+            return dependency_status(
+                desired,
+                node_id,
+                McpDependencyActualState::ToolhiveMissing,
+                None,
+                None,
+                Some("toolhive_missing"),
+                now,
+            )
+        }
+    };
     if desired.desired_state == IntegrationDesiredState::Disabled {
         return dependency_status(
             desired,
@@ -680,7 +679,8 @@ async fn observe_dependency_status(
             now,
         );
     }
-    if let Ok(Ok(definitions)) = timeout(TOOL_PROBE_TIMEOUT, discover_tools(desired)).await {
+    if let Ok(Ok(definitions)) = timeout(TOOL_PROBE_TIMEOUT, discover_tools(config, desired)).await
+    {
         return dependency_status(
             desired,
             node_id,
@@ -718,197 +718,168 @@ async fn toolhive_begin_authorization(
     config: &NodeConfig,
     desired: &ToolDependencyDesired,
 ) -> anyhow::Result<(String, DateTime<Utc>)> {
-    let _ = toolhive_cleanup(config, desired).await;
-    let proxy_port = desired.proxy_port.to_string();
-    let callback_port = desired.proxy_port.saturating_add(1).to_string();
-    let mut command = TokioCommand::new(&config.toolhive_binary);
-    command
-        .args([
-            "run",
-            desired.upstream_url.as_str(),
-            "--name",
-            desired.workload_name.as_str(),
-            "--foreground",
-            "--remote-auth",
-            "--remote-auth-skip-browser",
-            "--remote-auth-timeout",
-            "5m",
-            "--remote-auth-callback-port",
-            callback_port.as_str(),
-            "--proxy-port",
-            proxy_port.as_str(),
-        ])
-        .stdin(Stdio::null())
-        .stdout(Stdio::piped())
-        .stderr(Stdio::piped());
-    let mut child = command
-        .spawn()
-        .context("failed to launch ToolHive authorization")?;
-    let mut stdout = child
-        .stdout
-        .take()
-        .context("ToolHive authorization stdout was unavailable")?;
-    let stderr = child
-        .stderr
-        .take()
-        .context("ToolHive authorization stderr was unavailable")?;
-    let stdout_task = tokio::spawn(async move {
-        let _ = tokio::io::copy(&mut stdout, &mut tokio::io::sink()).await;
-    });
-    let lines = BufReader::new(stderr).lines();
-    let captured = timeout(
-        AUTHORIZATION_URL_CAPTURE_TIMEOUT,
-        capture_linear_authorization_url(lines),
-    )
-    .await;
-    let (authorization_url, lines) = match captured {
-        Ok(Ok(captured)) => captured,
-        Ok(Err(error)) => {
-            let _ = child.kill().await;
-            let _ = child.wait().await;
-            stdout_task.abort();
-            return Err(error);
-        }
-        Err(_) => {
-            let _ = child.kill().await;
-            let _ = child.wait().await;
-            stdout_task.abort();
-            anyhow::bail!("timed out waiting for ToolHive authorization URL");
-        }
-    };
-    tokio::spawn(async move {
-        let mut stderr = lines.into_inner();
-        let _ = tokio::io::copy(&mut stderr, &mut tokio::io::sink()).await;
-        let _ = stdout_task.await;
-        let _ = child.wait().await;
-    });
-    let authorization_ttl = chrono::Duration::from_std(INTEGRATION_AUTHORIZATION_TIMEOUT)
-        .context("authorization timeout exceeded chrono range")?;
-    Ok((authorization_url, Utc::now() + authorization_ttl))
-}
-
-async fn capture_linear_authorization_url(
-    mut lines: tokio::io::Lines<BufReader<tokio::process::ChildStderr>>,
-) -> anyhow::Result<(
-    String,
-    tokio::io::Lines<BufReader<tokio::process::ChildStderr>>,
-)> {
-    let mut observed_bytes = 0_usize;
-    while let Some(line) = lines.next_line().await? {
-        observed_bytes = observed_bytes.saturating_add(line.len());
-        anyhow::ensure!(
-            observed_bytes <= MAX_AUTHORIZATION_OUTPUT_BYTES,
-            "ToolHive authorization output exceeded its limit"
-        );
-        if let Some(url) = linear_authorization_url_from_line(&line) {
-            return Ok((url, lines));
-        }
-    }
-    anyhow::bail!("ToolHive authorization exited before producing a URL")
-}
-
-pub(crate) fn linear_authorization_url_from_line(line: &str) -> Option<String> {
-    let (_, raw_url) = line.split_once("Please open this URL in your browser: ")?;
-    let url = Url::parse(raw_url.trim()).ok()?;
-    let host = url.host_str()?;
-    if url.scheme() != "https"
-        || (host != "linear.app" && !host.ends_with(".linear.app"))
-        || url.query_pairs().all(|(key, _)| key != "state")
-    {
-        return None;
-    }
-    Some(url.into())
+    let response = toolhive_client(config)?
+        .post(toolhive_workload_url(config, desired, "authorize")?)
+        .json(&toolhive_workload_request(desired))
+        .send()
+        .await?
+        .error_for_status()?
+        .json::<ToolhiveBridgeAuthorizationResponse>()
+        .await?;
+    Ok((response.authorization_url, response.expires_at))
 }
 
 async fn toolhive_start(
     config: &NodeConfig,
     desired: &ToolDependencyDesired,
 ) -> anyhow::Result<()> {
-    let proxy_port = desired.proxy_port.to_string();
-    let callback_port = desired.proxy_port.saturating_add(1).to_string();
-    let args = [
-        "run",
-        desired.upstream_url.as_str(),
-        "--name",
-        desired.workload_name.as_str(),
-        "--remote-auth",
-        "--remote-auth-skip-browser",
-        "--remote-auth-timeout",
-        "5m",
-        "--remote-auth-callback-port",
-        callback_port.as_str(),
-        "--proxy-port",
-        proxy_port.as_str(),
-    ];
-    bounded_command(
-        &config.toolhive_binary,
-        &args,
-        config.toolhive_start_timeout,
-    )
-    .await
-    .map(|_| ())
+    toolhive_client(config)?
+        .post(toolhive_workload_url(config, desired, "start")?)
+        .json(&toolhive_workload_request(desired))
+        .send()
+        .await?
+        .error_for_status()?;
+    Ok(())
 }
 
 async fn toolhive_cleanup(
     config: &NodeConfig,
     desired: &ToolDependencyDesired,
 ) -> anyhow::Result<()> {
-    let _ = bounded_command(
-        &config.toolhive_binary,
-        &["stop", desired.workload_name.as_str()],
-        TOOL_PROBE_TIMEOUT,
-    )
-    .await;
-    let _ = bounded_command(
-        &config.toolhive_binary,
-        &["rm", desired.workload_name.as_str()],
-        TOOL_PROBE_TIMEOUT,
-    )
-    .await;
+    toolhive_client(config)?
+        .delete(toolhive_workload_url(config, desired, "")?)
+        .send()
+        .await?
+        .error_for_status()?;
     Ok(())
 }
 
 async fn toolhive_workload_running(config: &NodeConfig, desired: &ToolDependencyDesired) -> bool {
-    bounded_command(
-        &config.toolhive_binary,
-        &["list", "--format", "json"],
-        TOOL_PROBE_TIMEOUT,
-    )
-    .await
-    .ok()
-    .and_then(|raw| serde_json::from_str::<serde_json::Value>(&raw).ok())
-    .is_some_and(|value| json_contains_workload(&value, &desired.workload_name))
+    let operation = async {
+        toolhive_client(config)?
+            .get(toolhive_workload_url(config, desired, "")?)
+            .send()
+            .await?
+            .error_for_status()?
+            .json::<ToolhiveBridgeWorkloadStatusResponse>()
+            .await
+            .map_err(anyhow::Error::from)
+    };
+    timeout(TOOL_PROBE_TIMEOUT, operation)
+        .await
+        .ok()
+        .and_then(Result::ok)
+        .is_some_and(|status| status.running)
 }
 
-fn json_contains_workload(value: &serde_json::Value, workload_name: &str) -> bool {
-    match value {
-        serde_json::Value::Object(object) => object.values().any(|value| {
-            value.as_str() == Some(workload_name) || json_contains_workload(value, workload_name)
-        }),
-        serde_json::Value::Array(values) => values
-            .iter()
-            .any(|value| json_contains_workload(value, workload_name)),
-        _ => false,
+async fn toolhive_version(config: &NodeConfig) -> anyhow::Result<String> {
+    let operation = async {
+        toolhive_client(config)?
+            .get(config.toolhive_url.join("api/v1/version")?)
+            .send()
+            .await?
+            .error_for_status()?
+            .json::<ToolhiveBridgeVersionResponse>()
+            .await
+            .map(|response| response.version)
+            .map_err(anyhow::Error::from)
+    };
+    timeout(TOOL_PROBE_TIMEOUT, operation)
+        .await
+        .context("ToolHive bridge version probe timed out")?
+}
+
+fn toolhive_client(config: &NodeConfig) -> anyhow::Result<reqwest::Client> {
+    reqwest::Client::builder()
+        .connect_timeout(TOOL_PROBE_TIMEOUT)
+        .timeout(config.toolhive_timeout)
+        .build()
+        .context("failed to build ToolHive bridge client")
+}
+
+fn toolhive_workload_url(
+    config: &NodeConfig,
+    desired: &ToolDependencyDesired,
+    action: &str,
+) -> anyhow::Result<reqwest::Url> {
+    let suffix = if action.is_empty() {
+        String::new()
+    } else {
+        format!("/{action}")
+    };
+    config
+        .toolhive_url
+        .join(&format!(
+            "api/v1/workloads/{}{}",
+            desired.workload_name, suffix
+        ))
+        .context("failed to construct ToolHive bridge URL")
+}
+
+fn toolhive_workload_request(desired: &ToolDependencyDesired) -> ToolhiveBridgeWorkloadRequest {
+    ToolhiveBridgeWorkloadRequest {
+        contract_version: TOOLHIVE_BRIDGE_CONTRACT_VERSION_V1,
+        upstream_url: desired.upstream_url.clone(),
+        workload_name: desired.workload_name.clone(),
+        proxy_port: desired.proxy_port,
+        callback_port: LINEAR_CALLBACK_PORT,
     }
 }
 
-async fn discover_tools(desired: &ToolDependencyDesired) -> anyhow::Result<Vec<ToolDefinition>> {
-    let mut client = McpProxyClient::connect(desired.proxy_port).await?;
-    let result = client.request("tools/list", serde_json::json!({})).await?;
+async fn toolhive_mcp_request(
+    config: &NodeConfig,
+    desired: &ToolDependencyDesired,
+    method: &str,
+    params: serde_json::Value,
+) -> anyhow::Result<serde_json::Value> {
+    let response = toolhive_client(config)?
+        .post(toolhive_workload_url(config, desired, "mcp")?)
+        .json(&ToolhiveBridgeMcpRequest {
+            contract_version: TOOLHIVE_BRIDGE_CONTRACT_VERSION_V1,
+            proxy_port: desired.proxy_port,
+            method: method.to_owned(),
+            params: JsonValue(params),
+        })
+        .send()
+        .await?
+        .error_for_status()?
+        .json::<ToolhiveBridgeMcpResponse>()
+        .await?;
+    Ok(response.result.0)
+}
+
+async fn discover_tools(
+    config: &NodeConfig,
+    desired: &ToolDependencyDesired,
+) -> anyhow::Result<Vec<ToolDefinition>> {
+    let result = toolhive_mcp_request(config, desired, "tools/list", serde_json::json!({})).await?;
     normalize_tool_definitions(desired, &result)
 }
 
-async fn call_external_tool(
-    desired: &ToolDependencyDesired,
-    tool_name: &str,
-    arguments: &JsonValue,
-    expected_schema_hash: &str,
+struct ExternalToolCallRequest<'a> {
+    desired: &'a ToolDependencyDesired,
+    tool_name: &'a str,
+    arguments: &'a JsonValue,
+    expected_schema_hash: &'a str,
     max_result_bytes: u64,
     deadline: Duration,
+}
+
+async fn call_external_tool(
+    config: &NodeConfig,
+    request: ExternalToolCallRequest<'_>,
     mut cancellation: Option<watch::Receiver<bool>>,
 ) -> Result<ToolResultEnvelope, ToolExecutionError> {
+    let ExternalToolCallRequest {
+        desired,
+        tool_name,
+        arguments,
+        expected_schema_hash,
+        max_result_bytes,
+        deadline,
+    } = request;
     let operation = async {
-        let definitions = discover_tools(desired).await.map_err(|_| {
+        let definitions = discover_tools(config, desired).await.map_err(|_| {
             tool_error(
                 ToolExecutionErrorCode::BackendFailed,
                 "Tool discovery failed before execution",
@@ -932,31 +903,23 @@ async fn call_external_tool(
                 false,
             ));
         }
-        let mut client = McpProxyClient::connect(desired.proxy_port)
-            .await
-            .map_err(|_| {
-                tool_error(
-                    ToolExecutionErrorCode::BackendFailed,
-                    "ToolHive proxy is unreachable",
-                    true,
-                )
-            })?;
-        let content = client
-            .request(
-                "tools/call",
-                serde_json::json!({
-                    "name": tool_name,
-                    "arguments": arguments.0,
-                }),
+        let content = toolhive_mcp_request(
+            config,
+            desired,
+            "tools/call",
+            serde_json::json!({
+                "name": tool_name,
+                "arguments": arguments.0,
+            }),
+        )
+        .await
+        .map_err(|_| {
+            tool_error(
+                ToolExecutionErrorCode::BackendFailed,
+                "External MCP call failed",
+                true,
             )
-            .await
-            .map_err(|_| {
-                tool_error(
-                    ToolExecutionErrorCode::BackendFailed,
-                    "External MCP call failed",
-                    true,
-                )
-            })?;
+        })?;
         let bytes = serde_json::to_vec(&content).map_err(|_| {
             tool_error(
                 ToolExecutionErrorCode::BackendFailed,
@@ -996,91 +959,6 @@ async fn call_external_tool(
             "External MCP call was cancelled",
             false,
         )),
-    }
-}
-
-struct McpProxyClient {
-    client: reqwest::Client,
-    endpoint: reqwest::Url,
-    session_id: Option<String>,
-    next_id: u64,
-}
-
-impl McpProxyClient {
-    async fn connect(proxy_port: u16) -> anyhow::Result<Self> {
-        let endpoint = format!("http://127.0.0.1:{proxy_port}/mcp").parse()?;
-        let mut client = Self {
-            client: reqwest::Client::new(),
-            endpoint,
-            session_id: None,
-            next_id: 1,
-        };
-        let _ = client
-            .request(
-                "initialize",
-                serde_json::json!({
-                    "protocolVersion": uprava_protocol::TOOLING_MCP_REVISION,
-                    "capabilities": {},
-                    "clientInfo": {"name": "uprava-node", "version": env!("CARGO_PKG_VERSION")},
-                }),
-            )
-            .await?;
-        client
-            .notify("notifications/initialized", serde_json::json!({}))
-            .await?;
-        Ok(client)
-    }
-
-    async fn request(
-        &mut self,
-        method: &str,
-        params: serde_json::Value,
-    ) -> anyhow::Result<serde_json::Value> {
-        let id = self.next_id;
-        self.next_id += 1;
-        let body =
-            serde_json::json!({"jsonrpc": "2.0", "id": id, "method": method, "params": params});
-        let mut request = self.client.post(self.endpoint.clone()).json(&body);
-        if let Some(session_id) = &self.session_id {
-            request = request.header("mcp-session-id", session_id);
-        }
-        let response = request.send().await?.error_for_status()?;
-        if let Some(session_id) = response
-            .headers()
-            .get("mcp-session-id")
-            .and_then(|value| value.to_str().ok())
-        {
-            self.session_id = Some(session_id.to_owned());
-        }
-        if response
-            .content_length()
-            .is_some_and(|size| size > TOOL_RESULT_MAX_BYTES)
-        {
-            anyhow::bail!("MCP response exceeded the transport limit");
-        }
-        let bytes = response.bytes().await?;
-        anyhow::ensure!(
-            bytes.len() as u64 <= TOOL_RESULT_MAX_BYTES,
-            "MCP response exceeded the transport limit"
-        );
-        let envelope: serde_json::Value = serde_json::from_slice(&bytes)?;
-        if envelope.get("error").is_some() {
-            anyhow::bail!("MCP upstream returned an error");
-        }
-        envelope
-            .get("result")
-            .cloned()
-            .context("MCP response did not contain a result")
-    }
-
-    async fn notify(&self, method: &str, params: serde_json::Value) -> anyhow::Result<()> {
-        let body = serde_json::json!({"jsonrpc": "2.0", "method": method, "params": params});
-        let mut request = self.client.post(self.endpoint.clone()).json(&body);
-        if let Some(session_id) = &self.session_id {
-            request = request.header("mcp-session-id", session_id);
-        }
-        request.send().await?.error_for_status()?;
-        Ok(())
     }
 }
 
@@ -1237,11 +1115,9 @@ mod tests {
     use super::*;
 
     #[test]
-    fn dependency_port_is_stable_and_bounded() {
+    fn dependency_port_is_fixed_to_the_compose_bridge() {
         let id = McpDependencyInstanceId::from("dependency-linear");
-        let first = dependency_proxy_port(&id);
-        assert_eq!(first, dependency_proxy_port(&id));
-        assert!((19_000..20_000).contains(&first));
+        assert_eq!(dependency_proxy_port(&id), LINEAR_PROXY_PORT);
     }
 
     #[test]
@@ -1254,10 +1130,24 @@ mod tests {
     }
 
     #[test]
-    fn workload_detection_handles_toolhive_json_shapes() {
-        let value = serde_json::json!([{"name": "uprava-linear", "status": "running"}]);
-        assert!(json_contains_workload(&value, "uprava-linear"));
-        assert!(!json_contains_workload(&value, "other"));
+    fn workload_request_uses_the_private_bridge_contract() {
+        let desired = ToolDependencyDesired::try_new(
+            McpDependencyInstanceId::from("dependency-linear"),
+            IntegrationId::from("integration-linear"),
+            IntegrationDesiredState::Enabled,
+            Some("toolhive:managed-linear".to_owned()),
+            LINEAR_MCP_URL,
+            "uprava-linear",
+            "linear",
+        )
+        .expect("desired state");
+        let request = toolhive_workload_request(&desired);
+        assert_eq!(request.proxy_port, LINEAR_PROXY_PORT);
+        assert_eq!(request.callback_port, LINEAR_CALLBACK_PORT);
+        assert_eq!(
+            request.contract_version,
+            TOOLHIVE_BRIDGE_CONTRACT_VERSION_V1
+        );
     }
 
     #[test]
@@ -1284,8 +1174,8 @@ mod tests {
             codex_binary: "missing-codex".to_owned(),
             codex_ignore_user_config: false,
             codex_timeout: Duration::from_secs(5),
-            toolhive_binary: "definitely-missing-toolhive".to_owned(),
-            toolhive_start_timeout: Duration::from_secs(1),
+            toolhive_url: "http://127.0.0.1:9".parse().expect("ToolHive fixture URL"),
+            toolhive_timeout: Duration::from_secs(1),
         };
         let mut state = NodeLocalState {
             node_id: Some(NodeId::from("node-tooling-test")),

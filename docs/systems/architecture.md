@@ -268,18 +268,20 @@ Uprava MCP
 agent-facing Search -> Inspect -> Execute
 
 Node Tool Runtime
-local execution, capability inventory, workspace context
+host-local execution, capability inventory, workspace context, reconciliation
 
 ToolHive MCP Runtime
-external MCP server lifecycle, discovery, proxying, health
+отдельный Compose service: external MCP lifecycle, OAuth, discovery, proxying
 
 External Tool Provider
 Linear, Notion, Atlassian/Jira, Grafana and other MCP-backed systems
 ```
 
 Core знает, что tool существует, кому и в каком scope он доступен, где его
-исполнять и как связать вызов с trace. Node Daemon, ToolHive или external
-provider выполняют действие там, где находятся data, credentials and runtime.
+исполнять и как связать вызов с trace. Bare-metal Node не содержит и не
+запускает `thv`: он управляет отдельным ToolHive service через закрытый
+loopback HTTP bridge. Codex также остаётся host dependency. ToolHive или
+external provider выполняют действие там, где находятся credentials and runtime.
 
 Реализованный management baseline показывает человеку integration
 desired/auth/actual state, effective availability, managed Inspect detail,
@@ -341,6 +343,12 @@ provider-neutral fallback.
 ToolHive является обязательным external MCP runtime provider первого среза и
 отвечает за server lifecycle, discovery, grouping/aggregation, proxying, health
 and runtime-level audit.
+
+В локальной топологии ToolHive — отдельный Compose service с pinned CLI
+`0.40.0`, собственным persistent XDG volume и доступом к container runtime.
+Внешне публикуются только loopback bridge `127.0.0.1:18081` и OAuth callback
+`127.0.0.1:18765`. MCP proxy остаётся внутри service. Core и Web к bridge не
+обращаются; единственный клиент — host Node через `UPRAVA_TOOLHIVE_URL`.
 
 ToolHive не заменяет Core. Uprava продолжает владеть:
 

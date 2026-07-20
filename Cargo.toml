@@ -4,6 +4,7 @@ members = [
   "crates/uprava-node",
   "crates/uprava-protocol",
   "crates/uprava-server",
+  "crates/uprava-toolhive",
 ]
 resolver = "2"
 

@@ -100,7 +100,7 @@ docs/systems/areas/011-background-jobs.md
 - Distributed Runtime Coordination должен быть общим dispatch/resource-awareness слоем для interactive sessions, future task runs and sandboxed runtimes.
 - Human UI и agent-readable UI должны развиваться вместе.
 - Local development and UI verification являются частью проектирования системы: Docker
-  Compose должен давать reproducible hardened Core/Web setup, while host Node
+  Compose должен давать reproducible hardened Core/Web/ToolHive setup, while host Node
   Daemon and Codex provider execution are covered by separate smoke paths.
   Playwright должен покрывать automated E2E checks и agent/operator inspection
   через `playwright-cli`.
@@ -165,7 +165,8 @@ or tests/evals. На текущем этапе важно создать док�
 
 - Должен ли dynamic UI быть частью modular UI system или отдельным artifact/runtime слоем?
 - Нужно ли начинать с набора фиксированных block types или сразу проектировать plugin-rendered blocks?
-- Как реализовать split между Core-owned MCP policy/discovery и Node-local ToolHive bridge, сохранив единый agent-facing endpoint?
+- Как развивать split между Core-owned MCP policy/discovery, host Node и
+  отдельным Compose ToolHive bridge, сохраняя единый agent-facing endpoint?
 - Где граница между plugin, integration, tool, block and artifact?
 - Как изучить Notion-like modularity practically: как data model, как UI composition, как plugin model или как interaction pattern?
 - Где visual representation должен быть inline/viewer enhancement, где отдельным block, где artifact, а где external preview/embed?

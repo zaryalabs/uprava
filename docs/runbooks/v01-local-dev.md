@@ -10,7 +10,7 @@ provider adapter.
 
 - Rust `1.88` or newer with `cargo`, `rustfmt` and `clippy`.
 - Node.js and npm for `apps/web`.
-- Docker Compose for the Core/Web dev profile.
+- Docker Compose for the Core/Web/ToolHive dev profile.
 - `curl`, `grep` and `node` for `make dev-smoke`.
 
 `make init` installs the Rust quality tools used by `make c` when they are
@@ -124,7 +124,7 @@ make dev-logs
 make dev-down
 ```
 
-Use `make dev-up` when you want Core/Web attached in the foreground for
+Use `make dev-up` when you want Core/Web/ToolHive attached in the foreground for
 interactive debugging. `make dev-smoke` starts or rebuilds the dev profile in
 detached mode before running checks. Set `SMOKE_SKIP_COMPOSE_UP=1` to probe an
 already running non-default profile.
@@ -135,10 +135,17 @@ Reset local Compose state intentionally:
 make dev-reset
 ```
 
-The `compose.dev.yaml` profile starts only Core and Web. Host ports are bound
-to `127.0.0.1`, Core state is kept in a resettable Docker volume, and Core uses
-the hardened `controlled_dev` profile. Run `make node-r` for a real local Node
-Daemon that can access host workspaces, provider binaries and credentials.
+The `compose.dev.yaml` profile starts Core, Web and a separate ToolHive bridge.
+Host ports are bound to `127.0.0.1`; Core and ToolHive state use resettable
+Docker volumes. Run `make node-r` for a real local Node Daemon that can access
+host workspaces, Codex and user credentials. Neither Node nor Codex runs in a
+container in this profile.
+
+ToolHive publishes its private Node bridge at `127.0.0.1:18081` and the Linear
+OAuth callback at `127.0.0.1:18765`. Its MCP proxy stays inside the service.
+The service mounts `/var/run/docker.sock`, because ToolHive `0.40.0` initializes
+its workload manager even for remote MCP. This socket is intentionally confined
+to the ToolHive service and is never mounted into Node, Core or Web.
 
 Core rejects browser CORS origins outside `UPRAVA_ALLOWED_ORIGINS`; the default
 allows the local Vite Web UI on `127.0.0.1` and `localhost`. For a controlled
@@ -152,10 +159,11 @@ checks:
 
 - Core health at `http://127.0.0.1:8080/api/v1/health`;
 - Web entrypoint at `http://127.0.0.1:5173`;
+- ToolHive bridge version at `http://127.0.0.1:18081/api/v1/version`;
 - local web auth setup/login and CSRF-protected client requests;
 - authenticated Core inventory access.
 
-Override `CORE_URL`, `WEB_URL`, `SMOKE_WEB_PASSWORD`, `SMOKE_RETRIES` or
+Override `CORE_URL`, `WEB_URL`, `TOOLHIVE_URL`, `SMOKE_WEB_PASSWORD`, `SMOKE_RETRIES` or
 `SMOKE_DELAY_SECONDS`, чтобы запускать тот же smoke check against a non-default
 local profile. Set `SMOKE_SKIP_COMPOSE_UP=1` when those endpoints are already
 running and should not be started by the Make target.
@@ -192,30 +200,29 @@ rejects future heartbeats from that node. Rotating a node credential returns a
 new credential once; update the Node state before restarting that daemon or the
 old credential will be rejected.
 
-## Node ToolHive runtime
+## Node и ToolHive runtime
 
-Node probes ToolHive and observed native CLI capabilities on heartbeat. The
-default ToolHive executable is `thv`; override it only with an explicitly
-installed pinned binary:
+Node probes the separate ToolHive bridge and observed native CLI capabilities
+on heartbeat. Default bridge URL:
 
 ```sh
-export UPRAVA_TOOLHIVE_BINARY=/absolute/path/to/thv
-export UPRAVA_TOOLHIVE_START_TIMEOUT_SECONDS=300
+export UPRAVA_TOOLHIVE_URL=http://127.0.0.1:18081
+export UPRAVA_TOOLHIVE_TIMEOUT_SECONDS=300
+make node-r
 ```
 
-The 0.2.11 compatibility baseline is ToolHive `0.40.0`. Missing ToolHive is a
-supported diagnostic state: external definitions remain in Core, availability
-becomes false with `toolhive_missing`, and Node does not call Linear directly.
-Node accepts only the pinned `https://mcp.linear.app/mcp` upstream in this
-slice. Desired dependency state is kept in the private Node state slot and is
-reconciled after control-channel reconnect. ToolHive process output, discovered
-metadata/schemas and MCP results are bounded before they cross the Node/Core
-boundary.
+`thv` на host устанавливать не нужно: pinned ToolHive `0.40.0` находится только
+в `Dockerfile.toolhive`. Недоступный bridge остаётся поддержанным diagnostic
+state: definitions сохраняются в Core, availability становится false с
+`toolhive_missing`, direct Linear fallback отсутствует. Private bridge принимает
+только `https://mcp.linear.app/mcp`, workload `uprava-linear`, fixed callback /
+proxy ports и `tools/list`/`tools/call`. Desired state живёт в private Node state
+и повторно reconciles после control-channel reconnect.
 
-Real Linear connect/reconnect remains disabled until the OAuth acceptance gate
-in `docs/tmp-plans/0.2.11-toolhive-linear-spike.md` can be completed in an
-allowed workspace. Disconnect is safe and immediate on the Core side, then
-requests best-effort local ToolHive cleanup.
+OAuth URL возвращается bridge через Node и Core только текущему Web request;
+bridge валидирует HTTPS Linear host и не пишет URL в logs. Disconnect сначала
+закрывает Core availability, затем Node просит ToolHive остановить и удалить
+workload. Полная ручная приёмка описана в отдельном tooling runbook.
 
 ## Control Channel
 
@@ -473,9 +480,10 @@ make web-e2e
 make codex-smoke
 ```
 
-`make dev-smoke` covers the deterministic Core/Web infrastructure path through
+`make dev-smoke` covers the deterministic Core/Web/ToolHive infrastructure path through
 Compose: hardened local auth setup/login and authenticated Core inventory
-access. It does not start a Node Daemon or a provider session.
+access plus pinned ToolHive version. It does not start a Node Daemon, perform
+Linear OAuth or start a provider session.
 
 `make web-e2e` starts the Vite web server when `PLAYWRIGHT_BASE_URL` is not set.
 Set `PLAYWRIGHT_BASE_URL` to run the same checks against an already running

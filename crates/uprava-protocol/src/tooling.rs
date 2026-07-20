@@ -21,6 +21,52 @@ pub const TOOL_SEARCH_MAX_LIMIT: u16 = 25;
 pub const TOOL_RESULT_MAX_BYTES: u64 = 1_048_576;
 /// Audience required on session-scoped Uprava MCP access leases.
 pub const UPRAVA_MCP_LEASE_AUDIENCE: &str = "uprava:mcp";
+/// Version of the private host Node to Compose ToolHive bridge contract.
+pub const TOOLHIVE_BRIDGE_CONTRACT_VERSION_V1: u16 = 1;
+
+/// Bounded request for one ToolHive-managed Linear workload operation.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ToolhiveBridgeWorkloadRequest {
+    pub contract_version: u16,
+    pub upstream_url: String,
+    pub workload_name: String,
+    pub proxy_port: u16,
+    pub callback_port: u16,
+}
+
+/// Result of starting an interactive ToolHive authorization flow.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ToolhiveBridgeAuthorizationResponse {
+    pub authorization_url: String,
+    pub expires_at: DateTime<Utc>,
+}
+
+/// Safe ToolHive runtime identity returned to the host Node.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ToolhiveBridgeVersionResponse {
+    pub version: String,
+}
+
+/// Safe workload presence projection returned by the ToolHive bridge.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ToolhiveBridgeWorkloadStatusResponse {
+    pub running: bool,
+}
+
+/// One bounded MCP operation executed through the private ToolHive bridge.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ToolhiveBridgeMcpRequest {
+    pub contract_version: u16,
+    pub proxy_port: u16,
+    pub method: String,
+    pub params: JsonValue,
+}
+
+/// Raw MCP result returned after the bridge completes a local session.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ToolhiveBridgeMcpResponse {
+    pub result: JsonValue,
+}
 
 /// Node request for ephemeral provider access to the Uprava MCP endpoint.
 ///

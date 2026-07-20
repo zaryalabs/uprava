@@ -371,43 +371,45 @@ node-r: ## Run Node Daemon locally when Cargo workspace exists
 		echo "No Cargo.toml found; skipping Node run"; \
 	fi
 
-dev-up: ## Start local Core/Web development profile
+dev-up: ## Start local Core/Web/ToolHive development profile
 	@set -e; \
 	if [ -f "$(DEV_COMPOSE_FILE)" ]; then \
 		COMPOSE_PARALLEL_LIMIT=$(COMPOSE_PARALLEL_LIMIT) $(DEV_COMPOSE_CMD) build core; \
 		COMPOSE_PARALLEL_LIMIT=$(COMPOSE_PARALLEL_LIMIT) $(DEV_COMPOSE_CMD) build web; \
+		COMPOSE_PARALLEL_LIMIT=$(COMPOSE_PARALLEL_LIMIT) $(DEV_COMPOSE_CMD) build toolhive; \
 		COMPOSE_PARALLEL_LIMIT=$(COMPOSE_PARALLEL_LIMIT) $(DEV_COMPOSE_CMD) up --no-build; \
 	else \
 		echo "No $(DEV_COMPOSE_FILE) found; skipping dev up"; \
 	fi
 
-dev-down: ## Stop local Core/Web development profile
+dev-down: ## Stop local Core/Web/ToolHive development profile
 	@if [ -f "$(DEV_COMPOSE_FILE)" ]; then \
 		$(DEV_COMPOSE_CMD) down; \
 	else \
 		echo "No $(DEV_COMPOSE_FILE) found; skipping dev down"; \
 	fi
 
-dev-logs: ## Show local Core/Web development logs
+dev-logs: ## Show local Core/Web/ToolHive development logs
 	@if [ -f "$(DEV_COMPOSE_FILE)" ]; then \
 		$(DEV_COMPOSE_CMD) logs -f; \
 	else \
 		echo "No $(DEV_COMPOSE_FILE) found; skipping dev logs"; \
 	fi
 
-dev-reset: ## Remove local Core/Web development state volume intentionally
+dev-reset: ## Remove local Core/Web/ToolHive development state intentionally
 	@if [ -f "$(DEV_COMPOSE_FILE)" ]; then \
 		$(DEV_COMPOSE_CMD) down -v; \
 	else \
 		echo "No $(DEV_COMPOSE_FILE) found; skipping dev reset"; \
 	fi
 
-dev-smoke: ## Smoke-check local Core/Web development profile
+dev-smoke: ## Smoke-check local Core/Web/ToolHive development profile
 	@set -e; \
 	if [ "$${SMOKE_SKIP_COMPOSE_UP:-0}" != "1" ]; then \
 		if [ -f "$(DEV_COMPOSE_FILE)" ]; then \
 			COMPOSE_PARALLEL_LIMIT=$(COMPOSE_PARALLEL_LIMIT) $(DEV_COMPOSE_CMD) build core; \
 			COMPOSE_PARALLEL_LIMIT=$(COMPOSE_PARALLEL_LIMIT) $(DEV_COMPOSE_CMD) build web; \
+			COMPOSE_PARALLEL_LIMIT=$(COMPOSE_PARALLEL_LIMIT) $(DEV_COMPOSE_CMD) build toolhive; \
 			COMPOSE_PARALLEL_LIMIT=$(COMPOSE_PARALLEL_LIMIT) $(DEV_COMPOSE_CMD) up -d --no-build; \
 		else \
 			echo "No $(DEV_COMPOSE_FILE) found; skipping dev startup"; \

@@ -1,6 +1,31 @@
 name: uprava-dev
 
 services:
+  toolhive:
+    build:
+      context: .
+      dockerfile: Dockerfile.toolhive
+    environment:
+      RUST_LOG: info,uprava_toolhive=debug
+    ports:
+      - "127.0.0.1:18081:18081"
+      - "127.0.0.1:18765:18765"
+    volumes:
+      - uprava-dev-toolhive-data:/var/lib/toolhive
+      - /var/run/docker.sock:/var/run/docker.sock
+    read_only: true
+    tmpfs:
+      - /tmp:size=64m,mode=1777
+    security_opt:
+      - no-new-privileges:true
+    networks:
+      - toolhive-private
+    healthcheck:
+      test: ["CMD", "uprava-toolhive", "healthcheck"]
+      interval: 5s
+      timeout: 4s
+      retries: 20
+
   core:
     build:
       context: .
@@ -26,10 +51,14 @@ services:
       context: apps/web
       dockerfile: Dockerfile
     ports:
-      - "127.0.0.1:5173:5173"
+      - "127.0.0.1:5173:8080"
     depends_on:
       core:
         condition: service_healthy
 
 volumes:
   uprava-dev-core-data:
+  uprava-dev-toolhive-data:
+
+networks:
+  toolhive-private:

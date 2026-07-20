@@ -37,7 +37,7 @@ dependency, complexity, risk and value. Позиции могут двигать
 
 ## Обзор очереди
 
-Current release baseline: `0.2.13`. Закрытые пункты `0` through `12`, unified
+Current release baseline: `0.2.14`. Закрытые пункты `0` through `12`, unified
 audit hardening release и `5a` workspace renderer release соответствуют shipped
 versions, зафиксированным в [`releases.md`](../releases.md). Пункт `6` включает
 workbench alignment, первый стабильный self-hosted deployment path и
@@ -45,7 +45,8 @@ workspace-centered UI follow-up `0.2.6` и Causality/Trace/Deduction slice
 `0.2.7`. Runtime boundary refactor зафиксирован implementation baseline
 `0.2.9`. Git and review basics зафиксирован implementation baseline `0.2.10`,
 Agent Tooling and Tool Registry v1 — `0.2.11`, Plugin Registry v1 — `0.2.12`,
-CI/SQLite reliability fix slice — `0.2.13`.
+CI/SQLite reliability fix slice — `0.2.13`, отдельная ToolHive Compose topology
+для ручного Linear acceptance — `0.2.14`.
 Следующий плановый пункт очереди — `13 Visual artifact system as plugins`.
 
 | Order | Done | Mechanism / Feature Slice | First Useful Slice | Dependency | Complexity |
@@ -411,10 +412,10 @@ capabilities, а агент вызывает native CLI напрямую.
 **Current implementation note:** `0.2.11` добавляет Core-owned scoped registry,
 permission-first `Search -> Inspect -> Execute`, Streamable HTTP Uprava MCP с
 краткоживущими session leases, Node inventory и desired/actual reconciliation,
-pinned ToolHive bridge к официальному Linear MCP, Web connect/reconnect/
+pinned отдельный Compose ToolHive bridge к официальному Linear MCP, Web connect/reconnect/
 disconnect и redacted tool-call trace. Linear authorization URL существует
 только в эфемерном ответе текущему Web-клиенту; OAuth callback, discovery и
-read-only execution подтверждены opt-in E2E.
+read-only execution готовы к ручной opt-in приёмке, но ещё не подтверждены.
 
 **Target direction:** Более богатый MCP catalog, dynamic server selection,
 programmatic tool calling/code mode, дополнительные runtime providers,
