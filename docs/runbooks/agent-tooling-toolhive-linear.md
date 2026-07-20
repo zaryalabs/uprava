@@ -46,6 +46,29 @@ make dev-reset
 
 Не выполняйте reset, если хотите проверить переживание обычного restart.
 
+### Production на Zarya Server
+
+Production Compose запускается автоматически из release manifest с profile
+`toolhive`; вручную поднимать service не нужно. Host Node использует
+`http://127.0.0.1:18081`, а OAuth callback доступен на server loopback. Перед
+нажатием **Connect** на рабочей станции откройте отдельный терминал:
+
+```sh
+ssh -N -L 18765:127.0.0.1:18765 zsa
+```
+
+Оставьте tunnel работающим до завершения redirect на
+`http://localhost:18765/callback`. Проверить production readiness без чтения
+credential storage можно на сервере через installed operations contract:
+
+```sh
+ssh zsa 'cd /opt/apps/uprava && sudo make status'
+ssh zsa 'cd /opt/apps/uprava && sudo make logs'
+```
+
+Не выводите `/etc/uprava/toolhive.env`, container environment или содержимое
+`state/toolhive` в терминал, CI logs и acceptance evidence.
+
 ## 2. Поднять инфраструктуру
 
 ```sh

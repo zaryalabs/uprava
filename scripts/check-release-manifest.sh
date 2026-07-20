@@ -41,25 +41,32 @@ BUILD_TIMESTAMP=2026-07-12T00:00:00Z \
 UPRAVA_CORE_IMAGE=ghcr.io/zaryalabs/uprava-core:sha-test \
 UPRAVA_WEB_IMAGE=ghcr.io/zaryalabs/uprava-web:sha-test \
 UPRAVA_NODE_IMAGE=ghcr.io/zaryalabs/uprava-node:sha-test \
+UPRAVA_TOOLHIVE_IMAGE=ghcr.io/zaryalabs/uprava-toolhive:sha-test \
+UPRAVA_TOOLHIVE_VERSION=0.40.0 \
 UPRAVA_NODE_VERSION=0.2.2 \
 UPRAVA_RELEASE_FAMILY=0.2.0 \
 UPRAVA_CORE_STATE_DIR=state/core \
+UPRAVA_TOOLHIVE_STATE_DIR=state/toolhive \
 UPRAVA_CORE_CONFIG=/etc/uprava/core.env \
 UPRAVA_NODE_CONFIG=/etc/uprava/node.env \
+UPRAVA_TOOLHIVE_CONFIG=/etc/uprava/toolhive.env \
 UPRAVA_NODE_STATE_PATH=/var/lib/uprava-node/node.sqlite \
 UPRAVA_AUTO_APPROVE_NODE_NAME='Zarya Server' \
+UPRAVA_TOOLHIVE_PROFILE=toolhive \
 NODE_ARTIFACT_PATH="$tmp/builds/releases/test/uprava-node" \
     scripts/write_release_manifest.sh >/dev/null
 
 # shellcheck disable=SC1090
 . "$tmp/builds/releases/test.env.release"
 test "$UPRAVA_AUTO_APPROVE_NODE_NAME" = 'Zarya Server'
-case "$UPRAVA_CORE_IMAGE:$UPRAVA_WEB_IMAGE:$UPRAVA_NODE_ARTIFACT" in
-    *@sha256:*@sha256:*@sha256:*) ;;
+case "$UPRAVA_CORE_IMAGE:$UPRAVA_WEB_IMAGE:$UPRAVA_NODE_ARTIFACT:$UPRAVA_TOOLHIVE_IMAGE" in
+    *@sha256:*@sha256:*@sha256:*@sha256:*) ;;
     *) echo "Release images are not digest-pinned" >&2; exit 1 ;;
 esac
 test -n "$UPRAVA_NODE_SHA256"
 
 test "$UPRAVA_CORE_CONFIG" = /etc/uprava/core.env
+test "$UPRAVA_TOOLHIVE_STATE_DIR" = state/toolhive
+test "$UPRAVA_TOOLHIVE_PROFILE:$UPRAVA_TOOLHIVE_VERSION" = toolhive:0.40.0
 grep -Fq 'UPRAVA_NODE_VERSION ?= $(UPRAVA_NODE_PACKAGE_VERSION)+$(GIT_SHA)' "$repo/Makefile"
 echo "Release manifest is shell-safe, state-neutral and digest-pins every runtime artifact"

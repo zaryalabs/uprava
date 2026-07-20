@@ -2,6 +2,8 @@
 set -eu
 
 repo=$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd)
+
+grep -q 'UPRAVA_TOOLHIVE_IMAGE:-uprava-toolhive:inactive' "$repo/ops/compose.yaml"
 tmp=$(mktemp -d)
 trap 'rm -rf "$tmp"' EXIT INT TERM
 install="$tmp/install"
@@ -13,6 +15,7 @@ cp "$repo/ops/compose.yaml" "$install/compose.yaml"
 write_manifest() {
     release=$1
     sha=$2
+    profile=$3
     cat >"$releases/$release.env.release" <<EOF
 UPRAVA_RELEASE_ID=$release
 UPRAVA_RELEASE_SHA=$sha
@@ -24,16 +27,27 @@ UPRAVA_NODE_STATE_PATH=/var/lib/uprava-node/node.sqlite
 UPRAVA_AUTO_APPROVE_NODE_NAME='Zarya Server'
 UPRAVA_NODE_VERSION=0.2.7+$sha
 EOF
+    if [ "$profile" = toolhive ]; then
+        cat >>"$releases/$release.env.release" <<EOF
+UPRAVA_TOOLHIVE_PROFILE=toolhive
+UPRAVA_TOOLHIVE_STATE_DIR=state/toolhive
+UPRAVA_TOOLHIVE_VERSION=0.40.0
+UPRAVA_TOOLHIVE_CONFIG=/etc/uprava/toolhive.env
+EOF
+    fi
     printf '#!/bin/sh\nexit 0\n' >"$releases/$release/uprava-node"
     chmod 755 "$releases/$release/uprava-node"
 }
 
-write_manifest old aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
-write_manifest new bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb
+write_manifest old aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa legacy
+write_manifest new bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb toolhive
 
 cat >"$tmp/bin/docker" <<'SH'
 #!/bin/sh
 case " $* " in
+    *' exec -T toolhive thv version '*)
+        test "${MOCK_HEALTH:-fail}" = pass && printf '%s\n' 'ToolHive 0.40.0'
+        ;;
     *' exec -T '*) test "${MOCK_HEALTH:-fail}" = pass ;;
     *) exit 0 ;;
 esac

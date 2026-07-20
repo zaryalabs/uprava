@@ -2,7 +2,7 @@
 
 Статус: `active`
 
-Current release baseline: `0.2.14`.
+Current release baseline: `0.2.15`.
 
 Этот ledger фиксирует implementation baselines. Он не заменяет
 [`feature-queue.md`](product/feature-queue.md), где остается ранжированная очередь
@@ -35,16 +35,24 @@ future work.
 | `0.2.11` | 2026-07-19 | shipped | Agent Tooling and Tool Registry v1: progressive Uprava MCP, scoped registry, ToolHive-backed Linear integration и traceable execution |
 | `0.2.12` | 2026-07-19 | shipped | Plugin Registry v1: Core-owned lifecycle, manifest-driven Web Extension Host и bundled data-only Dark Theme |
 | `0.2.13` | 2026-07-20 | shipped | CI visual baseline и SQLite migration reliability: синхронизированные Linux golden snapshots, per-connection busy timeout и изолированный concurrent migration test |
-| `0.2.14` | 2026-07-20 | current | ToolHive Compose topology: отдельный pinned runtime, bounded host Node bridge, persistent OAuth state, smoke и ручной Linear acceptance runbook |
+| `0.2.14` | 2026-07-20 | shipped | ToolHive Compose topology: отдельный pinned runtime, bounded host Node bridge, persistent OAuth state, smoke и ручной Linear acceptance runbook |
+| `0.2.15` | 2026-07-20 | current | Production ToolHive delivery: source-pinned headless encrypted runtime, immutable manifest, readiness, retention и legacy-compatible rollback |
 
 ## Current Baseline
 
-`0.2.14` включает baseline `0.2.13`, protocol-v2 baseline `0.2.0`, завершённое Zarya 0.1 Web UI/UX
+`0.2.15` включает baseline `0.2.14`, protocol-v2 baseline `0.2.0`, завершённое Zarya 0.1 Web UI/UX
 alignment и clean-bootstrap four-phase delivery path. Текущая реализация включает
 первый working distributed
-control panel, четырнадцать implementation slices после `0.1.0`, unified audit
+control panel, пятнадцать implementation slices после `0.1.0`, unified audit
 hardening slice и workspace
 renderer/PTY terminal layer, а также первый deployable self-hosted release path:
+
+- production release теперь публикует четвёртый digest-pinned ToolHive image,
+  активирует его отдельным Compose profile и проверяет health плюс точную
+  ToolHive version до завершения release;
+- root-owned host config и persistent `state/toolhive` дают headless encrypted
+  credential store; loopback bridge/OAuth ports, Docker socket GID и
+  legacy-compatible rollback зафиксированы в проверяемом ops contract;
 
 - Linux visual regression baselines синхронизированы с pinned Playwright CI
   environment; SQLite busy timeout применяется к каждой Core connection, а

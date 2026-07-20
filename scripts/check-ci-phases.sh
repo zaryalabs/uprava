@@ -22,6 +22,9 @@ UPRAVA_RELEASE_ID=test
 UPRAVA_RELEASE_SHA=aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
 UPRAVA_NODE_VERSION=0.2.3
 UPRAVA_AUTO_APPROVE_NODE_NAME='Zarya Server'
+UPRAVA_TOOLHIVE_PROFILE=toolhive
+UPRAVA_TOOLHIVE_VERSION=0.40.0
+UPRAVA_TOOLHIVE_CONFIG=/etc/uprava/toolhive.env
 EOF
         ;;
 esac
@@ -37,6 +40,9 @@ SH
 cat >"$tmp/bin/docker" <<'SH'
 #!/bin/sh
 printf 'docker %s\n' "$*" >>"$CALLS"
+case " $* " in
+    *' exec -T toolhive thv version '*) printf '%s\n' 'ToolHive 0.40.0' ;;
+esac
 exit 0
 SH
 cat >"$tmp/bin/sudo" <<'SH'
@@ -74,6 +80,9 @@ UPRAVA_RELEASE_ID=test
 UPRAVA_RELEASE_SHA=aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
 UPRAVA_NODE_VERSION=0.2.3
 UPRAVA_AUTO_APPROVE_NODE_NAME='Zarya Server'
+UPRAVA_TOOLHIVE_PROFILE=toolhive
+UPRAVA_TOOLHIVE_VERSION=0.40.0
+UPRAVA_TOOLHIVE_CONFIG=/etc/uprava/toolhive.env
 EOF
 CALLS="$calls" PATH="$tmp/bin:$PATH" MAKE="$tmp/bin/make" SUDO="$tmp/bin/sudo" \
     UPRAVA_ROOT_PHASE=1 INSTALL_DIR="$tmp/install" RELEASE_MANIFEST="$tmp/manifest.env" \
