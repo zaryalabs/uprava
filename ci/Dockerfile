@@ -21,6 +21,10 @@ RUN rm -rf /usr/local/cargo/registry /usr/local/cargo/git \
 
 FROM mcr.microsoft.com/playwright@sha256:57b65fdc9ceabe0ef613124c7bbe2babcf9362c4d85e382fe3b03604e84b428a
 
+RUN apt-get update \
+    && apt-get install --yes --no-install-recommends sqlite3 \
+    && rm -rf /var/lib/apt/lists/*
+
 COPY --from=rust-tools /usr/local/cargo /usr/local/cargo
 COPY --from=rust-tools /usr/local/rustup /usr/local/rustup
 COPY --from=rust-tools /usr/bin/make /usr/bin/make
@@ -38,7 +42,7 @@ ENV PATH=/usr/local/cargo/bin:${PATH} \
     PLAYWRIGHT_BROWSERS_PATH=/ms-playwright
 
 RUN node --version | grep -Eq '^v24\.' \
-    && command -v git make python3 bash cc \
+    && command -v git make python3 bash cc sqlite3 \
     && rustc +1.96.0 --version | grep -q '1.96.0' \
     && rustc +1.88.0 --version | grep -q '1.88.0'
 
