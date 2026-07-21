@@ -6,6 +6,26 @@ use uprava_protocol::{
 
 use super::*;
 
+fn assistant_renderer_resolution(
+    snapshot: &uprava_protocol::EffectivePluginSnapshot,
+) -> &uprava_protocol::ContributionTargetResolution {
+    snapshot
+        .resolutions
+        .iter()
+        .find(|resolution| {
+            matches!(
+                &resolution.target,
+                uprava_protocol::ContributionTarget::VisualRenderer {
+                    source_kind,
+                    surface,
+                    render_scope: uprava_protocol::VisualRenderScope::ContentEnhancement,
+                    selector: None,
+                } if source_kind == "chat.assistant_message" && surface == "session.timeline"
+            )
+        })
+        .expect("assistant renderer target resolves")
+}
+
 #[tokio::test]
 async fn bundled_plugins_should_bootstrap_idempotently() {
     let state = test_state().await;
@@ -15,12 +35,60 @@ async fn bundled_plugins_should_bootstrap_idempotently() {
         .expect("second bootstrap succeeds");
     let plugins = list_plugins(&state).await.expect("plugins load");
 
-    assert_eq!(plugins.items.len(), 3);
+    assert_eq!(plugins.items.len(), 7);
     let latest_migration: i64 = sqlx::query_scalar("select max(version) from schema_migrations")
         .fetch_one(&state.pool)
         .await
         .expect("migration version loads");
-    assert_eq!(latest_migration, 14);
+    assert_eq!(latest_migration, 15);
+}
+
+#[tokio::test]
+async fn visual_artifact_plugins_publish_resolved_types_and_renderers() {
+    let state = test_state().await;
+    let snapshot = effective_plugin_snapshot(&state)
+        .await
+        .expect("snapshot loads");
+
+    for artifact_type in [
+        "uprava.diagram",
+        "uprava.diff-report",
+        "uprava.check-report",
+        "uprava.trace-timeline",
+        "uprava.causality-narrative",
+    ] {
+        let resolution = snapshot
+            .resolutions
+            .iter()
+            .find(|resolution| {
+                matches!(
+                    &resolution.target,
+                    uprava_protocol::ContributionTarget::ArtifactType {
+                        artifact_type: candidate,
+                    } if candidate == artifact_type
+                )
+            })
+            .expect("artifact type resolves");
+        assert_eq!(resolution.extension_point, "artifact.type");
+        assert_eq!(resolution.contributions.len(), 1);
+        assert_eq!(
+            resolution.contributions[0].effective_state,
+            EffectiveContributionState::Available
+        );
+    }
+    assert!(snapshot.resolutions.iter().any(|resolution| {
+        matches!(
+            &resolution.target,
+            uprava_protocol::ContributionTarget::VisualRenderer {
+                source_kind,
+                surface,
+                render_scope: uprava_protocol::VisualRenderScope::InlineFragment,
+                selector: Some(selector),
+            } if source_kind == "markdown.code_fence"
+                && surface == "session.timeline"
+                && selector == "mermaid"
+        )
+    }));
 }
 
 #[tokio::test]
@@ -95,10 +163,7 @@ async fn exclusive_renderer_target_should_have_stable_visible_conflict() {
     let snapshot = effective_plugin_snapshot(&state)
         .await
         .expect("snapshot loads");
-    let resolution = snapshot
-        .resolutions
-        .first()
-        .expect("renderer target resolves");
+    let resolution = assistant_renderer_resolution(&snapshot);
 
     assert!(resolution.conflict);
     assert_eq!(
@@ -117,7 +182,7 @@ async fn contribution_preferences_should_reorder_and_disable_candidates() {
     let snapshot = effective_plugin_snapshot(&state)
         .await
         .expect("snapshot loads");
-    let resolution = snapshot.resolutions.first().expect("target exists");
+    let resolution = assistant_renderer_resolution(&snapshot);
     let markdown = ContributionRef {
         plugin_id: PluginId::from("uprava.markdown"),
         contribution_id: "uprava.markdown.chat".to_owned(),
@@ -141,7 +206,7 @@ async fn contribution_preferences_should_reorder_and_disable_candidates() {
     let updated = effective_plugin_snapshot(&state)
         .await
         .expect("updated snapshot loads");
-    let updated = updated.resolutions.first().expect("target remains");
+    let updated = assistant_renderer_resolution(&updated);
 
     assert_eq!(updated.revision, 1);
     assert_eq!(
@@ -161,7 +226,7 @@ async fn contribution_preferences_should_reject_stale_revision() {
     let snapshot = effective_plugin_snapshot(&state)
         .await
         .expect("snapshot loads");
-    let target_id = snapshot.resolutions[0].target_id.clone();
+    let target_id = assistant_renderer_resolution(&snapshot).target_id.clone();
     let request = UpdateContributionTargetPreferencesRequest {
         expected_revision: 0,
         ordered_contributions: Vec::new(),
@@ -189,7 +254,9 @@ async fn plugin_enable_and_disable_should_change_effective_snapshot() {
     let enabled = effective_plugin_snapshot(&state)
         .await
         .expect("snapshot loads");
-    assert_eq!(enabled.contributions.len(), 3);
+    assert!(enabled.contributions.iter().any(|contribution| {
+        contribution.plugin_id == plugin_id && contribution.extension_point == "ui.theme"
+    }));
 
     set_plugin_desired_state(&state, &plugin_id, PluginDesiredState::Disabled)
         .await
@@ -197,7 +264,10 @@ async fn plugin_enable_and_disable_should_change_effective_snapshot() {
     let disabled = effective_plugin_snapshot(&state)
         .await
         .expect("snapshot loads");
-    assert_eq!(disabled.contributions.len(), 2);
+    assert!(!disabled
+        .contributions
+        .iter()
+        .any(|contribution| contribution.plugin_id == plugin_id));
 }
 
 #[tokio::test]

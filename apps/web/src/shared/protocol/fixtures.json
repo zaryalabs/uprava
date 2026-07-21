@@ -1,4 +1,48 @@
 {
+  "artifact_detail": {
+    "artifact": {
+      "artifact_id": "artifact-fixture",
+      "artifact_type": "uprava.diagram",
+      "created_at": "2026-07-10T12:00:00Z",
+      "created_by": {
+        "kind": "system"
+      },
+      "current_version": 1,
+      "owner_plugin_id": "uprava.diagrams",
+      "scope_ref": {
+        "kind": "placement",
+        "project_placement_id": "placement-fixture"
+      },
+      "state": "active",
+      "title": "Fixture diagram",
+      "updated_at": "2026-07-10T12:00:00Z"
+    },
+    "version": {
+      "artifact_id": "artifact-fixture",
+      "cause_refs": [],
+      "created_at": "2026-07-10T12:00:00Z",
+      "evidence_refs": [],
+      "fallback_text": "flowchart LR\nCore --> Node",
+      "payload": {
+        "language": "mermaid",
+        "source": "flowchart LR\nCore --> Node"
+      },
+      "provenance": {
+        "kind": "fixture"
+      },
+      "schema_version": 1,
+      "source_refs": [
+        {
+          "diff_id": "diff-fixture",
+          "kind": "workspace_diff",
+          "placement_id": "placement-fixture"
+        }
+      ],
+      "source_version": "fixture:v1",
+      "trace_refs": [],
+      "version": 1
+    }
+  },
   "command_accepted": {
     "command_id": "command-fixture",
     "session": null
@@ -100,6 +144,7 @@
               "accepted_source_kinds": [
                 "chat.assistant_message"
               ],
+              "actions": [],
               "allowed_surfaces": [
                 "session.timeline"
               ],
@@ -109,7 +154,9 @@
                 "content_enhancement"
               ],
               "renderer_id": "uprava.markdown.chat",
-              "renderer_kind": "content"
+              "renderer_kind": "content",
+              "source_matcher": null,
+              "visual_kinds": []
             },
             "contribution_id": "uprava.markdown.chat",
             "kind": "visual_renderer"
@@ -134,6 +181,7 @@
               "accepted_source_kinds": [
                 "chat.assistant_message"
               ],
+              "actions": [],
               "allowed_surfaces": [
                 "session.timeline"
               ],
@@ -143,7 +191,9 @@
                 "content_enhancement"
               ],
               "renderer_id": "uprava.plain-text.chat",
-              "renderer_kind": "content"
+              "renderer_kind": "content",
+              "source_matcher": null,
+              "visual_kinds": []
             },
             "contribution_id": "uprava.plain-text.chat",
             "kind": "visual_renderer"
@@ -174,6 +224,7 @@
                   "accepted_source_kinds": [
                     "chat.assistant_message"
                   ],
+                  "actions": [],
                   "allowed_surfaces": [
                     "session.timeline"
                   ],
@@ -183,7 +234,9 @@
                     "content_enhancement"
                   ],
                   "renderer_id": "uprava.markdown.chat",
-                  "renderer_kind": "content"
+                  "renderer_kind": "content",
+                  "source_matcher": null,
+                  "visual_kinds": []
                 },
                 "contribution_id": "uprava.markdown.chat",
                 "kind": "visual_renderer"
@@ -208,6 +261,7 @@
                   "accepted_source_kinds": [
                     "chat.assistant_message"
                   ],
+                  "actions": [],
                   "allowed_surfaces": [
                     "session.timeline"
                   ],
@@ -217,7 +271,9 @@
                     "content_enhancement"
                   ],
                   "renderer_id": "uprava.plain-text.chat",
-                  "renderer_kind": "content"
+                  "renderer_kind": "content",
+                  "source_matcher": null,
+                  "visual_kinds": []
                 },
                 "contribution_id": "uprava.plain-text.chat",
                 "kind": "visual_renderer"
@@ -343,6 +399,7 @@
                   "accepted_source_kinds": [
                     "chat.assistant_message"
                   ],
+                  "actions": [],
                   "allowed_surfaces": [
                     "session.timeline"
                   ],
@@ -352,7 +409,9 @@
                     "content_enhancement"
                   ],
                   "renderer_id": "uprava.markdown.chat",
-                  "renderer_kind": "content"
+                  "renderer_kind": "content",
+                  "source_matcher": null,
+                  "visual_kinds": []
                 },
                 "contribution_id": "uprava.markdown.chat",
                 "kind": "visual_renderer"
@@ -395,6 +454,7 @@
                   "accepted_source_kinds": [
                     "chat.assistant_message"
                   ],
+                  "actions": [],
                   "allowed_surfaces": [
                     "session.timeline"
                   ],
@@ -404,7 +464,9 @@
                     "content_enhancement"
                   ],
                   "renderer_id": "uprava.plain-text.chat",
-                  "renderer_kind": "content"
+                  "renderer_kind": "content",
+                  "source_matcher": null,
+                  "visual_kinds": []
                 },
                 "contribution_id": "uprava.plain-text.chat",
                 "kind": "visual_renderer"

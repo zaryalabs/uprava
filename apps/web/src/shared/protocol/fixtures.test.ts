@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 
 import fixtures from "./fixtures.json";
 import {
+  artifactDetailSchema,
   commandAcceptedResponseSchema,
   eventEnvelopeSchema,
   toolingContractFixtureSchema,
@@ -24,6 +25,7 @@ describe("Rust-generated protocol fixtures", () => {
     ["workspace_terminal_list", workspaceTerminalListResponseSchema],
     ["workspace_terminal_stream", workspaceTerminalStreamFrameSchema],
     ["event_envelope", eventEnvelopeSchema],
+    ["artifact_detail", artifactDetailSchema],
     ["tooling_contract", toolingContractFixtureSchema],
     ["plugin_contract", pluginContractFixtureSchema],
   ] as const)("validates %s", (name, schema) => {

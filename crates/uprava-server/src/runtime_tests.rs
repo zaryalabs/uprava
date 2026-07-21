@@ -548,6 +548,8 @@ fn node_event_fixture(
     }
 }
 
+#[path = "runtime/tests/artifacts.rs"]
+mod artifacts;
 #[path = "runtime/tests/control.rs"]
 mod control;
 #[path = "runtime/tests/event.rs"]

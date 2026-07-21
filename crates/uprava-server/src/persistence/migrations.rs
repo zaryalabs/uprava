@@ -923,6 +923,73 @@ pub(crate) const MIGRATION_14: &[&str] = &[r#"
     )
     "#];
 
+pub(crate) const MIGRATION_15: &[&str] = &[
+    r#"
+    create table if not exists artifacts (
+        artifact_id text primary key,
+        artifact_type text not null,
+        title text not null,
+        scope_ref_json text not null,
+        owner_plugin_id text not null,
+        current_version integer not null,
+        state text not null check (state in ('active', 'stale', 'archived')),
+        created_by_json text not null,
+        created_at text not null,
+        updated_at text not null
+    )
+    "#,
+    r#"
+    create table if not exists artifact_versions (
+        artifact_id text not null references artifacts(artifact_id) on delete cascade,
+        version integer not null,
+        schema_version integer not null,
+        payload_json text not null,
+        fallback_text text not null,
+        source_version text,
+        source_refs_json text not null,
+        evidence_refs_json text not null,
+        cause_refs_json text not null,
+        trace_refs_json text not null,
+        provenance_json text not null,
+        created_at text not null,
+        primary key (artifact_id, version)
+    )
+    "#,
+    r#"
+    create index if not exists artifacts_scope_updated_idx
+    on artifacts(scope_ref_json, updated_at desc, artifact_id)
+    "#,
+    r#"
+    create index if not exists artifacts_type_updated_idx
+    on artifacts(artifact_type, updated_at desc, artifact_id)
+    "#,
+    r#"
+    insert into artifacts (
+        artifact_id, artifact_type, title, scope_ref_json, owner_plugin_id,
+        current_version, state, created_by_json, created_at, updated_at
+    )
+    select artifact_id, 'uprava.causality-narrative', 'Causality narrative',
+           json_object('kind', 'session', 'session_thread_id', session_thread_id),
+           'uprava.trace-artifacts', current_version, 'active',
+           '{"kind":"system"}', created_at, updated_at
+    from causality_narratives
+    where true
+    on conflict(artifact_id) do nothing
+    "#,
+    r#"
+    insert into artifact_versions (
+        artifact_id, version, schema_version, payload_json, fallback_text,
+        source_version, source_refs_json, evidence_refs_json, cause_refs_json,
+        trace_refs_json, provenance_json, created_at
+    )
+    select artifact_id, version, 1, block_json, 'Causality narrative', null,
+           '[]', '[]', '[]', '[]', provenance_json, created_at
+    from causality_narrative_versions
+    where true
+    on conflict(artifact_id, version) do nothing
+    "#,
+];
+
 pub(crate) const MIGRATIONS: &[Migration] = &[
     Migration {
         version: 1,
@@ -992,6 +1059,11 @@ pub(crate) const MIGRATIONS: &[Migration] = &[
     Migration {
         version: 14,
         statements: MIGRATION_14,
+        ignore_duplicate_columns: false,
+    },
+    Migration {
+        version: 15,
+        statements: MIGRATION_15,
         ignore_duplicate_columns: false,
     },
 ];

@@ -217,6 +217,8 @@ async fn migration_creates_baseline_schema_from_empty_database() {
                   'deductions',
                   'causality_narratives',
                   'causality_narrative_versions',
+                  'artifacts',
+                  'artifact_versions',
                   'tool_sources',
                   'tool_definitions',
                   'integration_connections',
@@ -233,7 +235,7 @@ async fn migration_creates_baseline_schema_from_empty_database() {
     .await
     .expect("baseline tables count loads");
 
-    assert_eq!(table_count, 32);
+    assert_eq!(table_count, 34);
 
     let applied_versions: Vec<i64> =
         sqlx::query_scalar("select version from schema_migrations order by version")
@@ -242,7 +244,7 @@ async fn migration_creates_baseline_schema_from_empty_database() {
             .expect("migration versions load");
     assert_eq!(
         applied_versions,
-        vec![1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14]
+        vec![1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15]
     );
 
     let metadata: (String, i64) =
@@ -268,7 +270,7 @@ async fn migration_runner_is_idempotent_and_does_not_duplicate_versions() {
         .fetch_one(&state.pool)
         .await
         .expect("migration count loads");
-    assert_eq!(migration_count, 14);
+    assert_eq!(migration_count, 15);
 }
 
 #[tokio::test]
@@ -318,7 +320,7 @@ async fn migration_upgrades_the_0_2_10_numbered_baseline() {
     .await
     .expect("tooling tables count loads");
 
-    assert_eq!(latest_version, 14);
+    assert_eq!(latest_version, 15);
     assert_eq!(tooling_table_count, 3);
 }
 
@@ -533,7 +535,7 @@ async fn migration_concurrent_file_backed_starts_share_one_numbered_history() {
         .fetch_one(&pool)
         .await
         .expect("migration count loads");
-    assert_eq!(count, 14);
+    assert_eq!(count, 15);
     drop(first_state);
     drop(second_state);
     pool.close().await;

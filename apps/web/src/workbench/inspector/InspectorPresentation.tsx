@@ -1,4 +1,5 @@
 import { Minus } from "lucide-react";
+import type { ReactNode } from "react";
 
 import type { UpravaRef } from "../../shared/protocol/types";
 import { Badge } from "../../shared/ui/badge";
@@ -33,6 +34,7 @@ export function InspectorPresentation({
   stack,
   selected,
   detail,
+  visual,
   openReference,
   closeTop,
   selectStackIndex,
@@ -40,6 +42,7 @@ export function InspectorPresentation({
   stack: UpravaRef[];
   selected: UpravaRef | null;
   detail: InspectorDetail | null;
+  visual?: ReactNode;
   openReference: ReturnType<typeof useOpenReference>;
   closeTop: () => void;
   selectStackIndex: (index: number) => void;
@@ -120,6 +123,7 @@ export function InspectorPresentation({
               </div>
             ))}
           </dl>
+          {visual ? <div className="mt-4">{visual}</div> : null}
           {detail.refs.length > 0 ? (
             <div className="mt-4 space-y-2">
               <div className="text-xs font-bold text-[var(--color-muted)]">

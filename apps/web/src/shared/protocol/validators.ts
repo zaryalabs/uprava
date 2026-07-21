@@ -26,6 +26,10 @@ import {
 } from "./literals";
 import type {
   ActorRef,
+  ArtifactDetail,
+  ArtifactListResponse,
+  ArtifactSummary,
+  ArtifactVersion,
   CommandAcceptedResponse,
   CommandKind,
   CommandState,
@@ -625,11 +629,42 @@ export const pluginContributionSchema = z.discriminatedUnion("kind", [
         .object({
           renderer_id: z.string(),
           implementation_id: z.string(),
-          renderer_kind: z.literal("content"),
+          renderer_kind: z.enum([
+            "content",
+            "inline_fragment",
+            "block",
+            "artifact_viewer",
+          ]),
           accepted_source_kinds: z.array(z.string()),
-          render_scopes: z.array(z.literal("content_enhancement")),
+          render_scopes: z.array(
+            z.enum([
+              "content_enhancement",
+              "inline_fragment",
+              "block",
+              "artifact_viewer",
+              "detail_view",
+            ]),
+          ),
           allowed_surfaces: z.array(z.string()),
-          fallback_strategy: z.literal("plain_text"),
+          fallback_strategy: z.enum(["plain_text", "source", "metadata"]),
+          source_matcher: z
+            .discriminatedUnion("kind", [
+              z
+                .object({
+                  kind: z.literal("fenced_language"),
+                  language_ids: z.array(z.string()),
+                })
+                .strict(),
+              z
+                .object({
+                  kind: z.literal("strict_color_literal"),
+                  formats: z.array(z.string()),
+                })
+                .strict(),
+            ])
+            .nullable(),
+          visual_kinds: z.array(z.string()),
+          actions: z.array(z.string()),
         })
         .strict(),
     })
@@ -639,8 +674,15 @@ export const pluginContributionSchema = z.discriminatedUnion("kind", [
       kind: z.literal("artifact_type"),
       contribution_id: z.string(),
       contract_version: z.number().int().positive(),
-      artifact_type_id: z.string(),
-      display_name: z.string(),
+      contribution: z
+        .object({
+          artifact_type_id: z.string(),
+          display_name: z.string(),
+          description: z.string(),
+          schema_version: z.number().int().positive(),
+          fallback_strategy: z.enum(["plain_text", "source", "metadata"]),
+        })
+        .strict(),
     })
     .strict(),
 ]) satisfies z.ZodType<PluginContribution>;
@@ -707,10 +749,77 @@ export const contributionTargetSchema = z.discriminatedUnion("kind", [
       kind: z.literal("visual_renderer"),
       source_kind: z.string(),
       surface: z.string(),
-      render_scope: z.literal("content_enhancement"),
+      render_scope: z.enum([
+        "content_enhancement",
+        "inline_fragment",
+        "block",
+        "artifact_viewer",
+        "detail_view",
+      ]),
+      selector: z.string().optional(),
     })
     .strict(),
+  z
+    .object({ kind: z.literal("artifact_type"), artifact_type: z.string() })
+    .strict(),
 ]);
+
+const scopeRefSchema = z.discriminatedUnion("kind", [
+  z
+    .object({ kind: z.literal("runtime"), runtime_session_id: z.string() })
+    .strict(),
+  z
+    .object({ kind: z.literal("session"), session_thread_id: z.string() })
+    .strict(),
+  z.object({ kind: z.literal("node"), node_id: z.string() }).strict(),
+  z
+    .object({
+      kind: z.literal("placement"),
+      project_placement_id: z.string(),
+    })
+    .strict(),
+  z.object({ kind: z.literal("unknown"), scope: z.string() }).strict(),
+]);
+
+export const artifactSummarySchema = z
+  .object({
+    artifact_id: z.string(),
+    artifact_type: z.string(),
+    title: z.string(),
+    scope_ref: scopeRefSchema,
+    owner_plugin_id: z.string(),
+    current_version: z.number().int().positive(),
+    state: z.enum(["active", "stale", "archived"]),
+    created_by: actorRefSchema,
+    created_at: z.string(),
+    updated_at: z.string(),
+  })
+  .strict() satisfies z.ZodType<ArtifactSummary>;
+
+export const artifactVersionSchema = z
+  .object({
+    artifact_id: z.string(),
+    version: z.number().int().positive(),
+    schema_version: z.number().int().positive(),
+    payload: z.unknown(),
+    fallback_text: z.string(),
+    source_version: nullableString,
+    source_refs: z.array(upravaRefSchema),
+    evidence_refs: z.array(upravaRefSchema),
+    cause_refs: z.array(upravaRefSchema),
+    trace_refs: z.array(upravaRefSchema),
+    provenance: z.unknown(),
+    created_at: z.string(),
+  })
+  .strict() satisfies z.ZodType<ArtifactVersion>;
+
+export const artifactDetailSchema = z
+  .object({ artifact: artifactSummarySchema, version: artifactVersionSchema })
+  .strict() satisfies z.ZodType<ArtifactDetail>;
+
+export const artifactListResponseSchema = z
+  .object({ items: z.array(artifactSummarySchema) })
+  .strict() satisfies z.ZodType<ArtifactListResponse>;
 
 export const contributionRefSchema = z
   .object({ plugin_id: z.string(), contribution_id: z.string() })

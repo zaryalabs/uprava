@@ -1,5 +1,6 @@
 //! Core use-case orchestration and read-model assembly.
 
+mod artifacts;
 mod coordination;
 mod plugins;
 mod projection;
@@ -8,6 +9,7 @@ mod session;
 mod tooling;
 mod workspace;
 
+pub(crate) use artifacts::*;
 pub(crate) use coordination::*;
 pub(crate) use plugins::*;
 pub(crate) use projection::*;

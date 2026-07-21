@@ -1,11 +1,15 @@
 import type {
   AcknowledgeWarningRequest,
+  ArtifactDetail,
+  ArtifactListResponse,
   ApiError,
   ApproveNodeEnrollmentResponse,
   ClientCreateNodeEnrollmentRequest,
   CommandAcceptedResponse,
   CommandState,
   CreatePlacementRequest,
+  CreateArtifactRequest,
+  CreateArtifactVersionRequest,
   CreateJobRequest,
   CreateSessionRequest,
   CreateDeductionRequest,
@@ -72,6 +76,8 @@ import type {
 } from "../protocol/types";
 import {
   commandAcceptedResponseSchema,
+  artifactDetailSchema,
+  artifactListResponseSchema,
   formatProtocolIssues,
   parseProtocolPayload,
   type ProtocolSchema,
@@ -401,6 +407,43 @@ export const coreApi = {
     apiGet<EffectivePluginSnapshot>(
       "/plugin-contributions",
       effectivePluginSnapshotSchema,
+    ),
+  artifacts: (
+    scope: {
+      sessionThreadId?: string;
+      placementId?: string;
+      artifactType?: string;
+    } = {},
+  ) => {
+    const query = new URLSearchParams();
+    if (scope.sessionThreadId) {
+      query.set("session_thread_id", scope.sessionThreadId);
+    }
+    if (scope.placementId) {
+      query.set("project_placement_id", scope.placementId);
+    }
+    if (scope.artifactType) query.set("artifact_type", scope.artifactType);
+    const suffix = query.size > 0 ? `?${query.toString()}` : "";
+    return apiGet<ArtifactListResponse>(
+      `/artifacts${suffix}`,
+      artifactListResponseSchema,
+    );
+  },
+  artifact: (artifactId: string, version?: number) =>
+    apiGet<ArtifactDetail>(
+      `/artifacts/${encodeURIComponent(artifactId)}${version === undefined ? "" : `?version=${version}`}`,
+      artifactDetailSchema,
+    ),
+  createArtifact: (request: CreateArtifactRequest) =>
+    apiPost<ArtifactDetail>("/artifacts", request, artifactDetailSchema),
+  createArtifactVersion: (
+    artifactId: string,
+    request: CreateArtifactVersionRequest,
+  ) =>
+    apiPost<ArtifactDetail>(
+      `/artifacts/${encodeURIComponent(artifactId)}/versions`,
+      request,
+      artifactDetailSchema,
     ),
   updatePluginContributionTarget: (
     targetId: string,

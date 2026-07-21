@@ -48,4 +48,7 @@ export const queryKeys = {
   toolCall: (toolCallId: string) => ["tooling", "calls", toolCallId] as const,
   plugins: ["plugins"] as const,
   pluginContributions: ["plugins", "contributions"] as const,
+  artifacts: (scopeKey: string) => ["artifacts", scopeKey] as const,
+  artifact: (artifactId: string, version?: number) =>
+    ["artifact", artifactId, version ?? "current"] as const,
 };

@@ -371,7 +371,9 @@ function moveReference(
 function contributionTargetLabel(resolution: ContributionTargetResolution) {
   const target = resolution.target;
   if (target.kind === "ui_theme") return target.theme_id;
-  return `${target.source_kind} · ${target.surface} · ${target.render_scope}`;
+  if (target.kind === "artifact_type") return target.artifact_type;
+  const selector = target.selector ? ` · ${target.selector}` : "";
+  return `${target.source_kind} · ${target.surface} · ${target.render_scope}${selector}`;
 }
 
 function PluginCard({
@@ -456,7 +458,7 @@ function contributionLabel(
     case "agent_tool":
       return `agent.tool:${contribution.tool_id}`;
     case "artifact_type":
-      return `artifact.type:${contribution.artifact_type_id}`;
+      return `artifact.type:${contribution.contribution.artifact_type_id}`;
   }
 }
 

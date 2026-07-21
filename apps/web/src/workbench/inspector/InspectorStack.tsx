@@ -3,6 +3,7 @@ import { useQuery } from "@tanstack/react-query";
 import { useParams, useSearchParams } from "react-router-dom";
 
 import { useInventory } from "../../features/inventory/api";
+import { PluginArtifactViewer } from "../../plugins/ExtensionHost";
 import { coreApi } from "../../shared/api/http-client";
 import { queryKeys } from "../../shared/api/query-keys";
 import type {
@@ -58,6 +59,7 @@ export function InspectorStack() {
   const { sessionThreadId } = useParams();
   const stack = decodeInspectorStack(searchParams.get(INSPECT_QUERY_PARAM));
   const selected = stack.at(-1) ?? null;
+  const artifactTarget = artifactTargetForRef(selected);
   const inventory = useInventory();
   const session = useQuery({
     queryKey: queryKeys.session(sessionThreadId ?? ""),
@@ -76,6 +78,18 @@ export function InspectorStack() {
     queryKey: queryKeys.referenceResolution(selectedKey),
     queryFn: () => coreApi.resolveReference(selected as UpravaRef),
     enabled: Boolean(selected),
+  });
+  const artifact = useQuery({
+    queryKey: queryKeys.artifact(
+      artifactTarget?.artifactId ?? "",
+      artifactTarget?.version,
+    ),
+    queryFn: () =>
+      coreApi.artifact(
+        artifactTarget?.artifactId ?? "",
+        artifactTarget?.version,
+      ),
+    enabled: Boolean(artifactTarget),
   });
 
   useEffect(() => {
@@ -112,11 +126,43 @@ export function InspectorStack() {
       stack={stack}
       selected={selected}
       detail={detail}
+      visual={
+        artifact.data ? (
+          <PluginArtifactViewer
+            detail={artifact.data}
+            fallback={
+              <pre className="max-h-80 overflow-auto whitespace-pre-wrap border-l border-[var(--color-muted)] bg-[var(--color-bg-muted)] p-2 font-mono text-xs">
+                {artifact.data.version.fallback_text}
+              </pre>
+            }
+          />
+        ) : undefined
+      }
       openReference={openReference}
       closeTop={closeTop}
       selectStackIndex={selectStackIndex}
     />
   );
+}
+
+function artifactTargetForRef(ref: UpravaRef | null) {
+  if (
+    ref?.kind === "artifact" &&
+    "artifact_id" in ref &&
+    typeof ref.artifact_id === "string"
+  ) {
+    return { artifactId: ref.artifact_id, version: undefined };
+  }
+  if (
+    ref?.kind === "artifact_version" &&
+    "artifact_id" in ref &&
+    typeof ref.artifact_id === "string" &&
+    "version" in ref &&
+    typeof ref.version === "number"
+  ) {
+    return { artifactId: ref.artifact_id, version: ref.version };
+  }
+  return null;
 }
 
 export function buildResolvedInspectorDetail(
@@ -201,11 +247,31 @@ export function buildInspectorDetail(
         ref as Extract<UpravaRef, { kind: "message" }>,
         context,
       );
+    case "message_range":
+      return messageRangeDetail(
+        ref as Extract<UpravaRef, { kind: "message_range" }>,
+        context,
+      );
     case "artifact":
       return artifactDetail(
         ref as Extract<UpravaRef, { kind: "artifact" }>,
         context,
       );
+    case "artifact_version": {
+      const versionRef = ref as Extract<
+        UpravaRef,
+        { kind: "artifact_version" }
+      >;
+      const detail = artifactDetail(
+        { kind: "artifact", artifact_id: versionRef.artifact_id },
+        context,
+      );
+      return {
+        ...detail,
+        title: `${detail.title} · version ${versionRef.version}`,
+        rows: [{ label: "version", value: versionRef.version }, ...detail.rows],
+      };
+    }
     case "event":
       return eventDetail(ref as Extract<UpravaRef, { kind: "event" }>, context);
     case "command":
@@ -523,6 +589,27 @@ function messageDetail(
     ],
     refs: messageRefs(message),
     payload: { content: message.content },
+  };
+}
+
+function messageRangeDetail(
+  ref: Extract<UpravaRef, { kind: "message_range" }>,
+  context: InspectorContext,
+): InspectorDetail {
+  const detail = messageDetail(
+    { kind: "message", message_id: ref.message_id },
+    context,
+  );
+  return {
+    ...detail,
+    title: `${detail.title} · source range`,
+    rows: [
+      { label: "start line", value: ref.range.start_line },
+      { label: "end line", value: ref.range.end_line },
+      { label: "start offset", value: ref.range.start_offset },
+      { label: "end offset", value: ref.range.end_offset },
+      ...detail.rows,
+    ],
   };
 }
 

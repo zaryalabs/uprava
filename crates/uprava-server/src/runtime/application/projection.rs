@@ -767,8 +767,40 @@ pub(crate) async fn resolve_reference_inner(
                 unavailable_reason: None,
             })
         }
-        UpravaRef::Message { message_id } => {
+        UpravaRef::Message { message_id } | UpravaRef::MessageRange { message_id, .. } => {
             resolve_message_reference(state, reference.clone(), message_id).await
+        }
+        UpravaRef::Artifact { artifact_id }
+        | UpravaRef::ArtifactVersion {
+            artifact_id,
+            version: _,
+        } => {
+            let version = match &reference {
+                UpravaRef::ArtifactVersion { version, .. } => Some(*version),
+                _ => None,
+            };
+            let detail = load_artifact_detail(state, artifact_id, version).await?;
+            Ok(ReferenceResolution {
+                reference,
+                status: ReferenceResolutionStatus::Resolved,
+                title: detail.artifact.title,
+                summary: Some(format!(
+                    "{} · version {} · {}",
+                    detail.artifact.artifact_type,
+                    detail.version.version,
+                    truncate_chars(&detail.version.fallback_text, 500)
+                )),
+                links: CausalityLinks {
+                    source_refs: detail.version.source_refs,
+                    evidence_refs: detail.version.evidence_refs,
+                    cause_refs: detail.version.cause_refs,
+                    result_refs: Vec::new(),
+                    raw_refs: detail.version.trace_refs,
+                },
+                raw_payload: Some(detail.version.payload),
+                raw_truncated: false,
+                unavailable_reason: None,
+            })
         }
         UpravaRef::Command { command_id } => {
             resolve_command_reference(state, reference.clone(), command_id).await
@@ -1276,9 +1308,15 @@ pub(crate) fn reference_title(reference: &UpravaRef) -> String {
         UpravaRef::Session { session_thread_id } => format!("Session {session_thread_id}"),
         UpravaRef::Runtime { runtime_session_id } => format!("Runtime {runtime_session_id}"),
         UpravaRef::Turn { turn_id } => format!("Turn {turn_id}"),
-        UpravaRef::Message { message_id } => format!("Message {message_id}"),
+        UpravaRef::Message { message_id } | UpravaRef::MessageRange { message_id, .. } => {
+            format!("Message {message_id}")
+        }
         UpravaRef::Block { block_id } => format!("Block {block_id}"),
         UpravaRef::Artifact { artifact_id } => format!("Artifact {artifact_id}"),
+        UpravaRef::ArtifactVersion {
+            artifact_id,
+            version,
+        } => format!("Artifact {artifact_id} version {version}"),
         UpravaRef::Deduction { deduction_id } => format!("Deduction {deduction_id}"),
         UpravaRef::Event { event_id, .. } => format!("Event {event_id}"),
         UpravaRef::Command { command_id } => format!("Command {command_id}"),

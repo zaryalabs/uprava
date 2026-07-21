@@ -2,7 +2,7 @@
 
 Статус: `active`
 
-Current release baseline: `0.2.16`.
+Current release baseline: `0.2.17`.
 
 Этот ledger фиксирует implementation baselines. Он не заменяет
 [`feature-queue.md`](product/feature-queue.md), где остается ранжированная очередь
@@ -37,16 +37,30 @@ future work.
 | `0.2.13` | 2026-07-20 | shipped | CI visual baseline и SQLite migration reliability: синхронизированные Linux golden snapshots, per-connection busy timeout и изолированный concurrent migration test |
 | `0.2.14` | 2026-07-20 | shipped | ToolHive Compose topology: отдельный pinned runtime, bounded host Node bridge, persistent OAuth state, smoke и ручной Linear acceptance runbook |
 | `0.2.15` | 2026-07-21 | shipped | Bundled Markdown renderer plugin: typed `visual.renderer` contribution, безопасный Streamdown для static/streaming chat content, lazy Web activation и plain-text fallback |
-| `0.2.16` | 2026-07-21 | current | Plugin contribution resolution: normalized targets, deterministic exclusive chains, revisioned order/disable preferences, visible conflicts и bundled Markdown/Plain Text fallback chain |
+| `0.2.16` | 2026-07-21 | shipped | Plugin contribution resolution: normalized targets, deterministic exclusive chains, revisioned order/disable preferences, visible conflicts и bundled Markdown/Plain Text fallback chain |
+| `0.2.17` | 2026-07-21 | current | Plugin-driven Visual Artifact System: generic versioned artifacts, source matchers, inline/block/artifact viewers и bundled color, diagram, review and trace plugins с mandatory fallbacks |
 
 ## Current Baseline
 
-`0.2.16` включает baseline `0.2.15`, protocol-v2 baseline `0.2.0`, завершённое Zarya 0.1 Web UI/UX
+`0.2.17` включает baseline `0.2.16`, protocol-v2 baseline `0.2.0`, завершённое Zarya 0.1 Web UI/UX
 alignment и clean-bootstrap four-phase delivery path. Текущая реализация включает
 первый working distributed
-control panel, шестнадцать implementation slices после `0.1.0`, unified audit
+control panel, семнадцать implementation slices после `0.1.0`, unified audit
 hardening slice и workspace
 renderer/PTY terminal layer, а также первый deployable self-hosted release path:
+
+- Core хранит generic artifact identity и immutable versions с type, scope,
+  source/evidence/cause/trace refs, provenance и обязательным readable fallback;
+  migration 15 сохраняет совместимость с существующими causality narratives;
+- `visual.renderer` v2 и `artifact.type` v1 проходят manifest validation,
+  compatibility, permissions и общий exclusive target resolver, включая
+  пользовательский order/disable для конфликтующих artifact types;
+- bundled `uprava.content-enhancements`, `uprava.diagrams`,
+  `uprava.review-artifacts` и `uprava.trace-artifacts` лениво активируют color
+  tokens, Mermaid/ограниченный PlantUML, timeline/review blocks и artifact
+  viewers; diagram, diff/check и trace snapshots можно закрепить и открыть по
+  стабильной artifact reference, а disable/render failure сохраняет source или
+  raw fallback;
 
 - Linux visual regression baselines синхронизированы с pinned Playwright CI
   environment; SQLite busy timeout применяется к каждой Core connection, а

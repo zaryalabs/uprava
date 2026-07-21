@@ -16,6 +16,7 @@ pub fn is_supported_protocol_version(version: &str) -> bool {
 }
 
 pub mod api;
+pub mod artifacts;
 pub mod control;
 pub mod domain;
 pub mod plugins;
@@ -26,6 +27,7 @@ pub mod tooling;
 pub mod workspace;
 
 pub use api::*;
+pub use artifacts::*;
 pub use control::*;
 pub use domain::*;
 pub use plugins::*;

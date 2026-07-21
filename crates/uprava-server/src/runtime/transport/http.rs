@@ -146,6 +146,15 @@ pub fn build_router(state: Arc<AppState>) -> Router {
         .route("/plugins/{plugin_id}/disable", post(disable_plugin_route))
         .route("/plugin-contributions", get(plugin_contributions_route))
         .route(
+            "/artifacts",
+            get(artifact_list_route).post(create_artifact_route),
+        )
+        .route("/artifacts/{artifact_id}", get(artifact_detail_route))
+        .route(
+            "/artifacts/{artifact_id}/versions",
+            post(create_artifact_version_route),
+        )
+        .route(
             "/plugin-contribution-targets/{target_id}",
             put(update_plugin_contribution_preferences_route),
         )

@@ -4,16 +4,18 @@ use std::collections::{BTreeMap, HashSet};
 
 use semver::Version;
 use uprava_protocol::{
-    compute_plugin_manifest_hash, ContributionRef, ContributionResolutionMode, ContributionTarget,
-    ContributionTargetResolution, EffectiveContribution, EffectiveContributionState,
-    EffectivePluginSnapshot, PluginCompatibility, PluginCompatibilityState, PluginContribution,
-    PluginDesiredState, PluginEffectiveState, PluginId, PluginInstallSource,
-    PluginInstallationSummary, PluginListResponse, PluginManifest, PluginPackageSummary,
-    PluginTrustLevel, PluginVersionRange, ThemeContributionV1,
-    UpdateContributionTargetPreferencesRequest, VisualRendererContributionV1,
+    compute_plugin_manifest_hash, ArtifactTypeContributionV1, ContributionRef,
+    ContributionResolutionMode, ContributionTarget, ContributionTargetResolution,
+    EffectiveContribution, EffectiveContributionState, EffectivePluginSnapshot,
+    PluginCompatibility, PluginCompatibilityState, PluginContribution, PluginDesiredState,
+    PluginEffectiveState, PluginId, PluginInstallSource, PluginInstallationSummary,
+    PluginListResponse, PluginManifest, PluginPackageSummary, PluginTrustLevel, PluginVersionRange,
+    ThemeContributionV1, UpdateContributionTargetPreferencesRequest, VisualRenderScope,
+    VisualRendererContributionV1, VisualRendererKind, VisualSourceMatcherV1,
+    ARTIFACT_TYPE_CONTRIBUTION_PERMISSION, ARTIFACT_TYPE_CONTRIBUTION_VERSION_V1,
     CURRENT_PROTOCOL_VERSION, PLUGIN_MANIFEST_VERSION_V1, THEME_CONTRIBUTION_PERMISSION,
     THEME_CONTRIBUTION_VERSION_V1, VISUAL_RENDERER_CONTRIBUTION_PERMISSION,
-    VISUAL_RENDERER_CONTRIBUTION_VERSION_V1,
+    VISUAL_RENDERER_CONTRIBUTION_VERSION_V1, VISUAL_RENDERER_CONTRIBUTION_VERSION_V2,
 };
 
 use super::super::*;
@@ -24,6 +26,14 @@ const MARKDOWN_MANIFEST: &str =
     include_str!("../../../bundled-plugins/uprava.markdown/manifest.json");
 const PLAIN_TEXT_MANIFEST: &str =
     include_str!("../../../bundled-plugins/uprava.plain-text/manifest.json");
+const CONTENT_ENHANCEMENTS_MANIFEST: &str =
+    include_str!("../../../bundled-plugins/uprava.content-enhancements/manifest.json");
+const DIAGRAMS_MANIFEST: &str =
+    include_str!("../../../bundled-plugins/uprava.diagrams/manifest.json");
+const REVIEW_ARTIFACTS_MANIFEST: &str =
+    include_str!("../../../bundled-plugins/uprava.review-artifacts/manifest.json");
+const TRACE_ARTIFACTS_MANIFEST: &str =
+    include_str!("../../../bundled-plugins/uprava.trace-artifacts/manifest.json");
 const MAX_PLUGIN_ID_CHARS: usize = 128;
 const MAX_PLUGIN_TEXT_CHARS: usize = 2_000;
 const MAX_PLUGIN_PERMISSIONS: usize = 64;
@@ -62,6 +72,10 @@ pub(crate) async fn bootstrap_bundled_plugins(state: &AppState) -> Result<(), Ap
         (DARK_THEME_MANIFEST, PluginDesiredState::Disabled),
         (MARKDOWN_MANIFEST, PluginDesiredState::Enabled),
         (PLAIN_TEXT_MANIFEST, PluginDesiredState::Enabled),
+        (CONTENT_ENHANCEMENTS_MANIFEST, PluginDesiredState::Enabled),
+        (DIAGRAMS_MANIFEST, PluginDesiredState::Enabled),
+        (REVIEW_ARTIFACTS_MANIFEST, PluginDesiredState::Enabled),
+        (TRACE_ARTIFACTS_MANIFEST, PluginDesiredState::Enabled),
     ] {
         let manifest: PluginManifest = serde_json::from_str(source)?;
         validate_plugin_manifest(&manifest)?;
@@ -110,7 +124,7 @@ pub(crate) async fn plugin_contributions_route(
     if query
         .kind
         .as_deref()
-        .is_some_and(|kind| !matches!(kind, "ui.theme" | "visual.renderer"))
+        .is_some_and(|kind| !matches!(kind, "ui.theme" | "visual.renderer" | "artifact.type"))
     {
         return Err(AppError::bad_request(
             "plugin.contribution_kind_unsupported",
@@ -571,39 +585,72 @@ pub(crate) async fn effective_plugin_snapshot(
                 }),
                 PluginContribution::VisualRenderer {
                     contribution_id,
-                    contract_version: VISUAL_RENDERER_CONTRIBUTION_VERSION_V1,
+                    contract_version,
                     contribution: renderer,
-                } => {
+                } if is_supported_visual_renderer_version(*contract_version) => {
                     for source_kind in &renderer.accepted_source_kinds {
                         for surface in &renderer.allowed_surfaces {
                             for render_scope in &renderer.render_scopes {
-                                let target = ContributionTarget::VisualRenderer {
-                                    source_kind: source_kind.clone(),
-                                    surface: surface.clone(),
-                                    render_scope: *render_scope,
-                                };
-                                let target_id = contribution_target_id(&target)?;
-                                let effective = EffectiveContribution {
-                                    plugin_id: manifest.plugin_id.clone(),
-                                    plugin_version: manifest.version.clone(),
-                                    contribution_id: contribution_id.clone(),
-                                    extension_point: "visual.renderer".to_owned(),
-                                    contract_version: VISUAL_RENDERER_CONTRIBUTION_VERSION_V1,
-                                    target: target.clone(),
-                                    effective_state: EffectiveContributionState::Available,
-                                    contribution: contribution.clone(),
-                                };
-                                target_groups
-                                    .entry(target_id)
-                                    .or_insert_with(|| TargetGroupDraft {
-                                        target,
-                                        contributions: Vec::new(),
-                                    })
-                                    .contributions
-                                    .push(effective);
+                                for selector in renderer_selectors(renderer) {
+                                    let target = ContributionTarget::VisualRenderer {
+                                        source_kind: source_kind.clone(),
+                                        surface: surface.clone(),
+                                        render_scope: *render_scope,
+                                        selector,
+                                    };
+                                    let target_id = contribution_target_id(&target)?;
+                                    let effective = EffectiveContribution {
+                                        plugin_id: manifest.plugin_id.clone(),
+                                        plugin_version: manifest.version.clone(),
+                                        contribution_id: contribution_id.clone(),
+                                        extension_point: "visual.renderer".to_owned(),
+                                        contract_version: *contract_version,
+                                        target: target.clone(),
+                                        effective_state: EffectiveContributionState::Available,
+                                        contribution: contribution.clone(),
+                                    };
+                                    target_groups
+                                        .entry(target_id)
+                                        .or_insert_with(|| TargetGroupDraft {
+                                            extension_point: "visual.renderer",
+                                            target,
+                                            contributions: Vec::new(),
+                                        })
+                                        .contributions
+                                        .push(effective);
+                                }
                             }
                         }
                     }
+                }
+                PluginContribution::ArtifactType {
+                    contribution_id,
+                    contract_version: ARTIFACT_TYPE_CONTRIBUTION_VERSION_V1,
+                    contribution: artifact_type,
+                } => {
+                    let target = ContributionTarget::ArtifactType {
+                        artifact_type: artifact_type.artifact_type_id.clone(),
+                    };
+                    let target_id = contribution_target_id(&target)?;
+                    let effective = EffectiveContribution {
+                        plugin_id: manifest.plugin_id.clone(),
+                        plugin_version: manifest.version.clone(),
+                        contribution_id: contribution_id.clone(),
+                        extension_point: "artifact.type".to_owned(),
+                        contract_version: ARTIFACT_TYPE_CONTRIBUTION_VERSION_V1,
+                        target: target.clone(),
+                        effective_state: EffectiveContributionState::Available,
+                        contribution,
+                    };
+                    target_groups
+                        .entry(target_id)
+                        .or_insert_with(|| TargetGroupDraft {
+                            extension_point: "artifact.type",
+                            target,
+                            contributions: Vec::new(),
+                        })
+                        .contributions
+                        .push(effective);
                 }
                 _ => {}
             }
@@ -644,7 +691,7 @@ pub(crate) async fn effective_plugin_snapshot(
             > 1;
         resolutions.push(ContributionTargetResolution {
             target_id,
-            extension_point: "visual.renderer".to_owned(),
+            extension_point: draft.extension_point.to_owned(),
             mode: ContributionResolutionMode::Exclusive,
             target: draft.target,
             revision: preference.revision,
@@ -665,6 +712,25 @@ pub(crate) async fn effective_plugin_snapshot(
     })
 }
 
+fn renderer_selectors(renderer: &VisualRendererContributionV1) -> Vec<Option<String>> {
+    match &renderer.source_matcher {
+        Some(VisualSourceMatcherV1::FencedLanguage { language_ids }) => {
+            language_ids.iter().cloned().map(Some).collect()
+        }
+        Some(VisualSourceMatcherV1::StrictColorLiteral { formats }) => {
+            formats.iter().cloned().map(Some).collect()
+        }
+        None => vec![None],
+    }
+}
+
+fn is_supported_visual_renderer_version(version: u16) -> bool {
+    matches!(
+        version,
+        VISUAL_RENDERER_CONTRIBUTION_VERSION_V1 | VISUAL_RENDERER_CONTRIBUTION_VERSION_V2
+    )
+}
+
 #[derive(Default)]
 struct StoredContributionPreference {
     revision: u64,
@@ -673,6 +739,7 @@ struct StoredContributionPreference {
 }
 
 struct TargetGroupDraft {
+    extension_point: &'static str,
     target: ContributionTarget,
     contributions: Vec<EffectiveContribution>,
 }
@@ -856,7 +923,9 @@ fn validate_plugin_manifest(manifest: &PluginManifest) -> Result<(), AppError> {
     if manifest.requested_permissions.iter().any(|permission| {
         !matches!(
             permission.as_str(),
-            THEME_CONTRIBUTION_PERMISSION | VISUAL_RENDERER_CONTRIBUTION_PERMISSION
+            THEME_CONTRIBUTION_PERMISSION
+                | VISUAL_RENDERER_CONTRIBUTION_PERMISSION
+                | ARTIFACT_TYPE_CONTRIBUTION_PERMISSION
         )
     }) {
         return Err(plugin_manifest_error(
@@ -904,7 +973,7 @@ fn validate_plugin_manifest(manifest: &PluginManifest) -> Result<(), AppError> {
                 contribution,
                 ..
             } => {
-                if *contract_version != VISUAL_RENDERER_CONTRIBUTION_VERSION_V1 {
+                if !is_supported_visual_renderer_version(*contract_version) {
                     return Err(plugin_manifest_error(
                         "Unsupported visual.renderer contribution version",
                     ));
@@ -923,15 +992,37 @@ fn validate_plugin_manifest(manifest: &PluginManifest) -> Result<(), AppError> {
                         "Visual renderer contribution requires visual.renderer.contribute",
                     ));
                 }
-                validate_visual_renderer_contribution(contribution)?;
+                validate_visual_renderer_contribution(*contract_version, contribution)?;
             }
-            PluginContribution::AgentTool { .. } | PluginContribution::ArtifactType { .. } => {}
+            PluginContribution::ArtifactType {
+                contract_version,
+                contribution,
+                ..
+            } => {
+                if *contract_version != ARTIFACT_TYPE_CONTRIBUTION_VERSION_V1 {
+                    return Err(plugin_manifest_error(
+                        "Unsupported artifact.type contribution version",
+                    ));
+                }
+                if !manifest
+                    .requested_permissions
+                    .iter()
+                    .any(|permission| permission == ARTIFACT_TYPE_CONTRIBUTION_PERMISSION)
+                {
+                    return Err(plugin_manifest_error(
+                        "Artifact type contribution requires artifact.type.contribute",
+                    ));
+                }
+                validate_artifact_type_contribution(contribution)?;
+            }
+            PluginContribution::AgentTool { .. } => {}
         }
     }
     Ok(())
 }
 
 fn validate_visual_renderer_contribution(
+    contract_version: u16,
     renderer: &VisualRendererContributionV1,
 ) -> Result<(), AppError> {
     validate_namespaced_id(&renderer.renderer_id, "renderer_id")?;
@@ -947,11 +1038,13 @@ fn validate_visual_renderer_contribution(
             "Visual renderer targets are empty or oversized",
         ));
     }
+    let selectors = renderer_selectors(renderer);
     let normalized_target_count = renderer
         .accepted_source_kinds
         .len()
         .checked_mul(renderer.render_scopes.len())
         .and_then(|count| count.checked_mul(renderer.allowed_surfaces.len()))
+        .and_then(|count| count.checked_mul(selectors.len()))
         .filter(|count| *count <= MAX_NORMALIZED_RENDERER_TARGETS)
         .ok_or_else(|| plugin_manifest_error("Visual renderer expands to too many targets"))?;
     if normalized_target_count == 0
@@ -968,6 +1061,95 @@ fn validate_visual_renderer_contribution(
     }
     for surface in &renderer.allowed_surfaces {
         validate_namespaced_id(surface, "allowed_surface")?;
+    }
+    let scopes_match_renderer_kind = match renderer.renderer_kind {
+        VisualRendererKind::Content => renderer
+            .render_scopes
+            .iter()
+            .all(|scope| *scope == VisualRenderScope::ContentEnhancement),
+        VisualRendererKind::InlineFragment => renderer.render_scopes.iter().all(|scope| {
+            matches!(
+                scope,
+                VisualRenderScope::InlineFragment | VisualRenderScope::DetailView
+            )
+        }),
+        VisualRendererKind::Block => renderer
+            .render_scopes
+            .iter()
+            .all(|scope| *scope == VisualRenderScope::Block),
+        VisualRendererKind::ArtifactViewer => renderer.render_scopes.iter().all(|scope| {
+            matches!(
+                scope,
+                VisualRenderScope::ArtifactViewer | VisualRenderScope::DetailView
+            )
+        }),
+    };
+    if !scopes_match_renderer_kind {
+        return Err(plugin_manifest_error(
+            "Visual renderer kind does not match its render scopes",
+        ));
+    }
+    if (renderer.renderer_kind == VisualRendererKind::InlineFragment)
+        != renderer.source_matcher.is_some()
+    {
+        return Err(plugin_manifest_error(
+            "Inline fragment renderers require a declarative source matcher",
+        ));
+    }
+    if contract_version == VISUAL_RENDERER_CONTRIBUTION_VERSION_V1
+        && (renderer.renderer_kind != VisualRendererKind::Content
+            || renderer.render_scopes != [VisualRenderScope::ContentEnhancement]
+            || renderer.source_matcher.is_some()
+            || !renderer.visual_kinds.is_empty()
+            || !renderer.actions.is_empty())
+    {
+        return Err(plugin_manifest_error(
+            "visual.renderer v1 only supports content enhancement",
+        ));
+    }
+    if renderer.source_matcher.is_some()
+        && (selectors.is_empty()
+            || selectors.len() > MAX_RENDERER_TARGETS
+            || selectors.iter().any(|selector| {
+                selector
+                    .as_deref()
+                    .is_none_or(|selector| !valid_selector(selector))
+            }))
+    {
+        return Err(plugin_manifest_error(
+            "Visual renderer source matcher is empty or invalid",
+        ));
+    }
+    for visual_kind in &renderer.visual_kinds {
+        validate_namespaced_id(visual_kind, "visual_kind")?;
+    }
+    for action in &renderer.actions {
+        validate_namespaced_id(action, "visual_action")?;
+    }
+    Ok(())
+}
+
+fn valid_selector(value: &str) -> bool {
+    !value.is_empty()
+        && value.len() <= MAX_PLUGIN_ID_CHARS
+        && value.bytes().all(|byte| {
+            byte.is_ascii_lowercase() || byte.is_ascii_digit() || matches!(byte, b'.' | b'-' | b'_')
+        })
+}
+
+fn validate_artifact_type_contribution(
+    contribution: &ArtifactTypeContributionV1,
+) -> Result<(), AppError> {
+    validate_namespaced_id(&contribution.artifact_type_id, "artifact_type_id")?;
+    if contribution.display_name.is_empty()
+        || contribution.description.is_empty()
+        || contribution.display_name.chars().count() > MAX_PLUGIN_TEXT_CHARS
+        || contribution.description.chars().count() > MAX_PLUGIN_TEXT_CHARS
+        || contribution.schema_version == 0
+    {
+        return Err(plugin_manifest_error(
+            "Artifact type metadata is empty or invalid",
+        ));
     }
     Ok(())
 }

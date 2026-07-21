@@ -1,6 +1,8 @@
 # A-006 Visual Rendering and Artifact Semantics
 
-Статус: `working-position`
+Статус: `implemented-baseline`
+
+Implementation baseline: `0.2.17`.
 
 Этот документ фиксирует рабочую позицию по ключевой механике `A-006 Visual
 Rendering and Artifact Semantics`.
@@ -731,13 +733,20 @@ semantics. Его определяет
 детерминированном пользовательски изменяемом порядке, а альтернативы и конфликт
 остаются видимыми в Plugin Panel.
 
-Первый implementation increment (`0.2.15`) реализует content-level boundary:
+Первый implementation increment (`0.2.15`) реализовал content-level boundary:
 bundled `uprava.markdown` получает исходный assistant message и возвращает
-безопасное Streamdown presentation. Static и streaming режимы выбираются по
-состоянию сообщения. HTML, images, Mermaid и небезопасные URL пока отключены;
-исходный plain text остается host-owned fallback. Fragment-level isolation,
-diagram plugins и promotion в durable artifacts относятся к следующим
-инкрементам пункта 13.
+безопасное Streamdown presentation с host-owned plain-text fallback.
+
+Baseline `0.2.17` добавляет generic artifact identity/storage/versioning и
+`visual.renderer` v2 для inline fragments, blocks, artifact viewers and detail
+views. Declarative source matcher нормализуется Core в bounded target до
+активации кода renderer-а. Web Extension Host лениво загружает только
+allowlisted implementation активной contribution и локально изолирует ее
+loading/render failure. Bundled plugins реализуют strict color tokens,
+Mermaid/ограниченный PlantUML, review and trace blocks/viewers. Diagram,
+diff/check and trace view можно явно закрепить как immutable-versioned artifact
+с source/evidence/cause/trace refs; исходный fence, metadata или raw payload
+остается доступным при disabled/incompatible plugin или ошибке render-а.
 
 ### Actions
 

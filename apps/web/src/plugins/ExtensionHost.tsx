@@ -37,7 +37,20 @@ import {
   normalizeTheme,
   THEME_CONTRACT_VERSION,
 } from "./themes";
-import { resolveVisualRendererChain } from "./contribution-resolution";
+import {
+  resolveArtifactViewerChain,
+  resolveBlockRendererChain,
+  resolveInlineRendererChain,
+  resolveVisualRendererChain,
+} from "./contribution-resolution";
+import type {
+  ArtifactRendererProps,
+  InlineRendererProps,
+  LazyArtifactRenderer,
+  LazyBlockRenderer,
+  LazyInlineRenderer,
+  PluginBlockRendererProps,
+} from "./visual-renderers";
 
 type ThemeHostValue = {
   themes: ThemeContributionV1[];
@@ -85,6 +98,71 @@ const bundledContentRenderers = new Map<string, LazyContentRenderer>([
     lazy(() =>
       import("./bundled/plain-text/PlainTextRenderer").then((module) => ({
         default: module.PlainTextRenderer,
+      })),
+    ),
+  ],
+]);
+
+const bundledInlineRenderers = new Map<string, LazyInlineRenderer>([
+  [
+    "uprava.content-enhancements.v1",
+    lazy(() =>
+      import("./bundled/content-enhancements/ColorTokenRenderer").then(
+        (module) => ({ default: module.ColorTokenRenderer }),
+      ),
+    ),
+  ],
+  [
+    "uprava.diagrams.v1",
+    lazy(() =>
+      import("./bundled/diagrams/DiagramRenderer").then((module) => ({
+        default: module.DiagramRenderer,
+      })),
+    ),
+  ],
+]);
+
+const bundledArtifactRenderers = new Map<string, LazyArtifactRenderer>([
+  [
+    "uprava.diagrams.v1",
+    lazy(() =>
+      import("./bundled/diagrams/DiagramRenderer").then((module) => ({
+        default: module.DiagramArtifactViewer,
+      })),
+    ),
+  ],
+  [
+    "uprava.review-artifacts.v1",
+    lazy(() =>
+      import("./bundled/review-artifacts/ReviewArtifactViewer").then(
+        (module) => ({ default: module.ReviewArtifactViewer }),
+      ),
+    ),
+  ],
+  [
+    "uprava.trace-artifacts.v1",
+    lazy(() =>
+      import("./bundled/trace-artifacts/TraceArtifactViewer").then(
+        (module) => ({ default: module.TraceArtifactViewer }),
+      ),
+    ),
+  ],
+]);
+
+const bundledBlockRenderers = new Map<string, LazyBlockRenderer>([
+  [
+    "uprava.review-artifacts.v1",
+    lazy(() =>
+      import("./bundled/review-artifacts/ReviewBlockRenderer").then(
+        (module) => ({ default: module.ReviewBlockRenderer }),
+      ),
+    ),
+  ],
+  [
+    "uprava.trace-artifacts.v1",
+    lazy(() =>
+      import("./bundled/trace-artifacts/TraceBlockRenderer").then((module) => ({
+        default: module.TraceBlockRenderer,
       })),
     ),
   ],
@@ -171,6 +249,10 @@ export function useThemeHost() {
   return useContext(ThemeHostContext);
 }
 
+export function useEffectivePluginSnapshot() {
+  return useContext(ContentRendererHostContext).snapshot;
+}
+
 export function PluginContentRenderer({
   sourceKind,
   surfaceId,
@@ -201,6 +283,196 @@ export function PluginContentRenderer({
       sourceRef={sourceRef}
       fallback={fallback}
     />
+  );
+}
+
+export function PluginInlineFragmentRenderer({
+  sourceKind,
+  selector,
+  source,
+  languageId,
+  sourceRef,
+  surfaceId,
+  fallback,
+}: InlineRendererProps & { sourceKind: string; selector: string }) {
+  const snapshot = useEffectivePluginSnapshot();
+  const candidates = resolveInlineRendererChain(
+    snapshot,
+    sourceKind,
+    surfaceId,
+    selector,
+  );
+  const available = resolveImplementations(candidates, bundledInlineRenderers);
+  return (
+    <ExclusiveInlineRendererChain
+      key={candidateChainKey(candidates)}
+      available={available}
+      source={source}
+      languageId={languageId}
+      sourceRef={sourceRef}
+      surfaceId={surfaceId}
+      fallback={fallback}
+    />
+  );
+}
+
+export function PluginArtifactViewer({
+  detail,
+  fallback,
+}: ArtifactRendererProps) {
+  const snapshot = useEffectivePluginSnapshot();
+  const candidates = resolveArtifactViewerChain(
+    snapshot,
+    detail.artifact.artifact_type,
+  );
+  const available = resolveImplementations(
+    candidates,
+    bundledArtifactRenderers,
+  );
+  return (
+    <ExclusiveArtifactRendererChain
+      key={candidateChainKey(candidates)}
+      available={available}
+      detail={detail}
+      fallback={fallback}
+    />
+  );
+}
+
+export function PluginBlockRenderer({
+  block,
+  actions,
+  fallback,
+}: PluginBlockRendererProps & { fallback: ReactNode }) {
+  const snapshot = useEffectivePluginSnapshot();
+  const candidates = resolveBlockRendererChain(
+    snapshot,
+    block.type,
+    block.surface_id,
+  );
+  const available = resolveImplementations(candidates, bundledBlockRenderers);
+  return (
+    <ExclusiveBlockRendererChain
+      key={candidateChainKey(candidates)}
+      available={available}
+      block={block}
+      actions={actions}
+      fallback={fallback}
+    />
+  );
+}
+
+function candidateChainKey(
+  candidates: ReturnType<typeof resolveVisualRendererChain>,
+) {
+  return candidates
+    .map((candidate) => `${candidate.plugin_id}:${candidate.contribution_id}`)
+    .join("|");
+}
+
+function resolveImplementations<T>(
+  candidates: ReturnType<typeof resolveVisualRendererChain>,
+  implementations: Map<string, T>,
+) {
+  return candidates.flatMap((candidate) => {
+    if (candidate.contribution.kind !== "visual_renderer") return [];
+    const implementation = implementations.get(
+      candidate.contribution.contribution.implementation_id,
+    );
+    return implementation
+      ? [
+          {
+            implementation,
+            rendererId: candidate.contribution.contribution.renderer_id,
+          },
+        ]
+      : [];
+  });
+}
+
+function ExclusiveInlineRendererChain({
+  available,
+  fallback,
+  ...props
+}: InlineRendererProps & {
+  available: Array<{
+    implementation: LazyInlineRenderer;
+    rendererId: string;
+  }>;
+}) {
+  const [failedCount, setFailedCount] = useState(0);
+  const selected = available[failedCount];
+  if (!selected) return fallback;
+  const Renderer = selected.implementation;
+  return (
+    <RendererErrorBoundary
+      key={selected.rendererId}
+      fallback={fallback}
+      rendererId={selected.rendererId}
+      onFailure={() => setFailedCount((count) => count + 1)}
+    >
+      <Suspense fallback={fallback}>
+        <Renderer {...props} fallback={fallback} />
+      </Suspense>
+    </RendererErrorBoundary>
+  );
+}
+
+function ExclusiveArtifactRendererChain({
+  available,
+  detail,
+  fallback,
+}: ArtifactRendererProps & {
+  available: Array<{
+    implementation: LazyArtifactRenderer;
+    rendererId: string;
+  }>;
+}) {
+  const [failedCount, setFailedCount] = useState(0);
+  const selected = available[failedCount];
+  if (!selected) return fallback;
+  const Renderer = selected.implementation;
+  return (
+    <RendererErrorBoundary
+      key={selected.rendererId}
+      fallback={fallback}
+      rendererId={selected.rendererId}
+      onFailure={() => setFailedCount((count) => count + 1)}
+    >
+      <Suspense fallback={fallback}>
+        <Renderer detail={detail} fallback={fallback} />
+      </Suspense>
+    </RendererErrorBoundary>
+  );
+}
+
+function ExclusiveBlockRendererChain({
+  available,
+  block,
+  actions,
+  fallback,
+}: PluginBlockRendererProps & {
+  available: Array<{
+    implementation: LazyBlockRenderer;
+    rendererId: string;
+  }>;
+  fallback: ReactNode;
+}) {
+  const [failedCount, setFailedCount] = useState(0);
+  const selected = available[failedCount];
+  if (!selected) return fallback;
+  const Renderer = selected.implementation;
+  return (
+    <RendererErrorBoundary
+      key={selected.rendererId}
+      fallback={fallback}
+      rendererId={selected.rendererId}
+      onFailure={() => setFailedCount((count) => count + 1)}
+    >
+      <Suspense fallback={fallback}>
+        <Renderer block={block} actions={actions} />
+      </Suspense>
+    </RendererErrorBoundary>
   );
 }
 

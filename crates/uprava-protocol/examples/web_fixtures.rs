@@ -4,7 +4,8 @@ use chrono::{TimeZone, Utc};
 use serde::Serialize;
 use serde_json::{json, Map, Value};
 use uprava_protocol::{
-    compute_tool_schema_hash, ActorRef, CommandAcceptedResponse, CommandKind, CommandState,
+    compute_tool_schema_hash, ActorRef, ArtifactDetail, ArtifactId, ArtifactState, ArtifactSummary,
+    ArtifactVersion, CommandAcceptedResponse, CommandKind, CommandState,
     ContributionResolutionMode, ContributionTarget, ContributionTargetResolution, CorrelationId,
     EffectiveContribution, EffectiveContributionState, EventEnvelope, EventId, EventKind,
     ExecuteToolRequest, ExecuteToolResponse, InspectToolRequest, InspectToolResponse,
@@ -23,7 +24,7 @@ use uprava_protocol::{
     ToolCallsResponse, ToolDefinition, ToolDefinitionState, ToolDefinitionsResponse,
     ToolExecutionKind, ToolId, ToolInvocationMode, ToolRedactionPolicy, ToolResultEnvelope,
     ToolRiskLevel, ToolScope, ToolSearchFilters, ToolSearchResult, ToolSourceId, ToolSourceKind,
-    ToolingCommandPayloadV1, ToolingCommandV1, ToolingEventPayloadV1, ToolingEventV1,
+    ToolingCommandPayloadV1, ToolingCommandV1, ToolingEventPayloadV1, ToolingEventV1, UpravaRef,
     VisualRenderScope, VisualRendererContributionV1, VisualRendererFallback, VisualRendererKind,
     WorkspaceCommandHistoryItem, WorkspaceCommandHistoryResponse, WorkspaceCommandIntent,
     WorkspaceCommandRunResponse, WorkspaceTerminalListResponse, WorkspaceTerminalOpenResponse,
@@ -163,6 +164,48 @@ fn main() {
             ),
         },
     );
+    let artifact_id = ArtifactId::from("artifact-fixture");
+    insert(
+        &mut fixtures,
+        "artifact_detail",
+        ArtifactDetail {
+            artifact: ArtifactSummary {
+                artifact_id: artifact_id.clone(),
+                artifact_type: "uprava.diagram".to_owned(),
+                title: "Fixture diagram".to_owned(),
+                scope_ref: ScopeRef::Placement {
+                    project_placement_id: placement_id.clone(),
+                },
+                owner_plugin_id: PluginId::from("uprava.diagrams"),
+                current_version: 1,
+                state: ArtifactState::Active,
+                created_by: ActorRef::System,
+                created_at: at,
+                updated_at: at,
+            },
+            version: ArtifactVersion {
+                artifact_id,
+                version: 1,
+                schema_version: 1,
+                payload: json!({
+                    "language": "mermaid",
+                    "source": "flowchart LR\nCore --> Node",
+                })
+                .into(),
+                fallback_text: "flowchart LR\nCore --> Node".to_owned(),
+                source_version: Some("fixture:v1".to_owned()),
+                source_refs: vec![UpravaRef::WorkspaceDiff {
+                    diff_id: "diff-fixture".to_owned(),
+                    placement_id: placement_id.clone(),
+                }],
+                evidence_refs: Vec::new(),
+                cause_refs: Vec::new(),
+                trace_refs: Vec::new(),
+                provenance: json!({ "kind": "fixture" }).into(),
+                created_at: at,
+            },
+        },
+    );
     insert(
         &mut fixtures,
         "tooling_contract",
@@ -262,6 +305,9 @@ fn plugin_contract_fixture(at: chrono::DateTime<Utc>) -> PluginContractFixture {
             render_scopes: vec![VisualRenderScope::ContentEnhancement],
             allowed_surfaces: vec!["session.timeline".to_owned()],
             fallback_strategy: VisualRendererFallback::PlainText,
+            source_matcher: None,
+            visual_kinds: Vec::new(),
+            actions: Vec::new(),
         },
     };
     let renderer_installation = PluginInstallationSummary {
@@ -302,6 +348,9 @@ fn plugin_contract_fixture(at: chrono::DateTime<Utc>) -> PluginContractFixture {
             render_scopes: vec![VisualRenderScope::ContentEnhancement],
             allowed_surfaces: vec!["session.timeline".to_owned()],
             fallback_strategy: VisualRendererFallback::PlainText,
+            source_matcher: None,
+            visual_kinds: Vec::new(),
+            actions: Vec::new(),
         },
     };
     let plain_text_installation = PluginInstallationSummary {
@@ -353,6 +402,7 @@ fn plugin_contract_fixture(at: chrono::DateTime<Utc>) -> PluginContractFixture {
             source_kind: "chat.assistant_message".to_owned(),
             surface: "session.timeline".to_owned(),
             render_scope: VisualRenderScope::ContentEnhancement,
+            selector: None,
         },
         effective_state: EffectiveContributionState::Available,
         contribution: renderer_contribution,

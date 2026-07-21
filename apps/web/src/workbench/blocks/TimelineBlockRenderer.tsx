@@ -11,7 +11,10 @@ import {
   User,
 } from "lucide-react";
 
-import { PluginContentRenderer } from "../../plugins/ExtensionHost";
+import {
+  PluginBlockRenderer,
+  PluginContentRenderer,
+} from "../../plugins/ExtensionHost";
 import { Badge } from "../../shared/ui/badge";
 import { DisclosureControl } from "../../shared/ui/system";
 import type { UiBlock } from "./types";
@@ -62,10 +65,20 @@ export function TimelineBlockRenderer({ block, actions }: BlockRendererProps) {
     !registration.supportedSchemaVersions.includes(block.schema_version)
   ) {
     const Fallback = registration?.fallback ?? UnknownBlock;
-    return <Fallback block={block} actions={actions} />;
+    const fallback = <Fallback block={block} actions={actions} />;
+    return (
+      <PluginBlockRenderer
+        block={block}
+        actions={actions}
+        fallback={fallback}
+      />
+    );
   }
   const Renderer = registration.render;
-  return <Renderer block={block} actions={actions} />;
+  const fallback = <Renderer block={block} actions={actions} />;
+  return (
+    <PluginBlockRenderer block={block} actions={actions} fallback={fallback} />
+  );
 }
 
 export function getTimelineBlockRenderer(type: string) {

@@ -850,8 +850,10 @@ export type UpravaRef =
   | { kind: "runtime"; runtime_session_id: string }
   | { kind: "turn"; turn_id: string }
   | { kind: "message"; message_id: string }
+  | { kind: "message_range"; message_id: string; range: TextRange }
   | { kind: "block"; block_id: string }
   | { kind: "artifact"; artifact_id: string }
+  | { kind: "artifact_version"; artifact_id: string; version: number }
   | { kind: "deduction"; deduction_id: string }
   | { kind: "event"; event_id: string; scope_ref: unknown; seq: number }
   | { kind: "command"; command_id: string }
@@ -1470,11 +1472,33 @@ export type ThemeContributionV1 = {
 export type VisualRendererContributionV1 = {
   renderer_id: string;
   implementation_id: string;
-  renderer_kind: "content";
+  renderer_kind: "content" | "inline_fragment" | "block" | "artifact_viewer";
   accepted_source_kinds: string[];
-  render_scopes: "content_enhancement"[];
+  render_scopes: VisualRenderScope[];
   allowed_surfaces: string[];
-  fallback_strategy: "plain_text";
+  fallback_strategy: "plain_text" | "source" | "metadata";
+  source_matcher: VisualSourceMatcherV1 | null;
+  visual_kinds: string[];
+  actions: string[];
+};
+
+export type VisualRenderScope =
+  | "content_enhancement"
+  | "inline_fragment"
+  | "block"
+  | "artifact_viewer"
+  | "detail_view";
+
+export type VisualSourceMatcherV1 =
+  | { kind: "fenced_language"; language_ids: string[] }
+  | { kind: "strict_color_literal"; formats: string[] };
+
+export type ArtifactTypeContributionV1 = {
+  artifact_type_id: string;
+  display_name: string;
+  description: string;
+  schema_version: number;
+  fallback_strategy: "plain_text" | "source" | "metadata";
 };
 
 export type PluginContribution =
@@ -1500,8 +1524,7 @@ export type PluginContribution =
       kind: "artifact_type";
       contribution_id: string;
       contract_version: number;
-      artifact_type_id: string;
-      display_name: string;
+      contribution: ArtifactTypeContributionV1;
     };
 
 export type PluginCompatibility = {
@@ -1544,8 +1567,10 @@ export type ContributionTarget =
       kind: "visual_renderer";
       source_kind: string;
       surface: string;
-      render_scope: "content_enhancement";
-    };
+      render_scope: VisualRenderScope;
+      selector?: string | null;
+    }
+  | { kind: "artifact_type"; artifact_type: string };
 
 export type ContributionRef = {
   plugin_id: string;
@@ -1589,3 +1614,67 @@ export type PluginContractFixture = {
   plugins: PluginListResponse;
   effective_snapshot: EffectivePluginSnapshot;
 };
+
+export type ScopeRef =
+  | { kind: "runtime"; runtime_session_id: string }
+  | { kind: "session"; session_thread_id: string }
+  | { kind: "node"; node_id: string }
+  | { kind: "placement"; project_placement_id: string }
+  | { kind: "unknown"; scope: string };
+
+export type ArtifactState = "active" | "stale" | "archived";
+
+export type ArtifactSummary = {
+  artifact_id: string;
+  artifact_type: string;
+  title: string;
+  scope_ref: ScopeRef;
+  owner_plugin_id: string;
+  current_version: number;
+  state: ArtifactState;
+  created_by: ActorRef;
+  created_at: string;
+  updated_at: string;
+};
+
+export type ArtifactVersion = {
+  artifact_id: string;
+  version: number;
+  schema_version: number;
+  payload: unknown;
+  fallback_text: string;
+  source_version: string | null;
+  source_refs: UpravaRef[];
+  evidence_refs: UpravaRef[];
+  cause_refs: UpravaRef[];
+  trace_refs: UpravaRef[];
+  provenance: unknown;
+  created_at: string;
+};
+
+export type ArtifactDetail = {
+  artifact: ArtifactSummary;
+  version: ArtifactVersion;
+};
+
+export type ArtifactListResponse = { items: ArtifactSummary[] };
+
+export type CreateArtifactRequest = {
+  artifact_type: string;
+  title: string;
+  scope_ref: ScopeRef;
+  schema_version: number;
+  payload: unknown;
+  fallback_text: string;
+  source_version: string | null;
+  source_refs: UpravaRef[];
+  evidence_refs: UpravaRef[];
+  cause_refs: UpravaRef[];
+  trace_refs: UpravaRef[];
+  provenance: unknown;
+};
+
+export type CreateArtifactVersionRequest = Omit<
+  CreateArtifactRequest,
+  "artifact_type" | "title" | "scope_ref"
+> & { expected_current_version: number };

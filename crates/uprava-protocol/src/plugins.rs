@@ -16,10 +16,16 @@ pub const PLUGIN_MANIFEST_VERSION_V1: u16 = 1;
 pub const THEME_CONTRIBUTION_VERSION_V1: u16 = 1;
 /// First supported `visual.renderer` contribution major version.
 pub const VISUAL_RENDERER_CONTRIBUTION_VERSION_V1: u16 = 1;
+/// Visual renderer version that adds inline, block and artifact scopes.
+pub const VISUAL_RENDERER_CONTRIBUTION_VERSION_V2: u16 = 2;
+/// First supported `artifact.type` contribution major version.
+pub const ARTIFACT_TYPE_CONTRIBUTION_VERSION_V1: u16 = 1;
 /// Permission required by a package that contributes a theme.
 pub const THEME_CONTRIBUTION_PERMISSION: &str = "ui.theme.contribute";
 /// Permission required by a package that contributes a visual renderer.
 pub const VISUAL_RENDERER_CONTRIBUTION_PERMISSION: &str = "visual.renderer.contribute";
+/// Permission required by a package that contributes an artifact type.
+pub const ARTIFACT_TYPE_CONTRIBUTION_PERMISSION: &str = "artifact.type.contribute";
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
@@ -130,18 +136,40 @@ pub struct ThemeContributionV1 {
 #[serde(rename_all = "snake_case")]
 pub enum VisualRendererKind {
     Content,
+    InlineFragment,
+    Block,
+    ArtifactViewer,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum VisualRenderScope {
     ContentEnhancement,
+    InlineFragment,
+    Block,
+    ArtifactViewer,
+    DetailView,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum VisualRendererFallback {
     PlainText,
+    Source,
+    Metadata,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(tag = "kind", rename_all = "snake_case")]
+pub enum VisualSourceMatcherV1 {
+    FencedLanguage {
+        #[serde(default)]
+        language_ids: Vec<String>,
+    },
+    StrictColorLiteral {
+        #[serde(default)]
+        formats: Vec<String>,
+    },
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -156,11 +184,27 @@ pub struct VisualRendererContributionV1 {
     #[serde(default)]
     pub allowed_surfaces: Vec<String>,
     pub fallback_strategy: VisualRendererFallback,
+    #[serde(default)]
+    pub source_matcher: Option<VisualSourceMatcherV1>,
+    #[serde(default)]
+    pub visual_kinds: Vec<String>,
+    #[serde(default)]
+    pub actions: Vec<String>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ArtifactTypeContributionV1 {
+    pub artifact_type_id: String,
+    pub display_name: String,
+    pub description: String,
+    pub schema_version: u16,
+    pub fallback_strategy: VisualRendererFallback,
 }
 
 /// A manifest-declared extension point.
 ///
-/// `AgentTool` and `ArtifactType` reserve typed links for later slices.
+/// Contributions remain declarative; executable implementations are activated
+/// only by a bounded host that recognizes the declared contract version.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "kind", rename_all = "snake_case")]
 pub enum PluginContribution {
@@ -182,8 +226,7 @@ pub enum PluginContribution {
     ArtifactType {
         contribution_id: String,
         contract_version: u16,
-        artifact_type_id: String,
-        display_name: String,
+        contribution: ArtifactTypeContributionV1,
     },
 }
 
@@ -292,6 +335,11 @@ pub enum ContributionTarget {
         source_kind: String,
         surface: String,
         render_scope: VisualRenderScope,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        selector: Option<String>,
+    },
+    ArtifactType {
+        artifact_type: String,
     },
 }
 

@@ -27,11 +27,19 @@ pub enum UpravaRef {
     Message {
         message_id: MessageId,
     },
+    MessageRange {
+        message_id: MessageId,
+        range: TextRange,
+    },
     Block {
         block_id: BlockId,
     },
     Artifact {
         artifact_id: ArtifactId,
+    },
+    ArtifactVersion {
+        artifact_id: ArtifactId,
+        version: u64,
     },
     Deduction {
         deduction_id: DeductionId,
