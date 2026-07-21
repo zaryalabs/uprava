@@ -19,6 +19,14 @@ release как rollback target. Она не проверяет health, не сб
 Изменяемое состояние Core и Node хранится вне директорий релизов и не удаляется
 обычными релизами.
 
+Task-based runtime добавляет pinned OpenSandbox service на loopback, отдельное
+SQLite state directory и bind `/srv/uprava-workspaces` по тому же абсолютному
+пути, который разрешён Node. Codex task image публикуется и digest-pin-ится в
+release manifest; systemd Node читает активный manifest вторым optional
+`EnvironmentFile`. API key и persistent Codex profile пока отложены, поэтому
+этот runtime profile остаётся controlled-development only. Операторский
+runbook: [`task-sandbox-runtime.md`](../docs/runbooks/task-sandbox-runtime.md).
+
 Администратор хоста также устанавливает файл `uprava-ci-root` из этой директории
 как `/usr/local/sbin/uprava-ci-root-deploy` и
 `/usr/local/sbin/uprava-ci-root-finalize`. Оба файла принадлежат `root` и

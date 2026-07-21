@@ -21,6 +21,7 @@ fn node_local_state_loads_legacy_state_without_reliability_fields() {
     assert!(local_state.runtime_states.is_empty());
     assert!(local_state.runtime_transcripts.is_empty());
     assert!(local_state.placement_seqs.is_empty());
+    assert!(local_state.task_runtime_mappings.is_empty());
 }
 
 #[test]
@@ -103,6 +104,16 @@ async fn sqlite_state_store_round_trips_versioned_snapshot_transactionally() {
     state
         .placement_seqs
         .insert("placement-sqlite".to_owned(), 3);
+    state.task_runtime_mappings.insert(
+        "task-run-sqlite".to_owned(),
+        TaskRuntimeMapping {
+            task_run_id: uprava_protocol::TaskRunId::from("task-run-sqlite"),
+            worktree_path: "/tmp/task-run-sqlite".to_owned(),
+            branch: "uprava/task/task-run-sqlite".to_owned(),
+            sandbox_id: Some("sandbox-sqlite".to_owned()),
+            updated_at: Utc::now(),
+        },
+    );
 
     state.save_async(&path).await.expect("sqlite state saves");
     let pool = open_state_store(&path).await.expect("store opens");
@@ -122,6 +133,12 @@ async fn sqlite_state_store_round_trips_versioned_snapshot_transactionally() {
         reloaded.command_status.get("command-sqlite"),
         Some(&CommandState::Completed)
     );
+    let task_mapping = reloaded
+        .task_runtime_mappings
+        .get("task-run-sqlite")
+        .expect("task runtime mapping hydrates from normalized storage");
+    assert_eq!(task_mapping.sandbox_id.as_deref(), Some("sandbox-sqlite"));
+    assert_eq!(task_mapping.worktree_path, "/tmp/task-run-sqlite");
 
     let pool = open_state_store(&path).await.expect("store reopens");
     let row: (String, i64) =
@@ -153,12 +170,18 @@ async fn sqlite_state_store_round_trips_versioned_snapshot_transactionally() {
         .fetch_one(&pool)
         .await
         .expect("placement sequences persist");
+    let task_mapping_count: i64 =
+        sqlx::query_scalar("select count(*) from node_task_runtime_mappings")
+            .fetch_one(&pool)
+            .await
+            .expect("task runtime mappings persist");
     pool.close().await;
     assert_eq!(command_count, 1);
     assert_eq!(outbox_count, 0);
     assert_eq!(registration_count, 1);
     assert_eq!(runtime_count, 1);
     assert_eq!(placement_count, 1);
+    assert_eq!(task_mapping_count, 1);
     std::fs::remove_dir_all(dir).expect("sqlite state fixture removes");
 }
 

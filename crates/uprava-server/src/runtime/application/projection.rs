@@ -1307,6 +1307,7 @@ pub(crate) fn reference_title(reference: &UpravaRef) -> String {
         }
         UpravaRef::Session { session_thread_id } => format!("Session {session_thread_id}"),
         UpravaRef::Runtime { runtime_session_id } => format!("Runtime {runtime_session_id}"),
+        UpravaRef::TaskRun { task_run_id } => format!("Task run {task_run_id}"),
         UpravaRef::Turn { turn_id } => format!("Turn {turn_id}"),
         UpravaRef::Message { message_id } | UpravaRef::MessageRange { message_id, .. } => {
             format!("Message {message_id}")

@@ -732,6 +732,8 @@ pub(crate) fn ensure_runtime_accepts_command(
         | CommandKind::WriteWorkspaceTerminal
         | CommandKind::CloseWorkspaceTerminal
         | CommandKind::CancelDeduction
+        | CommandKind::RunTask
+        | CommandKind::CancelTaskRun
         | CommandKind::Tooling => true,
         CommandKind::Extension => false,
     };

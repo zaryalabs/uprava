@@ -12,6 +12,7 @@ pub(crate) fn scope_key(scope_ref: &ScopeRef) -> String {
         } => {
             format!("placement:{project_placement_id}")
         }
+        ScopeRef::TaskRun { task_run_id } => format!("task_run:{task_run_id}"),
         ScopeRef::Unknown { scope } => format!("unknown:{scope}"),
     }
 }

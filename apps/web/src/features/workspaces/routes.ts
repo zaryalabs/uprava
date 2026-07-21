@@ -1,4 +1,9 @@
-export const WORKSPACE_SURFACES = ["agent", "workbench", "jobs"] as const;
+export const WORKSPACE_SURFACES = [
+  "agent",
+  "workbench",
+  "tasks",
+  "jobs",
+] as const;
 
 export type WorkspaceSurface = (typeof WORKSPACE_SURFACES)[number];
 
@@ -46,6 +51,14 @@ export function workspaceWorkbenchRoute(placementId: string) {
 
 export function workspaceJobsRoute(placementId: string) {
   return workspaceSurfaceRoute(placementId, "jobs");
+}
+
+export function workspaceTasksRoute(placementId: string) {
+  return workspaceSurfaceRoute(placementId, "tasks");
+}
+
+export function workspaceTaskRoute(placementId: string, taskRunId: string) {
+  return `${workspaceTasksRoute(placementId)}/${encodeURIComponent(taskRunId)}`;
 }
 
 export function workspaceJobNewRoute(placementId: string) {

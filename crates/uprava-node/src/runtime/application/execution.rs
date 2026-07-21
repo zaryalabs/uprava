@@ -36,25 +36,43 @@ impl<'a> NodeLiveEventSink<'a> {
     }
 }
 
+#[derive(Default)]
+pub(crate) struct CommandExecutionContext<'a> {
+    pub(crate) provider_mcp_access: Option<&'a ProviderMcpAccess>,
+    pub(crate) live_sender: Option<&'a ControlFrameSender>,
+    pub(crate) terminal_supervisor: Option<&'a TerminalSupervisor>,
+    pub(crate) cancellation: Option<watch::Receiver<bool>>,
+    pub(crate) state_store: Option<&'a NodeStateStore>,
+}
+
 #[cfg(test)]
 pub(crate) async fn prepare_command_dispatch(
     config: &NodeConfig,
     local_state: &mut NodeLocalState,
     command: &CommandEnvelope,
 ) -> CommandDispatchOutcome {
-    prepare_command_dispatch_with_live_socket(config, local_state, command, None, None, None, None)
-        .await
+    prepare_command_dispatch_with_live_socket(
+        config,
+        local_state,
+        command,
+        CommandExecutionContext::default(),
+    )
+    .await
 }
 
 pub(crate) async fn prepare_command_dispatch_with_live_socket(
     config: &NodeConfig,
     local_state: &mut NodeLocalState,
     command: &CommandEnvelope,
-    provider_mcp_access: Option<&ProviderMcpAccess>,
-    live_sender: Option<&ControlFrameSender>,
-    terminal_supervisor: Option<&TerminalSupervisor>,
-    cancellation: Option<watch::Receiver<bool>>,
+    execution: CommandExecutionContext<'_>,
 ) -> CommandDispatchOutcome {
+    let CommandExecutionContext {
+        provider_mcp_access,
+        live_sender,
+        terminal_supervisor,
+        cancellation,
+        state_store,
+    } = execution;
     if !command.payload.matches_kind(command.kind) {
         return CommandDispatchOutcome {
             status: CommandState::Failed,
@@ -212,6 +230,38 @@ pub(crate) async fn prepare_command_dispatch_with_live_socket(
             let payload = JsonValue(serde_json::json!({
                 "deduction_id": deduction_id.as_str(),
                 "cancelled": true,
+            }));
+            record_command_result_payload(local_state, command, CommandState::Completed, &payload);
+            return CommandDispatchOutcome {
+                status: CommandState::Completed,
+                events_to_send: vec![],
+                result_payload: payload,
+                state_changed: true,
+            };
+        }
+        CommandKind::RunTask => {
+            let (status, payload, events) =
+                task_command_result(config, command, cancellation, live_sender, state_store).await;
+            record_command_result_payload(local_state, command, status, &payload);
+            local_state.event_outbox.extend(events.iter().cloned());
+            let retention_notices =
+                enforce_event_outbox_retention(local_state, MAX_EVENT_OUTBOX_EVENTS);
+            let mut events_to_send = events;
+            events_to_send.extend(retention_notices);
+            return CommandDispatchOutcome {
+                status,
+                events_to_send,
+                result_payload: payload,
+                state_changed: true,
+            };
+        }
+        CommandKind::CancelTaskRun => {
+            let CommandPayload::CancelTaskRun { task_run_id } = &command.payload else {
+                unreachable!("command payload kind was validated before dispatch")
+            };
+            let payload = JsonValue(serde_json::json!({
+                "task_run_id": task_run_id,
+                "cancellation_requested": true,
             }));
             record_command_result_payload(local_state, command, CommandState::Completed, &payload);
             return CommandDispatchOutcome {

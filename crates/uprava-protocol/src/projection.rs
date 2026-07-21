@@ -21,6 +21,9 @@ pub enum UpravaRef {
     Runtime {
         runtime_session_id: RuntimeSessionId,
     },
+    TaskRun {
+        task_run_id: TaskRunId,
+    },
     Turn {
         turn_id: TurnId,
     },

@@ -110,6 +110,15 @@ pub fn build_router(state: Arc<AppState>) -> Router {
         .route("/jobs/{job_id}/runs", post(run_job_route))
         .route("/job-runs/{job_run_id}", get(job_run_detail_route))
         .route("/job-runs/{job_run_id}/cancel", post(cancel_job_run_route))
+        .route(
+            "/task-runs",
+            get(list_task_runs_route).post(create_task_run_route),
+        )
+        .route("/task-runs/{task_run_id}", get(task_run_detail_route))
+        .route(
+            "/task-runs/{task_run_id}/cancel",
+            post(cancel_task_run_route),
+        )
         .route("/provider-quota/{provider}", get(provider_quota_route))
         .route("/sessions", post(create_session_route))
         .route("/sessions/{session_thread_id}", get(session_detail))

@@ -5,6 +5,8 @@ export const queryKeys = {
   jobs: ["jobs"] as const,
   job: (jobId: string) => ["job", jobId] as const,
   jobRun: (jobRunId: string) => ["job-run", jobRunId] as const,
+  taskRuns: (placementId: string) => ["task-runs", placementId] as const,
+  taskRun: (taskRunId: string) => ["task-run", taskRunId] as const,
   providerQuota: (provider: string) => ["provider-quota", provider] as const,
   nodeEnrollments: ["node-enrollments"] as const,
   node: (nodeId: string) => ["node", nodeId] as const,

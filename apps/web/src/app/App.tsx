@@ -36,6 +36,11 @@ const WorkspaceJobsIndexRoute = lazy(() =>
     default: module.WorkspaceJobsIndexRoute,
   })),
 );
+const WorkspaceTasksRoute = lazy(() =>
+  import("../features/tasks/TasksRoute").then((module) => ({
+    default: module.TasksRoute,
+  })),
+);
 const JobCreateRoute = lazy(() =>
   import("../features/jobs/JobCreateRoute").then((module) => ({
     default: module.JobCreateRoute,
@@ -257,6 +262,22 @@ export function App() {
                   element={
                     <LazyRoute>
                       <WorkspaceWorkbenchRoute />
+                    </LazyRoute>
+                  }
+                />
+                <Route
+                  path="tasks"
+                  element={
+                    <LazyRoute>
+                      <WorkspaceTasksRoute />
+                    </LazyRoute>
+                  }
+                />
+                <Route
+                  path="tasks/:taskRunId"
+                  element={
+                    <LazyRoute>
+                      <WorkspaceTasksRoute />
                     </LazyRoute>
                   }
                 />

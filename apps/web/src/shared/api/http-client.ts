@@ -58,6 +58,9 @@ import type {
   ToolCallsResponse,
   ToolDefinition,
   ToolDefinitionsResponse,
+  CreateTaskRunRequest,
+  TaskRunDetail,
+  TaskRunListResponse,
   UpravaRef,
   VersionResponse,
   WebAuthLoginRequest,
@@ -111,6 +114,8 @@ import {
   toolCallsResponseSchema,
   toolDefinitionSchema,
   toolDefinitionsResponseSchema,
+  taskRunDetailSchema,
+  taskRunListResponseSchema,
 } from "../protocol/validators";
 import { apiBase, apiWsBase } from "./config";
 import { logClientEvent } from "../logging/client-logger";
@@ -549,6 +554,28 @@ export const coreApi = {
     apiGet<JobRunSummary>(`/job-runs/${encodeURIComponent(jobRunId)}`),
   cancelJobRun: (jobRunId: string) =>
     apiPost<JobRunSummary>(`/job-runs/${encodeURIComponent(jobRunId)}/cancel`),
+  taskRuns: (placementId?: string) => {
+    const query = placementId
+      ? `?project_placement_id=${encodeURIComponent(placementId)}`
+      : "";
+    return apiGet<TaskRunListResponse>(
+      `/task-runs${query}`,
+      taskRunListResponseSchema,
+    );
+  },
+  createTaskRun: (request: CreateTaskRunRequest) =>
+    apiPost<TaskRunDetail>("/task-runs", request, taskRunDetailSchema),
+  taskRun: (taskRunId: string) =>
+    apiGet<TaskRunDetail>(
+      `/task-runs/${encodeURIComponent(taskRunId)}`,
+      taskRunDetailSchema,
+    ),
+  cancelTaskRun: (taskRunId: string) =>
+    apiPost<TaskRunDetail>(
+      `/task-runs/${encodeURIComponent(taskRunId)}/cancel`,
+      undefined,
+      taskRunDetailSchema,
+    ),
   providerQuota: (provider: string) =>
     apiGet<ProviderQuotaStatus>(
       `/provider-quota/${encodeURIComponent(provider)}`,

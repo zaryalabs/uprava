@@ -30,11 +30,12 @@ for repository in \
     ghcr.io/zaryalabs/uprava-core \
     ghcr.io/zaryalabs/uprava-web \
     ghcr.io/zaryalabs/uprava-generated-ui-builder \
-    ghcr.io/zaryalabs/uprava-node; do
+    ghcr.io/zaryalabs/uprava-node \
+    ghcr.io/zaryalabs/uprava-codex-runtime; do
     prune_repository "$repository" "$keep_registry"
 done
 
-for repository in uprava-core uprava-web uprava-generated-ui-builder uprava-node; do
+for repository in uprava-core uprava-web uprava-generated-ui-builder uprava-node uprava/codex-runtime; do
     prune_repository "$repository" "$keep_local"
 done
 

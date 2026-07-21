@@ -75,6 +75,8 @@ import type {
   GeneratedUiRuntimeDetail,
   GeneratedUiState,
   ToolingEventV1,
+  TaskRunDetail,
+  TaskRunListResponse,
   WorkspaceCommandHistoryItem,
   WorkspaceCommandHistoryResponse,
   WorkspaceCommandIntent,
@@ -1266,6 +1268,27 @@ export const eventPayloadSchema = z.union([
     .strict(),
   z
     .object({
+      type: z.literal("task_run_state_changed"),
+      task_run_id: z.string(),
+      state: z.enum([
+        "queued",
+        "preparing_workspace",
+        "starting_runtime",
+        "running",
+        "checking",
+        "collecting_evidence",
+        "succeeded",
+        "failed",
+        "cancelling",
+        "cancelled",
+        "timed_out",
+      ]),
+      cleanup_state: z.enum(["pending", "completed", "failed"]),
+      message: nullableString,
+    })
+    .strict(),
+  z
+    .object({
       type: z.literal("extension"),
       name: z.string(),
       value: z.unknown(),
@@ -1302,6 +1325,7 @@ const payloadTypeByEventKind: Record<EventKind, EventPayload["type"]> = {
   "deduction.invalid": "deduction_invalid",
   "deduction.failed": "deduction_failed",
   "deduction.cancelled": "deduction_cancelled",
+  "task_run.state_changed": "task_run_state_changed",
   extension: "extension",
 };
 
@@ -1456,6 +1480,111 @@ export const workspaceTerminalListResponseSchema = z
     generated_at: z.string(),
   })
   .strict() satisfies z.ZodType<WorkspaceTerminalListResponse>;
+
+const taskRunStateSchema = z.enum([
+  "queued",
+  "preparing_workspace",
+  "starting_runtime",
+  "running",
+  "checking",
+  "collecting_evidence",
+  "succeeded",
+  "failed",
+  "cancelling",
+  "cancelled",
+  "timed_out",
+]);
+const taskCleanupStateSchema = z.enum(["pending", "completed", "failed"]);
+const taskFailureSchema = z
+  .object({ code: z.string(), message: z.string() })
+  .strict();
+const taskCheckSpecSchema = z
+  .object({
+    label: z.string(),
+    command: z.string(),
+    args: z.array(z.string()),
+    timeout_seconds: z.number().int().nonnegative(),
+  })
+  .strict();
+const taskResourceLimitsSchema = z
+  .object({ cpu: z.string(), memory: z.string() })
+  .strict();
+const taskCheckResultSchema = z
+  .object({
+    label: z.string(),
+    command: z.string(),
+    success: z.boolean(),
+    exit_code: nullableNumber,
+    stdout: z.string(),
+    stderr: z.string(),
+    stdout_truncated: z.boolean(),
+    stderr_truncated: z.boolean(),
+    duration_ms: z.number().int().nonnegative(),
+  })
+  .strict();
+const taskArtifactEvidenceSchema = z
+  .object({
+    path: z.string(),
+    size_bytes: z.number().int().nonnegative(),
+    sha256: z.string(),
+  })
+  .strict();
+const taskRunResultSchema = z
+  .object({
+    task_run_id: z.string(),
+    state: taskRunStateSchema,
+    cleanup_state: taskCleanupStateSchema,
+    summary: z.string(),
+    base_revision: z.string(),
+    final_revision: nullableString,
+    branch: z.string(),
+    worktree_path: z.string(),
+    runtime_image: z.string(),
+    diff: z.string(),
+    diff_truncated: z.boolean(),
+    checks: z.array(taskCheckResultSchema),
+    artifacts: z.array(taskArtifactEvidenceSchema),
+    unresolved_risks: z.array(z.string()),
+    terminal_reason: taskFailureSchema.nullable(),
+  })
+  .strict();
+const taskRunSummarySchema = z
+  .object({
+    task_run_id: z.string(),
+    project_placement_id: z.string(),
+    placement_name: z.string(),
+    node_id: z.string(),
+    provider: z.string(),
+    state: taskRunStateSchema,
+    cleanup_state: taskCleanupStateSchema,
+    base_revision: z.string(),
+    branch: z.string(),
+    runtime_image: z.string(),
+    queued_at: z.string(),
+    started_at: nullableString,
+    finished_at: nullableString,
+    summary: nullableString,
+    terminal_reason: taskFailureSchema.nullable(),
+  })
+  .strict();
+
+export const taskRunListResponseSchema = z
+  .object({ items: z.array(taskRunSummarySchema) })
+  .strict() satisfies z.ZodType<TaskRunListResponse>;
+
+export const taskRunDetailSchema = z
+  .object({
+    task: taskRunSummarySchema,
+    prompt: z.string(),
+    checks: z.array(taskCheckSpecSchema),
+    artifact_paths: z.array(z.string()),
+    timeout_seconds: z.number().int().nonnegative(),
+    ttl_seconds: z.number().int().nonnegative(),
+    resource_limits: taskResourceLimitsSchema,
+    worktree_path: nullableString,
+    result: taskRunResultSchema.nullable(),
+  })
+  .strict() satisfies z.ZodType<TaskRunDetail>;
 
 export const workspaceTerminalStreamFrameSchema = z.discriminatedUnion("kind", [
   z

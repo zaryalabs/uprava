@@ -67,6 +67,18 @@ fn node_config_from_env_rejects_invalid_duration_values() {
 }
 
 #[test]
+fn node_config_restricts_deferred_auth_opensandbox_to_loopback() {
+    let _lock = env_lock();
+    let _env = EnvGuard::cleared(NODE_CONFIG_ENV_VARS);
+    std::env::set_var("UPRAVA_NODE_WORKSPACES", std::env::temp_dir());
+    std::env::set_var("UPRAVA_OPENSANDBOX_URL", "http://opensandbox.internal:8080");
+
+    let error = NodeConfig::from_env().expect_err("remote insecure OpenSandbox rejects");
+
+    assert!(error.to_string().contains("loopback HTTP URL"));
+}
+
+#[test]
 fn command_available_returns_false_for_missing_absolute_binary() {
     let missing = std::env::temp_dir().join(format!("missing-codex-{}", Uuid::new_v4()));
 

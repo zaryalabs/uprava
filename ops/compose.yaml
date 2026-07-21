@@ -1,6 +1,25 @@
 name: uprava
 
 services:
+  opensandbox:
+    image: ${UPRAVA_OPENSANDBOX_IMAGE:-opensandbox/server:v0.2.2}
+    container_name: uprava-opensandbox
+    restart: unless-stopped
+    environment:
+      SANDBOX_CONFIG_PATH: /etc/opensandbox/config.toml
+      OPENSANDBOX_INSECURE_SERVER: "YES"
+    ports:
+      - "127.0.0.1:18083:8080"
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+      - /srv/uprava-workspaces:/srv/uprava-workspaces
+      - ./opensandbox.toml:/etc/opensandbox/config.toml:ro
+      - ./state/opensandbox:/var/lib/opensandbox
+    extra_hosts:
+      - host.docker.internal:host-gateway
+    networks:
+      - default
+
   generated-ui-builder:
     image: ${UPRAVA_GENERATED_UI_BUILDER_IMAGE:-uprava-generated-ui-builder:local}
     container_name: uprava-generated-ui-builder
@@ -126,6 +145,7 @@ services:
       - platform
 
 networks:
+  default:
   generated-ui-private:
     internal: true
   platform:

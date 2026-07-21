@@ -1174,6 +1174,8 @@ mod tests {
             codex_binary: "missing-codex".to_owned(),
             codex_ignore_user_config: false,
             codex_timeout: Duration::from_secs(5),
+            opensandbox_url: None,
+            task_runtime_image: "uprava/codex-runtime:test".to_owned(),
             toolhive_url: "http://127.0.0.1:9".parse().expect("ToolHive fixture URL"),
             toolhive_timeout: Duration::from_secs(1),
         };

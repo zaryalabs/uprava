@@ -373,8 +373,10 @@ in-container command transport.
 Rust Node интегрируется с service напрямую по private HTTP contract через
 replaceable `TaskRuntimeBackend`; дополнительный JS/Python runner или локальный
 самописный Docker orchestrator не входят в baseline. Codex CLI и общие tools
-поставляются custom versioned image, а cached login монтируется read-write из
-persistent host credential profile и не запекается в image.
+поставляются custom versioned image. Baseline `0.2.19` реализует runtime,
+worktree, lifecycle и evidence mechanics; read-write cached login из persistent
+host credential profile и OpenSandbox API key намеренно отложены и не
+запекаются в image.
 
 Полный scope, lifecycle and spike criteria определены в
 [`A-013 Task-based Sandbox Runtime`](areas/013-task-based-sandbox-runtime.md).

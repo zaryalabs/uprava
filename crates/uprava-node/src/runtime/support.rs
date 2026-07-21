@@ -35,6 +35,21 @@ pub(crate) fn capabilities(config: &NodeConfig) -> Vec<CapabilitySummary> {
                 mode: "explicit_path".to_owned(),
             },
         },
+        CapabilitySummary {
+            key: "task_runtime.opensandbox.docker".to_owned(),
+            value: CapabilityValue::Extension {
+                name: "task_runtime".to_owned(),
+                value: JsonValue(serde_json::json!({
+                    "available": config.opensandbox_url.is_some(),
+                    "configured": config.opensandbox_url.is_some(),
+                    "backend": "opensandbox",
+                    "mode": "docker",
+                    "provider": "codex",
+                    "runtime_image": config.task_runtime_image,
+                    "auth_mode": "deferred_manual"
+                })),
+            },
+        },
     ]
 }
 

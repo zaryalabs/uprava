@@ -576,6 +576,8 @@ mod runtime;
 mod scheduling;
 #[path = "runtime/tests/session.rs"]
 mod session;
+#[path = "runtime/tests/task.rs"]
+mod task;
 #[path = "runtime/tests/tooling.rs"]
 mod tooling;
 #[path = "runtime/tests/workspace.rs"]

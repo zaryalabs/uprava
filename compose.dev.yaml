@@ -1,6 +1,24 @@
 name: uprava-dev
 
 services:
+  opensandbox:
+    image: opensandbox/server:v0.2.2
+    profiles: [task-runtime]
+    environment:
+      SANDBOX_CONFIG_PATH: /etc/opensandbox/config.toml
+      OPENSANDBOX_INSECURE_SERVER: "YES"
+    ports:
+      - "127.0.0.1:18083:8080"
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+      - ${PWD}:${PWD}
+      - ./ops/opensandbox.dev.toml:/etc/opensandbox/config.toml:ro
+      - uprava-dev-opensandbox-data:/var/lib/opensandbox
+    extra_hosts:
+      - host.docker.internal:host-gateway
+    networks:
+      - default
+
   generated-ui-builder:
     build:
       context: .
@@ -95,6 +113,7 @@ services:
 
 volumes:
   uprava-dev-core-data:
+  uprava-dev-opensandbox-data:
   uprava-dev-toolhive-data:
 
 networks:

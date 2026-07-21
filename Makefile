@@ -27,6 +27,9 @@ UPRAVA_CORE_IMAGE ?= $(IMAGE_NAMESPACE)/uprava-core:$(IMAGE_TAG)
 UPRAVA_WEB_IMAGE ?= $(IMAGE_NAMESPACE)/uprava-web:$(IMAGE_TAG)
 UPRAVA_GENERATED_UI_BUILDER_IMAGE ?= $(IMAGE_NAMESPACE)/uprava-generated-ui-builder:$(IMAGE_TAG)
 UPRAVA_NODE_IMAGE ?= $(IMAGE_NAMESPACE)/uprava-node:$(IMAGE_TAG)
+UPRAVA_TASK_RUNTIME_IMAGE ?= $(IMAGE_NAMESPACE)/uprava-codex-runtime:$(IMAGE_TAG)
+UPRAVA_OPENSANDBOX_IMAGE ?= opensandbox/server:v0.2.2
+UPRAVA_TASK_RUNTIME_DEV_IMAGE ?= uprava/codex-runtime:0.2.19
 UPRAVA_NODE_PACKAGE_VERSION := $(shell awk -F'"' '/^version = / { print $$2; exit }' crates/uprava-node/Cargo.toml)
 UPRAVA_NODE_VERSION ?= $(UPRAVA_NODE_PACKAGE_VERSION)+$(GIT_SHA)
 RELEASE_ID ?= $(SHORT_SHA)
@@ -89,6 +92,8 @@ build: ## Build releasable Core/Web/Generated UI images and Node artifact
 		apps/web
 	docker build -t "$(UPRAVA_GENERATED_UI_BUILDER_IMAGE)" -f Dockerfile.generated-ui-builder .
 	docker build --build-arg UPRAVA_GIT_SHA="$(GIT_SHA)" -t "$(UPRAVA_NODE_IMAGE)" -f Dockerfile.node .
+	docker build -t "$(UPRAVA_TASK_RUNTIME_IMAGE)" -f Dockerfile.codex-runtime .
+	docker pull "$(UPRAVA_OPENSANDBOX_IMAGE)"
 	scripts/extract-node-artifact.sh "$(UPRAVA_NODE_IMAGE)" "$(NODE_ARTIFACT_PATH)" >/dev/null
 
 image-runtime: ## Run production images non-root with read-only filesystems
@@ -108,6 +113,7 @@ push: ## Push releasable artifacts and write release manifest
 	docker push "$(UPRAVA_WEB_IMAGE)"
 	docker push "$(UPRAVA_GENERATED_UI_BUILDER_IMAGE)"
 	docker push "$(UPRAVA_NODE_IMAGE)"
+	docker push "$(UPRAVA_TASK_RUNTIME_IMAGE)"
 	$(MAKE) --no-print-directory release-manifest
 
 release-manifest: ## Write builds/releases/<release-id>.env.release
@@ -119,6 +125,8 @@ release-manifest: ## Write builds/releases/<release-id>.env.release
 	UPRAVA_WEB_IMAGE="$(UPRAVA_WEB_IMAGE)" \
 	UPRAVA_GENERATED_UI_BUILDER_IMAGE="$(UPRAVA_GENERATED_UI_BUILDER_IMAGE)" \
 	UPRAVA_NODE_IMAGE="$(UPRAVA_NODE_IMAGE)" \
+	UPRAVA_TASK_RUNTIME_IMAGE="$(UPRAVA_TASK_RUNTIME_IMAGE)" \
+	UPRAVA_OPENSANDBOX_IMAGE="$(UPRAVA_OPENSANDBOX_IMAGE)" \
 	UPRAVA_NODE_VERSION="$(UPRAVA_NODE_VERSION)" \
 	UPRAVA_RELEASE_FAMILY="$(UPRAVA_RELEASE_FAMILY)" \
 	UPRAVA_CORE_STATE_DIR="$(UPRAVA_CORE_STATE_DIR)" \
@@ -139,10 +147,12 @@ install-ops: ## Bootstrap product-owned directories and ops files
 	$(SUDO) install -d -o root -g root -m 755 "$(INSTALL_DIR)"
 	$(SUDO) install -d -o root -g root -m 755 "$(INSTALL_DIR)/builds/releases"
 	$(SUDO) install -d -o 10001 -g 10001 -m 750 "$(INSTALL_DIR)/state/core"
+	$(SUDO) install -d -o root -g root -m 750 "$(INSTALL_DIR)/state/opensandbox"
 	$(SUDO) install -d -o root -g root -m 755 "$(INSTALL_DIR)/scripts" "$(INSTALL_DIR)/systemd"
 	$(SUDO) install -d -o uprava -g uprava -m 700 /var/lib/uprava-node
 	$(SUDO) install -m 644 ops/Makefile "$(INSTALL_DIR)/Makefile"
 	$(SUDO) install -m 644 ops/compose.yaml "$(INSTALL_DIR)/compose.yaml"
+	$(SUDO) install -m 644 ops/opensandbox.toml "$(INSTALL_DIR)/opensandbox.toml"
 	$(SUDO) install -m 644 ops/README.md "$(INSTALL_DIR)/README.md"
 	$(SUDO) install -m 644 ops/systemd/uprava-node.service.example "$(INSTALL_DIR)/systemd/uprava-node.service"
 	$(SUDO) install -m 644 ops/systemd/uprava-node.service.example "$(SYSTEMD_UNIT_PATH)"
@@ -379,6 +389,15 @@ node-r: ## Run Node Daemon locally when Cargo workspace exists
 		echo "No Cargo.toml found; skipping Node run"; \
 	fi
 
+task-runtime-build: ## Build the pinned Codex task runtime image
+	docker build -t "$(UPRAVA_TASK_RUNTIME_DEV_IMAGE)" -f Dockerfile.codex-runtime .
+
+task-runtime-up: task-runtime-build ## Start local OpenSandbox for Task Runs
+	$(DEV_COMPOSE_CMD) --profile task-runtime up -d opensandbox
+
+task-runtime-down: ## Stop local OpenSandbox for Task Runs
+	$(DEV_COMPOSE_CMD) --profile task-runtime stop opensandbox
+
 dev-up: ## Start local Core/Web/ToolHive/Generated UI development profile
 	@set -e; \
 	if [ -f "$(DEV_COMPOSE_FILE)" ]; then \
@@ -501,4 +520,4 @@ clean: ## Remove common local build and cache artifacts
 	rm -rf target htmlcov coverage .pytest_cache .ruff_cache .mypy_cache .ty
 	rm -rf $(WEB_DIR)/dist $(WEB_DIR)/coverage
 
-.PHONY: help prepare ci-prepare ci-build ci-deploy ci-finalize build image-runtime clean-state-restore push release-manifest install-release-manifest install-ops init fmt l dl t c push-check push-check-msrv pc claw-doctor claw-init claw-map claw-review claw-report claw-ci claw-show claw-fix docs-fmt docs-l web-install ops-config systemd-check scripts-check rust-fmt rust-l rust-dl rust-tools-install rust-t generated-ui-t web-r web-fmt web-l web-dl web-t web-e2e core-r node-r dev-up dev-down dev-logs dev-reset dev-smoke compose-up compose-down compose-logs compose-reset compose-smoke codex-smoke clean
+.PHONY: help prepare ci-prepare ci-build ci-deploy ci-finalize build image-runtime task-runtime-build task-runtime-up task-runtime-down clean-state-restore push release-manifest install-release-manifest install-ops init fmt l dl t c push-check push-check-msrv pc claw-doctor claw-init claw-map claw-review claw-report claw-ci claw-show claw-fix docs-fmt docs-l web-install ops-config systemd-check scripts-check rust-fmt rust-l rust-dl rust-tools-install rust-t generated-ui-t web-r web-fmt web-l web-dl web-t web-e2e core-r node-r dev-up dev-down dev-logs dev-reset dev-smoke compose-up compose-down compose-logs compose-reset compose-smoke codex-smoke clean

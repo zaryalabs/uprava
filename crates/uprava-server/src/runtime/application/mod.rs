@@ -7,6 +7,7 @@ mod plugins;
 mod projection;
 mod scheduling;
 mod session;
+mod task;
 mod tooling;
 mod workspace;
 
@@ -17,5 +18,6 @@ pub(crate) use plugins::*;
 pub(crate) use projection::*;
 pub(crate) use scheduling::*;
 pub(crate) use session::*;
+pub(crate) use task::*;
 pub(crate) use tooling::*;
 pub(crate) use workspace::*;

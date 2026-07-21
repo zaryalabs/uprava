@@ -13,6 +13,8 @@ const NODE_CONFIG_ENV_VARS: &[&str] = &[
     "UPRAVA_CODEX_BINARY",
     "UPRAVA_CODEX_IGNORE_USER_CONFIG",
     "UPRAVA_CODEX_TIMEOUT_SECONDS",
+    "UPRAVA_OPENSANDBOX_URL",
+    "UPRAVA_TASK_RUNTIME_IMAGE",
     "UPRAVA_TOOLHIVE_URL",
     "UPRAVA_TOOLHIVE_TIMEOUT_SECONDS",
 ];
@@ -214,6 +216,8 @@ fn config_fixture_with_codex_binary(codex_binary: impl Into<String>) -> NodeConf
         codex_binary: codex_binary.into(),
         codex_ignore_user_config: false,
         codex_timeout: Duration::from_secs(5),
+        opensandbox_url: None,
+        task_runtime_image: "uprava/codex-runtime:test".to_owned(),
         toolhive_url: "http://127.0.0.1:9".parse().expect("ToolHive fixture URL"),
         toolhive_timeout: Duration::from_secs(1),
     }

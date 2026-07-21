@@ -15,6 +15,8 @@ import {
   workspaceJobsRoute,
   workspaceRoute,
   workspaceSurfaceFromPathname,
+  workspaceTaskRoute,
+  workspaceTasksRoute,
   workspaceWorkbenchRoute,
 } from "./routes";
 
@@ -31,6 +33,12 @@ describe("workspace routes", () => {
     );
     expect(workspaceWorkbenchRoute("placement 1")).toBe(
       "/workspaces/placement%201/workbench",
+    );
+    expect(workspaceTasksRoute("placement 1")).toBe(
+      "/workspaces/placement%201/tasks",
+    );
+    expect(workspaceTaskRoute("placement 1", "task/1")).toBe(
+      "/workspaces/placement%201/tasks/task%2F1",
     );
     expect(workspaceJobsRoute("placement 1")).toBe(
       "/workspaces/placement%201/jobs",
@@ -53,6 +61,12 @@ describe("workspace routes", () => {
         "/workspaces/placement-1/agent/session-1",
       ),
     ).toBe("agent");
+    expect(
+      workspaceSurfaceFromPathname(
+        "placement-1",
+        "/workspaces/placement-1/tasks/task-1",
+      ),
+    ).toBe("tasks");
     expect(
       workspaceSurfaceFromPathname(
         "placement-1",

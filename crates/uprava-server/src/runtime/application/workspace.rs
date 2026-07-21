@@ -269,6 +269,7 @@ pub(crate) async fn delete_placement(
             where project_placement_id = ?1
         )
         "#,
+        "delete from task_runs where project_placement_id = ?1",
         r#"
         delete from commands
         where project_placement_id = ?1

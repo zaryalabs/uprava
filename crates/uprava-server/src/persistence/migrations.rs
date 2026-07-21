@@ -1054,6 +1054,50 @@ pub(crate) const MIGRATION_16: &[&str] = &[
     "#,
 ];
 
+pub(crate) const MIGRATION_17: &[&str] = &[
+    r#"
+    create table if not exists task_runs (
+        task_run_id text primary key,
+        project_placement_id text not null references project_placements(project_placement_id) on delete restrict,
+        node_id text not null references nodes(node_id) on delete restrict,
+        provider text not null,
+        state text not null check (state in (
+            'queued', 'preparing_workspace', 'starting_runtime', 'running', 'checking',
+            'collecting_evidence', 'succeeded', 'failed', 'cancelling', 'cancelled', 'timed_out'
+        )),
+        cleanup_state text not null check (cleanup_state in ('pending', 'completed', 'failed')),
+        prompt text not null,
+        base_revision text not null,
+        branch text not null,
+        runtime_image text not null,
+        checks_json text not null,
+        artifact_paths_json text not null,
+        timeout_seconds integer not null,
+        ttl_seconds integer not null,
+        resource_limits_json text not null,
+        command_id text not null references commands(command_id) on delete restrict,
+        cancel_command_id text references commands(command_id) on delete set null,
+        worktree_path text,
+        result_json text,
+        summary text,
+        terminal_code text,
+        terminal_message text,
+        queued_at text not null,
+        started_at text,
+        finished_at text,
+        updated_at text not null
+    )
+    "#,
+    r#"
+    create index if not exists task_runs_placement_idx
+    on task_runs(project_placement_id, queued_at desc)
+    "#,
+    r#"
+    create index if not exists task_runs_active_idx
+    on task_runs(node_id, state, queued_at)
+    "#,
+];
+
 pub(crate) const MIGRATIONS: &[Migration] = &[
     Migration {
         version: 1,
@@ -1133,6 +1177,11 @@ pub(crate) const MIGRATIONS: &[Migration] = &[
     Migration {
         version: 16,
         statements: MIGRATION_16,
+        ignore_duplicate_columns: false,
+    },
+    Migration {
+        version: 17,
+        statements: MIGRATION_17,
         ignore_duplicate_columns: false,
     },
 ];

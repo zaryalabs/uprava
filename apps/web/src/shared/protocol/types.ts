@@ -55,6 +55,19 @@ export type JobRunState =
   | "cancelled"
   | "timed_out"
   | "skipped";
+export type TaskRunState =
+  | "queued"
+  | "preparing_workspace"
+  | "starting_runtime"
+  | "running"
+  | "checking"
+  | "collecting_evidence"
+  | "succeeded"
+  | "failed"
+  | "cancelling"
+  | "cancelled"
+  | "timed_out";
+export type TaskCleanupState = "pending" | "completed" | "failed";
 export type EnrollmentState =
   | "pending_user_approval"
   | "approved"
@@ -537,6 +550,13 @@ export type EventPayload =
   | { type: "deduction_completed"; deduction_id: string }
   | { type: "deduction_cancelled"; deduction_id: string }
   | {
+      type: "task_run_state_changed";
+      task_run_id: string;
+      state: TaskRunState;
+      cleanup_state: TaskCleanupState;
+      message: string | null;
+    }
+  | {
       type: "deduction_invalid" | "deduction_failed";
       deduction_id: string;
       code: string;
@@ -714,6 +734,98 @@ export type UpdateJobRequest = {
   continue_after_error?: boolean;
 };
 
+export type TaskCheckSpec = {
+  label: string;
+  command: string;
+  args: string[];
+  timeout_seconds: number;
+};
+
+export type TaskResourceLimits = {
+  cpu: string;
+  memory: string;
+};
+
+export type CreateTaskRunRequest = {
+  project_placement_id: string;
+  prompt: string;
+  base_revision: string | null;
+  checks: TaskCheckSpec[];
+  artifact_paths: string[];
+  timeout_seconds: number;
+  ttl_seconds: number;
+  resource_limits: TaskResourceLimits;
+  runtime_image: string | null;
+};
+
+export type TaskCheckResult = {
+  label: string;
+  command: string;
+  success: boolean;
+  exit_code: number | null;
+  stdout: string;
+  stderr: string;
+  stdout_truncated: boolean;
+  stderr_truncated: boolean;
+  duration_ms: number;
+};
+
+export type TaskArtifactEvidence = {
+  path: string;
+  size_bytes: number;
+  sha256: string;
+};
+
+export type TaskRunResultPackage = {
+  task_run_id: string;
+  state: TaskRunState;
+  cleanup_state: TaskCleanupState;
+  summary: string;
+  base_revision: string;
+  final_revision: string | null;
+  branch: string;
+  worktree_path: string;
+  runtime_image: string;
+  diff: string;
+  diff_truncated: boolean;
+  checks: TaskCheckResult[];
+  artifacts: TaskArtifactEvidence[];
+  unresolved_risks: string[];
+  terminal_reason: ScheduledMessageFailure | null;
+};
+
+export type TaskRunSummary = {
+  task_run_id: string;
+  project_placement_id: string;
+  placement_name: string;
+  node_id: string;
+  provider: string;
+  state: TaskRunState;
+  cleanup_state: TaskCleanupState;
+  base_revision: string;
+  branch: string;
+  runtime_image: string;
+  queued_at: string;
+  started_at: string | null;
+  finished_at: string | null;
+  summary: string | null;
+  terminal_reason: ScheduledMessageFailure | null;
+};
+
+export type TaskRunDetail = {
+  task: TaskRunSummary;
+  prompt: string;
+  checks: TaskCheckSpec[];
+  artifact_paths: string[];
+  timeout_seconds: number;
+  ttl_seconds: number;
+  resource_limits: TaskResourceLimits;
+  worktree_path: string | null;
+  result: TaskRunResultPackage | null;
+};
+
+export type TaskRunListResponse = { items: TaskRunSummary[] };
+
 export type ProviderQuotaStatus = {
   provider: string;
   state: "available" | "limited" | "unknown";
@@ -848,6 +960,7 @@ export type UpravaRef =
   | { kind: "workspace"; placement_id: string }
   | { kind: "session"; session_thread_id: string }
   | { kind: "runtime"; runtime_session_id: string }
+  | { kind: "task_run"; task_run_id: string }
   | { kind: "turn"; turn_id: string }
   | { kind: "message"; message_id: string }
   | { kind: "message_range"; message_id: string; range: TextRange }
@@ -1679,6 +1792,7 @@ export type ScopeRef =
   | { kind: "session"; session_thread_id: string }
   | { kind: "node"; node_id: string }
   | { kind: "placement"; project_placement_id: string }
+  | { kind: "task_run"; task_run_id: string }
   | { kind: "unknown"; scope: string };
 
 export type ArtifactState = "active" | "stale" | "archived";

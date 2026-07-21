@@ -2,7 +2,7 @@
 
 Статус: `active`
 
-Current release baseline: `0.2.18`.
+Current release baseline: `0.2.19`.
 
 Этот ledger фиксирует implementation baselines. Он не заменяет
 [`feature-queue.md`](product/feature-queue.md), где остается ранжированная очередь
@@ -39,16 +39,27 @@ future work.
 | `0.2.15` | 2026-07-21 | shipped | Bundled Markdown renderer plugin: typed `visual.renderer` contribution, безопасный Streamdown для static/streaming chat content, lazy Web activation и plain-text fallback |
 | `0.2.16` | 2026-07-21 | shipped | Plugin contribution resolution: normalized targets, deterministic exclusive chains, revisioned order/disable preferences, visible conflicts и bundled Markdown/Plain Text fallback chain |
 | `0.2.17` | 2026-07-21 | shipped | Plugin-driven Visual Artifact System: generic versioned artifacts, source matchers, inline/block/artifact viewers и bundled color, diagram, review and trace plugins с mandatory fallbacks |
-| `0.2.18` | 2026-07-21 | current | Dynamic UI from Agents: opt-in Generated React plugin, controlled builder, sandboxed iframe, Uprava UI SDK, persisted state, permissioned actions и safe fallbacks |
+| `0.2.18` | 2026-07-21 | shipped | Dynamic UI from Agents: opt-in Generated React plugin, controlled builder, sandboxed iframe, Uprava UI SDK, persisted state, permissioned actions и safe fallbacks |
+| `0.2.19` | 2026-07-21 | current | Task-based sandbox runtime mechanics: durable Task Runs, isolated Git worktrees, Docker/OpenSandbox execution, cancel/recovery, bounded evidence, Tasks UI и immutable Codex runtime image; credential profiles отложены |
 
 ## Current Baseline
 
-`0.2.18` включает baseline `0.2.17`, protocol-v2 baseline `0.2.0`, завершённое Zarya 0.1 Web UI/UX
+`0.2.19` включает baseline `0.2.18`, protocol-v2 baseline `0.2.0`, завершённое Zarya 0.1 Web UI/UX
 alignment и clean-bootstrap four-phase delivery path. Текущая реализация включает
 первый working distributed
-control panel, восемнадцать implementation slices после `0.1.0`, unified audit
+control panel, девятнадцать implementation slices после `0.1.0`, unified audit
 hardening slice и workspace
 renderer/PTY terminal layer, а также первый deployable self-hosted release path:
+
+- Core хранит отдельный `TaskRun` и dispatch-ит его на capability-compatible
+  Node без создания interactive session; Node создаёт linked Git worktree,
+  управляет pinned OpenSandbox Docker lifecycle и возвращает summary, bounded
+  diff, checks, hashes artifacts, terminal reason и независимый cleanup state;
+- Tasks surface создаёт, отслеживает и отменяет bounded runs. Node сохраняет
+  transient run-to-sandbox mappings для restart cleanup, а release manifest
+  digest-pin-ит Codex task image и third-party OpenSandbox server image.
+  OpenSandbox API key и persistent Codex
+  credential profile намеренно отложены и остаются manual acceptance debt;
 
 - opt-in bundled `uprava.generated-react` публикует Generated UI runtime, SDK,
   action bridge, artifact type and viewer contributions через общий target

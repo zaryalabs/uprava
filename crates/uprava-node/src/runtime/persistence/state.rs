@@ -37,6 +37,8 @@ pub(crate) struct NodeLocalState {
     #[serde(default)]
     pub(crate) tool_dependencies: HashMap<String, ToolDependencyDesired>,
     #[serde(default)]
+    pub(crate) task_runtime_mappings: HashMap<String, TaskRuntimeMapping>,
+    #[serde(default)]
     pub(crate) placement_seqs: HashMap<String, i64>,
     #[serde(default)]
     pub(crate) reconnect_attempts: u64,
@@ -60,6 +62,15 @@ pub(crate) struct ProviderResumeRef {
     pub(crate) resume_cursor: Option<String>,
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub(crate) struct TaskRuntimeMapping {
+    pub(crate) task_run_id: uprava_protocol::TaskRunId,
+    pub(crate) worktree_path: String,
+    pub(crate) branch: String,
+    pub(crate) sandbox_id: Option<String>,
+    pub(crate) updated_at: DateTime<Utc>,
+}
+
 impl Default for NodeLocalState {
     fn default() -> Self {
         Self {
@@ -81,6 +92,7 @@ impl Default for NodeLocalState {
             runtime_provider_resume_refs: HashMap::new(),
             cancelled_deductions: HashSet::new(),
             tool_dependencies: HashMap::new(),
+            task_runtime_mappings: HashMap::new(),
             placement_seqs: HashMap::new(),
             reconnect_attempts: 0,
             dropped_event_count: 0,
@@ -129,6 +141,10 @@ impl std::fmt::Debug for NodeLocalState {
             )
             .field("cancelled_deductions", &self.cancelled_deductions)
             .field("tool_dependency_count", &self.tool_dependencies.len())
+            .field(
+                "task_runtime_mapping_count",
+                &self.task_runtime_mappings.len(),
+            )
             .field("placement_seqs", &self.placement_seqs)
             .field("reconnect_attempts", &self.reconnect_attempts)
             .field("dropped_event_count", &self.dropped_event_count)
@@ -431,6 +447,21 @@ impl NodeLocalState {
             .execute(&mut *transaction)
             .await?;
         }
+        sqlx::query("delete from node_task_runtime_mappings")
+            .execute(&mut *transaction)
+            .await?;
+        for mapping in snapshot.task_runtime_mappings.values() {
+            sqlx::query(
+                "insert into node_task_runtime_mappings (task_run_id, worktree_path, branch, sandbox_id, updated_at) values (?1, ?2, ?3, ?4, ?5)",
+            )
+            .bind(mapping.task_run_id.as_str())
+            .bind(&mapping.worktree_path)
+            .bind(&mapping.branch)
+            .bind(&mapping.sandbox_id)
+            .bind(mapping.updated_at)
+            .execute(&mut *transaction)
+            .await?;
+        }
         transaction.commit().await?;
         pool.close().await;
         #[cfg(unix)]
@@ -445,6 +476,7 @@ impl NodeLocalState {
             daemon_installation_id: self.daemon_installation_id.clone(),
             cancelled_deductions: self.cancelled_deductions.clone(),
             tool_dependencies: self.tool_dependencies.clone(),
+            task_runtime_mappings: self.task_runtime_mappings.clone(),
             ..Self::default()
         }
     }
@@ -565,6 +597,11 @@ impl NodeLocalState {
             &baseline.tool_dependencies,
             &command_state.tool_dependencies,
         );
+        merge_changed_map(
+            &mut self.task_runtime_mappings,
+            &baseline.task_runtime_mappings,
+            &command_state.task_runtime_mappings,
+        );
         for (placement_id, seq) in &command_state.placement_seqs {
             if baseline.placement_seqs.get(placement_id) != Some(seq) {
                 let current = self.placement_seqs.entry(placement_id.clone()).or_default();
@@ -637,6 +674,12 @@ pub(crate) enum NodeStateMutation {
     MergeCommandState {
         baseline: Box<NodeLocalState>,
         command_state: Box<NodeLocalState>,
+    },
+    UpsertTaskRuntimeMapping {
+        mapping: TaskRuntimeMapping,
+    },
+    RemoveTaskRuntimeMapping {
+        task_run_id: uprava_protocol::TaskRunId,
     },
 }
 
@@ -761,6 +804,24 @@ impl NodeStateStore {
         self.merge_command_state(baseline, command_state).await
     }
 
+    pub(crate) async fn upsert_task_runtime_mapping(
+        &self,
+        mapping: TaskRuntimeMapping,
+    ) -> anyhow::Result<()> {
+        self.mutate(NodeStateMutation::UpsertTaskRuntimeMapping { mapping })
+            .await?;
+        Ok(())
+    }
+
+    pub(crate) async fn remove_task_runtime_mapping(
+        &self,
+        task_run_id: uprava_protocol::TaskRunId,
+    ) -> anyhow::Result<()> {
+        self.mutate(NodeStateMutation::RemoveTaskRuntimeMapping { task_run_id })
+            .await?;
+        Ok(())
+    }
+
     pub(crate) async fn shutdown(&self) -> anyhow::Result<()> {
         let (respond_to, response) = oneshot::channel();
         let _ = self
@@ -879,6 +940,18 @@ pub(crate) async fn apply_node_state_mutation(
             state.save_async(path).await?;
             Ok(NodeStateMutationResult::Unit)
         }
+        NodeStateMutation::UpsertTaskRuntimeMapping { mapping } => {
+            state
+                .task_runtime_mappings
+                .insert(mapping.task_run_id.to_string(), mapping);
+            state.save_async(path).await?;
+            Ok(NodeStateMutationResult::Unit)
+        }
+        NodeStateMutation::RemoveTaskRuntimeMapping { task_run_id } => {
+            state.task_runtime_mappings.remove(task_run_id.as_str());
+            state.save_async(path).await?;
+            Ok(NodeStateMutationResult::Unit)
+        }
     }
 }
 
@@ -984,6 +1057,19 @@ pub(crate) async fn initialize_state_store(pool: &SqlitePool) -> anyhow::Result<
         create table if not exists node_placement_sequences (
             placement_id text primary key,
             seq integer not null,
+            updated_at text not null
+        )
+        "#,
+    )
+    .execute(pool)
+    .await?;
+    sqlx::query(
+        r#"
+        create table if not exists node_task_runtime_mappings (
+            task_run_id text primary key,
+            worktree_path text not null,
+            branch text not null,
+            sandbox_id text,
             updated_at text not null
         )
         "#,
@@ -1149,6 +1235,28 @@ pub(crate) async fn hydrate_from_normalized_tables(
             state
                 .placement_seqs
                 .insert(row.try_get("placement_id")?, row.try_get("seq")?);
+        }
+    }
+    let task_rows = sqlx::query(
+        "select task_run_id, worktree_path, branch, sandbox_id, updated_at from node_task_runtime_mappings",
+    )
+    .fetch_all(pool)
+    .await?;
+    if !task_rows.is_empty() {
+        state.task_runtime_mappings.clear();
+        for row in task_rows {
+            let task_run_id =
+                uprava_protocol::TaskRunId::from(row.try_get::<String, _>("task_run_id")?);
+            state.task_runtime_mappings.insert(
+                task_run_id.to_string(),
+                TaskRuntimeMapping {
+                    task_run_id,
+                    worktree_path: row.try_get("worktree_path")?,
+                    branch: row.try_get("branch")?,
+                    sandbox_id: row.try_get("sandbox_id")?,
+                    updated_at: row.try_get("updated_at")?,
+                },
+            );
         }
     }
     Ok(())

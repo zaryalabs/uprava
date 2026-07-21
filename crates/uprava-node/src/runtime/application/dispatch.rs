@@ -230,7 +230,10 @@ pub(crate) fn runtime_cancellation_key(runtime_session_id: &RuntimeSessionId) ->
 pub(crate) fn is_priority_cancellation_command(command: &CommandEnvelope) -> bool {
     matches!(
         command.kind,
-        CommandKind::InterruptRuntime | CommandKind::StopRuntime | CommandKind::CancelDeduction
+        CommandKind::InterruptRuntime
+            | CommandKind::StopRuntime
+            | CommandKind::CancelDeduction
+            | CommandKind::CancelTaskRun
     ) || matches!(
         &command.payload,
         CommandPayload::Tooling { command }
@@ -250,6 +253,9 @@ pub(crate) fn execution_cancellation_key(command: &CommandEnvelope) -> Option<St
             .map(runtime_cancellation_key),
         (CommandKind::RequestDeduction, CommandPayload::RequestDeduction { package }) => {
             Some(deduction_cancellation_key(&package.deduction_id))
+        }
+        (CommandKind::RunTask, CommandPayload::RunTask { spec, .. }) => {
+            Some(task_cancellation_key(&spec.task_run_id))
         }
         (CommandKind::Tooling, CommandPayload::Tooling { command }) => match &command.payload {
             ToolingCommandPayloadV1::ExecuteExternalTool { tool_call_id, .. } => {
@@ -271,6 +277,9 @@ pub(crate) fn cancellation_signal(command: &CommandEnvelope) -> Option<(String, 
         (CommandKind::CancelDeduction, CommandPayload::CancelDeduction { deduction_id }) => {
             Some((deduction_cancellation_key(deduction_id), true))
         }
+        (CommandKind::CancelTaskRun, CommandPayload::CancelTaskRun { task_run_id }) => {
+            Some((task_cancellation_key(task_run_id), true))
+        }
         (CommandKind::Tooling, CommandPayload::Tooling { command }) => match &command.payload {
             ToolingCommandPayloadV1::CancelToolCall { tool_call_id, .. } => {
                 Some((tool_call_cancellation_key(tool_call_id), true))
@@ -282,6 +291,9 @@ pub(crate) fn cancellation_signal(command: &CommandEnvelope) -> Option<(String, 
 }
 
 pub(crate) fn command_execution_key(command: &CommandEnvelope) -> String {
+    if let Some(task_run_id) = command.target.task_run_id() {
+        return task_cancellation_key(task_run_id);
+    }
     if let CommandPayload::Tooling { command } = &command.payload {
         return match &command.payload {
             ToolingCommandPayloadV1::BeginIntegrationAuthorization {
@@ -312,6 +324,10 @@ pub(crate) fn command_execution_key(command: &CommandEnvelope) -> String {
                 .map(|placement_id| format!("placement:{}", placement_id.as_str()))
         })
         .unwrap_or_else(|| format!("command:{}", command.command_id.as_str()))
+}
+
+pub(crate) fn task_cancellation_key(task_run_id: &uprava_protocol::TaskRunId) -> String {
+    format!("task:{}", task_run_id.as_str())
 }
 
 pub(crate) struct CommandDispatchContext<'a> {
@@ -387,10 +403,13 @@ pub(crate) async fn handle_command_dispatch(
         context.config,
         local_state,
         &command,
-        provider_mcp_access.as_ref(),
-        Some(context.sender),
-        Some(context.terminal_supervisor),
-        context.cancellation,
+        CommandExecutionContext {
+            provider_mcp_access: provider_mcp_access.as_ref(),
+            live_sender: Some(context.sender),
+            terminal_supervisor: Some(context.terminal_supervisor),
+            cancellation: context.cancellation,
+            state_store: Some(context.shared_state),
+        },
     )
     .await;
     if outcome.state_changed {

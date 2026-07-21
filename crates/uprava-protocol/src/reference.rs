@@ -69,6 +69,7 @@ id_type!(CorrelationId);
 id_type!(DeductionId);
 id_type!(JobId);
 id_type!(JobRunId);
+id_type!(TaskRunId);
 id_type!(ToolId);
 id_type!(ToolSourceId);
 id_type!(IntegrationId);
@@ -120,6 +121,9 @@ pub enum ScopeRef {
     },
     Placement {
         project_placement_id: ProjectPlacementId,
+    },
+    TaskRun {
+        task_run_id: TaskRunId,
     },
     Unknown {
         scope: String,

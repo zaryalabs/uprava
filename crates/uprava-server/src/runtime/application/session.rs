@@ -794,6 +794,7 @@ pub(crate) async fn deduction_scope_belongs_to_session(
             Ok(count > 0)
         }
         UpravaRef::Node { .. }
+        | UpravaRef::TaskRun { .. }
         | UpravaRef::Project { .. }
         | UpravaRef::Block { .. }
         | UpravaRef::Approval { .. }

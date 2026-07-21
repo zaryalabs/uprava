@@ -278,6 +278,7 @@ pub(crate) async fn delete_node(
             select project_placement_id from project_placements where node_id = ?1
         )
         "#,
+        "delete from task_runs where node_id = ?1",
         "delete from commands where target_node_id = ?1",
         "delete from deleted_workspace_bindings where node_id = ?1",
         "delete from project_placements where node_id = ?1",
@@ -722,6 +723,7 @@ pub(crate) async fn handle_node_control_frame(
                 .command_results
                 .fetch_add(1, Ordering::Relaxed);
             update_command_result(state, &command_id, status, &durable_payload).await?;
+            project_task_command_result(state, &command_id, status, &durable_payload).await?;
             project_deduction_command_result(state, &command_id, status, &durable_payload).await?;
             let project_terminal_call = !command_waiter_exists(state, &command_id)?;
             project_tooling_command_result(
@@ -1074,6 +1076,16 @@ pub(crate) fn validate_command_result_echo(
                 return Err(AppError::bad_request(
                     "control.command_result_target_mismatch",
                     "Deduction result does not match its evidence package",
+                ));
+            }
+            None
+        }
+        CommandKind::RunTask => {
+            let result = decode_control_result::<TaskRunResultPackage>(payload)?;
+            if command.target.task_run_id() != Some(&result.task_run_id) {
+                return Err(AppError::bad_request(
+                    "control.command_result_target_mismatch",
+                    "Task Run result does not match the command target",
                 ));
             }
             None
@@ -1458,8 +1470,21 @@ pub(crate) async fn validate_event_owner(
         let placement_mismatch = command_session.is_none()
             && command_runtime.is_none()
             && command_placement.is_some()
+            && !matches!(&event.scope_ref, ScopeRef::TaskRun { .. })
             && event_scope_placement_id(event).map(ProjectPlacementId::as_str)
                 != command_placement.as_deref();
+        let task_scope_mismatch = if let ScopeRef::TaskRun { task_run_id } = &event.scope_ref {
+            sqlx::query_scalar::<_, i64>(
+                "select count(*) from task_runs where task_run_id = ?1 and command_id = ?2",
+            )
+            .bind(task_run_id.as_str())
+            .bind(command_id.as_str())
+            .fetch_one(&state.pool)
+            .await?
+                == 0
+        } else {
+            false
+        };
         if owner != node_id.as_str()
             || event
                 .session_thread_id
@@ -1472,6 +1497,7 @@ pub(crate) async fn validate_event_owner(
                 .map(RuntimeSessionId::as_str)
                 != command_runtime.as_deref()
             || placement_mismatch
+            || task_scope_mismatch
         {
             return Err(AppError::auth(
                 "control.event_command_mismatch",
@@ -1557,6 +1583,21 @@ pub(crate) async fn validate_event_owner(
         ScopeRef::Placement {
             project_placement_id,
         } => validate_placement_owner(state, node_id, project_placement_id).await,
+        ScopeRef::TaskRun { task_run_id } => {
+            let owner: Option<String> =
+                sqlx::query_scalar("select node_id from task_runs where task_run_id = ?1")
+                    .bind(task_run_id.as_str())
+                    .fetch_optional(&state.pool)
+                    .await?;
+            (owner.as_deref() == Some(node_id.as_str()))
+                .then_some(())
+                .ok_or_else(|| {
+                    AppError::auth(
+                        "control.event_scope_mismatch",
+                        "Task Run event scope belongs to another Node",
+                    )
+                })
+        }
         _ => Ok(()),
     }
 }

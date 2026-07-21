@@ -24,6 +24,7 @@ pub mod plugins;
 pub mod projection;
 pub mod reference;
 pub mod serde_json_value;
+pub mod task;
 pub mod tooling;
 pub mod workspace;
 
@@ -36,6 +37,7 @@ pub use plugins::*;
 pub use projection::*;
 pub use reference::*;
 pub use serde_json_value::JsonValue;
+pub use task::*;
 pub use tooling::*;
 pub use workspace::*;
 

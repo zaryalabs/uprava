@@ -24,12 +24,23 @@ check_image Dockerfile.node uprava
 check_image Dockerfile.generated-ui-builder node
 check_image apps/web/Dockerfile 101
 
-for file in Dockerfile.core Dockerfile.node Dockerfile.generated-ui-builder apps/web/Dockerfile; do
+for file in Dockerfile.core Dockerfile.node Dockerfile.generated-ui-builder Dockerfile.codex-runtime apps/web/Dockerfile; do
     if grep '^FROM[[:space:]]' "$file" | grep -Ev '^FROM[[:space:]]+[^[:space:]]+@sha256:[0-9a-f]{64}([[:space:]]|$)' >/dev/null; then
         echo "$file: every release base must use an immutable digest" >&2
         exit 1
     fi
 done
+
+# OpenSandbox injects execd into this image as root, while Uprava supplies the
+# workspace owner's uid/gid for every task command. Keep that exception explicit
+# and verify the unprivileged execution identity is still present in the image.
+if grep -q '^USER[[:space:]]' Dockerfile.codex-runtime; then
+    echo "Dockerfile.codex-runtime: OpenSandbox runtime must retain its default root execd identity" >&2
+    exit 1
+fi
+grep -q 'useradd --system --uid 10001 --gid task' Dockerfile.codex-runtime
+grep -q 'npm install --global "@openai/codex@${CODEX_VERSION}"' Dockerfile.codex-runtime
+grep -q '^ARG CODEX_VERSION=[0-9]' Dockerfile.codex-runtime
 
 grep -q 'cargo build --locked --release -p uprava-server --bin uprava-server' Dockerfile.core
 grep -q 'cargo build --locked --release -p uprava-node --bin uprava-node' Dockerfile.node

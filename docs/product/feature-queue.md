@@ -9,6 +9,9 @@
 dependency, complexity, risk and value. Позиции могут двигаться по мере
 прояснения дизайна.
 
+В колонке `Done`: `+` означает закрытый slice, `~` — поставленный, но ещё не
+закрытый partial baseline, `-` — будущую работу.
+
 ## Правила очереди
 
 Каждый элемент очереди должен фиксировать:
@@ -37,7 +40,7 @@ dependency, complexity, risk and value. Позиции могут двигать
 
 ## Обзор очереди
 
-Current release baseline: `0.2.18`. Закрытые пункты `0` through `14`, unified
+Current release baseline: `0.2.19`. Закрытые пункты `0` through `14`, unified
 audit hardening release и `5a` workspace renderer release соответствуют shipped
 versions, зафиксированным в [`releases.md`](../releases.md). Пункт `6` включает
 workbench alignment, первый стабильный self-hosted deployment path и
@@ -48,8 +51,9 @@ Agent Tooling and Tool Registry v1 — `0.2.11`, Plugin Registry v1 — `0.2.12`
 CI/SQLite reliability fix slice — `0.2.13`, отдельная ToolHive Compose topology
 для ручного Linear acceptance — `0.2.14`, bundled Markdown renderer plugin —
 `0.2.15`, Plugin contribution resolution — `0.2.16`, Visual Artifact System —
-`0.2.17`, Dynamic UI from Agents — `0.2.18`. Следующий плановый пункт очереди —
-`15 Task-based sandbox runtime`.
+`0.2.17`, Dynamic UI from Agents — `0.2.18`. Runtime mechanics пункта `15`
+поставлены в `0.2.19`; пункт остаётся частично открытым до persistent Codex auth,
+OpenSandbox API key и ручной Docker acceptance.
 
 | Order | Done | Mechanism / Feature Slice | First Useful Slice | Dependency | Complexity |
 | --- | --- | --- | --- | --- | --- |
@@ -71,7 +75,7 @@ CI/SQLite reliability fix slice — `0.2.13`, отдельная ToolHive Compos
 | 12b | + | Plugin contribution resolution | Target-based `exclusive`/`ordered` resolution, configurable contribution order and visible conflicts in Plugin Panel | Plugin Registry v1, Markdown renderer plugin | High |
 | 13 | + | Visual artifact system as plugins | Plugin-driven content enhancements for code, colors and diagrams plus artifact viewers for reports, diffs and timelines | Trace, Plugin contribution resolution | High |
 | 14 | + | Dynamic UI from agents as plugins | Opt-in bundled Generated React plugin with sandboxed runtime, Uprava UI SDK, safe fallbacks and permissioned actions | Plugin-delivered visual artifact system | High |
-| 15 | - | Task-based sandbox runtime | Docker/OpenSandbox bounded run, isolated worktree, persistent Codex auth and expected evidence | Runtime, workspace, trace | Very high |
+| 15 | ~ | Task-based sandbox runtime | Docker/OpenSandbox bounded run, isolated worktree, persistent Codex auth and expected evidence | Runtime, workspace, trace | Very high |
 | 15a | - | Provider-native persistent execution policy | Safe provider defaults, explicit unsafe mode, real approvals and visible effective policy | Task-based sandbox runtime, provider-native persistent runtime | Very high |
 | 16 | - | Hybrid managed sessions | Persistent session can spawn bounded runs and merge evidence back | Task runtime | Very high |
 | 17 | - | Team/cloud model | Users, roles, shared projects, managed Core/nodes | Mature personal workflow | Very high |
@@ -629,6 +633,14 @@ process cancellation and целевой idle budget.
 flow and reproducible review packages. VM-grade isolation and external/managed
 providers могут появиться позже за тем же backend contract, когда возникнет
 подтверждённая потребность.
+
+**Current implementation note:** `0.2.19` реализует durable Core contract и
+migration 17, capability-gated dispatch, Node-owned linked worktree,
+OpenSandbox lifecycle/exec adapter, readiness polling, cancel/timeout, restart
+reconciliation, bounded diff/check/artifact evidence, digest-pinned task image
+и Tasks UI. API key OpenSandbox и persistent Codex `CODEX_HOME/auth.json` не
+реализованы по явному решению текущего среза; до их добавления runtime profile
+остаётся controlled-development only, а пункт отмечен частично выполненным.
 
 ### 15a. Provider-native persistent execution policy
 

@@ -53,13 +53,15 @@ use uprava_protocol::{
     NodeEnrollmentRequestedResponse, NodeHeartbeatRequest, NodeHeartbeatResponse, NodeId,
     ObservedCapability, ObservedCapabilityState, PlacementState, PolicyDecision,
     ProjectPlacementId, ProviderMcpAccess, ProviderMcpAccessRequest, ResourceBadge,
-    RuntimeSessionId, RuntimeSessionState, ScopeRef, SessionThreadId, SleepHint, TerminalId,
-    TextRange, ToolCallId, ToolDefinition, ToolDefinitionState, ToolExecutionError,
-    ToolExecutionErrorCode, ToolExecutionKind, ToolId, ToolRedactionPolicy, ToolResultEnvelope,
-    ToolRiskLevel, ToolSourceId, ToolSourceKind, ToolhiveBridgeAuthorizationResponse,
-    ToolhiveBridgeMcpRequest, ToolhiveBridgeMcpResponse, ToolhiveBridgeVersionResponse,
-    ToolhiveBridgeWorkloadRequest, ToolhiveBridgeWorkloadStatusResponse, ToolingCommandPayloadV1,
-    ToolingCommandV1, ToolingEventPayloadV1, ToolingEventV1, TurnId, UpravaRef, WarningSeverity,
+    RuntimeSessionId, RuntimeSessionState, ScheduledMessageFailure, ScopeRef, SessionThreadId,
+    SleepHint, TaskArtifactEvidence, TaskCheckResult, TaskCleanupState, TaskRunResultPackage,
+    TaskRunSpec, TaskRunState, TerminalId, TextRange, ToolCallId, ToolDefinition,
+    ToolDefinitionState, ToolExecutionError, ToolExecutionErrorCode, ToolExecutionKind, ToolId,
+    ToolRedactionPolicy, ToolResultEnvelope, ToolRiskLevel, ToolSourceId, ToolSourceKind,
+    ToolhiveBridgeAuthorizationResponse, ToolhiveBridgeMcpRequest, ToolhiveBridgeMcpResponse,
+    ToolhiveBridgeVersionResponse, ToolhiveBridgeWorkloadRequest,
+    ToolhiveBridgeWorkloadStatusResponse, ToolingCommandPayloadV1, ToolingCommandV1,
+    ToolingEventPayloadV1, ToolingEventV1, TurnId, UpravaRef, WarningSeverity,
     WorkspaceCommandIntent, WorkspaceCommandRunRequest, WorkspaceCommandRunResponse,
     WorkspaceDiffHunk, WorkspaceDiffRequest, WorkspaceDiffResponse, WorkspaceDiffScope,
     WorkspaceEntry, WorkspaceEntryClassification, WorkspaceEntryKind, WorkspaceEntryStatus,
@@ -80,6 +82,7 @@ mod application;
 mod persistence;
 mod provider;
 mod support;
+mod task;
 mod terminal;
 mod tool_runtime;
 mod transport;
@@ -89,6 +92,7 @@ use application::*;
 use persistence::*;
 use provider::*;
 use support::*;
+use task::*;
 use terminal::*;
 use tool_runtime::*;
 use transport::*;

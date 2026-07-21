@@ -16,6 +16,8 @@ pub(crate) struct NodeConfig {
     pub(crate) codex_binary: String,
     pub(crate) codex_ignore_user_config: bool,
     pub(crate) codex_timeout: Duration,
+    pub(crate) opensandbox_url: Option<Url>,
+    pub(crate) task_runtime_image: String,
     pub(crate) toolhive_url: Url,
     pub(crate) toolhive_timeout: Duration,
 }
@@ -39,6 +41,23 @@ impl NodeConfig {
         let codex_ignore_user_config = parse_env_bool("UPRAVA_CODEX_IGNORE_USER_CONFIG", true)?;
         let codex_timeout =
             parse_env_duration_seconds("UPRAVA_CODEX_TIMEOUT_SECONDS", 24 * 60 * 60)?;
+        let opensandbox_url = std::env::var("UPRAVA_OPENSANDBOX_URL")
+            .ok()
+            .filter(|value| !value.trim().is_empty())
+            .map(|value| {
+                value
+                    .parse::<Url>()
+                    .context("UPRAVA_OPENSANDBOX_URL must be a valid URL")
+            })
+            .transpose()?;
+        if let Some(url) = &opensandbox_url {
+            validate_insecure_opensandbox_url(url)?;
+        }
+        let task_runtime_image = std::env::var("UPRAVA_TASK_RUNTIME_IMAGE")
+            .unwrap_or_else(|_| "uprava/codex-runtime:0.2.19".to_owned());
+        if task_runtime_image.trim().is_empty() {
+            anyhow::bail!("UPRAVA_TASK_RUNTIME_IMAGE must not be empty");
+        }
         let toolhive_url = std::env::var("UPRAVA_TOOLHIVE_URL")
             .unwrap_or_else(|_| "http://127.0.0.1:18081".to_owned())
             .parse::<Url>()
@@ -55,10 +74,28 @@ impl NodeConfig {
             codex_binary,
             codex_ignore_user_config,
             codex_timeout,
+            opensandbox_url,
+            task_runtime_image,
             toolhive_url,
             toolhive_timeout,
         })
     }
+}
+
+fn validate_insecure_opensandbox_url(url: &Url) -> anyhow::Result<()> {
+    let loopback = url.host_str().is_some_and(|host| {
+        host.eq_ignore_ascii_case("localhost")
+            || host
+                .parse::<std::net::IpAddr>()
+                .is_ok_and(|address| address.is_loopback())
+    });
+    if url.scheme() != "http" || !loopback || !url.username().is_empty() || url.password().is_some()
+    {
+        anyhow::bail!(
+            "UPRAVA_OPENSANDBOX_URL must be an unauthenticated loopback HTTP URL until API-key support is enabled"
+        );
+    }
+    Ok(())
 }
 
 fn parse_env_bool(name: &str, fallback: bool) -> anyhow::Result<bool> {

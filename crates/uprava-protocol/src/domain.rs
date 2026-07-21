@@ -128,6 +128,42 @@ pub enum JobOverlapPolicy {
     Skip,
 }
 
+/// Lifecycle of a single isolated, task-oriented sandbox execution.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum TaskRunState {
+    Queued,
+    PreparingWorkspace,
+    StartingRuntime,
+    Running,
+    Checking,
+    CollectingEvidence,
+    Succeeded,
+    Failed,
+    Cancelling,
+    Cancelled,
+    TimedOut,
+}
+
+impl TaskRunState {
+    #[must_use]
+    pub const fn is_terminal(self) -> bool {
+        matches!(
+            self,
+            Self::Succeeded | Self::Failed | Self::Cancelled | Self::TimedOut
+        )
+    }
+}
+
+/// Sandbox cleanup is tracked independently so it cannot erase task outcome.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum TaskCleanupState {
+    Pending,
+    Completed,
+    Failed,
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum CommandState {
@@ -190,6 +226,8 @@ pub enum CommandKind {
     CloseWorkspaceTerminal,
     RequestDeduction,
     CancelDeduction,
+    RunTask,
+    CancelTaskRun,
     Tooling,
     Extension,
 }
@@ -279,6 +317,8 @@ pub enum EventKind {
     DeductionFailed,
     #[serde(rename = "deduction.cancelled")]
     DeductionCancelled,
+    #[serde(rename = "task_run.state_changed")]
+    TaskRunStateChanged,
     #[serde(rename = "extension")]
     Extension,
 }

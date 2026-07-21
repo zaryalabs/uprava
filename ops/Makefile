@@ -48,8 +48,8 @@ validate: require-release ## Validate the selected immutable release and host in
 	test -n "$${UPRAVA_RELEASE_SHA:-}"; \
 	test -n "$${UPRAVA_NODE_VERSION:-}"; \
 	test -n "$${UPRAVA_AUTO_APPROVE_NODE_NAME:-}"; \
-	case "$${UPRAVA_CORE_IMAGE:-}:$${UPRAVA_WEB_IMAGE:-}:$${UPRAVA_GENERATED_UI_BUILDER_IMAGE:-}:$${UPRAVA_NODE_ARTIFACT:-}" in \
-		*@sha256:*@sha256:*@sha256:*@sha256:*) ;; \
+	case "$${UPRAVA_CORE_IMAGE:-}:$${UPRAVA_WEB_IMAGE:-}:$${UPRAVA_GENERATED_UI_BUILDER_IMAGE:-}:$${UPRAVA_NODE_ARTIFACT:-}:$${UPRAVA_TASK_RUNTIME_IMAGE:-}:$${UPRAVA_OPENSANDBOX_IMAGE:-}" in \
+		*@sha256:*@sha256:*@sha256:*@sha256:*@sha256:*@sha256:*) ;; \
 		*) echo "Every runtime artifact must be digest-pinned" >&2; exit 1 ;; \
 	esac; \
 	test -f "$(CORE_CONFIG)" || { echo "Missing $(CORE_CONFIG)" >&2; exit 1; }; \
@@ -116,6 +116,7 @@ rollback-activate: ## Restore the preserved release links after failed validatio
 pull: ## Pull Core/Web images and install the verified Node artifact
 	@test -e .env.release || { echo "Missing active .env.release" >&2; exit 1; }
 	$(COMPOSE_CMD) pull
+	@. ./.env.release; $(DOCKER) pull "$${UPRAVA_TASK_RUNTIME_IMAGE}" >/dev/null
 	$(MAKE) --no-print-directory -f "$(firstword $(MAKEFILE_LIST))" node-artifact \
 		SUDO="$(SUDO)" RELEASES_DIR="$(RELEASES_DIR)" DOCKER_CONFIG="$(DOCKER_CONFIG)"
 
