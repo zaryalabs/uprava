@@ -283,8 +283,8 @@ known Uprava/external ref    -> reference chip or preview
   lexical format;
 - сохранять точный source range и не изменять исходный message/file content;
 - не превращать произвольную прозу в active UI по эвристическому предположению;
-- разрешать конфликты renderer-ов через host-owned specificity/priority rules,
-  а не через порядок загрузки plugins;
+- разрешать renderer contributions через target-based `exclusive`/`ordered`
+  contract из `A-012`, а не через порядок загрузки plugins;
 - изолировать ошибку одного fragment renderer-а от остального Markdown block;
 - при disabled, incompatible or failed plugin показывать исходный token, code
   fence or text fragment;
@@ -672,7 +672,7 @@ VisualRendererContract:
   render_scopes
   source_matcher optional
   language_ids optional
-  priority
+  normalized_target
   source_range_mapping
   input_schema
   output_visual_descriptor_schema
@@ -723,6 +723,13 @@ plugin disabled      -> show unknown visual object fallback
 
 Renderer failure should not break parent content. A Markdown message with one
 bad diagram should still render the rest of the message.
+
+Выбор между несколькими renderer contributions не является отдельной visual
+semantics. Его определяет
+[`A-012 Plugin Contribution Resolution`](012-plugin-contribution-resolution.md):
+для одинакового exclusive target применяется первая contribution в
+детерминированном пользовательски изменяемом порядке, а альтернативы и конфликт
+остаются видимыми в Plugin Panel.
 
 Первый implementation increment (`0.2.15`) реализует content-level boundary:
 bundled `uprava.markdown` получает исходный assistant message и возвращает

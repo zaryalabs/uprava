@@ -54,6 +54,7 @@ docs/systems/areas/008-go-to-source-and-causality-ux.md
 docs/systems/areas/009-human-agent-dual-interface.md
 docs/systems/areas/010-project-workspace-surface.md
 docs/systems/areas/011-background-jobs.md
+docs/systems/areas/012-plugin-contribution-resolution.md
 ```
 
 Рекомендуемая структура документа:
@@ -121,6 +122,7 @@ docs/systems/areas/011-background-jobs.md
 | **A-009** | Human-agent dual interface and Agent as First-Class Citizen | Как сделать UI понятным и человеку, и агенту? Что такое machine-readable UI state, context entry points, internal Uprava agent, chat over UI element, agent identity, capabilities, status, memory, permissions and ownership? | Модель dual interface, где agent является видимым участником системы, а не скрытым процессом за текстовым чатом. |
 | A-010 | Project Workspace Surface | Как пользователь видит и меняет конкретный workspace агента? Где живут file tree, file viewer/editor, terminal/PTY, command history, diff/check views and "open full IDE" sidecar? Как Core/Node Daemon обеспечивают permissions, path boundaries, edit lifecycle, trace and addressable workspace refs? | Модель post-V01 workspace surface: inspect-first, edit-light, terminal-capable, traceable, with optional full IDE sidecar later. |
 | A-011 | Background Jobs | Как задать prompt-first unattended work, запускать его вручную или по расписанию, наблюдать runs и останавливать расписание после ошибок без преждевременного workflow engine? | Модель Job/Job Run для controlled deployment: current workspace, durable schedule, summary/output UX, stop-on-error и shared Codex quota admission. |
+| A-012 | Plugin Contribution Resolution | Как несколько plugins воздействуют на один target, в каком порядке применяются contributions и как пользователь видит и разрешает exclusive conflicts? | Минимальная target-based модель с режимами `exclusive`/`ordered`, детерминированным изменяемым порядком и conflict controls в Plugin Panel. |
 
 Не все важные темы являются отдельными ключевыми механиками. Некоторые стоит
 держать как пользовательские сценарии или срезы внутри документов направлений:

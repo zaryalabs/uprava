@@ -1103,6 +1103,14 @@ component catalogs могут остаться fast path для простых b
 Shell работоспособным при disable, incompatibility or failure plugin-а и
 сохранять raw/fallback representation.
 
+Перед ними пункт `12b Plugin contribution resolution` и
+[`A-012`](012-plugin-contribution-resolution.md) задают общий минимальный
+resolver contract. Extension point определяет bounded target и mode
+`exclusive` или `ordered`; Host использует детерминированный изменяемый порядок,
+а Plugin Panel показывает несколько active contributions с одинаковым
+exclusive target как конфликт. Порядок загрузки packages или React modules не
+является resolution policy.
+
 ### Later
 
 После этих двух plugin-first slices можно добавлять:

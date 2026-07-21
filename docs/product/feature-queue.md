@@ -48,7 +48,7 @@ Agent Tooling and Tool Registry v1 — `0.2.11`, Plugin Registry v1 — `0.2.12`
 CI/SQLite reliability fix slice — `0.2.13`, отдельная ToolHive Compose topology
 для ручного Linear acceptance — `0.2.14`, bundled Markdown renderer plugin —
 `0.2.15`.
-Следующий плановый пункт очереди — `13 Visual artifact system as plugins`.
+Следующий плановый пункт очереди — `12b Plugin contribution resolution`.
 
 | Order | Done | Mechanism / Feature Slice | First Useful Slice | Dependency | Complexity |
 | --- | --- | --- | --- | --- | --- |
@@ -67,7 +67,8 @@ CI/SQLite reliability fix slice — `0.2.13`, отдельная ToolHive Compos
 | 11 | + | Agent Tooling and Tool Registry v1 | Uprava MCP, progressive discovery, ToolHive runtime, scoped registry and trace | V01 capability model, events | High |
 | 12 | + | Plugin Registry v1 | Core registry, manifest-driven Web Extension Host and bundled Dark Theme plugin | Stable workbench shell, design tokens | High |
 | 12a | + | Markdown renderer plugin | Typed `visual.renderer` contribution, safe Streamdown rendering and plain-text fallback for assistant chat content | Plugin Registry v1 | Medium |
-| 13 | - | Visual artifact system as plugins | Plugin-driven content enhancements for code, colors and diagrams plus artifact viewers for reports, diffs and timelines | Trace, Plugin Registry v1 | High |
+| 12b | - | Plugin contribution resolution | Target-based `exclusive`/`ordered` resolution, configurable contribution order and visible conflicts in Plugin Panel | Plugin Registry v1, Markdown renderer plugin | High |
+| 13 | - | Visual artifact system as plugins | Plugin-driven content enhancements for code, colors and diagrams plus artifact viewers for reports, diffs and timelines | Trace, Plugin contribution resolution | High |
 | 14 | - | Dynamic UI from agents as plugins | Opt-in bundled Generated React plugin with sandboxed runtime, Uprava UI SDK, safe fallbacks and permissioned actions | Plugin-delivered visual artifact system | High |
 | 15 | - | Task-based sandbox runtime | Bounded run contract, isolated workspace, expected evidence | Runtime, workspace, trace | Very high |
 | 15a | - | Provider-native persistent execution policy | Safe provider defaults, explicit unsafe mode, real approvals and visible effective policy | Task-based sandbox runtime, provider-native persistent runtime | Very high |
@@ -462,6 +463,30 @@ bundled first-party plugins через те же versioned contracts, котор
 будут доступны внешним plugins. После data-only theme следующими доказательствами
 платформы становятся artifact plugins и dynamic UI plugin; Git Review остаётся
 кандидатом отдельного functional bundled plugin.
+
+### 12b. Plugin contribution resolution
+
+**Value:** Несколько plugins могут расширять один target без зависимости от
+порядка загрузки и без скрытого выбора победителя. Конфликты остаются возможны,
+но становятся детерминированными, видимыми и управляемыми пользователем.
+
+**First useful slice:** Каждый поддерживаемый extension point определяет
+bounded normalized target и platform-owned mode: `exclusive`, где применяется
+первая доступная contribution, или `ordered`, где применяются все contributions
+по порядку. Host использует стабильный default order, позволяет пользователю
+переставлять и отдельно отключать contributions для target и показывает в
+Plugin Panel plugins, конфликтующие на одинаковом exclusive target.
+
+Первый acceptance case — два content renderer-а для
+`chat.assistant_message` на `session.timeline`: текущий победитель и fallback
+alternatives видны, порядок можно изменить, а render result не зависит от
+порядка effective projection, lazy loading or React mounting.
+
+**Scope boundary:** В первый contract не входят универсальная scope algebra,
+dependency/conflict graph, `before`/`after`, arbitrary numeric priorities,
+constraint solver, heuristic specificity ranking и runtime collision history.
+Подробная модель зафиксирована в
+[`A-012 Plugin Contribution Resolution`](../systems/areas/012-plugin-contribution-resolution.md).
 
 ### 13. Visual artifact system as plugins
 

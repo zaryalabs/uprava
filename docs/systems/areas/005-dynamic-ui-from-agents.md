@@ -1116,6 +1116,13 @@ If a tool can create visual output, that visual output should be registered and
 traceable. If a plugin adds a generated artifact type, it should register
 renderer, fallback and permission model.
 
+Если несколько plugins предоставляют contributions для одного dynamic artifact
+target, выбор и порядок определяет общий contract
+[`A-012 Plugin Contribution Resolution`](012-plugin-contribution-resolution.md).
+Generated React runtime сохраняет explicit sandbox boundary: host-level order
+может выбирать runtime, shell contributions and actions, но не компонует
+произвольные plugin React trees внутри iframe.
+
 Первый A-005 slice должен одновременно доказать полезный bundled dynamic UI
 plugin и расширить общую plugin platform: versioned Generated React runtime,
 Uprava React SDK, layout/dynamic-renderer contributions, permissioned action
