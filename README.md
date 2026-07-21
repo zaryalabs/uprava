@@ -53,6 +53,7 @@ CI/CD deployment и синхронизированными Linux visual baseline
 - [Vision](docs/vision.md)
 - [Архитектура](docs/systems/architecture.md)
 - [Системные направления](docs/systems/areas/)
+- [Task-based Sandbox Runtime](docs/systems/areas/013-task-based-sandbox-runtime.md)
 - [Версионирование](docs/versioning.md)
 - [Релизы](docs/releases.md)
 - [Очередь фич](docs/product/feature-queue.md)

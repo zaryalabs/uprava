@@ -280,8 +280,10 @@ Linear, Notion, Atlassian/Jira, Grafana and other MCP-backed systems
 Core знает, что tool существует, кому и в каком scope он доступен, где его
 исполнять и как связать вызов с trace. Bare-metal Node не содержит и не
 запускает `thv`: он управляет отдельным ToolHive service через закрытый
-loopback HTTP bridge. Codex также остаётся host dependency. ToolHive или
-external provider выполняют действие там, где находятся credentials and runtime.
+loopback HTTP bridge. Codex остаётся host dependency для interactive Persistent
+Runtime; bounded sandbox runs используют Codex из versioned runtime image.
+ToolHive или external provider выполняют действие там, где находятся
+credentials and runtime.
 
 Реализованный management baseline показывает человеку integration
 desired/auth/actual state, effective availability, managed Inspect detail,
@@ -358,6 +360,24 @@ ToolHive не заменяет Core. Uprava продолжает владеть:
 - routing decisions;
 - tool-call trace, causality and safe audit metadata;
 - integration configuration and UI exposure.
+
+### Task sandbox runtime boundary
+
+Первый task-based sandbox backend использует отдельный OpenSandbox service с
+обычным Docker runtime. Core не обращается к нему напрямую: Node создаёт
+host-side worktree, вызывает lifecycle and execution OpenAPI, переводит
+upstream stream/status в Uprava events и собирает git/check/artifact evidence.
+OpenSandbox владеет только container lifecycle, TTL, mounts, limits and
+in-container command transport.
+
+Rust Node интегрируется с service напрямую по private HTTP contract через
+replaceable `TaskRuntimeBackend`; дополнительный JS/Python runner или локальный
+самописный Docker orchestrator не входят в baseline. Codex CLI и общие tools
+поставляются custom versioned image, а cached login монтируется read-write из
+persistent host credential profile и не запекается в image.
+
+Полный scope, lifecycle and spike criteria определены в
+[`A-013 Task-based Sandbox Runtime`](areas/013-task-based-sandbox-runtime.md).
 
 ## Plugins and Integrations
 

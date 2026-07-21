@@ -70,7 +70,7 @@ CI/SQLite reliability fix slice — `0.2.13`, отдельная ToolHive Compos
 | 12b | + | Plugin contribution resolution | Target-based `exclusive`/`ordered` resolution, configurable contribution order and visible conflicts in Plugin Panel | Plugin Registry v1, Markdown renderer plugin | High |
 | 13 | - | Visual artifact system as plugins | Plugin-driven content enhancements for code, colors and diagrams plus artifact viewers for reports, diffs and timelines | Trace, Plugin contribution resolution | High |
 | 14 | - | Dynamic UI from agents as plugins | Opt-in bundled Generated React plugin with sandboxed runtime, Uprava UI SDK, safe fallbacks and permissioned actions | Plugin-delivered visual artifact system | High |
-| 15 | - | Task-based sandbox runtime | Bounded run contract, isolated workspace, expected evidence | Runtime, workspace, trace | Very high |
+| 15 | - | Task-based sandbox runtime | Docker/OpenSandbox bounded run, isolated worktree, persistent Codex auth and expected evidence | Runtime, workspace, trace | Very high |
 | 15a | - | Provider-native persistent execution policy | Safe provider defaults, explicit unsafe mode, real approvals and visible effective policy | Task-based sandbox runtime, provider-native persistent runtime | Very high |
 | 16 | - | Hybrid managed sessions | Persistent session can spawn bounded runs and merge evidence back | Task runtime | Very high |
 | 17 | - | Team/cloud model | Users, roles, shared projects, managed Core/nodes | Mature personal workflow | Very high |
@@ -584,11 +584,27 @@ extension points, isolation and interoperability к уровню Obsidian/VS Cod
 **Value:** Uprava может запускать bounded background work with explicit scope,
 isolation, evidence and review-ready output.
 
-**First useful slice:** Task contract, isolated workspace/branch, context
-package, event log, expected evidence and result package.
+**Delivery rule:** Первый runtime backend — отдельный pinned OpenSandbox service
+с Docker runtime. Node управляет им напрямую по HTTP/OpenAPI через replaceable
+`TaskRuntimeBackend`; JavaScript/Python SDK runner, Kubernetes and microVM не
+входят в baseline. Uprava сохраняет authority над `TaskRun`, worktree, events,
+evidence and review, а OpenSandbox отвечает за container/command lifecycle,
+TTL, mounts and resource limits.
+
+**First useful slice:** Task contract, host-owned isolated worktree/branch,
+custom versioned Codex image, persistent file-based Codex credential profile,
+context package, streamed event log, cancellation/TTL cleanup, expected
+evidence and result package. Перед реализацией короткий spike должен подтвердить
+Compose/Docker path handling, повторное использование auth, SSE execution,
+process cancellation and целевой idle budget.
+
+Полный принятый baseline и spike criteria:
+[`A-013 Task-based Sandbox Runtime`](../systems/areas/013-task-based-sandbox-runtime.md).
 
 **Target direction:** Durable workflow state, queues, CI/webhook wakeups, PR/MR
-flow and reproducible review packages.
+flow and reproducible review packages. VM-grade isolation and external/managed
+providers могут появиться позже за тем же backend contract, когда возникнет
+подтверждённая потребность.
 
 ### 15a. Provider-native persistent execution policy
 
