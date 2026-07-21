@@ -602,7 +602,11 @@ pub(crate) async fn accept_node_event(
             .fetch_one(&mut *transaction)
             .await?;
     let expected_seq = max_seq.unwrap_or(0) + 1;
-    let stream_gap = (event.seq > expected_seq).then_some(expected_seq);
+    // Task Run events use stable sparse lifecycle ranks so retries can safely
+    // replay or diverge without reusing a sequence for another state.
+    let stream_gap = (!matches!(&event.scope_ref, ScopeRef::TaskRun { .. })
+        && event.seq > expected_seq)
+        .then_some(expected_seq);
     if let Some(expected_seq) = stream_gap {
         tracing::warn!(
             event_kind = ?&event.kind,
@@ -869,6 +873,7 @@ pub(crate) async fn apply_event_projection_on_connection(
     }
     update_turn_from_event_on_connection(connection, event).await?;
     update_approval_from_event_on_connection(connection, event).await?;
+    project_task_event_on_connection(connection, event).await?;
 
     match event.kind {
         EventKind::RuntimeStarting => {

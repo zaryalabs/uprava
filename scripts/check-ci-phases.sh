@@ -60,7 +60,7 @@ SH
 chmod 755 "$tmp/bin/"*
 
 CALLS="$calls" PATH="$tmp/bin:$PATH" MAKE="$tmp/bin/make" CI_MAIN=0 bash "$repo/ci/prepare.sh" >/dev/null
-grep -q '^make docs-l protocol-check rust-l rust-t web-l web-t web-dl scripts-check$' "$calls"
+grep -q '^make docs-l protocol-check rust-l rust-t web-l web-t generated-ui-t web-dl scripts-check$' "$calls"
 CALLS="$calls" PATH="$tmp/bin:$PATH" MAKE="$tmp/bin/make" CI_MAIN=1 bash "$repo/ci/prepare.sh" >/dev/null
 grep -q '^make push-check$' "$calls"
 

@@ -894,10 +894,10 @@ async fn codex_send_turn_cancellation_interrupts_active_process() {
         &config,
         &mut local_state,
         &command,
-        None,
-        None,
-        None,
-        Some(cancel_rx),
+        CommandExecutionContext {
+            cancellation: Some(cancel_rx),
+            ..CommandExecutionContext::default()
+        },
     )
     .await;
 

@@ -4,6 +4,7 @@ import {
   useQuery,
   useQueryClient,
 } from "@tanstack/react-query";
+import { Pin } from "lucide-react";
 import { useState } from "react";
 
 import { coreApi } from "../../shared/api/http-client";
@@ -42,6 +43,31 @@ export function CausalityPanel({
   const trace = useQuery({
     queryKey: queryKeys.sessionTrace(sessionThreadId),
     queryFn: () => coreApi.sessionTrace(sessionThreadId),
+  });
+  const saveTrace = useMutation({
+    mutationFn: () => {
+      if (!trace.data) throw new Error("Trace snapshot is unavailable");
+      return coreApi.createArtifact({
+        artifact_type: "uprava.trace-timeline",
+        title: "Session trace timeline",
+        scope_ref: { kind: "session", session_thread_id: sessionThreadId },
+        schema_version: 1,
+        payload: trace.data,
+        fallback_text: `${trace.data.steps.length} trace steps · ${trace.data.precision} precision`,
+        source_version: trace.data.generated_at,
+        source_refs: [sessionRef],
+        evidence_refs: [],
+        cause_refs: [],
+        trace_refs: trace.data.steps
+          .slice(0, 200)
+          .map((step) => step.primary_ref),
+        provenance: {
+          kind: "session_trace_snapshot",
+          generated_at: trace.data.generated_at,
+        },
+      });
+    },
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ["artifacts"] }),
   });
   const createDeduction = useMutation({
     mutationFn: () =>
@@ -111,9 +137,34 @@ export function CausalityPanel({
             <span className="text-xs text-[var(--color-muted)]">
               {trace.data.raw_event_count} raw events
             </span>
+            <Button
+              variant="secondary"
+              disabled={saveTrace.isPending || saveTrace.isSuccess}
+              onClick={() => saveTrace.mutate()}
+            >
+              <Pin size={14} />
+              {saveTrace.isSuccess
+                ? "Timeline pinned"
+                : saveTrace.isPending
+                  ? "Pinning…"
+                  : "Pin timeline"}
+            </Button>
+            {saveTrace.data ? (
+              <ReferenceActions
+                reference={{
+                  kind: "artifact",
+                  artifact_id: saveTrace.data.artifact.artifact_id,
+                }}
+                showCopy={false}
+              />
+            ) : null}
           </div>
         ) : null}
       </header>
+
+      {saveTrace.error ? (
+        <ErrorNotice error={saveTrace.error} title="Trace artifact failed" />
+      ) : null}
 
       {trace.isError ? (
         <ErrorNotice error={trace.error} title="Trace load failed" />

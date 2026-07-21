@@ -21,6 +21,40 @@ if (forbiddenFiles.length > 0) {
   );
 }
 
+const dynamicEntries = (entry.dynamicImports ?? [])
+  .map((name) => manifest[name])
+  .filter(Boolean);
+let markdownRenderer;
+for (const chunk of dynamicEntries) {
+  const contents = await readFile(new URL(chunk.file, dist), "utf8");
+  if (contents.includes("uprava-markdown")) {
+    markdownRenderer = chunk;
+    break;
+  }
+}
+if (!markdownRenderer?.isDynamicEntry) {
+  throw new Error("Markdown renderer was not emitted as an on-demand chunk");
+}
+if (initialFiles.has(markdownRenderer.file)) {
+  throw new Error(
+    "Markdown renderer leaked into the initial application graph",
+  );
+}
+
+const generatedUiRenderer = dynamicEntries.find(
+  (chunk) => chunk.name === "GeneratedReactArtifactViewer",
+);
+if (!generatedUiRenderer?.isDynamicEntry) {
+  throw new Error(
+    "Generated React renderer was not emitted as an on-demand chunk",
+  );
+}
+if (initialFiles.has(generatedUiRenderer.file)) {
+  throw new Error(
+    "Generated React renderer leaked into the initial application graph",
+  );
+}
+
 let gzipBytes = 0;
 for (const file of initialFiles) {
   const contents = await readFile(new URL(file, dist));

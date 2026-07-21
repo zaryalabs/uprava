@@ -1,0 +1,43 @@
+{
+  "manifest_version": 1,
+  "plugin_id": "uprava.content-enhancements",
+  "version": "1.0.0",
+  "display_name": "Content Enhancements",
+  "description": "Bundled syntax and strict color-token enhancements for Markdown content.",
+  "publisher": "Uprava",
+  "license": null,
+  "homepage": null,
+  "install_source": "bundled",
+  "trust_level": "trusted_bundled",
+  "compatibility": {
+    "core": { "minimum": "0.2.17", "maximum_exclusive": "0.3.0" },
+    "web": { "minimum": "0.2.17", "maximum_exclusive": "0.3.0" },
+    "node": null,
+    "protocol_versions": ["v2"]
+  },
+  "activation_conditions": [],
+  "requested_permissions": ["visual.renderer.contribute"],
+  "configuration_schema": null,
+  "contributions": [
+    {
+      "kind": "visual_renderer",
+      "contribution_id": "uprava.content-enhancements.colors",
+      "contract_version": 2,
+      "contribution": {
+        "renderer_id": "uprava.content-enhancements.colors",
+        "implementation_id": "uprava.content-enhancements.v1",
+        "renderer_kind": "inline_fragment",
+        "accepted_source_kinds": ["markdown.color_literal"],
+        "render_scopes": ["inline_fragment"],
+        "allowed_surfaces": ["session.timeline"],
+        "fallback_strategy": "source",
+        "source_matcher": {
+          "kind": "strict_color_literal",
+          "formats": ["hex", "rgb", "hsl"]
+        },
+        "visual_kinds": ["visual.color_token"],
+        "actions": ["visual.copy_source"]
+      }
+    }
+  ]
+}

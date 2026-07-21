@@ -120,6 +120,9 @@ Default service posture:
 - run as the dedicated Unix user `uprava`, not root;
 - grant workspace access explicitly through filesystem ownership/group policy;
 - configure `UPRAVA_NODE_WORKSPACES` with explicit allowed roots;
+- configure `UPRAVA_OPENSANDBOX_URL=http://127.0.0.1:18083`; active release
+  manifest supplies digest-pinned `UPRAVA_TASK_RUNTIME_IMAGE` and
+  third-party `UPRAVA_OPENSANDBOX_IMAGE`;
 - configure `UPRAVA_CORE_URL=https://uprava.zrya.io`;
 - store Node local state outside the repository;
 - restart on failure with a short delay;
@@ -142,6 +145,7 @@ Wants=network-online.target
 User=uprava
 Group=uprava
 EnvironmentFile=/etc/uprava/node.env
+EnvironmentFile=-/opt/apps/uprava/.env.release
 ExecStart=/opt/apps/uprava/current/uprava-node
 Restart=on-failure
 RestartSec=5s

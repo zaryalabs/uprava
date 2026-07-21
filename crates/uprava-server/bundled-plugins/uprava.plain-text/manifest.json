@@ -1,0 +1,37 @@
+{
+  "manifest_version": 1,
+  "plugin_id": "uprava.plain-text",
+  "version": "1.0.0",
+  "display_name": "Plain Text Renderer",
+  "description": "Bundled readable fallback renderer for agent chat messages.",
+  "publisher": "Uprava",
+  "license": null,
+  "homepage": null,
+  "install_source": "bundled",
+  "trust_level": "trusted_bundled",
+  "compatibility": {
+    "core": { "minimum": "0.2.16", "maximum_exclusive": "0.3.0" },
+    "web": { "minimum": "0.2.16", "maximum_exclusive": "0.3.0" },
+    "node": null,
+    "protocol_versions": ["v2"]
+  },
+  "activation_conditions": [],
+  "requested_permissions": ["visual.renderer.contribute"],
+  "configuration_schema": null,
+  "contributions": [
+    {
+      "kind": "visual_renderer",
+      "contribution_id": "uprava.plain-text.chat",
+      "contract_version": 1,
+      "contribution": {
+        "renderer_id": "uprava.plain-text.chat",
+        "implementation_id": "uprava.plain-text.v1",
+        "renderer_kind": "content",
+        "accepted_source_kinds": ["chat.assistant_message"],
+        "render_scopes": ["content_enhancement"],
+        "allowed_surfaces": ["session.timeline"],
+        "fallback_strategy": "plain_text"
+      }
+    }
+  ]
+}

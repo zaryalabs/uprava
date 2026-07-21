@@ -1,0 +1,84 @@
+{
+  "manifest_version": 1,
+  "plugin_id": "uprava.trace-artifacts",
+  "version": "1.0.0",
+  "display_name": "Trace Artifacts",
+  "description": "Bundled trace timeline and causality narrative artifact viewers.",
+  "publisher": "Uprava",
+  "license": null,
+  "homepage": null,
+  "install_source": "bundled",
+  "trust_level": "trusted_bundled",
+  "compatibility": {
+    "core": { "minimum": "0.2.17", "maximum_exclusive": "0.3.0" },
+    "web": { "minimum": "0.2.17", "maximum_exclusive": "0.3.0" },
+    "node": null,
+    "protocol_versions": ["v2"]
+  },
+  "activation_conditions": [],
+  "requested_permissions": [
+    "visual.renderer.contribute",
+    "artifact.type.contribute"
+  ],
+  "configuration_schema": null,
+  "contributions": [
+    {
+      "kind": "artifact_type",
+      "contribution_id": "uprava.trace-artifacts.timeline-type",
+      "contract_version": 1,
+      "contribution": {
+        "artifact_type_id": "uprava.trace-timeline",
+        "display_name": "Trace Timeline",
+        "description": "A versioned session trace snapshot with precision and evidence references.",
+        "schema_version": 1,
+        "fallback_strategy": "metadata"
+      }
+    },
+    {
+      "kind": "artifact_type",
+      "contribution_id": "uprava.trace-artifacts.causality-type",
+      "contract_version": 1,
+      "contribution": {
+        "artifact_type_id": "uprava.causality-narrative",
+        "display_name": "Causality Narrative",
+        "description": "A durable structured deduction with explicit provenance.",
+        "schema_version": 1,
+        "fallback_strategy": "metadata"
+      }
+    },
+    {
+      "kind": "visual_renderer",
+      "contribution_id": "uprava.trace-artifacts.blocks",
+      "contract_version": 2,
+      "contribution": {
+        "renderer_id": "uprava.trace-artifacts.blocks",
+        "implementation_id": "uprava.trace-artifacts.v1",
+        "renderer_kind": "block",
+        "accepted_source_kinds": ["block.core.turn-activity", "block.core.session-activity"],
+        "render_scopes": ["block"],
+        "allowed_surfaces": ["session.timeline"],
+        "fallback_strategy": "metadata",
+        "source_matcher": null,
+        "visual_kinds": ["visual.trace_timeline"],
+        "actions": ["visual.open_source", "visual.go_to_cause"]
+      }
+    },
+    {
+      "kind": "visual_renderer",
+      "contribution_id": "uprava.trace-artifacts.viewer",
+      "contract_version": 2,
+      "contribution": {
+        "renderer_id": "uprava.trace-artifacts.viewer",
+        "implementation_id": "uprava.trace-artifacts.v1",
+        "renderer_kind": "artifact_viewer",
+        "accepted_source_kinds": ["artifact.uprava.trace-timeline", "artifact.uprava.causality-narrative"],
+        "render_scopes": ["artifact_viewer", "detail_view"],
+        "allowed_surfaces": ["artifact.viewer"],
+        "fallback_strategy": "metadata",
+        "source_matcher": null,
+        "visual_kinds": ["visual.trace_timeline", "visual.causality_narrative"],
+        "actions": ["visual.open_source", "visual.go_to_cause"]
+      }
+    }
+  ]
+}

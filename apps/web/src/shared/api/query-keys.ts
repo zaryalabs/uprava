@@ -5,6 +5,8 @@ export const queryKeys = {
   jobs: ["jobs"] as const,
   job: (jobId: string) => ["job", jobId] as const,
   jobRun: (jobRunId: string) => ["job-run", jobRunId] as const,
+  taskRuns: (placementId: string) => ["task-runs", placementId] as const,
+  taskRun: (taskRunId: string) => ["task-run", taskRunId] as const,
   providerQuota: (provider: string) => ["provider-quota", provider] as const,
   nodeEnrollments: ["node-enrollments"] as const,
   node: (nodeId: string) => ["node", nodeId] as const,
@@ -48,4 +50,9 @@ export const queryKeys = {
   toolCall: (toolCallId: string) => ["tooling", "calls", toolCallId] as const,
   plugins: ["plugins"] as const,
   pluginContributions: ["plugins", "contributions"] as const,
+  artifacts: (scopeKey: string) => ["artifacts", scopeKey] as const,
+  artifact: (artifactId: string, version?: number) =>
+    ["artifact", artifactId, version ?? "current"] as const,
+  generatedUiRuntime: (artifactId: string) =>
+    ["artifact", artifactId, "generated-ui"] as const,
 };

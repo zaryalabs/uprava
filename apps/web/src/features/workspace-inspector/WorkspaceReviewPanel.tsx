@@ -1,5 +1,5 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { CheckCircle2, RefreshCw, Square, XCircle } from "lucide-react";
+import { CheckCircle2, Pin, RefreshCw, Square, XCircle } from "lucide-react";
 import { lazy, Suspense, useEffect, useState } from "react";
 
 import { coreApi } from "../../shared/api/http-client";
@@ -78,6 +78,79 @@ export function WorkspaceReviewPanel({
     mutationFn: (commandId: string) =>
       coreApi.cancelWorkspaceCommand(placementId, commandId),
   });
+  const saveDiff = useMutation({
+    mutationFn: () =>
+      coreApi.createArtifact({
+        artifact_type: "uprava.diff-report",
+        title: `Workspace diff · ${review?.diff.scope ?? scope}`,
+        scope_ref: { kind: "placement", project_placement_id: placementId },
+        schema_version: 1,
+        payload: review
+          ? {
+              summary: review.diff.summary,
+              diff: review.diff.diff.slice(0, 400_000),
+              scope: review.diff.scope,
+              path: review.diff.path,
+              changed_files: review.diff.changed_files,
+              hunks: review.diff.hunks,
+              generated_at: review.diff.generated_at,
+            }
+          : {},
+        fallback_text: review?.diff.summary ?? "Workspace diff snapshot",
+        source_version: review?.git_snapshot.commit ?? null,
+        source_refs: review
+          ? [
+              {
+                kind: "workspace_diff",
+                diff_id: review.diff.diff_id,
+                placement_id: placementId,
+              },
+            ]
+          : [],
+        evidence_refs: [],
+        cause_refs: [],
+        trace_refs: [],
+        provenance: {
+          kind: "workspace_review_snapshot",
+          generated_at: review?.generated_at,
+        },
+      }),
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ["artifacts"] }),
+  });
+  const saveChecks = useMutation({
+    mutationFn: () => {
+      const checks = (review?.checks ?? []).slice(-50).map((check) => ({
+        ...check,
+        stdout: check.stdout?.slice(0, 20_000) ?? null,
+        stderr: check.stderr?.slice(0, 20_000) ?? null,
+      }));
+      return coreApi.createArtifact({
+        artifact_type: "uprava.check-report",
+        title: "Workspace checks",
+        scope_ref: { kind: "placement", project_placement_id: placementId },
+        schema_version: 1,
+        payload: {
+          summary: `${checks.length} recorded checks`,
+          checks,
+          generated_at: review?.generated_at,
+        },
+        fallback_text: `${checks.length} recorded workspace checks`,
+        source_version: review?.git_snapshot.commit ?? null,
+        source_refs: [],
+        evidence_refs: checks.map((check) => ({
+          kind: "command" as const,
+          command_id: check.command_id,
+        })),
+        cause_refs: [],
+        trace_refs: [],
+        provenance: {
+          kind: "workspace_review_snapshot",
+          generated_at: review?.generated_at,
+        },
+      });
+    },
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ["artifacts"] }),
+  });
   const activeState = activeCheck.data?.state;
 
   useEffect(() => {
@@ -123,11 +196,41 @@ export function WorkspaceReviewPanel({
               </span>
             ) : null}
           </div>
-          <Button variant="secondary" disabled={isLoading} onClick={onRefresh}>
-            <RefreshCw size={15} />
-            {isLoading ? "Refreshing" : "Refresh"}
-          </Button>
+          <div className="flex flex-wrap gap-2">
+            <Button
+              variant="secondary"
+              disabled={saveDiff.isPending || saveDiff.isSuccess}
+              onClick={() => saveDiff.mutate()}
+            >
+              <Pin size={15} />
+              {saveDiff.isSuccess
+                ? "Diff pinned"
+                : saveDiff.isPending
+                  ? "Pinning…"
+                  : "Pin diff"}
+            </Button>
+            {saveDiff.data ? (
+              <ReferenceActions
+                reference={{
+                  kind: "artifact",
+                  artifact_id: saveDiff.data.artifact.artifact_id,
+                }}
+                showCopy={false}
+              />
+            ) : null}
+            <Button
+              variant="secondary"
+              disabled={isLoading}
+              onClick={onRefresh}
+            >
+              <RefreshCw size={15} />
+              {isLoading ? "Refreshing" : "Refresh"}
+            </Button>
+          </div>
         </div>
+        {saveDiff.error ? (
+          <ErrorNotice error={saveDiff.error} title="Diff artifact failed" />
+        ) : null}
         <div className="flex flex-wrap items-center gap-2">
           {snapshot.head_state === "detached" ? (
             <Badge tone="warn">Detached HEAD</Badge>
@@ -235,6 +338,31 @@ export function WorkspaceReviewPanel({
                 </p>
               </div>
               <div className="flex gap-2">
+                <Button
+                  variant="secondary"
+                  disabled={
+                    review.checks.length === 0 ||
+                    saveChecks.isPending ||
+                    saveChecks.isSuccess
+                  }
+                  onClick={() => saveChecks.mutate()}
+                >
+                  <Pin size={14} />
+                  {saveChecks.isSuccess
+                    ? "Report pinned"
+                    : saveChecks.isPending
+                      ? "Pinning…"
+                      : "Pin report"}
+                </Button>
+                {saveChecks.data ? (
+                  <ReferenceActions
+                    reference={{
+                      kind: "artifact",
+                      artifact_id: saveChecks.data.artifact.artifact_id,
+                    }}
+                    showCopy={false}
+                  />
+                ) : null}
                 {activeCheckId ? (
                   <>
                     <Badge tone="info">{activeState ?? "starting"}</Badge>
@@ -266,6 +394,12 @@ export function WorkspaceReviewPanel({
             </div>
             {runCheck.error ? (
               <ErrorNotice error={runCheck.error} title="Check start failed" />
+            ) : null}
+            {saveChecks.error ? (
+              <ErrorNotice
+                error={saveChecks.error}
+                title="Check artifact failed"
+              />
             ) : null}
             <div className="mt-3 space-y-2">
               {review.checks.length === 0 ? (

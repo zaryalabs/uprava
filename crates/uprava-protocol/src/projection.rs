@@ -21,17 +21,28 @@ pub enum UpravaRef {
     Runtime {
         runtime_session_id: RuntimeSessionId,
     },
+    TaskRun {
+        task_run_id: TaskRunId,
+    },
     Turn {
         turn_id: TurnId,
     },
     Message {
         message_id: MessageId,
     },
+    MessageRange {
+        message_id: MessageId,
+        range: TextRange,
+    },
     Block {
         block_id: BlockId,
     },
     Artifact {
         artifact_id: ArtifactId,
+    },
+    ArtifactVersion {
+        artifact_id: ArtifactId,
+        version: u64,
     },
     Deduction {
         deduction_id: DeductionId,

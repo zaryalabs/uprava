@@ -1,17 +1,25 @@
 import type {
   AcknowledgeWarningRequest,
+  ArtifactDetail,
+  ArtifactListResponse,
   ApiError,
   ApproveNodeEnrollmentResponse,
   ClientCreateNodeEnrollmentRequest,
   CommandAcceptedResponse,
   CommandState,
   CreatePlacementRequest,
+  CreateArtifactRequest,
+  CreateArtifactVersionRequest,
+  CreateDynamicUiProposalRequest,
   CreateJobRequest,
   CreateSessionRequest,
   CreateDeductionRequest,
   DeductionAcceptedResponse,
   DeductionRecord,
   EventLogPage,
+  GeneratedUiActionResult,
+  GeneratedUiRuntimeDetail,
+  GeneratedUiState,
   HealthResponse,
   NodeCredentialRotationResponse,
   NodeDeletionResponse,
@@ -30,10 +38,14 @@ import type {
   IntegrationConnectResponse,
   IntegrationConnectionsResponse,
   IntegrationDisconnectResponse,
+  InvokeGeneratedUiActionRequest,
   McpDependencyStatusesResponse,
   PluginInstallationSummary,
   PluginListResponse,
   EffectivePluginSnapshot,
+  ContributionTargetResolution,
+  UpdateContributionTargetPreferencesRequest,
+  UpdateGeneratedUiStateRequest,
   ObservedCapabilitiesResponse,
   ProviderQuotaStatus,
   PersistDeductionResponse,
@@ -46,6 +58,9 @@ import type {
   ToolCallsResponse,
   ToolDefinition,
   ToolDefinitionsResponse,
+  CreateTaskRunRequest,
+  TaskRunDetail,
+  TaskRunListResponse,
   UpravaRef,
   VersionResponse,
   WebAuthLoginRequest,
@@ -70,6 +85,8 @@ import type {
 } from "../protocol/types";
 import {
   commandAcceptedResponseSchema,
+  artifactDetailSchema,
+  artifactListResponseSchema,
   formatProtocolIssues,
   parseProtocolPayload,
   type ProtocolSchema,
@@ -87,12 +104,18 @@ import {
   pluginInstallationSummarySchema,
   pluginListResponseSchema,
   effectivePluginSnapshotSchema,
+  contributionTargetResolutionSchema,
+  generatedUiActionResultSchema,
+  generatedUiRuntimeDetailSchema,
+  generatedUiStateSchema,
   observedCapabilitiesResponseSchema,
   toolAvailabilityResponseSchema,
   toolCallDetailSchema,
   toolCallsResponseSchema,
   toolDefinitionSchema,
   toolDefinitionsResponseSchema,
+  taskRunDetailSchema,
+  taskRunListResponseSchema,
 } from "../protocol/validators";
 import { apiBase, apiWsBase } from "./config";
 import { logClientEvent } from "../logging/client-logger";
@@ -158,11 +181,46 @@ export async function apiPatch<T>(
   );
 }
 
+export async function apiPut<T>(
+  path: string,
+  body?: unknown,
+  schema?: ProtocolSchema<T>,
+): Promise<T> {
+  return apiRequest<T>(
+    path,
+    {
+      method: "PUT",
+      headers: { "content-type": "application/json" },
+      body: body === undefined ? undefined : JSON.stringify(body),
+    },
+    schema,
+  );
+}
+
 export async function apiDelete<T>(
   path: string,
   schema?: ProtocolSchema<T>,
 ): Promise<T> {
   return apiRequest<T>(path, { method: "DELETE" }, schema);
+}
+
+export async function apiGetText(path: string): Promise<string> {
+  const response = await fetch(`${apiBase}${path}`, {
+    method: "GET",
+    credentials: "include",
+  });
+  if (!response.ok) {
+    throw new UpravaApiError(
+      {
+        error_code: "network.http",
+        message: `HTTP ${response.status}`,
+        retryable: response.status >= 500,
+        correlation_id: "unavailable",
+      },
+      response.status,
+    );
+  }
+  return response.text();
 }
 
 const workspaceCommandTerminalStates = new Set<CommandState>([
@@ -380,8 +438,90 @@ export const coreApi = {
     apiGet<PluginListResponse>("/plugins", pluginListResponseSchema),
   pluginContributions: () =>
     apiGet<EffectivePluginSnapshot>(
-      "/plugin-contributions?kind=ui.theme",
+      "/plugin-contributions",
       effectivePluginSnapshotSchema,
+    ),
+  artifacts: (
+    scope: {
+      sessionThreadId?: string;
+      placementId?: string;
+      artifactType?: string;
+    } = {},
+  ) => {
+    const query = new URLSearchParams();
+    if (scope.sessionThreadId) {
+      query.set("session_thread_id", scope.sessionThreadId);
+    }
+    if (scope.placementId) {
+      query.set("project_placement_id", scope.placementId);
+    }
+    if (scope.artifactType) query.set("artifact_type", scope.artifactType);
+    const suffix = query.size > 0 ? `?${query.toString()}` : "";
+    return apiGet<ArtifactListResponse>(
+      `/artifacts${suffix}`,
+      artifactListResponseSchema,
+    );
+  },
+  artifact: (artifactId: string, version?: number) =>
+    apiGet<ArtifactDetail>(
+      `/artifacts/${encodeURIComponent(artifactId)}${version === undefined ? "" : `?version=${version}`}`,
+      artifactDetailSchema,
+    ),
+  createArtifact: (request: CreateArtifactRequest) =>
+    apiPost<ArtifactDetail>("/artifacts", request, artifactDetailSchema),
+  createArtifactVersion: (
+    artifactId: string,
+    request: CreateArtifactVersionRequest,
+  ) =>
+    apiPost<ArtifactDetail>(
+      `/artifacts/${encodeURIComponent(artifactId)}/versions`,
+      request,
+      artifactDetailSchema,
+    ),
+  createDynamicUiProposal: (request: CreateDynamicUiProposalRequest) =>
+    apiPost<GeneratedUiRuntimeDetail>(
+      "/dynamic-ui/proposals",
+      request,
+      generatedUiRuntimeDetailSchema,
+    ),
+  generatedUiRuntime: (artifactId: string) =>
+    apiGet<GeneratedUiRuntimeDetail>(
+      `/artifacts/${encodeURIComponent(artifactId)}/dynamic-ui`,
+      generatedUiRuntimeDetailSchema,
+    ),
+  generatedUiSource: (artifactId: string) =>
+    apiGetText(
+      `/artifacts/${encodeURIComponent(artifactId)}/dynamic-ui/source`,
+    ),
+  generatedUiBundle: (blobHash: string) =>
+    apiGetText(`/generated-ui/bundles/${encodeURIComponent(blobHash)}`),
+  updateGeneratedUiState: (
+    artifactId: string,
+    request: UpdateGeneratedUiStateRequest,
+  ) =>
+    apiPut<GeneratedUiState>(
+      `/artifacts/${encodeURIComponent(artifactId)}/dynamic-ui/state`,
+      request,
+      generatedUiStateSchema,
+    ),
+  invokeGeneratedUiAction: (
+    artifactId: string,
+    actionId: string,
+    request: InvokeGeneratedUiActionRequest,
+  ) =>
+    apiPost<GeneratedUiActionResult>(
+      `/artifacts/${encodeURIComponent(artifactId)}/dynamic-ui/actions/${encodeURIComponent(actionId)}`,
+      request,
+      generatedUiActionResultSchema,
+    ),
+  updatePluginContributionTarget: (
+    targetId: string,
+    request: UpdateContributionTargetPreferencesRequest,
+  ) =>
+    apiPut<ContributionTargetResolution>(
+      `/plugin-contribution-targets/${encodeURIComponent(targetId)}`,
+      request,
+      contributionTargetResolutionSchema,
     ),
   enablePlugin: (pluginId: string) =>
     apiPost<PluginInstallationSummary>(
@@ -414,6 +554,28 @@ export const coreApi = {
     apiGet<JobRunSummary>(`/job-runs/${encodeURIComponent(jobRunId)}`),
   cancelJobRun: (jobRunId: string) =>
     apiPost<JobRunSummary>(`/job-runs/${encodeURIComponent(jobRunId)}/cancel`),
+  taskRuns: (placementId?: string) => {
+    const query = placementId
+      ? `?project_placement_id=${encodeURIComponent(placementId)}`
+      : "";
+    return apiGet<TaskRunListResponse>(
+      `/task-runs${query}`,
+      taskRunListResponseSchema,
+    );
+  },
+  createTaskRun: (request: CreateTaskRunRequest) =>
+    apiPost<TaskRunDetail>("/task-runs", request, taskRunDetailSchema),
+  taskRun: (taskRunId: string) =>
+    apiGet<TaskRunDetail>(
+      `/task-runs/${encodeURIComponent(taskRunId)}`,
+      taskRunDetailSchema,
+    ),
+  cancelTaskRun: (taskRunId: string) =>
+    apiPost<TaskRunDetail>(
+      `/task-runs/${encodeURIComponent(taskRunId)}/cancel`,
+      undefined,
+      taskRunDetailSchema,
+    ),
   providerQuota: (provider: string) =>
     apiGet<ProviderQuotaStatus>(
       `/provider-quota/${encodeURIComponent(provider)}`,

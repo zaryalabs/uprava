@@ -1,0 +1,75 @@
+{
+  "manifest_version": 1,
+  "plugin_id": "uprava.diagrams",
+  "version": "1.0.0",
+  "display_name": "Diagram Artifacts",
+  "description": "Bundled Mermaid and bounded PlantUML diagram previews and durable diagram artifacts.",
+  "publisher": "Uprava",
+  "license": null,
+  "homepage": null,
+  "install_source": "bundled",
+  "trust_level": "trusted_bundled",
+  "compatibility": {
+    "core": { "minimum": "0.2.17", "maximum_exclusive": "0.3.0" },
+    "web": { "minimum": "0.2.17", "maximum_exclusive": "0.3.0" },
+    "node": null,
+    "protocol_versions": ["v2"]
+  },
+  "activation_conditions": [],
+  "requested_permissions": [
+    "visual.renderer.contribute",
+    "artifact.type.contribute"
+  ],
+  "configuration_schema": null,
+  "contributions": [
+    {
+      "kind": "visual_renderer",
+      "contribution_id": "uprava.diagrams.markdown",
+      "contract_version": 2,
+      "contribution": {
+        "renderer_id": "uprava.diagrams.markdown",
+        "implementation_id": "uprava.diagrams.v1",
+        "renderer_kind": "inline_fragment",
+        "accepted_source_kinds": ["markdown.code_fence"],
+        "render_scopes": ["inline_fragment", "detail_view"],
+        "allowed_surfaces": ["session.timeline"],
+        "fallback_strategy": "source",
+        "source_matcher": {
+          "kind": "fenced_language",
+          "language_ids": ["mermaid", "plantuml", "puml"]
+        },
+        "visual_kinds": ["visual.diagram"],
+        "actions": ["visual.copy_source", "artifact.pin"]
+      }
+    },
+    {
+      "kind": "artifact_type",
+      "contribution_id": "uprava.diagrams.type",
+      "contract_version": 1,
+      "contribution": {
+        "artifact_type_id": "uprava.diagram",
+        "display_name": "Diagram",
+        "description": "A versioned diagram source and preview with source and trace references.",
+        "schema_version": 1,
+        "fallback_strategy": "source"
+      }
+    },
+    {
+      "kind": "visual_renderer",
+      "contribution_id": "uprava.diagrams.viewer",
+      "contract_version": 2,
+      "contribution": {
+        "renderer_id": "uprava.diagrams.viewer",
+        "implementation_id": "uprava.diagrams.v1",
+        "renderer_kind": "artifact_viewer",
+        "accepted_source_kinds": ["artifact.uprava.diagram"],
+        "render_scopes": ["artifact_viewer", "detail_view"],
+        "allowed_surfaces": ["artifact.viewer"],
+        "fallback_strategy": "metadata",
+        "source_matcher": null,
+        "visual_kinds": ["visual.diagram"],
+        "actions": ["visual.copy_source"]
+      }
+    }
+  ]
+}

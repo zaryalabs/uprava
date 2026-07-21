@@ -29,6 +29,7 @@ import {
   routeWithSearch,
   workspaceAgentRoute,
   workspaceJobsRoute,
+  workspaceTasksRoute,
   workspaceSurfaceFromPathname,
   workspaceWorkbenchRoute,
 } from "./routes";
@@ -169,6 +170,14 @@ export function WorkspaceLayout() {
           )}
         >
           Workbench
+        </WorkspaceTab>
+        <WorkspaceTab
+          to={routeWithSearch(
+            workspaceTasksRoute(placementId),
+            location.search,
+          )}
+        >
+          Tasks
         </WorkspaceTab>
         <WorkspaceTab
           to={routeWithSearch(workspaceJobsRoute(placementId), location.search)}

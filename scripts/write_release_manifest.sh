@@ -93,8 +93,11 @@ require_image_var() {
 
 core_image="$(require_image_var UPRAVA_CORE_IMAGE)"
 web_image="$(require_image_var UPRAVA_WEB_IMAGE)"
+generated_ui_builder_image="$(require_image_var UPRAVA_GENERATED_UI_BUILDER_IMAGE)"
 node_image="$(require_image_var UPRAVA_NODE_IMAGE)"
 toolhive_image="$(require_image_var UPRAVA_TOOLHIVE_IMAGE)"
+task_runtime_image="$(require_image_var UPRAVA_TASK_RUNTIME_IMAGE)"
+opensandbox_image="$(require_image_var UPRAVA_OPENSANDBOX_IMAGE)"
 node_sha="$(scripts/extract-node-artifact.sh "$node_image" "$node_artifact_path")"
 
 mkdir -p "$(dirname "$release_manifest")"
@@ -117,8 +120,11 @@ tmp_file="$(mktemp)"
   printf "UPRAVA_TOOLHIVE_VERSION=%s\n" "$toolhive_version"
   printf "UPRAVA_CORE_IMAGE=%s\n" "$core_image"
   printf "UPRAVA_WEB_IMAGE=%s\n" "$web_image"
+  printf "UPRAVA_GENERATED_UI_BUILDER_IMAGE=%s\n" "$generated_ui_builder_image"
   printf "UPRAVA_NODE_ARTIFACT=%s\n" "$node_image"
   printf "UPRAVA_TOOLHIVE_IMAGE=%s\n" "$toolhive_image"
+  printf "UPRAVA_TASK_RUNTIME_IMAGE=%s\n" "$task_runtime_image"
+  printf "UPRAVA_OPENSANDBOX_IMAGE=%s\n" "$opensandbox_image"
   printf "UPRAVA_NODE_SHA256=%s\n" "$node_sha"
   if [[ -n "$node_version" ]]; then
     printf "UPRAVA_NODE_VERSION=%s\n" "$node_version"

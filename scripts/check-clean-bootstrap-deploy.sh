@@ -26,8 +26,11 @@ UPRAVA_TOOLHIVE_PROFILE=toolhive
 UPRAVA_TOOLHIVE_VERSION=0.40.0
 UPRAVA_CORE_IMAGE=ghcr.io/zaryalabs/uprava-core@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
 UPRAVA_WEB_IMAGE=ghcr.io/zaryalabs/uprava-web@sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb
+UPRAVA_GENERATED_UI_BUILDER_IMAGE=ghcr.io/zaryalabs/uprava-generated-ui-builder@sha256:dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd
 UPRAVA_NODE_ARTIFACT=ghcr.io/zaryalabs/uprava-node@sha256:cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc
-UPRAVA_TOOLHIVE_IMAGE=ghcr.io/zaryalabs/uprava-toolhive@sha256:dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd
+UPRAVA_TOOLHIVE_IMAGE=ghcr.io/zaryalabs/uprava-toolhive@sha256:1111111111111111111111111111111111111111111111111111111111111111
+UPRAVA_TASK_RUNTIME_IMAGE=ghcr.io/zaryalabs/uprava-codex-runtime@sha256:eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee
+UPRAVA_OPENSANDBOX_IMAGE=opensandbox/server@sha256:ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff
 UPRAVA_NODE_SHA256=$node_sha
 UPRAVA_NODE_VERSION=0.2.3
 EOF
@@ -59,5 +62,6 @@ PATH="$tmp/bin:$PATH" make -f "$repo/ops/Makefile" --no-print-directory deploy \
 test "$(readlink "$tmp/.env.release")" = "$tmp/releases/test.env.release"
 test "$(readlink "$tmp/current")" = "$tmp/releases/test"
 test -x "$tmp/releases/test/uprava-node"
+test -f "$tmp/backups/pre-deploy/test/no-core-state"
 grep -Eq -- 'compose .*--profile toolhive .* up -d --remove-orphans' "$tmp/docker.log"
 echo "Clean bootstrap deploy rehearsal passed in an isolated fixture"

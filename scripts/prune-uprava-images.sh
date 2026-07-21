@@ -29,12 +29,14 @@ prune_repository() {
 for repository in \
     ghcr.io/zaryalabs/uprava-core \
     ghcr.io/zaryalabs/uprava-web \
+    ghcr.io/zaryalabs/uprava-generated-ui-builder \
     ghcr.io/zaryalabs/uprava-node \
-    ghcr.io/zaryalabs/uprava-toolhive; do
+    ghcr.io/zaryalabs/uprava-toolhive \
+    ghcr.io/zaryalabs/uprava-codex-runtime; do
     prune_repository "$repository" "$keep_registry"
 done
 
-for repository in uprava-core uprava-web uprava-node uprava-toolhive; do
+for repository in uprava-core uprava-web uprava-generated-ui-builder uprava-node uprava-toolhive uprava/codex-runtime; do
     prune_repository "$repository" "$keep_local"
 done
 

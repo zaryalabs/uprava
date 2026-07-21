@@ -26,6 +26,10 @@ import {
 } from "./literals";
 import type {
   ActorRef,
+  ArtifactDetail,
+  ArtifactListResponse,
+  ArtifactSummary,
+  ArtifactVersion,
   CommandAcceptedResponse,
   CommandKind,
   CommandState,
@@ -67,7 +71,12 @@ import type {
   PluginInstallationSummary,
   PluginListResponse,
   EffectivePluginSnapshot,
+  GeneratedUiActionResult,
+  GeneratedUiRuntimeDetail,
+  GeneratedUiState,
   ToolingEventV1,
+  TaskRunDetail,
+  TaskRunListResponse,
   WorkspaceCommandHistoryItem,
   WorkspaceCommandHistoryResponse,
   WorkspaceCommandIntent,
@@ -586,11 +595,24 @@ export const toolingContractFixtureSchema = z
   .strict() satisfies z.ZodType<ToolingContractFixture>;
 
 const stringMapSchema = z.record(z.string(), z.string());
+const generatedUiLayoutIntentSchema = z.enum(["inline", "panel", "canvas"]);
+const generatedUiCapabilitySchema = z.enum([
+  "persist_state",
+  "send_agent_input",
+  "open_reference",
+  "request_layout_change",
+]);
+const generatedUiActionKindSchema = z.enum([
+  "update_artifact_state",
+  "send_agent_input",
+  "open_reference",
+]);
 
 export const pluginContributionSchema = z.discriminatedUnion("kind", [
   z
     .object({
       kind: z.literal("ui_theme"),
+      contribution_id: z.string(),
       contract_version: z.number().int().positive(),
       contribution: z
         .object({
@@ -610,16 +632,125 @@ export const pluginContributionSchema = z.discriminatedUnion("kind", [
   z
     .object({
       kind: z.literal("agent_tool"),
+      contribution_id: z.string(),
       contract_version: z.number().int().positive(),
       tool_id: z.string(),
     })
     .strict(),
   z
     .object({
-      kind: z.literal("artifact_type"),
+      kind: z.literal("visual_renderer"),
+      contribution_id: z.string(),
       contract_version: z.number().int().positive(),
-      artifact_type_id: z.string(),
-      display_name: z.string(),
+      contribution: z
+        .object({
+          renderer_id: z.string(),
+          implementation_id: z.string(),
+          renderer_kind: z.enum([
+            "content",
+            "inline_fragment",
+            "block",
+            "artifact_viewer",
+          ]),
+          accepted_source_kinds: z.array(z.string()),
+          render_scopes: z.array(
+            z.enum([
+              "content_enhancement",
+              "inline_fragment",
+              "block",
+              "artifact_viewer",
+              "detail_view",
+            ]),
+          ),
+          allowed_surfaces: z.array(z.string()),
+          fallback_strategy: z.enum(["plain_text", "source", "metadata"]),
+          source_matcher: z
+            .discriminatedUnion("kind", [
+              z
+                .object({
+                  kind: z.literal("fenced_language"),
+                  language_ids: z.array(z.string()),
+                })
+                .strict(),
+              z
+                .object({
+                  kind: z.literal("strict_color_literal"),
+                  formats: z.array(z.string()),
+                })
+                .strict(),
+            ])
+            .nullable(),
+          visual_kinds: z.array(z.string()),
+          actions: z.array(z.string()),
+        })
+        .strict(),
+    })
+    .strict(),
+  z
+    .object({
+      kind: z.literal("artifact_type"),
+      contribution_id: z.string(),
+      contract_version: z.number().int().positive(),
+      contribution: z
+        .object({
+          artifact_type_id: z.string(),
+          display_name: z.string(),
+          description: z.string(),
+          schema_version: z.number().int().positive(),
+          fallback_strategy: z.enum(["plain_text", "source", "metadata"]),
+        })
+        .strict(),
+    })
+    .strict(),
+  z
+    .object({
+      kind: z.literal("generated_ui_runtime"),
+      contribution_id: z.string(),
+      contract_version: z.number().int().positive(),
+      contribution: z
+        .object({
+          runtime_id: z.string(),
+          implementation_id: z.string(),
+          runtime_version: z.string(),
+          sdk_id: z.string(),
+          action_bridge_id: z.string(),
+          supported_sdk_versions: z.array(z.string()),
+          supported_layouts: z.array(generatedUiLayoutIntentSchema),
+          sandbox_capabilities: z.array(generatedUiCapabilitySchema),
+          allowed_imports: z.array(z.string()),
+          max_source_bytes: z.number().int().positive(),
+          max_bundle_bytes: z.number().int().positive(),
+        })
+        .strict(),
+    })
+    .strict(),
+  z
+    .object({
+      kind: z.literal("generated_ui_sdk"),
+      contribution_id: z.string(),
+      contract_version: z.number().int().positive(),
+      contribution: z
+        .object({
+          sdk_id: z.string(),
+          package_name: z.string(),
+          api_version: z.string(),
+          design_token_version: z.string(),
+          api_schema: z.unknown(),
+        })
+        .strict(),
+    })
+    .strict(),
+  z
+    .object({
+      kind: z.literal("generated_ui_action_bridge"),
+      contribution_id: z.string(),
+      contract_version: z.number().int().positive(),
+      contribution: z
+        .object({
+          bridge_id: z.string(),
+          supported_actions: z.array(generatedUiActionKindSchema),
+        })
+        .strict(),
     })
     .strict(),
 ]) satisfies z.ZodType<PluginContribution>;
@@ -679,9 +810,210 @@ export const pluginListResponseSchema = z
   .object({ items: z.array(pluginInstallationSummarySchema) })
   .strict() satisfies z.ZodType<PluginListResponse>;
 
+export const contributionTargetSchema = z.discriminatedUnion("kind", [
+  z.object({ kind: z.literal("ui_theme"), theme_id: z.string() }).strict(),
+  z
+    .object({
+      kind: z.literal("visual_renderer"),
+      source_kind: z.string(),
+      surface: z.string(),
+      render_scope: z.enum([
+        "content_enhancement",
+        "inline_fragment",
+        "block",
+        "artifact_viewer",
+        "detail_view",
+      ]),
+      selector: z.string().optional(),
+    })
+    .strict(),
+  z
+    .object({ kind: z.literal("artifact_type"), artifact_type: z.string() })
+    .strict(),
+  z
+    .object({ kind: z.literal("generated_ui_runtime"), runtime_id: z.string() })
+    .strict(),
+  z
+    .object({ kind: z.literal("generated_ui_sdk"), sdk_id: z.string() })
+    .strict(),
+  z
+    .object({
+      kind: z.literal("generated_ui_action_bridge"),
+      bridge_id: z.string(),
+    })
+    .strict(),
+]);
+
+const scopeRefSchema = z.discriminatedUnion("kind", [
+  z
+    .object({ kind: z.literal("runtime"), runtime_session_id: z.string() })
+    .strict(),
+  z
+    .object({ kind: z.literal("session"), session_thread_id: z.string() })
+    .strict(),
+  z.object({ kind: z.literal("node"), node_id: z.string() }).strict(),
+  z
+    .object({
+      kind: z.literal("placement"),
+      project_placement_id: z.string(),
+    })
+    .strict(),
+  z.object({ kind: z.literal("unknown"), scope: z.string() }).strict(),
+]);
+
+export const artifactSummarySchema = z
+  .object({
+    artifact_id: z.string(),
+    artifact_type: z.string(),
+    title: z.string(),
+    scope_ref: scopeRefSchema,
+    owner_plugin_id: z.string(),
+    current_version: z.number().int().positive(),
+    state: z.enum(["active", "stale", "archived"]),
+    created_by: actorRefSchema,
+    created_at: z.string(),
+    updated_at: z.string(),
+  })
+  .strict() satisfies z.ZodType<ArtifactSummary>;
+
+export const artifactVersionSchema = z
+  .object({
+    artifact_id: z.string(),
+    version: z.number().int().positive(),
+    schema_version: z.number().int().positive(),
+    payload: z.unknown(),
+    fallback_text: z.string(),
+    source_version: nullableString,
+    source_refs: z.array(upravaRefSchema),
+    evidence_refs: z.array(upravaRefSchema),
+    cause_refs: z.array(upravaRefSchema),
+    trace_refs: z.array(upravaRefSchema),
+    provenance: z.unknown(),
+    created_at: z.string(),
+  })
+  .strict() satisfies z.ZodType<ArtifactVersion>;
+
+export const artifactDetailSchema = z
+  .object({ artifact: artifactSummarySchema, version: artifactVersionSchema })
+  .strict() satisfies z.ZodType<ArtifactDetail>;
+
+export const artifactListResponseSchema = z
+  .object({ items: z.array(artifactSummarySchema) })
+  .strict() satisfies z.ZodType<ArtifactListResponse>;
+
+export const generatedUiStateSchema = z
+  .object({
+    artifact_id: z.string(),
+    revision: z.number().int().nonnegative(),
+    values: z.unknown(),
+    updated_at: z.string(),
+  })
+  .strict() satisfies z.ZodType<GeneratedUiState>;
+
+export const generatedUiArtifactPayloadSchema = z
+  .object({
+    description: nullableString,
+    runtime_id: z.string(),
+    sdk_version: z.string(),
+    layout_intent: generatedUiLayoutIntentSchema,
+    source_blob_hash: z.string(),
+    data_model: z.unknown(),
+    actions: z.array(
+      z
+        .object({
+          action_id: z.string(),
+          kind: generatedUiActionKindSchema,
+          label: z.string(),
+          input_schema: z.unknown(),
+          required_capabilities: z.array(generatedUiCapabilitySchema),
+          confirmation_required: z.boolean(),
+        })
+        .strict(),
+    ),
+    granted_capabilities: z.array(generatedUiCapabilitySchema),
+    fallback_snapshot: nullableString,
+  })
+  .strict() satisfies z.ZodType<import("./types").GeneratedUiArtifactPayload>;
+
+export const generatedUiRuntimeDetailSchema = z
+  .object({
+    artifact: artifactDetailSchema,
+    build: z
+      .object({
+        build_id: z.string(),
+        artifact_id: z.string(),
+        artifact_version: z.number().int().positive(),
+        state: z.enum(["pending", "ready", "failed", "fallback_only"]),
+        runtime_id: z.string(),
+        runtime_version: z.string(),
+        sdk_version: z.string(),
+        source_blob_hash: z.string(),
+        bundle_blob_hash: nullableString,
+        dependency_lock: z.unknown(),
+        diagnostics: z.array(
+          z
+            .object({
+              severity: z.enum(["error", "warning", "info"]),
+              message: z.string(),
+              line: z.number().int().nonnegative().nullable(),
+              column: z.number().int().nonnegative().nullable(),
+            })
+            .strict(),
+        ),
+        created_at: z.string(),
+        completed_at: nullableString,
+      })
+      .strict(),
+    state: generatedUiStateSchema,
+  })
+  .strict() satisfies z.ZodType<GeneratedUiRuntimeDetail>;
+
+export const generatedUiActionResultSchema = z
+  .object({
+    action_request_id: z.string(),
+    artifact_id: z.string(),
+    action_id: z.string(),
+    kind: generatedUiActionKindSchema,
+    result: z.unknown(),
+    state: generatedUiStateSchema.nullable(),
+    command_id: nullableString,
+    completed_at: z.string(),
+  })
+  .strict() satisfies z.ZodType<GeneratedUiActionResult>;
+
+export const contributionRefSchema = z
+  .object({ plugin_id: z.string(), contribution_id: z.string() })
+  .strict();
+
+export const effectiveContributionSchema = z
+  .object({
+    plugin_id: z.string(),
+    plugin_version: z.string(),
+    contribution_id: z.string(),
+    extension_point: z.string(),
+    contract_version: z.number().int().positive(),
+    target: contributionTargetSchema,
+    effective_state: z.enum(["available", "disabled"]),
+    contribution: pluginContributionSchema,
+  })
+  .strict();
+
+export const contributionTargetResolutionSchema = z
+  .object({
+    target_id: z.string(),
+    extension_point: z.string(),
+    mode: z.enum(["exclusive", "ordered"]),
+    target: contributionTargetSchema,
+    revision: z.number().int().nonnegative(),
+    conflict: z.boolean(),
+    contributions: z.array(effectiveContributionSchema),
+  })
+  .strict();
+
 export const effectivePluginSnapshotSchema = z
   .object({
-    contributions: z.array(pluginContributionSchema),
+    contributions: z.array(effectiveContributionSchema),
+    resolutions: z.array(contributionTargetResolutionSchema),
     generated_at: z.string(),
   })
   .strict() satisfies z.ZodType<EffectivePluginSnapshot>;
@@ -936,6 +1268,27 @@ export const eventPayloadSchema = z.union([
     .strict(),
   z
     .object({
+      type: z.literal("task_run_state_changed"),
+      task_run_id: z.string(),
+      state: z.enum([
+        "queued",
+        "preparing_workspace",
+        "starting_runtime",
+        "running",
+        "checking",
+        "collecting_evidence",
+        "succeeded",
+        "failed",
+        "cancelling",
+        "cancelled",
+        "timed_out",
+      ]),
+      cleanup_state: z.enum(["pending", "completed", "failed"]),
+      message: nullableString,
+    })
+    .strict(),
+  z
+    .object({
       type: z.literal("extension"),
       name: z.string(),
       value: z.unknown(),
@@ -972,6 +1325,7 @@ const payloadTypeByEventKind: Record<EventKind, EventPayload["type"]> = {
   "deduction.invalid": "deduction_invalid",
   "deduction.failed": "deduction_failed",
   "deduction.cancelled": "deduction_cancelled",
+  "task_run.state_changed": "task_run_state_changed",
   extension: "extension",
 };
 
@@ -1126,6 +1480,111 @@ export const workspaceTerminalListResponseSchema = z
     generated_at: z.string(),
   })
   .strict() satisfies z.ZodType<WorkspaceTerminalListResponse>;
+
+const taskRunStateSchema = z.enum([
+  "queued",
+  "preparing_workspace",
+  "starting_runtime",
+  "running",
+  "checking",
+  "collecting_evidence",
+  "succeeded",
+  "failed",
+  "cancelling",
+  "cancelled",
+  "timed_out",
+]);
+const taskCleanupStateSchema = z.enum(["pending", "completed", "failed"]);
+const taskFailureSchema = z
+  .object({ code: z.string(), message: z.string() })
+  .strict();
+const taskCheckSpecSchema = z
+  .object({
+    label: z.string(),
+    command: z.string(),
+    args: z.array(z.string()),
+    timeout_seconds: z.number().int().nonnegative(),
+  })
+  .strict();
+const taskResourceLimitsSchema = z
+  .object({ cpu: z.string(), memory: z.string() })
+  .strict();
+const taskCheckResultSchema = z
+  .object({
+    label: z.string(),
+    command: z.string(),
+    success: z.boolean(),
+    exit_code: nullableNumber,
+    stdout: z.string(),
+    stderr: z.string(),
+    stdout_truncated: z.boolean(),
+    stderr_truncated: z.boolean(),
+    duration_ms: z.number().int().nonnegative(),
+  })
+  .strict();
+const taskArtifactEvidenceSchema = z
+  .object({
+    path: z.string(),
+    size_bytes: z.number().int().nonnegative(),
+    sha256: z.string(),
+  })
+  .strict();
+const taskRunResultSchema = z
+  .object({
+    task_run_id: z.string(),
+    state: taskRunStateSchema,
+    cleanup_state: taskCleanupStateSchema,
+    summary: z.string(),
+    base_revision: z.string(),
+    final_revision: nullableString,
+    branch: z.string(),
+    worktree_path: z.string(),
+    runtime_image: z.string(),
+    diff: z.string(),
+    diff_truncated: z.boolean(),
+    checks: z.array(taskCheckResultSchema),
+    artifacts: z.array(taskArtifactEvidenceSchema),
+    unresolved_risks: z.array(z.string()),
+    terminal_reason: taskFailureSchema.nullable(),
+  })
+  .strict();
+const taskRunSummarySchema = z
+  .object({
+    task_run_id: z.string(),
+    project_placement_id: z.string(),
+    placement_name: z.string(),
+    node_id: z.string(),
+    provider: z.string(),
+    state: taskRunStateSchema,
+    cleanup_state: taskCleanupStateSchema,
+    base_revision: z.string(),
+    branch: z.string(),
+    runtime_image: z.string(),
+    queued_at: z.string(),
+    started_at: nullableString,
+    finished_at: nullableString,
+    summary: nullableString,
+    terminal_reason: taskFailureSchema.nullable(),
+  })
+  .strict();
+
+export const taskRunListResponseSchema = z
+  .object({ items: z.array(taskRunSummarySchema) })
+  .strict() satisfies z.ZodType<TaskRunListResponse>;
+
+export const taskRunDetailSchema = z
+  .object({
+    task: taskRunSummarySchema,
+    prompt: z.string(),
+    checks: z.array(taskCheckSpecSchema),
+    artifact_paths: z.array(z.string()),
+    timeout_seconds: z.number().int().nonnegative(),
+    ttl_seconds: z.number().int().nonnegative(),
+    resource_limits: taskResourceLimitsSchema,
+    worktree_path: nullableString,
+    result: taskRunResultSchema.nullable(),
+  })
+  .strict() satisfies z.ZodType<TaskRunDetail>;
 
 export const workspaceTerminalStreamFrameSchema = z.discriminatedUnion("kind", [
   z

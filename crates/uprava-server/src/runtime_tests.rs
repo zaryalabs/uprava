@@ -29,6 +29,8 @@ const CORE_CONFIG_ENV_VARS: &[&str] = &[
     "UPRAVA_PUBLIC_RATE_WINDOW_SECONDS",
     "UPRAVA_PUBLIC_GLOBAL_RATE_LIMIT",
     "UPRAVA_PUBLIC_PEER_RATE_LIMIT",
+    "UPRAVA_GENERATED_UI_BUILDER_URL",
+    "UPRAVA_GENERATED_UI_BUILDER_TIMEOUT_SECONDS",
 ];
 
 #[test]
@@ -157,6 +159,8 @@ fn test_config(runtime_expiry_seconds: i64) -> AppConfig {
         public_rate_window_seconds: 60,
         public_global_rate_limit: 5_000,
         public_peer_rate_limit: 600,
+        generated_ui_builder_url: "http://127.0.0.1:18082".to_owned(),
+        generated_ui_builder_timeout_seconds: 2,
     }
 }
 
@@ -548,8 +552,12 @@ fn node_event_fixture(
     }
 }
 
+#[path = "runtime/tests/artifacts.rs"]
+mod artifacts;
 #[path = "runtime/tests/control.rs"]
 mod control;
+#[path = "runtime/tests/dynamic_ui.rs"]
+mod dynamic_ui;
 #[path = "runtime/tests/event.rs"]
 mod event;
 #[path = "runtime/tests/foundation.rs"]
@@ -568,6 +576,8 @@ mod runtime;
 mod scheduling;
 #[path = "runtime/tests/session.rs"]
 mod session;
+#[path = "runtime/tests/task.rs"]
+mod task;
 #[path = "runtime/tests/tooling.rs"]
 mod tooling;
 #[path = "runtime/tests/workspace.rs"]

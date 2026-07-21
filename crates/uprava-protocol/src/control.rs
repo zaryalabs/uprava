@@ -89,6 +89,13 @@ pub enum CommandPayload {
     CancelDeduction {
         deduction_id: DeductionId,
     },
+    RunTask {
+        workspace_path: String,
+        spec: Box<TaskRunSpec>,
+    },
+    CancelTaskRun {
+        task_run_id: TaskRunId,
+    },
     Tooling {
         command: Box<ToolingCommandV1>,
     },
@@ -159,6 +166,8 @@ impl CommandPayload {
                 )
                 | (CommandKind::RequestDeduction, Self::RequestDeduction { .. })
                 | (CommandKind::CancelDeduction, Self::CancelDeduction { .. })
+                | (CommandKind::RunTask, Self::RunTask { .. })
+                | (CommandKind::CancelTaskRun, Self::CancelTaskRun { .. })
                 | (CommandKind::Tooling, Self::Tooling { .. })
                 | (CommandKind::Extension, Self::Extension { .. })
         )
@@ -187,6 +196,7 @@ impl CommandPayload {
             | Self::RunWorkspaceCommand { workspace_path, .. }
             | Self::ReadWorkspaceDiff { workspace_path, .. }
             | Self::OpenWorkspaceTerminal { workspace_path, .. } => Some(workspace_path),
+            Self::RunTask { workspace_path, .. } => Some(workspace_path),
             _ => None,
         }
     }
@@ -253,6 +263,11 @@ pub enum CommandTarget {
         session_thread_id: SessionThreadId,
         runtime_session_id: RuntimeSessionId,
     },
+    TaskRun {
+        node_id: NodeId,
+        project_placement_id: ProjectPlacementId,
+        task_run_id: TaskRunId,
+    },
 }
 
 impl CommandTarget {
@@ -261,7 +276,8 @@ impl CommandTarget {
         match self {
             Self::Node { node_id }
             | Self::Placement { node_id, .. }
-            | Self::SessionRuntime { node_id, .. } => node_id,
+            | Self::SessionRuntime { node_id, .. }
+            | Self::TaskRun { node_id, .. } => node_id,
         }
     }
 
@@ -276,6 +292,10 @@ impl CommandTarget {
             | Self::SessionRuntime {
                 project_placement_id,
                 ..
+            }
+            | Self::TaskRun {
+                project_placement_id,
+                ..
             } => Some(project_placement_id),
         }
     }
@@ -286,7 +306,7 @@ impl CommandTarget {
             Self::SessionRuntime {
                 session_thread_id, ..
             } => Some(session_thread_id),
-            Self::Node { .. } | Self::Placement { .. } => None,
+            Self::Node { .. } | Self::Placement { .. } | Self::TaskRun { .. } => None,
         }
     }
 
@@ -296,7 +316,15 @@ impl CommandTarget {
             Self::SessionRuntime {
                 runtime_session_id, ..
             } => Some(runtime_session_id),
-            Self::Node { .. } | Self::Placement { .. } => None,
+            Self::Node { .. } | Self::Placement { .. } | Self::TaskRun { .. } => None,
+        }
+    }
+
+    #[must_use]
+    pub fn task_run_id(&self) -> Option<&TaskRunId> {
+        match self {
+            Self::TaskRun { task_run_id, .. } => Some(task_run_id),
+            _ => None,
         }
     }
 }
@@ -500,6 +528,12 @@ pub enum EventPayloadKind {
     DeductionCancelled {
         deduction_id: DeductionId,
     },
+    TaskRunStateChanged {
+        task_run_id: TaskRunId,
+        state: TaskRunState,
+        cleanup_state: TaskCleanupState,
+        message: Option<String>,
+    },
     Extension {
         name: String,
         value: serde_json_value::JsonValue,
@@ -619,6 +653,10 @@ impl EventPayload {
                 | (
                     EventKind::DeductionCancelled,
                     EventPayloadKind::DeductionCancelled { .. }
+                )
+                | (
+                    EventKind::TaskRunStateChanged,
+                    EventPayloadKind::TaskRunStateChanged { .. }
                 )
                 | (EventKind::Extension, EventPayloadKind::Extension { .. })
         )
@@ -811,6 +849,20 @@ impl EventPayload {
             },
             EventKind::DeductionCancelled => EventPayloadKind::DeductionCancelled {
                 deduction_id: DeductionId::from(text("deduction_id")),
+            },
+            EventKind::TaskRunStateChanged => EventPayloadKind::TaskRunStateChanged {
+                task_run_id: TaskRunId::from(text("task_run_id")),
+                state: value
+                    .get("state")
+                    .cloned()
+                    .and_then(|value| serde_json::from_value(value).ok())
+                    .unwrap_or(TaskRunState::Failed),
+                cleanup_state: value
+                    .get("cleanup_state")
+                    .cloned()
+                    .and_then(|value| serde_json::from_value(value).ok())
+                    .unwrap_or(TaskCleanupState::Pending),
+                message: optional_text(&value, "message"),
             },
             EventKind::Extension => EventPayloadKind::Extension {
                 name: optional_text(&value, "name").unwrap_or_else(|| "unknown".to_owned()),

@@ -3,6 +3,7 @@ set -eu
 
 : "${UPRAVA_CORE_IMAGE:?set UPRAVA_CORE_IMAGE}"
 : "${UPRAVA_WEB_IMAGE:?set UPRAVA_WEB_IMAGE}"
+: "${UPRAVA_GENERATED_UI_BUILDER_IMAGE:?set UPRAVA_GENERATED_UI_BUILDER_IMAGE}"
 : "${UPRAVA_NODE_IMAGE:?set UPRAVA_NODE_IMAGE}"
 : "${UPRAVA_TOOLHIVE_IMAGE:?set UPRAVA_TOOLHIVE_IMAGE}"
 : "${UPRAVA_TOOLHIVE_VERSION:?set UPRAVA_TOOLHIVE_VERSION}"
@@ -12,13 +13,15 @@ suffix=$$
 network="uprava-runtime-$suffix"
 core="uprava-runtime-core-$suffix"
 web="uprava-runtime-web-$suffix"
+generated_ui_builder="uprava-runtime-generated-ui-builder-$suffix"
 node="uprava-runtime-node-$suffix"
 toolhive="uprava-runtime-toolhive-$suffix"
 core_port=${UPRAVA_RUNTIME_CORE_PORT:-39080}
 web_port=${UPRAVA_RUNTIME_WEB_PORT:-39081}
+generated_ui_builder_port=${UPRAVA_RUNTIME_GENERATED_UI_BUILDER_PORT:-39082}
 
 cleanup() {
-    docker rm -f "$toolhive" "$node" "$web" "$core" >/dev/null 2>&1 || true
+    docker rm -f "$toolhive" "$node" "$web" "$core" "$generated_ui_builder" >/dev/null 2>&1 || true
     docker network rm "$network" >/dev/null 2>&1 || true
 }
 trap cleanup EXIT INT TERM
@@ -38,6 +41,12 @@ curl_with_retry() {
 }
 
 docker network create "$network" >/dev/null
+docker run -d --name "$generated_ui_builder" --network "$network" \
+    --read-only --cap-drop ALL --security-opt no-new-privileges \
+    --tmpfs /tmp:rw,noexec,nosuid,nodev,size=64m \
+    -p "127.0.0.1:$generated_ui_builder_port:18082" \
+    "$UPRAVA_GENERATED_UI_BUILDER_IMAGE" >/dev/null
+
 docker run -d --name "$core" --network "$network" \
     --read-only --cap-drop ALL --security-opt no-new-privileges \
     --tmpfs /tmp:rw,noexec,nosuid,nodev,size=64m \
@@ -49,7 +58,11 @@ docker run -d --name "$core" --network "$network" \
     -e UPRAVA_DEPLOYMENT_PROFILE=controlled_dev \
     -e UPRAVA_ALLOWED_ORIGINS="http://127.0.0.1:$web_port" \
     -e UPRAVA_COOKIE_SECURE=false \
+    -e UPRAVA_GENERATED_UI_BUILDER_URL="http://$generated_ui_builder:18082" \
     -p "127.0.0.1:$core_port:8080" "$UPRAVA_CORE_IMAGE" >/dev/null
+
+builder_health=$(curl_with_retry "http://127.0.0.1:$generated_ui_builder_port/health")
+printf '%s\n' "$builder_health" | grep -q '"status":"ok"'
 
 docker run -d --name "$web" --network "$network" \
     --read-only --cap-drop ALL --security-opt no-new-privileges \
@@ -119,13 +132,14 @@ printf '%s\n' "$toolhive_version" | grep -Fq "$UPRAVA_TOOLHIVE_VERSION"
 docker exec "$toolhive" sh -c 'test -s /var/lib/toolhive/.config/toolhive/config.yaml'
 docker exec "$toolhive" sh -c 'test ! -w /usr/local/bin/thv && test ! -w /usr/local/bin/uprava-toolhive && test ! -w /usr/local/share/uprava/toolhive-config.yaml'
 
-for container in "$core" "$web" "$node" "$toolhive"; do
+for container in "$core" "$web" "$generated_ui_builder" "$node" "$toolhive"; do
     test "$(docker inspect -f '{{.HostConfig.ReadonlyRootfs}}' "$container")" = true
     test "$(docker inspect -f '{{.State.Status}}' "$container")" = running
     test "$(docker inspect -f '{{json .HostConfig.CapDrop}}' "$container")" = '["ALL"]'
 done
 test "$(docker inspect -f '{{.Config.User}}' "$core")" = uprava
 test "$(docker inspect -f '{{.Config.User}}' "$web")" = 101
+test "$(docker inspect -f '{{.Config.User}}' "$generated_ui_builder")" = node
 test "$(docker inspect -f '{{.Config.User}}' "$node")" = uprava
 test "$(docker inspect -f '{{.Config.User}}' "$toolhive")" = 10002:10002
 

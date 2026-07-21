@@ -4,6 +4,7 @@ set -eu
 install_dir=${INSTALL_DIR:-/opt/apps/uprava}
 keep=${UPRAVA_KEEP_RELEASES:-3}
 releases_dir="$install_dir/builds/releases"
+predeploy_backups_dir="$install_dir/backups/pre-deploy"
 
 case "$keep" in
     ''|*[!0-9]*)
@@ -32,6 +33,7 @@ find "$releases_dir" -maxdepth 1 -type f -name '*.env.release' -exec ls -1t {} +
         esac
         rm -f "$releases_dir/$manifest_name"
         rm -rf "$releases_dir/$release"
+        rm -rf "$predeploy_backups_dir/$release"
     done
 
 echo "Uprava release retention complete"

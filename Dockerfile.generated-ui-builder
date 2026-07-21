@@ -1,0 +1,9 @@
+FROM node:24-bookworm-slim@sha256:cb4e8f7c443347358b7875e717c29e27bf9befc8f5a26cf18af3c3dec80e58c5
+WORKDIR /workspace/apps/web
+COPY apps/web/package.json apps/web/package-lock.json ./
+RUN npm ci
+WORKDIR /workspace
+COPY services/generated-ui-builder ./services/generated-ui-builder
+USER node
+EXPOSE 18082
+CMD ["node", "services/generated-ui-builder/server.mjs"]

@@ -12,6 +12,7 @@ pub(crate) fn scope_key(scope_ref: &ScopeRef) -> String {
         } => {
             format!("placement:{project_placement_id}")
         }
+        ScopeRef::TaskRun { task_run_id } => format!("task_run:{task_run_id}"),
         ScopeRef::Unknown { scope } => format!("unknown:{scope}"),
     }
 }
@@ -574,6 +575,8 @@ pub enum AppError {
     NotFound { code: &'static str, message: String },
     #[error("bad request: {message}")]
     BadRequest { code: &'static str, message: String },
+    #[error("conflict: {message}")]
+    Conflict { code: &'static str, message: String },
     #[error("auth error: {message}")]
     Auth { code: &'static str, message: String },
     #[error("rate limited: {message}")]
@@ -581,6 +584,21 @@ pub enum AppError {
 }
 
 impl AppError {
+    pub(crate) fn code(&self) -> &'static str {
+        match self {
+            Self::Database(_) => "internal.database",
+            Self::Serialization(_) => "internal.serialization",
+            Self::Io(_) => "internal.io",
+            Self::TaskJoin(_) => "internal.task_join",
+            Self::Internal { code, .. }
+            | Self::NotFound { code, .. }
+            | Self::BadRequest { code, .. }
+            | Self::Conflict { code, .. }
+            | Self::Auth { code, .. }
+            | Self::RateLimited { code, .. } => code,
+        }
+    }
+
     pub(crate) fn not_found(code: &'static str, message: impl Into<String>) -> Self {
         Self::NotFound {
             code,
@@ -590,6 +608,13 @@ impl AppError {
 
     pub(crate) fn bad_request(code: &'static str, message: impl Into<String>) -> Self {
         Self::BadRequest {
+            code,
+            message: message.into(),
+        }
+    }
+
+    pub(crate) fn conflict(code: &'static str, message: impl Into<String>) -> Self {
+        Self::Conflict {
             code,
             message: message.into(),
         }
@@ -670,6 +695,7 @@ impl IntoResponse for AppError {
             }
             Self::NotFound { code, message } => (StatusCode::NOT_FOUND, code, message, false),
             Self::BadRequest { code, message } => (StatusCode::BAD_REQUEST, code, message, false),
+            Self::Conflict { code, message } => (StatusCode::CONFLICT, code, message, false),
             Self::Auth { code, message } => (StatusCode::UNAUTHORIZED, code, message, false),
             Self::RateLimited { code, message } => {
                 (StatusCode::TOO_MANY_REQUESTS, code, message, true)

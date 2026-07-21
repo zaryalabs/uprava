@@ -97,7 +97,7 @@ test("enables, persists, and safely disables the bundled Dark Theme", async ({
   );
   await expect(page.getByRole("radio", { name: /Dark/ })).toBeChecked();
 
-  await page.getByRole("button", { name: "Disable" }).click();
+  await page.getByRole("button", { name: "Disable", exact: true }).click();
   await expect(page.locator("html")).toHaveAttribute(
     "data-theme",
     "core.light",
@@ -515,7 +515,7 @@ async function mockCoreApi(page: import("@playwright/test").Page) {
       body: json({ items: [mockPluginInstallation(state.pluginEnabled)] }),
     });
   });
-  await page.route("**/api/v1/plugin-contributions?**", async (route) => {
+  await page.route("**/api/v1/plugin-contributions", async (route) => {
     await route.fulfill({
       contentType: "application/json",
       body: json(
@@ -523,6 +523,7 @@ async function mockCoreApi(page: import("@playwright/test").Page) {
           ? protocolFixtures.plugin_contract.effective_snapshot
           : {
               contributions: [],
+              resolutions: [],
               generated_at: "2026-07-19T12:00:00Z",
             },
       ),

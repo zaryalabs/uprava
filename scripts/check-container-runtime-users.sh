@@ -22,14 +22,26 @@ check_image() {
 check_image Dockerfile.core uprava
 check_image Dockerfile.node uprava
 check_image Dockerfile.toolhive 10002:10002
+check_image Dockerfile.generated-ui-builder node
 check_image apps/web/Dockerfile 101
 
-for file in Dockerfile.core Dockerfile.node Dockerfile.toolhive apps/web/Dockerfile; do
+for file in Dockerfile.core Dockerfile.node Dockerfile.toolhive Dockerfile.generated-ui-builder Dockerfile.codex-runtime apps/web/Dockerfile; do
     if grep '^FROM[[:space:]]' "$file" | grep -Ev '^FROM[[:space:]]+[^[:space:]]+@sha256:[0-9a-f]{64}([[:space:]]|$)' >/dev/null; then
         echo "$file: every release base must use an immutable digest" >&2
         exit 1
     fi
 done
+
+# OpenSandbox injects execd into this image as root, while Uprava supplies the
+# workspace owner's uid/gid for every task command. Keep that exception explicit
+# and verify the unprivileged execution identity is still present in the image.
+if grep -q '^USER[[:space:]]' Dockerfile.codex-runtime; then
+    echo "Dockerfile.codex-runtime: OpenSandbox runtime must retain its default root execd identity" >&2
+    exit 1
+fi
+grep -q 'useradd --system --uid 10001 --gid task' Dockerfile.codex-runtime
+grep -q 'npm install --global "@openai/codex@${CODEX_VERSION}"' Dockerfile.codex-runtime
+grep -q '^ARG CODEX_VERSION=[0-9]' Dockerfile.codex-runtime
 
 grep -q 'cargo build --locked --release -p uprava-server --bin uprava-server' Dockerfile.core
 grep -q 'cargo build --locked --release -p uprava-node --bin uprava-node' Dockerfile.node
@@ -37,6 +49,8 @@ grep -q 'cargo build --locked --release -p uprava-toolhive --bin uprava-toolhive
 grep -q 'TOOLHIVE_SOURCE_SHA256=2e3d5dd2a9be6a98ca72a6fdcc5e2f07e5a359bd48680352b5ba987fbcdec5fa' Dockerfile.toolhive
 grep -q '0001-headless-encrypted-secrets.patch' Dockerfile.toolhive
 grep -q '^RUN npm ci$' apps/web/Dockerfile
+grep -q '^RUN npm ci$' Dockerfile.generated-ui-builder
+grep -q '^CMD \["node", "services/generated-ui-builder/server.mjs"\]$' Dockerfile.generated-ui-builder
 grep -q '^FROM nginxinc/nginx-unprivileged:' apps/web/Dockerfile
 if awk '/^FROM / { stage++ } stage > 1 { print }' apps/web/Dockerfile | grep -Eq 'node_modules|npm run|vite'; then
     echo "apps/web/Dockerfile: runtime stage must be static-only" >&2

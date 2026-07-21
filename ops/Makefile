@@ -14,6 +14,8 @@ COMPOSE_CMD = $(COMPOSE) --env-file $(CORE_CONFIG) --env-file $(TOOLHIVE_CONFIG)
 	--env-file .env.release $(COMPOSE_PROFILE_ARGS) -f $(COMPOSE_FILE)
 SYSTEMD_UNIT ?= uprava-node.service
 RELEASES_DIR ?= builds/releases
+PREDEPLOY_BACKUPS_DIR ?= backups/pre-deploy
+CORE_STATE_OWNER ?= 10001:10001
 RELEASE ?=
 OPS_SCRIPT_DIR ?= $(if $(wildcard $(CURDIR)/scripts/backup-sqlite.sh),$(CURDIR)/scripts,$(CURDIR)/../scripts)
 
@@ -56,8 +58,8 @@ validate: require-release ## Validate the selected immutable release and host in
 	test -n "$${UPRAVA_RELEASE_SHA:-}"; \
 	test -n "$${UPRAVA_NODE_VERSION:-}"; \
 	test -n "$${UPRAVA_AUTO_APPROVE_NODE_NAME:-}"; \
-	case "$${UPRAVA_CORE_IMAGE:-}:$${UPRAVA_WEB_IMAGE:-}:$${UPRAVA_NODE_ARTIFACT:-}:$${UPRAVA_TOOLHIVE_IMAGE:-}" in \
-		*@sha256:*@sha256:*@sha256:*@sha256:*) ;; \
+	case "$${UPRAVA_CORE_IMAGE:-}:$${UPRAVA_WEB_IMAGE:-}:$${UPRAVA_GENERATED_UI_BUILDER_IMAGE:-}:$${UPRAVA_NODE_ARTIFACT:-}:$${UPRAVA_TOOLHIVE_IMAGE:-}:$${UPRAVA_TASK_RUNTIME_IMAGE:-}:$${UPRAVA_OPENSANDBOX_IMAGE:-}" in \
+		*@sha256:*@sha256:*@sha256:*@sha256:*@sha256:*@sha256:*@sha256:*) ;; \
 		*) echo "Every runtime artifact must be digest-pinned" >&2; exit 1 ;; \
 	esac; \
 	test -f "$(CORE_CONFIG)" || { echo "Missing $(CORE_CONFIG)" >&2; exit 1; }; \
@@ -140,9 +142,57 @@ rollback-activate: ## Restore the preserved release links after failed validatio
 	$(SUDO) ln -sfn "$$manifest" .env.release; \
 	$(SUDO) ln -sfn "$$release_dir" current
 
+backup-current-state: require-release ## Capture one immutable pre-deploy Core backup for the candidate
+	@set -eu; \
+	backup_dir="$(PREDEPLOY_BACKUPS_DIR)/$(RELEASE)"; \
+	backup="$$backup_dir/core.sqlite"; \
+	marker="$$backup_dir/no-core-state"; \
+	if test -f "$$backup"; then \
+		sha256sum -c "$$backup.sha256" >/dev/null; \
+		"$(OPS_SCRIPT_DIR)/verify-sqlite-backup.sh" "$$backup"; \
+		exit 0; \
+	fi; \
+	test ! -e "$$marker" || exit 0; \
+	$(SUDO) mkdir -p "$$backup_dir"; \
+	if test ! -f state/core/core.sqlite; then \
+		$(SUDO) touch "$$marker"; \
+		exit 0; \
+	fi; \
+	tmp="$$backup.tmp.$$$$"; \
+	cleanup() { $(SUDO) rm -f "$$tmp" "$$tmp.sha256"; }; \
+	trap cleanup EXIT INT TERM; \
+	"$(OPS_SCRIPT_DIR)/backup-sqlite.sh" state/core/core.sqlite "$$tmp"; \
+	"$(OPS_SCRIPT_DIR)/verify-sqlite-backup.sh" "$$tmp"; \
+	sha256sum "$$tmp" | sed "s#  $$tmp#  core.sqlite#" >"$$tmp.sha256"; \
+	$(SUDO) chmod 600 "$$tmp" "$$tmp.sha256"; \
+	$(SUDO) mv "$$tmp" "$$backup"; \
+	$(SUDO) mv "$$tmp.sha256" "$$backup.sha256"; \
+	trap - EXIT INT TERM
+
+restore-candidate-backup: ## Restore the candidate's verified pre-deploy Core backup
+	@set -eu; \
+	test -L .env.release || { echo "Active candidate manifest is unavailable" >&2; exit 1; }; \
+	candidate_id="$$(sed -n 's/^UPRAVA_RELEASE_ID=//p' .env.release | head -n 1)"; \
+	case "$$candidate_id" in ''|[!A-Za-z0-9]*|*[!A-Za-z0-9._-]*) echo "Active candidate identity is unsafe" >&2; exit 1 ;; esac; \
+	backup="$(PREDEPLOY_BACKUPS_DIR)/$$candidate_id/core.sqlite"; \
+	test -f "$$backup" && test -f "$$backup.sha256" || { echo "Verified pre-deploy Core backup is unavailable" >&2; exit 1; }; \
+	(cd "$$(dirname "$$backup")" && sha256sum -c core.sqlite.sha256 >/dev/null); \
+	"$(OPS_SCRIPT_DIR)/verify-sqlite-backup.sh" "$$backup"; \
+	$(COMPOSE_CMD) stop core; \
+	restored="state/core/core.sqlite.restore.$$$$"; \
+	cleanup() { $(SUDO) rm -f "$$restored"; }; \
+	trap cleanup EXIT INT TERM; \
+	$(SUDO) cp "$$backup" "$$restored"; \
+	$(SUDO) chmod 600 "$$restored"; \
+	if test -n "$(CORE_STATE_OWNER)"; then $(SUDO) chown "$(CORE_STATE_OWNER)" "$$restored"; fi; \
+	$(SUDO) rm -f state/core/core.sqlite-wal state/core/core.sqlite-shm; \
+	$(SUDO) mv "$$restored" state/core/core.sqlite; \
+	trap - EXIT INT TERM
+
 pull: ## Pull Core/Web/ToolHive images and install the verified Node artifact
 	@test -e .env.release || { echo "Missing active .env.release" >&2; exit 1; }
 	$(COMPOSE_CMD) pull
+	@. ./.env.release; $(DOCKER) pull "$${UPRAVA_TASK_RUNTIME_IMAGE}" >/dev/null
 	$(MAKE) --no-print-directory -f "$(firstword $(MAKEFILE_LIST))" node-artifact \
 		SUDO="$(SUDO)" RELEASES_DIR="$(RELEASES_DIR)" DOCKER_CONFIG="$(DOCKER_CONFIG)"
 
@@ -168,6 +218,8 @@ node-artifact: ## Extract and checksum the active Node artifact
 	cleanup; trap - EXIT INT TERM
 
 deploy: validate ## Preserve the current release, then pull and apply the selected release
+	$(MAKE) --no-print-directory -f "$(firstword $(MAKEFILE_LIST))" backup-current-state \
+		RELEASE="$(RELEASE)" SUDO="$(SUDO)" PREDEPLOY_BACKUPS_DIR="$(PREDEPLOY_BACKUPS_DIR)"
 	$(MAKE) --no-print-directory -f "$(firstword $(MAKEFILE_LIST))" remember-current \
 		SUDO="$(SUDO)" RELEASES_DIR="$(RELEASES_DIR)"
 	$(MAKE) --no-print-directory -f "$(firstword $(MAKEFILE_LIST))" activate \
@@ -184,7 +236,13 @@ deploy: validate ## Preserve the current release, then pull and apply the select
 	$(SUDO) systemctl enable $(SYSTEMD_UNIT) >/dev/null
 	$(SUDO) systemctl restart $(SYSTEMD_UNIT)
 
-rollback: rollback-activate ## Reactivate the release preserved before deploy
+rollback: ## Restore pre-deploy Core state and reactivate the preserved release
+	$(MAKE) --no-print-directory -f "$(firstword $(MAKEFILE_LIST))" restore-candidate-backup \
+		SUDO="$(SUDO)" CORE_CONFIG="$(CORE_CONFIG)" TOOLHIVE_CONFIG="$(TOOLHIVE_CONFIG)" \
+		COMPOSE_FILE="$(COMPOSE_FILE)" DOCKER_CONFIG="$(DOCKER_CONFIG)" \
+		PREDEPLOY_BACKUPS_DIR="$(PREDEPLOY_BACKUPS_DIR)"
+	$(MAKE) --no-print-directory -f "$(firstword $(MAKEFILE_LIST))" rollback-activate \
+		SUDO="$(SUDO)" RELEASES_DIR="$(RELEASES_DIR)"
 	$(MAKE) --no-print-directory -f "$(firstword $(MAKEFILE_LIST))" compose-up \
 		SUDO="$(SUDO)" CORE_CONFIG="$(CORE_CONFIG)" TOOLHIVE_CONFIG="$(TOOLHIVE_CONFIG)" \
 		COMPOSE_FILE="$(COMPOSE_FILE)" DOCKER_CONFIG="$(DOCKER_CONFIG)"
@@ -219,4 +277,4 @@ restore-verify: ## Verify a SQLite backup archive without activating it
 	tar -xzf "$(BACKUP)" -C "$$tmp_dir"; \
 	"$(OPS_SCRIPT_DIR)/verify-sqlite-backup.sh" "$$(find "$$tmp_dir" -name core.sqlite -type f -print -quit)"
 
-.PHONY: help status logs releases require-release validate activate remember-current rollback-activate pull compose-up node-artifact deploy rollback deactivate down backup restore-verify
+.PHONY: help status logs releases require-release validate activate remember-current rollback-activate backup-current-state restore-candidate-backup pull compose-up node-artifact deploy rollback deactivate down backup restore-verify

@@ -14,8 +14,31 @@ use super::*;
 pub const PLUGIN_MANIFEST_VERSION_V1: u16 = 1;
 /// First supported `ui.theme` contribution major version.
 pub const THEME_CONTRIBUTION_VERSION_V1: u16 = 1;
+/// First supported `visual.renderer` contribution major version.
+pub const VISUAL_RENDERER_CONTRIBUTION_VERSION_V1: u16 = 1;
+/// Visual renderer version that adds inline, block and artifact scopes.
+pub const VISUAL_RENDERER_CONTRIBUTION_VERSION_V2: u16 = 2;
+/// First supported `artifact.type` contribution major version.
+pub const ARTIFACT_TYPE_CONTRIBUTION_VERSION_V1: u16 = 1;
+/// First supported `generated_ui.runtime` contribution major version.
+pub const GENERATED_UI_RUNTIME_CONTRIBUTION_VERSION_V1: u16 = 1;
+/// First supported `generated_ui.sdk` contribution major version.
+pub const GENERATED_UI_SDK_CONTRIBUTION_VERSION_V1: u16 = 1;
+/// First supported `generated_ui.action_bridge` contribution major version.
+pub const GENERATED_UI_ACTION_BRIDGE_CONTRIBUTION_VERSION_V1: u16 = 1;
 /// Permission required by a package that contributes a theme.
 pub const THEME_CONTRIBUTION_PERMISSION: &str = "ui.theme.contribute";
+/// Permission required by a package that contributes a visual renderer.
+pub const VISUAL_RENDERER_CONTRIBUTION_PERMISSION: &str = "visual.renderer.contribute";
+/// Permission required by a package that contributes an artifact type.
+pub const ARTIFACT_TYPE_CONTRIBUTION_PERMISSION: &str = "artifact.type.contribute";
+/// Permission required by a package that contributes a generated UI runtime.
+pub const GENERATED_UI_RUNTIME_CONTRIBUTION_PERMISSION: &str = "generated_ui.runtime.contribute";
+/// Permission required by a package that contributes a generated UI SDK.
+pub const GENERATED_UI_SDK_CONTRIBUTION_PERMISSION: &str = "generated_ui.sdk.contribute";
+/// Permission required by a package that contributes an action bridge.
+pub const GENERATED_UI_ACTION_BRIDGE_CONTRIBUTION_PERMISSION: &str =
+    "generated_ui.action_bridge.contribute";
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
@@ -122,25 +145,151 @@ pub struct ThemeContributionV1 {
     pub terminal: TerminalThemeV1,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum VisualRendererKind {
+    Content,
+    InlineFragment,
+    Block,
+    ArtifactViewer,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum VisualRenderScope {
+    ContentEnhancement,
+    InlineFragment,
+    Block,
+    ArtifactViewer,
+    DetailView,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum VisualRendererFallback {
+    PlainText,
+    Source,
+    Metadata,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(tag = "kind", rename_all = "snake_case")]
+pub enum VisualSourceMatcherV1 {
+    FencedLanguage {
+        #[serde(default)]
+        language_ids: Vec<String>,
+    },
+    StrictColorLiteral {
+        #[serde(default)]
+        formats: Vec<String>,
+    },
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct VisualRendererContributionV1 {
+    pub renderer_id: String,
+    pub implementation_id: String,
+    pub renderer_kind: VisualRendererKind,
+    #[serde(default)]
+    pub accepted_source_kinds: Vec<String>,
+    #[serde(default)]
+    pub render_scopes: Vec<VisualRenderScope>,
+    #[serde(default)]
+    pub allowed_surfaces: Vec<String>,
+    pub fallback_strategy: VisualRendererFallback,
+    #[serde(default)]
+    pub source_matcher: Option<VisualSourceMatcherV1>,
+    #[serde(default)]
+    pub visual_kinds: Vec<String>,
+    #[serde(default)]
+    pub actions: Vec<String>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ArtifactTypeContributionV1 {
+    pub artifact_type_id: String,
+    pub display_name: String,
+    pub description: String,
+    pub schema_version: u16,
+    pub fallback_strategy: VisualRendererFallback,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct GeneratedUiRuntimeContributionV1 {
+    pub runtime_id: String,
+    pub implementation_id: String,
+    pub runtime_version: String,
+    pub sdk_id: String,
+    pub action_bridge_id: String,
+    #[serde(default)]
+    pub supported_sdk_versions: Vec<String>,
+    #[serde(default)]
+    pub supported_layouts: Vec<GeneratedUiLayoutIntent>,
+    #[serde(default)]
+    pub sandbox_capabilities: Vec<GeneratedUiCapability>,
+    #[serde(default)]
+    pub allowed_imports: Vec<String>,
+    pub max_source_bytes: u64,
+    pub max_bundle_bytes: u64,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct GeneratedUiSdkContributionV1 {
+    pub sdk_id: String,
+    pub package_name: String,
+    pub api_version: String,
+    pub design_token_version: String,
+    pub api_schema: JsonValue,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct GeneratedUiActionBridgeContributionV1 {
+    pub bridge_id: String,
+    #[serde(default)]
+    pub supported_actions: Vec<GeneratedUiActionKind>,
+}
+
 /// A manifest-declared extension point.
 ///
-/// `AgentTool` and `ArtifactType` reserve typed links for later slices. Plugin
-/// Registry v1 activates only `UiTheme` contributions.
+/// Contributions remain declarative; executable implementations are activated
+/// only by a bounded host that recognizes the declared contract version.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "kind", rename_all = "snake_case")]
 pub enum PluginContribution {
     UiTheme {
+        contribution_id: String,
         contract_version: u16,
         contribution: ThemeContributionV1,
     },
+    VisualRenderer {
+        contribution_id: String,
+        contract_version: u16,
+        contribution: VisualRendererContributionV1,
+    },
     AgentTool {
+        contribution_id: String,
         contract_version: u16,
         tool_id: ToolId,
     },
     ArtifactType {
+        contribution_id: String,
         contract_version: u16,
-        artifact_type_id: String,
-        display_name: String,
+        contribution: ArtifactTypeContributionV1,
+    },
+    GeneratedUiRuntime {
+        contribution_id: String,
+        contract_version: u16,
+        contribution: GeneratedUiRuntimeContributionV1,
+    },
+    GeneratedUiSdk {
+        contribution_id: String,
+        contract_version: u16,
+        contribution: GeneratedUiSdkContributionV1,
+    },
+    GeneratedUiActionBridge {
+        contribution_id: String,
+        contract_version: u16,
+        contribution: GeneratedUiActionBridgeContributionV1,
     },
 }
 
@@ -225,9 +374,90 @@ pub struct PluginListResponse {
     pub items: Vec<PluginInstallationSummary>,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum ContributionResolutionMode {
+    Exclusive,
+    Ordered,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum EffectiveContributionState {
+    Available,
+    Disabled,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(tag = "kind", rename_all = "snake_case")]
+pub enum ContributionTarget {
+    UiTheme {
+        theme_id: String,
+    },
+    VisualRenderer {
+        source_kind: String,
+        surface: String,
+        render_scope: VisualRenderScope,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        selector: Option<String>,
+    },
+    ArtifactType {
+        artifact_type: String,
+    },
+    GeneratedUiRuntime {
+        runtime_id: String,
+    },
+    GeneratedUiSdk {
+        sdk_id: String,
+    },
+    GeneratedUiActionBridge {
+        bridge_id: String,
+    },
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ContributionRef {
+    pub plugin_id: PluginId,
+    pub contribution_id: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct EffectiveContribution {
+    pub plugin_id: PluginId,
+    pub plugin_version: String,
+    pub contribution_id: String,
+    pub extension_point: String,
+    pub contract_version: u16,
+    pub target: ContributionTarget,
+    pub effective_state: EffectiveContributionState,
+    pub contribution: PluginContribution,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ContributionTargetResolution {
+    pub target_id: String,
+    pub extension_point: String,
+    pub mode: ContributionResolutionMode,
+    pub target: ContributionTarget,
+    pub revision: u64,
+    pub conflict: bool,
+    pub contributions: Vec<EffectiveContribution>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct UpdateContributionTargetPreferencesRequest {
+    pub expected_revision: u64,
+    #[serde(default)]
+    pub ordered_contributions: Vec<ContributionRef>,
+    #[serde(default)]
+    pub disabled_contributions: Vec<ContributionRef>,
+}
+
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct EffectivePluginSnapshot {
-    pub contributions: Vec<PluginContribution>,
+    pub contributions: Vec<EffectiveContribution>,
+    #[serde(default)]
+    pub resolutions: Vec<ContributionTargetResolution>,
     pub generated_at: DateTime<Utc>,
 }
 
@@ -271,6 +501,7 @@ mod tests {
             requested_permissions: vec![THEME_CONTRIBUTION_PERMISSION.to_owned()],
             configuration_schema: None,
             contributions: vec![PluginContribution::UiTheme {
+                contribution_id: "uprava.theme-dark.theme".to_owned(),
                 contract_version: THEME_CONTRIBUTION_VERSION_V1,
                 contribution: ThemeContributionV1 {
                     theme_id: "uprava.dark".to_owned(),

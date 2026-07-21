@@ -45,6 +45,11 @@ Persistent vs stateless/ephemeral = runtime continuity strategy.
 Persistent Runtime. Task-like bounded work и stateless/sandboxed execution
 остаются архитектурно возможными, но не являются V01 реализацией.
 
+Принятый post-V01 Docker/OpenSandbox baseline для bounded work вынесен в
+[`A-013 Task-based Sandbox Runtime`](013-task-based-sandbox-runtime.md). Он
+добавляет другую runtime strategy, но не меняет описанное здесь разделение
+между product work contract и runtime strategy.
+
 ## Vision
 
 ### Какую проблему решает механика

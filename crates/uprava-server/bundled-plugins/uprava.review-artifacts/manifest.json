@@ -1,0 +1,84 @@
+{
+  "manifest_version": 1,
+  "plugin_id": "uprava.review-artifacts",
+  "version": "1.0.0",
+  "display_name": "Review Artifacts",
+  "description": "Bundled diff and check report blocks, viewers and durable review artifacts.",
+  "publisher": "Uprava",
+  "license": null,
+  "homepage": null,
+  "install_source": "bundled",
+  "trust_level": "trusted_bundled",
+  "compatibility": {
+    "core": { "minimum": "0.2.17", "maximum_exclusive": "0.3.0" },
+    "web": { "minimum": "0.2.17", "maximum_exclusive": "0.3.0" },
+    "node": null,
+    "protocol_versions": ["v2"]
+  },
+  "activation_conditions": [],
+  "requested_permissions": [
+    "visual.renderer.contribute",
+    "artifact.type.contribute"
+  ],
+  "configuration_schema": null,
+  "contributions": [
+    {
+      "kind": "artifact_type",
+      "contribution_id": "uprava.review-artifacts.diff-type",
+      "contract_version": 1,
+      "contribution": {
+        "artifact_type_id": "uprava.diff-report",
+        "display_name": "Diff Report",
+        "description": "A versioned workspace diff snapshot with hunk and cause references.",
+        "schema_version": 1,
+        "fallback_strategy": "source"
+      }
+    },
+    {
+      "kind": "artifact_type",
+      "contribution_id": "uprava.review-artifacts.check-type",
+      "contract_version": 1,
+      "contribution": {
+        "artifact_type_id": "uprava.check-report",
+        "display_name": "Check Report",
+        "description": "A versioned check result with command output and evidence references.",
+        "schema_version": 1,
+        "fallback_strategy": "metadata"
+      }
+    },
+    {
+      "kind": "visual_renderer",
+      "contribution_id": "uprava.review-artifacts.blocks",
+      "contract_version": 2,
+      "contribution": {
+        "renderer_id": "uprava.review-artifacts.blocks",
+        "implementation_id": "uprava.review-artifacts.v1",
+        "renderer_kind": "block",
+        "accepted_source_kinds": ["block.core.workspace-validation", "block.core.workspace-diff"],
+        "render_scopes": ["block"],
+        "allowed_surfaces": ["session.timeline", "workspace.review"],
+        "fallback_strategy": "metadata",
+        "source_matcher": null,
+        "visual_kinds": ["visual.diff_report", "visual.check_report"],
+        "actions": ["visual.open_source", "visual.go_to_cause"]
+      }
+    },
+    {
+      "kind": "visual_renderer",
+      "contribution_id": "uprava.review-artifacts.viewer",
+      "contract_version": 2,
+      "contribution": {
+        "renderer_id": "uprava.review-artifacts.viewer",
+        "implementation_id": "uprava.review-artifacts.v1",
+        "renderer_kind": "artifact_viewer",
+        "accepted_source_kinds": ["artifact.uprava.diff-report", "artifact.uprava.check-report"],
+        "render_scopes": ["artifact_viewer", "detail_view"],
+        "allowed_surfaces": ["artifact.viewer"],
+        "fallback_strategy": "metadata",
+        "source_matcher": null,
+        "visual_kinds": ["visual.diff_report", "visual.check_report"],
+        "actions": ["visual.open_source", "visual.go_to_cause"]
+      }
+    }
+  ]
+}

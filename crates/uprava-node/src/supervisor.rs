@@ -28,6 +28,12 @@ impl NodeSupervisor {
     }
 
     pub(crate) async fn run(mut self) -> anyhow::Result<()> {
+        if let Err(error) =
+            super::reconcile_task_runtime_mappings(&self.config, &self.client, &self.state_store)
+                .await
+        {
+            tracing::warn!(error = %error, "task runtime recovery reconciliation failed");
+        }
         loop {
             let enrolled = match self.state_store.is_enrolled().await {
                 Ok(enrolled) => enrolled,

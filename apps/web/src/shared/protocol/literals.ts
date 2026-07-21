@@ -99,6 +99,8 @@ export const COMMAND_KIND_VALUES = [
   "CloseWorkspaceTerminal",
   "RequestDeduction",
   "CancelDeduction",
+  "RunTask",
+  "CancelTaskRun",
   "Tooling",
   "Extension",
 ] as const;
@@ -132,6 +134,7 @@ export const EVENT_KIND_VALUES = [
   "deduction.invalid",
   "deduction.failed",
   "deduction.cancelled",
+  "task_run.state_changed",
   "extension",
 ] as const;
 

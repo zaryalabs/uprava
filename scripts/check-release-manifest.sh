@@ -40,9 +40,12 @@ GIT_SHA=bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb \
 BUILD_TIMESTAMP=2026-07-12T00:00:00Z \
 UPRAVA_CORE_IMAGE=ghcr.io/zaryalabs/uprava-core:sha-test \
 UPRAVA_WEB_IMAGE=ghcr.io/zaryalabs/uprava-web:sha-test \
+UPRAVA_GENERATED_UI_BUILDER_IMAGE=ghcr.io/zaryalabs/uprava-generated-ui-builder:sha-test \
 UPRAVA_NODE_IMAGE=ghcr.io/zaryalabs/uprava-node:sha-test \
 UPRAVA_TOOLHIVE_IMAGE=ghcr.io/zaryalabs/uprava-toolhive:sha-test \
 UPRAVA_TOOLHIVE_VERSION=0.40.0 \
+UPRAVA_TASK_RUNTIME_IMAGE=ghcr.io/zaryalabs/uprava-codex-runtime:sha-test \
+UPRAVA_OPENSANDBOX_IMAGE=opensandbox/server:v0.2.2 \
 UPRAVA_NODE_VERSION=0.2.2 \
 UPRAVA_RELEASE_FAMILY=0.2.0 \
 UPRAVA_CORE_STATE_DIR=state/core \
@@ -59,8 +62,8 @@ NODE_ARTIFACT_PATH="$tmp/builds/releases/test/uprava-node" \
 # shellcheck disable=SC1090
 . "$tmp/builds/releases/test.env.release"
 test "$UPRAVA_AUTO_APPROVE_NODE_NAME" = 'Zarya Server'
-case "$UPRAVA_CORE_IMAGE:$UPRAVA_WEB_IMAGE:$UPRAVA_NODE_ARTIFACT:$UPRAVA_TOOLHIVE_IMAGE" in
-    *@sha256:*@sha256:*@sha256:*@sha256:*) ;;
+case "$UPRAVA_CORE_IMAGE:$UPRAVA_WEB_IMAGE:$UPRAVA_GENERATED_UI_BUILDER_IMAGE:$UPRAVA_NODE_ARTIFACT:$UPRAVA_TOOLHIVE_IMAGE:$UPRAVA_TASK_RUNTIME_IMAGE:$UPRAVA_OPENSANDBOX_IMAGE" in
+    *@sha256:*@sha256:*@sha256:*@sha256:*@sha256:*@sha256:*@sha256:*) ;;
     *) echo "Release images are not digest-pinned" >&2; exit 1 ;;
 esac
 test -n "$UPRAVA_NODE_SHA256"

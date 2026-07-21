@@ -724,7 +724,7 @@ pub(crate) async fn deduction_scope_belongs_to_session(
             placement_id: candidate,
             ..
         } => Ok(candidate == placement_id),
-        UpravaRef::Message { message_id } => {
+        UpravaRef::Message { message_id } | UpravaRef::MessageRange { message_id, .. } => {
             let count: i64 = sqlx::query_scalar(
                 "select count(*) from messages where message_id = ?1 and session_thread_id = ?2",
             )
@@ -777,17 +777,24 @@ pub(crate) async fn deduction_scope_belongs_to_session(
             .await?;
             Ok(count > 0)
         }
-        UpravaRef::Artifact { artifact_id } => {
+        UpravaRef::Artifact { artifact_id }
+        | UpravaRef::ArtifactVersion {
+            artifact_id,
+            version: _,
+        } => {
             let count: i64 = sqlx::query_scalar(
-                "select count(*) from causality_narratives where artifact_id = ?1 and session_thread_id = ?2",
+                "select count(*) from artifacts where artifact_id = ?1 and scope_ref_json = ?2",
             )
             .bind(artifact_id.as_str())
-            .bind(session_id.as_str())
+            .bind(serde_json::to_string(&ScopeRef::Session {
+                session_thread_id: session_id.clone(),
+            })?)
             .fetch_one(&state.pool)
             .await?;
             Ok(count > 0)
         }
         UpravaRef::Node { .. }
+        | UpravaRef::TaskRun { .. }
         | UpravaRef::Project { .. }
         | UpravaRef::Block { .. }
         | UpravaRef::Approval { .. }
@@ -854,6 +861,8 @@ pub(crate) async fn persist_deduction(
             "Only a completed valid Deduction can be persisted",
         )
     })?;
+    let (owner_plugin_id, schema_version) =
+        resolve_active_artifact_type(state, "uprava.causality-narrative").await?;
     let now = Utc::now();
     let mut transaction = state.pool.begin().await?;
     let existing: Option<(String, i64)> = sqlx::query_as(
@@ -883,13 +892,67 @@ pub(crate) async fn persist_deduction(
     .bind(now)
     .execute(&mut *transaction)
     .await?;
+    let block_json = serde_json::to_string(&block)?;
+    let provenance_json = serde_json::to_string(&block.provenance)?;
+    let source_refs_json = serde_json::to_string(std::slice::from_ref(&block.scope_ref))?;
+    let evidence_refs = block
+        .result
+        .steps
+        .iter()
+        .flat_map(|step| step.support_refs.iter().cloned())
+        .collect::<Vec<_>>();
+    let evidence_refs_json = serde_json::to_string(&evidence_refs)?;
     sqlx::query(
         "insert into causality_narrative_versions (artifact_id, version, block_json, provenance_json, created_at) values (?1, ?2, ?3, ?4, ?5)",
     )
     .bind(artifact_id.as_str())
     .bind(version)
-    .bind(serde_json::to_string(&block)?)
-    .bind(serde_json::to_string(&block.provenance)?)
+    .bind(&block_json)
+    .bind(&provenance_json)
+    .bind(now)
+    .execute(&mut *transaction)
+    .await?;
+    sqlx::query(
+        r#"
+        insert into artifacts (
+            artifact_id, artifact_type, title, scope_ref_json, owner_plugin_id,
+            current_version, state, created_by_json, created_at, updated_at
+        ) values (?1, 'uprava.causality-narrative', ?2, ?3,
+                  ?4, ?5, 'active', '{"kind":"system"}', ?6, ?6)
+        on conflict(artifact_id) do update set
+            title = excluded.title,
+            current_version = excluded.current_version,
+            state = 'active',
+            updated_at = excluded.updated_at
+        "#,
+    )
+    .bind(artifact_id.as_str())
+    .bind(&block.result.title)
+    .bind(serde_json::to_string(&ScopeRef::Session {
+        session_thread_id: deduction.session_thread_id.clone(),
+    })?)
+    .bind(owner_plugin_id.as_str())
+    .bind(version)
+    .bind(now)
+    .execute(&mut *transaction)
+    .await?;
+    sqlx::query(
+        r#"
+        insert into artifact_versions (
+            artifact_id, version, schema_version, payload_json, fallback_text,
+            source_version, source_refs_json, evidence_refs_json, cause_refs_json,
+            trace_refs_json, provenance_json, created_at
+        ) values (?1, ?2, ?3, ?4, ?5, null, ?6, ?7, '[]', ?7, ?8, ?9)
+        "#,
+    )
+    .bind(artifact_id.as_str())
+    .bind(version)
+    .bind(i64::from(schema_version))
+    .bind(&block_json)
+    .bind(&block.result.conclusion)
+    .bind(source_refs_json)
+    .bind(evidence_refs_json)
+    .bind(provenance_json)
     .bind(now)
     .execute(&mut *transaction)
     .await?;
