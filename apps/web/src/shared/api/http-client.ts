@@ -380,7 +380,7 @@ export const coreApi = {
     apiGet<PluginListResponse>("/plugins", pluginListResponseSchema),
   pluginContributions: () =>
     apiGet<EffectivePluginSnapshot>(
-      "/plugin-contributions?kind=ui.theme",
+      "/plugin-contributions",
       effectivePluginSnapshotSchema,
     ),
   enablePlugin: (pluginId: string) =>

@@ -1,4 +1,13 @@
 @import "tailwindcss";
+@source "../node_modules/streamdown/dist/*.js";
+
+@theme inline {
+  --color-background: var(--color-bg);
+  --color-foreground: var(--color-ink);
+  --color-sidebar: var(--color-bg-raised);
+  --color-muted-foreground: var(--color-muted);
+  --color-primary: var(--color-ink);
+}
 
 :root {
   --color-bg: #ffffff;
@@ -204,6 +213,95 @@ td,
 
 .uprava-status-neutral {
   color: var(--color-muted);
+}
+
+.uprava-markdown {
+  min-width: 0;
+  overflow-wrap: anywhere;
+  color: var(--color-ink);
+  line-height: var(--leading-sm);
+}
+
+.uprava-markdown > :first-child {
+  margin-top: 0;
+}
+
+.uprava-markdown > :last-child {
+  margin-bottom: 0;
+}
+
+.uprava-markdown p,
+.uprava-markdown ul,
+.uprava-markdown ol,
+.uprava-markdown blockquote,
+.uprava-markdown pre,
+.uprava-markdown table {
+  margin-block: var(--space-2);
+}
+
+.uprava-markdown ul,
+.uprava-markdown ol {
+  padding-left: calc(var(--space-4) + var(--space-2));
+}
+
+.uprava-markdown ul {
+  list-style: disc;
+}
+
+.uprava-markdown ol {
+  list-style: decimal;
+}
+
+.uprava-markdown blockquote {
+  padding-left: var(--space-3);
+  border-left: var(--line-callout);
+  color: var(--color-muted);
+}
+
+.uprava-markdown :not(pre) > code {
+  padding-inline: var(--space-1);
+  background: var(--color-bg-muted);
+  font-size: 0.92em;
+}
+
+.uprava-markdown pre,
+.uprava-markdown .bg-background,
+.uprava-markdown .bg-sidebar {
+  background: var(--color-bg-muted);
+}
+
+.uprava-markdown pre {
+  max-width: 100%;
+  overflow-x: auto;
+  border: var(--line-hair);
+  padding: var(--space-3);
+  font-size: var(--text-xs);
+  line-height: var(--leading-xs);
+}
+
+.uprava-markdown .bg-muted {
+  background: var(--color-bg-muted);
+}
+
+.uprava-markdown table {
+  display: block;
+  max-width: 100%;
+  overflow-x: auto;
+  border-collapse: collapse;
+}
+
+.uprava-markdown th,
+.uprava-markdown td {
+  border: var(--line-hair);
+  padding: var(--space-2);
+  text-align: left;
+  vertical-align: top;
+}
+
+.uprava-markdown a {
+  color: var(--color-ink);
+  text-decoration: underline;
+  text-underline-offset: 2px;
 }
 
 .zarya-skip-link {

@@ -11,6 +11,7 @@ import {
   User,
 } from "lucide-react";
 
+import { PluginContentRenderer } from "../../plugins/ExtensionHost";
 import { Badge } from "../../shared/ui/badge";
 import { DisclosureControl } from "../../shared/ui/system";
 import type { UiBlock } from "./types";
@@ -94,6 +95,8 @@ function MessageBlock({ block, actions }: BlockRendererProps) {
   const isAssistant = block.type === "core.assistant-message";
   const label = isAssistant ? "Agent" : "You";
   const Icon = isAssistant ? Bot : User;
+  const content = stringField(data, "content", block.fallback_text ?? "");
+  const fallback = <PlainMessageContent content={content} />;
 
   return (
     <article
@@ -109,9 +112,16 @@ function MessageBlock({ block, actions }: BlockRendererProps) {
         <Icon size={14} aria-hidden="true" />
         {label}
       </div>
-      <p className="whitespace-pre-wrap break-words text-sm">
-        {stringField(data, "content", block.fallback_text ?? "")}
-      </p>
+      <PluginContentRenderer
+        content={content}
+        fallback={fallback}
+        sourceKind={
+          isAssistant ? "chat.assistant_message" : "chat.user_message"
+        }
+        sourceRef={block.primary_ref}
+        state="complete"
+        surfaceId={block.surface_id}
+      />
       {isAssistant ? (
         <div className="mt-2 text-xs text-[var(--color-muted)]">
           Evidence and source are available through the reference action.
@@ -120,6 +130,10 @@ function MessageBlock({ block, actions }: BlockRendererProps) {
       <BlockActions actions={actions} />
     </article>
   );
+}
+
+function PlainMessageContent({ content }: { content: string }) {
+  return <p className="whitespace-pre-wrap break-words text-sm">{content}</p>;
 }
 
 function SessionActivityBlock({ block, actions }: BlockRendererProps) {

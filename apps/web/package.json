@@ -1,6 +1,6 @@
 {
   "name": "@uprava/web",
-  "version": "0.2.14",
+  "version": "0.2.15",
   "private": true,
   "type": "module",
   "scripts": {
@@ -30,6 +30,7 @@
     "react-dom": "^19.2.3",
     "react-hook-form": "^7.68.0",
     "react-router-dom": "^7.10.1",
+    "streamdown": "2.5.0",
     "tailwindcss": "^4.1.18",
     "zod": "^4.1.13"
   },

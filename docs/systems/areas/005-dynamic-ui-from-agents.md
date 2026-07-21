@@ -19,16 +19,36 @@ Implementation direction для этого направления — bundled fi
 а не новый hardcoded subsystem в основном React tree. Base Uprava предоставляет
 generic proposal/artifact contracts, validation, persistence, permissions,
 command/event routing, sandbox boundary and fallback. Dynamic UI plugin
-предоставляет component catalogs, renderers and related contributions через
-общий Plugin Registry/Extension Host contract. По мере развития A-005 этот
-contract должен становиться пригодным для local/team/community plugins, как в
-extension ecosystems Obsidian и VS Code.
+предоставляет opt-in Generated React runtime, Uprava React SDK, design
+tokens, layout contract, renderers and related contributions через общий
+Plugin Registry/Extension Host contract. Generated React исполняется в
+sandboxed artifact runtime, а не подставляется в main workbench React tree.
+По мере развития A-005 этот contract должен становиться пригодным для
+local/team/community plugins, как в extension ecosystems Obsidian и VS Code.
 
 Документ намеренно не описывает, что попадет в первую или вторую версию
 продукта. Scope конкретных итераций должен определяться отдельно. Здесь
 проектируется целое направление: какие формы dynamic UI нужны Uprava, как они
 связаны с agent work, где проходит граница безопасности, и какие базовые
 архитектурные контракты нельзя сломать будущими реализациями.
+
+## Зафиксированное решение
+
+Основной expressive model — generated React/TypeScript, а не закрытый язык
+разрешенных UI-блоков. Каталог готовых components сохраняется как
+Uprava React SDK and optional declarative fast path, но не ограничивает
+выразительность generated UI.
+
+Эта возможность выключена по умолчанию и включается явно. Даже после
+включения generated code никогда не монтируется в main React tree:
+он становится durable artifact, собирается controlled pipeline и
+исполняется в sandboxed iframe с capability-scoped bridge. Настройка дает
+consent, но не отменяет изоляцию.
+
+По layout принят artifact-first approach: компактные forms/cards могут
+жить inline, а сложные dashboards, graphs, calculators and editors открываются
+в отдельной canvas surface; timeline показывает их preview. Host владеет
+artifact frame, bounds, scroll and transition to fullscreen.
 
 ## Vision
 
@@ -61,15 +81,19 @@ Dynamic UI должен снизить стоимость понимания, re
 
 ### Главная модель
 
-Dynamic UI в Uprava - это не "агент генерирует произвольный React в чат".
+Dynamic UI в Uprava может быть generated React, но это не
+"произвольный React в основном tree чата". React/TypeScript package является
+версионируемым artifact, проходит validation/build и запускается в
+изолированном runtime.
 
 Базовая модель:
 
 ```text
-agent/tool/plugin proposes UI intent or artifact
+agent/tool/plugin proposes UI intent or Generated React artifact
 -> Core validates type, schema, refs, permissions and trace metadata
 -> Core stores block/artifact/event metadata
--> Web mounts the UI through an approved renderer/runtime
+-> controlled build validates and bundles the artifact when code is present
+-> Web mounts the UI through an approved sandboxed renderer/runtime
 -> user interaction becomes command/action/event
 -> Core routes action through registry and permissions
 -> result updates artifact, block, trace or workflow state
@@ -79,8 +103,8 @@ agent/tool/plugin proposes UI intent or artifact
 
 - выбрать подходящий зарегистрированный visual block;
 - заполнить typed props/data для renderer-а;
-- предложить declarative UI schema;
-- создать generated UI artifact;
+- создать Generated React/TypeScript artifact;
+- предложить declarative UI schema как optional fast path;
 - обновлять data model or artifact snapshot;
 - запросить user action через форму, control, approval или command;
 - связать UI с trace refs, files, commands, tool calls and artifacts.
@@ -88,6 +112,7 @@ agent/tool/plugin proposes UI intent or artifact
 Агент не должен автоматически получать право:
 
 - выполнять произвольный JavaScript в основном React tree;
+- выходить за границы artifact frame или управлять workbench shell;
 - обходить Core permissions;
 - вызывать privileged commands напрямую из generated UI;
 - скрывать external API calls за визуальным элементом;
@@ -97,9 +122,9 @@ agent/tool/plugin proposes UI intent or artifact
 Короткая формула:
 
 ```text
-Agent can propose and parameterize UI.
+Agent can generate and parameterize UI artifacts.
 Core decides whether it is allowed.
-Web renders through known contracts.
+Web renders them in a bounded sandbox through known contracts.
 User actions return as traceable commands/events.
 ```
 
@@ -197,64 +222,61 @@ artifact, у которого есть:
 
 Внутри этого типа нужно различать две формы.
 
-#### Schema-driven generated UI
+#### Generated React artifact
 
-Schema-driven generated UI подходит для forms, dashboards, charts, tables,
-reports, selectors, wizards and simple interactive controls.
+Generated React artifact — основной expressive path для forms, dashboards,
+charts, tables, reports, calculators, simulations and custom interactive tools.
+Агент создает React/TypeScript package под versioned Uprava React SDK. Package
+хранится как artifact, проходит controlled build/validation pipeline и
+исполняется в sandboxed iframe or equivalent isolated runtime.
 
-Агент генерирует не code, а declarative description:
+Пакет может описывать:
 
 ```text
-surface
-component tree
-data model
-bindings
-actions
-constraints
-validation rules
-trace refs
+React/TypeScript source
+entrypoint and dependency lock
+SDK/API version
+data and persisted state schema
+layout intent
+requested capabilities and actions
+fallback snapshot/representation
+source and trace refs
 ```
 
-Web рендерит это через Uprava component catalog. Визуальный стиль, layout
-constraints, accessibility, commands and permissions остаются под контролем
-Uprava.
+Generated code может использовать обычные React components, local state,
+HTML and scoped styles. Uprava SDK дает готовые components, design tokens,
+artifact state, source refs and action bridge, но не является закрытым
+языком разрешенных блоков.
 
 Свойства:
 
-- no arbitrary code execution;
-- portable across web/mobile/future clients;
-- easier fallback;
-- easier validation;
-- better consistency with design system;
-- suitable for agent-readable UI state.
+- arbitrary generated code does not execute in the main workbench tree;
+- strict CSP, capability policy and message bridge;
+- artifact-owned identity, source, state, versions and fallback;
+- preferred consistency through Uprava SDK without expressive ceiling;
+- full fidelity on capable web clients and safe fallback elsewhere;
+- machine-readable metadata/state alongside the visual runtime.
 
-Для Uprava это должен быть основной путь для generated forms and dashboards.
+Для Uprava это должен быть основной путь для generated UI.
 
-#### Sandboxed app artifact
+#### Optional schema-driven UI
 
-Sandboxed app artifact нужен там, где declarative schema недостаточно:
-сложные calculators, simulations, visual editors, interactive playgrounds,
-custom generated apps.
+Schema-driven UI может остаться как опциональный fast path для маленьких
+forms, cards, approvals and simple reports. Агент в этом случае заполняет
+declarative component tree and data model, а host рендерит его без
+generated code.
 
-Здесь допускается executable UI, но только в изолированном runtime:
+Это полезная оптимизация, но не главная architectural foundation. Uprava
+не должна выращивать собственный declarative frontend language для всех
+будущих interaction patterns. Generated React используется, когда простого
+catalog недостаточно.
+
+Оба path живут в общей artifact model:
 
 ```text
-artifact package
--> sandboxed iframe or equivalent isolated runtime
--> strict CSP/capability policy
--> message/action bridge to Core
--> no direct privileged access
--> persisted artifact state outside sandbox
--> safe fallback snapshot
+simple known interaction -> optional declarative fast path
+general generated UI      -> React/TypeScript artifact in sandbox
 ```
-
-Такой artifact ближе к Anthropic Artifacts-like модели: пользователь получает
-не просто блок в чате, а маленькое приложение или interactive object в
-отдельной artifact surface.
-
-Но даже в этом режиме Uprava не должен превращаться в "браузер внутри
-браузера", где generated code живет без governance. Sandboxed app artifact
-должен быть artifact-centered and sandbox-contained.
 
 ### Пользовательские сценарии
 
@@ -355,13 +377,15 @@ available_dynamic_ui:
     kind: tool-rendered-block
     input_schema: ...
     allowed_surfaces: [session.timeline, artifact.viewer]
-  - renderer_id: basic-dashboard
-    kind: schema-driven-ui
+  - runtime_id: uprava.generated-react
+    kind: generated-react-artifact
+    sdk_version: ...
+    allowed_dependencies: ...
+    allowed_layouts: [inline, panel, canvas]
+    available_capabilities: ...
+  - renderer_id: basic-form
+    kind: optional-schema-driven-ui
     component_catalog: uprava.basic
-    max_components: ...
-  - renderer_id: form
-    kind: schema-driven-ui
-    supported_fields: ...
 ```
 
 Агент не должен угадывать frontend internals. Он должен работать с
@@ -370,9 +394,10 @@ capabilities:
 - "можно показать chart";
 - "можно создать form";
 - "можно открыть generated dashboard artifact";
+- "можно создать React artifact для canvas";
 - "можно запросить approval";
 - "можно обновить существующий artifact";
-- "нельзя использовать sandboxed app runtime в текущем trust scope".
+- "generated UI выключен или нужна запрещенная capability".
 
 Для agent-facing модели важно, чтобы UI был не только видимым человеку, но и
 readable by agent. Dynamic UI должен иметь machine-readable representation:
@@ -406,7 +431,10 @@ Dynamic UI Proposal
 Dynamic Block
 Generated UI Artifact
 Renderer Contract
-Component Catalog
+Generated UI Runtime
+Uprava React SDK
+Layout Intent
+Component Catalog optional
 Data Model
 Binding
 Action Bridge
@@ -505,8 +533,8 @@ sandbox capability
 ```
 
 Например, dashboard может быть доступен read-only, форма может быть editable
-but not submittable, sandboxed app может делать local calculations but cannot
-call external network.
+but not submittable, generated runtime может делать local calculations but
+cannot call external network.
 
 #### 5. Fallback is mandatory
 
@@ -574,7 +602,7 @@ Tool-rendered block может показывать progress до заверше
 должен уметь показывать arguments, status, result and error. Для sensitive
 tool calls arguments/result могут быть redacted based on permissions.
 
-#### Class B: Declarative dynamic block
+#### Class B: Optional declarative dynamic block
 
 ```text
 DeclarativeDynamicBlock:
@@ -593,29 +621,32 @@ DeclarativeDynamicBlock:
 
 Подходит для:
 
-- forms;
-- tables;
-- charts;
-- dashboards;
-- selectors;
-- comparison views;
-- lightweight wizards;
-- generated reports.
+- small forms and approvals;
+- cards and selectors;
+- simple tables;
+- lightweight wizards and reports.
 
 Renderer использует Uprava/native component catalog. Agent supplies structure
-and data, but host owns rendering behavior.
+and data, but host owns rendering behavior. Это fast path для простых
+блоков, а не ограничение общей generated UI модели.
 
-#### Class C: Generated UI artifact
+#### Class C: Generated React artifact
 
 ```text
-GeneratedUiArtifact:
+GeneratedReactArtifact:
   artifact_id
   artifact_type
   title
   description
-  schema_or_package_ref
+  source_package_ref
+  compiled_bundle_ref
+  dependency_lock_ref
+  sdk_version
+  runtime_id
   data_model_ref
-  renderer_contract
+  persisted_state_ref
+  layout_intent
+  requested_capabilities
   version
   created_by_run_ref
   source_refs
@@ -624,14 +655,15 @@ GeneratedUiArtifact:
   fallback_snapshot
 ```
 
-Generated UI artifact долговечнее block. Он может открываться в artifact
+Generated React artifact долговечнее block. Он может открываться в artifact
 viewer, иметь detail view, обновляться, версионироваться, экспортироваться и
 попадать в artifact gallery.
 
-#### Class D: Sandboxed app artifact
+#### Class D: Sandboxed generated UI runtime
 
 ```text
-SandboxedAppArtifact:
+GeneratedUiRuntime:
+  runtime_id
   artifact_id
   package_ref
   entrypoint
@@ -644,8 +676,9 @@ SandboxedAppArtifact:
   audit_refs
 ```
 
-Sandboxed app может иметь executable code, но только внутри isolated runtime.
-Main Uprava React tree не должен выполнять generated code.
+Sandboxed runtime исполняет generated code в iframe or equivalent isolated
+environment. Main Uprava React tree не должен выполнять generated code даже
+для bundled plugin или trusted-local mode.
 
 ### Renderer contract
 
@@ -671,20 +704,24 @@ Renderer kinds:
 core_renderer
 plugin_renderer
 declarative_schema_renderer
-sandboxed_app_runtime
+generated_react_runtime
 external_embed_runtime
 fallback_renderer
 ```
 
 Core renderer and trusted plugin renderer могут жить как обычные React
-components. Declarative schema renderer рендерит approved component catalog.
-Sandboxed runtime изолирует generated app. External embed должен быть rare and
-explicitly permissioned.
+components. Но generated React всегда изолируется runtime-ом. Declarative schema
+renderer рендерит optional component catalog. External embed должен быть rare
+and explicitly permissioned.
 
-### Component catalog
+### Uprava React SDK and optional component catalog
 
-Component catalog - список approved building blocks, из которых agent может
-собирать declarative UI.
+Uprava React SDK — основной authoring contract для generated UI. Он дает
+artifact shell primitives, design tokens, responsive layout, forms, tables,
+charts, source refs, persisted state and permissioned actions. Agent может
+собирать UI из готовых components или писать собственные components внутри
+sandbox. Component catalog может дополнительно описывать approved building
+blocks для optional declarative fast path.
 
 Пример:
 
@@ -724,11 +761,79 @@ action rules
 fallback behavior
 ```
 
-Component catalog важен по трем причинам:
+SDK and catalog важны по трем причинам:
 
-- агент получает bounded expressive language;
+- агент получает стабильные primitives без закрытого expressive ceiling;
 - Uprava сохраняет design-system consistency;
 - clients can render the same artifact differently while preserving semantics.
+
+### Generated React runtime and build
+
+Generated UI выключен по умолчанию и включается operator/user policy на
+разрешенном deployment, project or workspace scope. Включение является
+согласием на эту функцию, но не security boundary. Изоляция, CSP,
+capability checks and Core authorization сохраняются во всех режимах.
+
+Начальные modes:
+
+```text
+off
+  generated UI не build-ится и не исполняется; доступен fallback
+
+sandboxed
+  generated React исполняется с минимальными granted capabilities
+
+trusted_local later
+  operator может дать более широкие capabilities, но runtime остается
+  изолированным от main tree
+```
+
+Controlled build pipeline должен фиксировать React/runtime/SDK versions,
+dependency lock, diagnostics and output bundle hash. Первый slice не должен
+разрешать произвольный `npm install`: runtime предоставляет React, Uprava
+SDK and a small versioned allowlist of libraries. Это сохраняет reproducibility и
+ограничивает supply-chain surface.
+
+### Layout contract
+
+Workbench shell and artifact chrome принадлежат Uprava. Generated UI управляет
+только body внутри artifact frame и не может менять global navigation,
+router, overlays, keyboard shortcuts или CSS host-а.
+
+Artifact объявляет layout intent:
+
+```text
+inline
+  compact form, approval or tool result в timeline; bounded height
+
+panel
+  Inspector/sidebar-compatible view с минимальной шириной
+
+canvas
+  основная surface для dashboard, graph, calculator or editor
+
+fullscreen
+  только по явному user action; artifact не активирует его сам
+```
+
+Базовое product rule: маленькие forms/cards могут жить inline; UI сложнее
+простой таблицы преимущественно открывается в canvas, а timeline показывает
+preview card.
+
+Layout rules:
+
+- generated UI ориентируется на container size, а не на global viewport;
+- SDK предоставляет container queries, design tokens and resize hooks;
+- iframe не может раздвинуть parent выше host-owned bounds;
+- inline frame имеет bounded height and explicit `open in canvas` action;
+- в каждом mode должен быть один понятный owner вертикального scroll;
+- таблицы и большие lists используют controlled overflow/virtualization;
+- styles ограничены iframe; external fonts, images and network требуют
+  отдельных capabilities.
+
+Runtime может посылать host-у bounded lifecycle/layout messages such as
+`ui.ready`, `ui.preferred_size_changed`, `ui.content_overflow` and
+`ui.request_open_canvas`. Host валидирует и ограничивает любой requested size.
 
 ### Dynamic UI proposal
 
@@ -741,12 +846,15 @@ DynamicUiProposal:
   source
   target_surface
   proposed_kind
-  renderer_or_catalog_id
-  payload
+  runtime_or_renderer_id
+  source_package_ref optional
+  sdk_version optional
+  layout_intent optional
+  payload optional
   data_model optional
   actions optional
   refs
-  requested_permissions
+  requested_capabilities
   fallback_payload
 ```
 
@@ -760,6 +868,7 @@ rejected_unsupported_type
 rejected_permission_denied
 rejected_invalid_schema
 rejected_unsafe_payload
+rejected_build_policy
 ```
 
 `accepted_with_transform` важно для случаев, где агент предложил слишком
@@ -801,7 +910,9 @@ dynamic_block.action_failed
 agent proposes generated artifact
 -> Core validates proposal
 -> Core creates artifact metadata and initial version
--> Web opens artifact block/viewer
+-> controlled builder validates imports, locks versions and produces bundle
+-> Core records build diagnostics, bundle hash and runtime policy
+-> Web opens fallback/preview card or sandboxed artifact viewer
 -> user interacts locally or through action bridge
 -> important changes become events
 -> agent/tool may update artifact data model
@@ -817,6 +928,9 @@ dynamic_ui.accepted
 dynamic_ui.rejected
 artifact.created
 artifact.version_created
+artifact.build_started
+artifact.build_completed
+artifact.build_failed
 artifact.state_updated
 artifact.action_requested
 artifact.action_completed
@@ -911,8 +1025,9 @@ Trust levels:
 core renderer
 trusted bundled plugin renderer
 installed local/team plugin renderer
-declarative generated UI
-sandboxed generated app
+optional declarative generated UI
+sandboxed Generated React artifact
+trusted-local Generated React artifact
 external embed
 fallback only
 ```
@@ -930,12 +1045,13 @@ can_access_external_network
 can_open_external_urls
 can_use_files
 can_persist_state
+can_request_layout_change
 ```
 
 Dynamic UI must not imply automatic data access. A generated dashboard might be
 allowed to render aggregate metrics but not raw logs. A form might be visible
-but disabled for a user without submit permission. A sandboxed app might run
-local calculations but cannot fetch external resources.
+but disabled for a user without submit permission. A generated React artifact
+might run local calculations but cannot fetch external resources.
 
 ### External systems
 
@@ -981,7 +1097,11 @@ Plugin Registry should know:
 
 ```text
 provided renderers
-component catalogs
+generated UI runtimes
+React SDK/API versions
+allowed dependency sets
+layout contracts
+component catalogs optional
 artifact types
 sandbox runtimes
 external origins
@@ -997,10 +1117,11 @@ traceable. If a plugin adds a generated artifact type, it should register
 renderer, fallback and permission model.
 
 Первый A-005 slice должен одновременно доказать полезный bundled dynamic UI
-plugin и расширить общую plugin platform: versioned component-catalog and
-dynamic-renderer contributions, permissioned action bridge, configuration/
-context keys, isolation and disable/failure fallback. Ни один из этих contracts
-не должен быть приватным API только для bundled package.
+plugin и расширить общую plugin platform: versioned Generated React runtime,
+Uprava React SDK, layout/dynamic-renderer contributions, permissioned action
+bridge, configuration/context keys, isolation and disable/failure fallback.
+Ни один из этих contracts не должен быть приватным API только для bundled
+package.
 
 ### Relationship with A-006 Visual Rendering and Artifact Semantics
 
@@ -1019,8 +1140,8 @@ A chart can be:
 
 - inline/viewer visual object described by A-006 semantics;
 - tool-rendered block from A-005;
-- component inside declarative generated dashboard;
-- widget inside sandboxed app artifact.
+- component inside optional declarative dashboard;
+- widget inside sandboxed Generated React artifact.
 
 The visual semantics belong to A-006: source-of-truth, render scope,
 addressability, fallback, actions, cause refs and artifact promotion.
@@ -1083,6 +1204,7 @@ This lets an internal Uprava agent answer questions like:
 | --- | --- |
 | Unknown renderer | Show fallback metadata and sanitized payload. |
 | Invalid schema | Reject proposal, record error, show agent-readable validation feedback. |
+| Build or dependency policy failed | Preserve source package and diagnostics; show fallback without executing the bundle. |
 | Permission denied | Show disabled/read-only UI or fallback with reason. |
 | Renderer plugin disabled | Show fallback and optional enable/install action if allowed. |
 | Sandbox package unsafe | Reject executable runtime, possibly accept static snapshot. |
@@ -1102,8 +1224,8 @@ Dynamic UI should be evaluated by product and architecture questions:
 - Are actions permissioned and traceable?
 - Can the agent understand the UI state it created?
 - Can the user go from visible result to cause?
-- Is executable code avoided unless declarative schema is insufficient?
-- If executable code is used, is it sandboxed and capability-scoped?
+- Is generated code sandboxed and capability-scoped regardless of trust mode?
+- Is a simple declarative/tool-rendered block preferable for this small case?
 - Does the UI fit known Uprava surfaces instead of taking over the workbench?
 - Can it survive reconnect, reload, plugin disable and missing renderer?
 
@@ -1127,8 +1249,9 @@ Uprava should not copy any one model directly. The product needs a hybrid:
 
 ```text
 tool-rendered blocks for traceable agent/tool work
-+ declarative generated UI for forms/dashboards
-+ artifact-backed generated app surfaces when necessary
++ optional declarative fast path for small known interactions
++ Generated React artifacts for expressive forms/dashboards/apps
++ sandboxed execution with an Uprava React SDK and layout contract
 + strict Core-level permissions and fallback everywhere
 ```
 
@@ -1142,20 +1265,21 @@ renderers. It adds a dynamic creation path:
 
 ```text
 tool-rendered blocks
-declarative generated UI
-generated UI artifacts
-sandboxed app artifacts
+optional declarative dynamic blocks
+Generated React artifacts
+sandboxed generated UI runtimes
 ```
 
 Агент может выбирать, создавать, параметризовать and обновлять UI через
-approved contracts. Core validates and stores it. Web renders it through known
-renderers, declarative component catalogs or sandbox runtimes. User actions
-return as commands/events. Every important UI object has trace refs and a safe
-fallback.
+approved contracts. Core validates and stores it. Controlled builder фиксирует
+runtime/SDK/dependency versions. Web исполняет generated React в sandbox, а не
+в main tree. User actions return as commands/events. Every important UI
+object has trace refs, persisted review-relevant state and a safe fallback.
 
-Первая поставка этой механики является bundled first-party plugin. Последующие
-plugins могут добавлять новые form/dashboard families через те же versioned
-contributions, не изменяя App Shell и не обходя Core authorization.
+Первая поставка этой механики является выключенным по умолчанию bundled
+first-party Generated React plugin. Последующие plugins могут добавлять новые
+generated UI runtimes and families через те же versioned contributions, не
+изменяя App Shell и не обходя Core authorization.
 
 Главная граница: dynamic UI должен увеличивать способность пользователя
 понимать, проверять and управлять агентской работой, не превращая Uprava в

@@ -1467,11 +1467,26 @@ export type ThemeContributionV1 = {
   terminal: { colors: Record<string, string> };
 };
 
+export type VisualRendererContributionV1 = {
+  renderer_id: string;
+  implementation_id: string;
+  renderer_kind: "content";
+  accepted_source_kinds: string[];
+  render_scopes: "content_enhancement"[];
+  allowed_surfaces: string[];
+  fallback_strategy: "plain_text";
+};
+
 export type PluginContribution =
   | {
       kind: "ui_theme";
       contract_version: number;
       contribution: ThemeContributionV1;
+    }
+  | {
+      kind: "visual_renderer";
+      contract_version: number;
+      contribution: VisualRendererContributionV1;
     }
   | { kind: "agent_tool"; contract_version: number; tool_id: string }
   | {

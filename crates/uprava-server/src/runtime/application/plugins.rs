@@ -6,20 +6,24 @@ use uprava_protocol::{
     PluginCompatibilityState, PluginContribution, PluginDesiredState, PluginEffectiveState,
     PluginId, PluginInstallSource, PluginInstallationSummary, PluginListResponse, PluginManifest,
     PluginPackageSummary, PluginTrustLevel, PluginVersionRange, ThemeContributionV1,
-    CURRENT_PROTOCOL_VERSION, PLUGIN_MANIFEST_VERSION_V1, THEME_CONTRIBUTION_PERMISSION,
-    THEME_CONTRIBUTION_VERSION_V1,
+    VisualRendererContributionV1, CURRENT_PROTOCOL_VERSION, PLUGIN_MANIFEST_VERSION_V1,
+    THEME_CONTRIBUTION_PERMISSION, THEME_CONTRIBUTION_VERSION_V1,
+    VISUAL_RENDERER_CONTRIBUTION_PERMISSION, VISUAL_RENDERER_CONTRIBUTION_VERSION_V1,
 };
 
 use super::super::*;
 
 const DARK_THEME_MANIFEST: &str =
     include_str!("../../../bundled-plugins/uprava.theme-dark/manifest.json");
+const MARKDOWN_MANIFEST: &str =
+    include_str!("../../../bundled-plugins/uprava.markdown/manifest.json");
 const MAX_PLUGIN_ID_CHARS: usize = 128;
 const MAX_PLUGIN_TEXT_CHARS: usize = 2_000;
 const MAX_PLUGIN_PERMISSIONS: usize = 64;
 const MAX_PLUGIN_CONTRIBUTIONS: usize = 128;
 const MAX_THEME_TOKENS: usize = 128;
 const MAX_THEME_ADAPTER_COLORS: usize = 128;
+const MAX_RENDERER_TARGETS: usize = 32;
 
 const REQUIRED_THEME_TOKENS: &[&str] = &[
     "surface.background",
@@ -46,9 +50,15 @@ pub(crate) struct PluginContributionQuery {
 }
 
 pub(crate) async fn bootstrap_bundled_plugins(state: &AppState) -> Result<(), AppError> {
-    let manifest: PluginManifest = serde_json::from_str(DARK_THEME_MANIFEST)?;
-    validate_plugin_manifest(&manifest)?;
-    register_bundled_plugin(state, &manifest).await
+    for (source, default_state) in [
+        (DARK_THEME_MANIFEST, PluginDesiredState::Disabled),
+        (MARKDOWN_MANIFEST, PluginDesiredState::Enabled),
+    ] {
+        let manifest: PluginManifest = serde_json::from_str(source)?;
+        validate_plugin_manifest(&manifest)?;
+        register_bundled_plugin(state, &manifest, default_state).await?;
+    }
+    Ok(())
 }
 
 pub(crate) async fn plugin_list_route(
@@ -88,18 +98,29 @@ pub(crate) async fn plugin_contributions_route(
     State(state): State<Arc<AppState>>,
     Query(query): Query<PluginContributionQuery>,
 ) -> Result<Json<EffectivePluginSnapshot>, AppError> {
-    if query.kind.as_deref().is_some_and(|kind| kind != "ui.theme") {
+    if query
+        .kind
+        .as_deref()
+        .is_some_and(|kind| !matches!(kind, "ui.theme" | "visual.renderer"))
+    {
         return Err(AppError::bad_request(
             "plugin.contribution_kind_unsupported",
-            "Only ui.theme contributions are active in Plugin Registry v1",
+            "Unsupported plugin contribution kind",
         ));
     }
-    Ok(Json(effective_plugin_snapshot(&state).await?))
+    let mut snapshot = effective_plugin_snapshot(&state).await?;
+    if let Some(kind) = query.kind.as_deref() {
+        snapshot
+            .contributions
+            .retain(|contribution| contribution_kind(contribution) == kind);
+    }
+    Ok(Json(snapshot))
 }
 
 async fn register_bundled_plugin(
     state: &AppState,
     manifest: &PluginManifest,
+    default_state: PluginDesiredState,
 ) -> Result<(), AppError> {
     let manifest_hash = compute_plugin_manifest_hash(manifest)?;
     let manifest_json = serde_json::to_string(manifest)?;
@@ -149,9 +170,14 @@ async fn register_bundled_plugin(
     .execute(&mut *transaction)
     .await?;
 
-    let initial_effective_state = match compatibility.state {
-        PluginCompatibilityState::Compatible => PluginEffectiveState::Disabled,
-        PluginCompatibilityState::Incompatible => PluginEffectiveState::Incompatible,
+    let initial_effective_state = match (compatibility.state, default_state) {
+        (PluginCompatibilityState::Compatible, PluginDesiredState::Enabled) => {
+            PluginEffectiveState::Active
+        }
+        (PluginCompatibilityState::Compatible, PluginDesiredState::Disabled) => {
+            PluginEffectiveState::Disabled
+        }
+        (PluginCompatibilityState::Incompatible, _) => PluginEffectiveState::Incompatible,
     };
     sqlx::query(
         r#"
@@ -159,12 +185,13 @@ async fn register_bundled_plugin(
             plugin_id, active_version, desired_state, effective_state,
             compatibility_json, configuration_revision, installed_at, updated_at,
             last_error_code
-        ) values (?1, ?2, 'disabled', ?3, ?4, 0, ?5, ?5, null)
+        ) values (?1, ?2, ?3, ?4, ?5, 0, ?6, ?6, null)
         on conflict(plugin_id) do nothing
         "#,
     )
     .bind(manifest.plugin_id.as_str())
     .bind(&manifest.version)
+    .bind(format_desired_state(default_state))
     .bind(format_effective_state(initial_effective_state))
     .bind(&compatibility_json)
     .bind(now)
@@ -452,6 +479,9 @@ pub(crate) async fn effective_plugin_snapshot(
                 PluginContribution::UiTheme {
                     contract_version: THEME_CONTRIBUTION_VERSION_V1,
                     ..
+                } | PluginContribution::VisualRenderer {
+                    contract_version: VISUAL_RENDERER_CONTRIBUTION_VERSION_V1,
+                    ..
                 }
             )
         }));
@@ -488,17 +518,21 @@ fn validate_plugin_manifest(manifest: &PluginManifest) -> Result<(), AppError> {
         ));
     }
     if manifest.install_source != PluginInstallSource::Bundled
-        || manifest.trust_level != PluginTrustLevel::DataOnly
+        || !matches!(
+            manifest.trust_level,
+            PluginTrustLevel::DataOnly | PluginTrustLevel::TrustedBundled
+        )
     {
         return Err(plugin_manifest_error(
-            "Plugin Registry v1 accepts bundled data-only packages",
+            "Plugin Registry accepts bundled data-only or trusted packages",
         ));
     }
-    if manifest
-        .requested_permissions
-        .iter()
-        .any(|permission| permission != THEME_CONTRIBUTION_PERMISSION)
-    {
+    if manifest.requested_permissions.iter().any(|permission| {
+        !matches!(
+            permission.as_str(),
+            THEME_CONTRIBUTION_PERMISSION | VISUAL_RENDERER_CONTRIBUTION_PERMISSION
+        )
+    }) {
         return Err(plugin_manifest_error(
             "Plugin Registry v1 contains an unsupported permission",
         ));
@@ -530,10 +564,69 @@ fn validate_plugin_manifest(manifest: &PluginManifest) -> Result<(), AppError> {
                 }
                 validate_theme_contribution(contribution)?;
             }
+            PluginContribution::VisualRenderer {
+                contract_version,
+                contribution,
+            } => {
+                if *contract_version != VISUAL_RENDERER_CONTRIBUTION_VERSION_V1 {
+                    return Err(plugin_manifest_error(
+                        "Unsupported visual.renderer contribution version",
+                    ));
+                }
+                if manifest.trust_level != PluginTrustLevel::TrustedBundled {
+                    return Err(plugin_manifest_error(
+                        "Visual renderer contribution requires trusted_bundled",
+                    ));
+                }
+                if !manifest
+                    .requested_permissions
+                    .iter()
+                    .any(|permission| permission == VISUAL_RENDERER_CONTRIBUTION_PERMISSION)
+                {
+                    return Err(plugin_manifest_error(
+                        "Visual renderer contribution requires visual.renderer.contribute",
+                    ));
+                }
+                validate_visual_renderer_contribution(contribution)?;
+            }
             PluginContribution::AgentTool { .. } | PluginContribution::ArtifactType { .. } => {}
         }
     }
     Ok(())
+}
+
+fn validate_visual_renderer_contribution(
+    renderer: &VisualRendererContributionV1,
+) -> Result<(), AppError> {
+    validate_namespaced_id(&renderer.renderer_id, "renderer_id")?;
+    validate_namespaced_id(&renderer.implementation_id, "implementation_id")?;
+    if renderer.accepted_source_kinds.is_empty()
+        || renderer.render_scopes.is_empty()
+        || renderer.allowed_surfaces.is_empty()
+        || renderer.accepted_source_kinds.len() > MAX_RENDERER_TARGETS
+        || renderer.render_scopes.len() > MAX_RENDERER_TARGETS
+        || renderer.allowed_surfaces.len() > MAX_RENDERER_TARGETS
+    {
+        return Err(plugin_manifest_error(
+            "Visual renderer targets are empty or oversized",
+        ));
+    }
+    for source_kind in &renderer.accepted_source_kinds {
+        validate_namespaced_id(source_kind, "accepted_source_kind")?;
+    }
+    for surface in &renderer.allowed_surfaces {
+        validate_namespaced_id(surface, "allowed_surface")?;
+    }
+    Ok(())
+}
+
+fn contribution_kind(contribution: &PluginContribution) -> &'static str {
+    match contribution {
+        PluginContribution::UiTheme { .. } => "ui.theme",
+        PluginContribution::VisualRenderer { .. } => "visual.renderer",
+        PluginContribution::AgentTool { .. } => "agent.tool",
+        PluginContribution::ArtifactType { .. } => "artifact.type",
+    }
 }
 
 fn validate_theme_contribution(theme: &ThemeContributionV1) -> Result<(), AppError> {
@@ -787,11 +880,35 @@ mod tests {
     use super::*;
 
     #[test]
-    fn bundled_manifest_should_validate() {
+    fn dark_theme_manifest_should_validate() {
         let manifest: PluginManifest =
             serde_json::from_str(DARK_THEME_MANIFEST).expect("manifest parses");
 
         validate_plugin_manifest(&manifest).expect("manifest validates");
+    }
+
+    #[test]
+    fn markdown_manifest_should_validate() {
+        let manifest: PluginManifest =
+            serde_json::from_str(MARKDOWN_MANIFEST).expect("manifest parses");
+
+        validate_plugin_manifest(&manifest).expect("manifest validates");
+    }
+
+    #[test]
+    fn visual_renderer_should_require_non_empty_targets() {
+        let mut manifest: PluginManifest =
+            serde_json::from_str(MARKDOWN_MANIFEST).expect("manifest parses");
+        let PluginContribution::VisualRenderer { contribution, .. } =
+            &mut manifest.contributions[0]
+        else {
+            panic!("fixture contains a visual renderer");
+        };
+        contribution.accepted_source_kinds.clear();
+
+        let error = validate_plugin_manifest(&manifest).expect_err("empty targets are rejected");
+
+        assert!(matches!(error, AppError::BadRequest { .. }));
     }
 
     #[test]

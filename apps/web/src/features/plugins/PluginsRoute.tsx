@@ -161,9 +161,9 @@ function PluginCard({
   onToggle: (enable: boolean) => void;
 }) {
   const active = plugin.effective_state === "active";
-  const themeContribution = plugin.package.contributions.find(
-    (contribution) => contribution.kind === "ui_theme",
-  );
+  const contributions = plugin.package.contributions
+    .map(contributionLabel)
+    .join(", ");
   return (
     <article className="border border-[var(--color-border)] bg-[var(--color-bg-raised)] p-5">
       <div className="flex flex-wrap items-start justify-between gap-4">
@@ -195,11 +195,7 @@ function PluginCard({
       <dl className="mt-5 grid gap-3 border-t border-[var(--color-border)] pt-4 text-sm sm:grid-cols-3">
         <div>
           <dt className="text-xs text-[var(--color-muted)]">Contribution</dt>
-          <dd className="mt-1 font-mono">
-            {themeContribution?.kind === "ui_theme"
-              ? `ui.theme:${themeContribution.contribution.theme_id}`
-              : "none"}
-          </dd>
+          <dd className="mt-1 font-mono">{contributions || "none"}</dd>
         </div>
         <div>
           <dt className="text-xs text-[var(--color-muted)]">Permission</dt>
@@ -221,6 +217,21 @@ function PluginCard({
       ) : null}
     </article>
   );
+}
+
+function contributionLabel(
+  contribution: PluginInstallationSummary["package"]["contributions"][number],
+) {
+  switch (contribution.kind) {
+    case "ui_theme":
+      return `ui.theme:${contribution.contribution.theme_id}`;
+    case "visual_renderer":
+      return `visual.renderer:${contribution.contribution.renderer_id}`;
+    case "agent_tool":
+      return `agent.tool:${contribution.tool_id}`;
+    case "artifact_type":
+      return `artifact.type:${contribution.artifact_type_id}`;
+  }
 }
 
 function effectiveStateTone(state: string): BadgeTone {

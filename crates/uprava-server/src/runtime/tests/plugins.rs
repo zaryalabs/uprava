@@ -6,7 +6,7 @@ use uprava_protocol::{
 use super::*;
 
 #[tokio::test]
-async fn bundled_plugin_should_bootstrap_disabled_and_idempotently() {
+async fn bundled_plugins_should_bootstrap_idempotently() {
     let state = test_state().await;
 
     bootstrap_bundled_plugins(&state)
@@ -14,21 +14,39 @@ async fn bundled_plugin_should_bootstrap_disabled_and_idempotently() {
         .expect("second bootstrap succeeds");
     let plugins = list_plugins(&state).await.expect("plugins load");
 
-    assert_eq!(plugins.items.len(), 1);
-    let plugin = &plugins.items[0];
-    assert_eq!(plugin.package.plugin_id.as_str(), "uprava.theme-dark");
-    assert_eq!(plugin.desired_state, PluginDesiredState::Disabled);
-    assert_eq!(plugin.effective_state, PluginEffectiveState::Disabled);
-    assert_eq!(
-        plugin.compatibility.state,
-        PluginCompatibilityState::Compatible
-    );
-    assert_eq!(plugin.granted_permissions, ["ui.theme.contribute"]);
+    assert_eq!(plugins.items.len(), 2);
     let latest_migration: i64 = sqlx::query_scalar("select max(version) from schema_migrations")
         .fetch_one(&state.pool)
         .await
         .expect("migration version loads");
     assert_eq!(latest_migration, 13);
+}
+
+#[tokio::test]
+async fn markdown_plugin_should_bootstrap_enabled() {
+    let state = test_state().await;
+    let plugin = load_plugin_installation(&state, &PluginId::from("uprava.markdown"))
+        .await
+        .expect("Markdown plugin loads");
+
+    assert_eq!(plugin.desired_state, PluginDesiredState::Enabled);
+    assert_eq!(plugin.effective_state, PluginEffectiveState::Active);
+    assert_eq!(
+        plugin.compatibility.state,
+        PluginCompatibilityState::Compatible
+    );
+    assert_eq!(plugin.granted_permissions, ["visual.renderer.contribute"]);
+}
+
+#[tokio::test]
+async fn dark_theme_should_bootstrap_disabled() {
+    let state = test_state().await;
+    let plugin = load_plugin_installation(&state, &PluginId::from("uprava.theme-dark"))
+        .await
+        .expect("theme plugin loads");
+
+    assert_eq!(plugin.desired_state, PluginDesiredState::Disabled);
+    assert_eq!(plugin.effective_state, PluginEffectiveState::Disabled);
 }
 
 #[tokio::test]
@@ -44,7 +62,10 @@ async fn plugin_enable_and_disable_should_change_effective_snapshot() {
         .expect("snapshot loads");
     assert!(matches!(
         enabled.contributions.as_slice(),
-        [PluginContribution::UiTheme { .. }]
+        [
+            PluginContribution::VisualRenderer { .. },
+            PluginContribution::UiTheme { .. }
+        ]
     ));
 
     set_plugin_desired_state(&state, &plugin_id, PluginDesiredState::Disabled)
@@ -53,7 +74,10 @@ async fn plugin_enable_and_disable_should_change_effective_snapshot() {
     let disabled = effective_plugin_snapshot(&state)
         .await
         .expect("snapshot loads");
-    assert!(disabled.contributions.is_empty());
+    assert!(matches!(
+        disabled.contributions.as_slice(),
+        [PluginContribution::VisualRenderer { .. }]
+    ));
 }
 
 #[tokio::test]

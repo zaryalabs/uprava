@@ -1,7 +1,12 @@
 import { useQuery } from "@tanstack/react-query";
 import {
+  Component,
   createContext,
+  lazy,
   type PropsWithChildren,
+  type ErrorInfo,
+  type ReactNode,
+  Suspense,
   useCallback,
   useContext,
   useEffect,
@@ -11,13 +16,22 @@ import {
 
 import { coreApi } from "../shared/api/http-client";
 import { queryKeys } from "../shared/api/query-keys";
-import type { ThemeContributionV1 } from "../shared/protocol/types";
+import { logClientEvent } from "../shared/logging/client-logger";
+import type {
+  ThemeContributionV1,
+  VisualRendererContributionV1,
+} from "../shared/protocol/types";
 import {
   cacheEffectiveTheme,
   CORE_LIGHT_THEME_ID,
   readSelectedTheme,
   rememberSelectedTheme,
 } from "./appearance-preference";
+import {
+  CONTENT_RENDERER_CONTRACT_VERSION,
+  type ContentRendererProps,
+  type LazyContentRenderer,
+} from "./content-renderers";
 import {
   applyTheme,
   CORE_LIGHT_THEME,
@@ -45,6 +59,29 @@ const DEFAULT_THEME_HOST: ThemeHostValue = {
 
 const ThemeHostContext = createContext<ThemeHostValue>(DEFAULT_THEME_HOST);
 
+type ContentRendererHostValue = {
+  renderers: VisualRendererContributionV1[];
+};
+
+const DEFAULT_CONTENT_RENDERER_HOST: ContentRendererHostValue = {
+  renderers: [],
+};
+
+const ContentRendererHostContext = createContext<ContentRendererHostValue>(
+  DEFAULT_CONTENT_RENDERER_HOST,
+);
+
+const bundledContentRenderers = new Map<string, LazyContentRenderer>([
+  [
+    "uprava.markdown.v1",
+    lazy(() =>
+      import("./bundled/markdown/MarkdownRenderer").then((module) => ({
+        default: module.MarkdownRenderer,
+      })),
+    ),
+  ],
+]);
+
 export function ExtensionHostProvider({ children }: PropsWithChildren) {
   const contributions = useQuery({
     queryKey: queryKeys.pluginContributions,
@@ -70,6 +107,16 @@ export function ExtensionHostProvider({ children }: PropsWithChildren) {
     }
     return resolved;
   }, [contributions.data?.contributions]);
+  const renderers = useMemo(
+    () =>
+      (contributions.data?.contributions ?? []).flatMap((item) =>
+        item.kind === "visual_renderer" &&
+        item.contract_version === CONTENT_RENDERER_CONTRACT_VERSION
+          ? [item.contribution]
+          : [],
+      ),
+    [contributions.data?.contributions],
+  );
   const effectiveTheme =
     themes.find((theme) => theme.theme_id === selectedThemeId) ??
     CORE_LIGHT_THEME;
@@ -106,14 +153,85 @@ export function ExtensionHostProvider({ children }: PropsWithChildren) {
       themes,
     ],
   );
+  const rendererValue = useMemo<ContentRendererHostValue>(
+    () => ({ renderers }),
+    [renderers],
+  );
 
   return (
     <ThemeHostContext.Provider value={value}>
-      {children}
+      <ContentRendererHostContext.Provider value={rendererValue}>
+        {children}
+      </ContentRendererHostContext.Provider>
     </ThemeHostContext.Provider>
   );
 }
 
 export function useThemeHost() {
   return useContext(ThemeHostContext);
+}
+
+export function PluginContentRenderer({
+  sourceKind,
+  surfaceId,
+  content,
+  state,
+  sourceRef,
+  fallback,
+}: ContentRendererProps & {
+  sourceKind: string;
+  surfaceId: string;
+  fallback: ReactNode;
+}) {
+  const host = useContext(ContentRendererHostContext);
+  const registration = host.renderers.find(
+    (renderer) =>
+      renderer.renderer_kind === "content" &&
+      renderer.render_scopes.includes("content_enhancement") &&
+      renderer.accepted_source_kinds.includes(sourceKind) &&
+      renderer.allowed_surfaces.includes(surfaceId),
+  );
+  if (!registration) {
+    return fallback;
+  }
+  const Renderer = bundledContentRenderers.get(registration.implementation_id);
+  if (!Renderer) {
+    return fallback;
+  }
+  return (
+    <RendererErrorBoundary
+      key={registration.renderer_id}
+      fallback={fallback}
+      rendererId={registration.renderer_id}
+    >
+      <Suspense fallback={fallback}>
+        <Renderer content={content} state={state} sourceRef={sourceRef} />
+      </Suspense>
+    </RendererErrorBoundary>
+  );
+}
+
+class RendererErrorBoundary extends Component<
+  PropsWithChildren<{
+    fallback: ReactNode;
+    rendererId: string;
+  }>,
+  { failed: boolean }
+> {
+  state = { failed: false };
+
+  static getDerivedStateFromError() {
+    return { failed: true };
+  }
+
+  componentDidCatch(error: Error, info: ErrorInfo) {
+    logClientEvent("error", "web.plugin_renderer", error.message, {
+      renderer_id: this.props.rendererId,
+      component_stack: info.componentStack,
+    });
+  }
+
+  render() {
+    return this.state.failed ? this.props.fallback : this.props.children;
+  }
 }

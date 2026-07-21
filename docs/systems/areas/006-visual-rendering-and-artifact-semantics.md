@@ -249,6 +249,53 @@ SessionMessageBlock
 где агент создает explicit dynamic block/artifact proposal, а не просто пишет
 renderable Markdown.
 
+### Content-driven activation: подхват формата агента
+
+Основной inline/content path не должен зависеть от prompt engineering. Uprava
+не просит агента заранее выбрать renderer, создать artifact descriptor или
+обернуть обычный ответ в специальный protocol envelope. Сохраненный ответ
+агента остается source-of-truth, а Extension Host применяет к нему подходящие
+зарегистрированные renderer contributions.
+
+```text
+agent emits ordinary Markdown/text
+-> host selects content renderer for source kind and surface
+-> renderer parses the source without rewriting it
+-> registered inline matchers recognize supported fragments
+-> visual enhancements attach to exact source ranges
+-> original source remains the fallback
+```
+
+Типичные примеры:
+
+```text
+fenced code with language id -> syntax highlighting
+strict color literal         -> active color swatch/token
+fenced Mermaid source        -> Mermaid diagram
+fenced PlantUML/UML source   -> UML preview
+known Uprava/external ref    -> reference chip or preview
+```
+
+Подхват формата является детерминированным presentation enhancement, а не
+скрытой интерпретацией намерения агента. Начальные правила:
+
+- предпочитать явные markers: fenced language id, typed reference or строгий
+  lexical format;
+- сохранять точный source range и не изменять исходный message/file content;
+- не превращать произвольную прозу в active UI по эвристическому предположению;
+- разрешать конфликты renderer-ов через host-owned specificity/priority rules,
+  а не через порядок загрузки plugins;
+- изолировать ошибку одного fragment renderer-а от остального Markdown block;
+- при disabled, incompatible or failed plugin показывать исходный token, code
+  fence or text fragment;
+- не создавать durable artifact для каждого подсвеченного fragment.
+
+Visual enhancement становится artifact только при явном `pin`, `save`,
+`export` или когда результат уже имеет самостоятельную review value и
+долговечный lifecycle. Например syntax-highlighted code fence обычно остается
+вложенным visual object, а Mermaid diagram может быть сохранена как
+`DiagramArtifact` с source ref, snapshot and trace refs.
+
 ### Class B: Viewer/editor enhancement
 
 Viewer/editor enhancement - визуализация внутри специализированного viewer or
@@ -585,16 +632,16 @@ Renderers can be owned by different parts of Uprava:
 
 ```text
 Core renderer
-  markdown, code/diff/terminal basics, core artifacts
+  plain-text fallback, code/diff/terminal basics, core artifact fallback
 
 Plugin renderer
-  Mermaid, PlantUML, Grafana preview, GitHub/Linear preview
+  Markdown, Mermaid, PlantUML, Grafana preview, GitHub/Linear preview
 
 Tool renderer
   visual representation of registered tool output
 
 Dynamic UI renderer
-  schema-driven/generated artifact renderer from A-005
+  sandboxed Generated React or optional schema-driven artifact renderer from A-005
 
 External renderer/embed
   controlled iframe or external preview runtime
@@ -619,9 +666,14 @@ visual behavior requirements.
 ```text
 VisualRendererContract:
   renderer_id
+  renderer_kind
   visual_kinds
   accepted_source_kinds
   render_scopes
+  source_matcher optional
+  language_ids optional
+  priority
+  source_range_mapping
   input_schema
   output_visual_descriptor_schema
   actions
@@ -636,7 +688,10 @@ For inline renderers, the contract can be lightweight:
 ```text
 MermaidRenderer:
   accepted_source_kinds: [markdown_code_fence]
+  source_matcher: fenced_language
+  language_ids: [mermaid]
   render_scopes: [inline_fragment, detail_view, artifact_viewer]
+  source_range_mapping: exact
   fallback_strategy: show_code_fence_with_error
   actions: [copy_source, open_detail, export_svg, pin_as_artifact]
 ```
@@ -668,6 +723,14 @@ plugin disabled      -> show unknown visual object fallback
 
 Renderer failure should not break parent content. A Markdown message with one
 bad diagram should still render the rest of the message.
+
+Первый implementation increment (`0.2.15`) реализует content-level boundary:
+bundled `uprava.markdown` получает исходный assistant message и возвращает
+безопасное Streamdown presentation. Static и streaming режимы выбираются по
+состоянию сообщения. HTML, images, Mermaid и небезопасные URL пока отключены;
+исходный plain text остается host-owned fallback. Fragment-level isolation,
+diagram plugins и promotion в durable artifacts относятся к следующим
+инкрементам пункта 13.
 
 ### Actions
 
@@ -756,9 +819,9 @@ renderers.
 ```text
 agent proposal
 tool-rendered block
-declarative generated UI
-generated UI artifact
-sandboxed app artifact
+optional declarative generated UI
+Generated React artifact
+sandboxed generated UI runtime
 ```
 
 `A-006` owns visual semantics used by those objects:

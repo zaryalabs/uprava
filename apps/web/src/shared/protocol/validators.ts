@@ -616,6 +616,23 @@ export const pluginContributionSchema = z.discriminatedUnion("kind", [
     .strict(),
   z
     .object({
+      kind: z.literal("visual_renderer"),
+      contract_version: z.number().int().positive(),
+      contribution: z
+        .object({
+          renderer_id: z.string(),
+          implementation_id: z.string(),
+          renderer_kind: z.literal("content"),
+          accepted_source_kinds: z.array(z.string()),
+          render_scopes: z.array(z.literal("content_enhancement")),
+          allowed_surfaces: z.array(z.string()),
+          fallback_strategy: z.literal("plain_text"),
+        })
+        .strict(),
+    })
+    .strict(),
+  z
+    .object({
       kind: z.literal("artifact_type"),
       contract_version: z.number().int().positive(),
       artifact_type_id: z.string(),

@@ -2,7 +2,7 @@
 
 Статус: `active`
 
-Current release baseline: `0.2.14`.
+Current release baseline: `0.2.15`.
 
 Этот ledger фиксирует implementation baselines. Он не заменяет
 [`feature-queue.md`](product/feature-queue.md), где остается ранжированная очередь
@@ -35,14 +35,15 @@ future work.
 | `0.2.11` | 2026-07-19 | shipped | Agent Tooling and Tool Registry v1: progressive Uprava MCP, scoped registry, ToolHive-backed Linear integration и traceable execution |
 | `0.2.12` | 2026-07-19 | shipped | Plugin Registry v1: Core-owned lifecycle, manifest-driven Web Extension Host и bundled data-only Dark Theme |
 | `0.2.13` | 2026-07-20 | shipped | CI visual baseline и SQLite migration reliability: синхронизированные Linux golden snapshots, per-connection busy timeout и изолированный concurrent migration test |
-| `0.2.14` | 2026-07-20 | current | ToolHive Compose topology: отдельный pinned runtime, bounded host Node bridge, persistent OAuth state, smoke и ручной Linear acceptance runbook |
+| `0.2.14` | 2026-07-20 | shipped | ToolHive Compose topology: отдельный pinned runtime, bounded host Node bridge, persistent OAuth state, smoke и ручной Linear acceptance runbook |
+| `0.2.15` | 2026-07-21 | current | Bundled Markdown renderer plugin: typed `visual.renderer` contribution, безопасный Streamdown для static/streaming chat content, lazy Web activation и plain-text fallback |
 
 ## Current Baseline
 
-`0.2.14` включает baseline `0.2.13`, protocol-v2 baseline `0.2.0`, завершённое Zarya 0.1 Web UI/UX
+`0.2.15` включает baseline `0.2.14`, protocol-v2 baseline `0.2.0`, завершённое Zarya 0.1 Web UI/UX
 alignment и clean-bootstrap four-phase delivery path. Текущая реализация включает
 первый working distributed
-control panel, четырнадцать implementation slices после `0.1.0`, unified audit
+control panel, пятнадцать implementation slices после `0.1.0`, unified audit
 hardening slice и workspace
 renderer/PTY terminal layer, а также первый deployable self-hosted release path:
 
@@ -54,9 +55,15 @@ renderer/PTY terminal layer, а также первый deployable self-hosted r
 - Core-owned Plugin Registry отделён от Tool Registry и хранит immutable package
   metadata, installation state, compatibility, configuration revisions,
   permission grants и effective contribution projection;
+- bundled trusted plugin `uprava.markdown` публикует typed `visual.renderer`
+  contribution и безопасно обогащает assistant messages через Streamdown;
+  renderer поддерживает static и streaming content, лениво загружается только
+  после effective activation и сохраняет plain-text fallback при disable,
+  несовместимости, загрузке или render error;
 - manifest-driven Web Extension Host применяет только валидированные typed
-  `ui.theme` contributions; bundled data-only `uprava.theme-dark` переключает
-  semantic tokens, Monaco и xterm с безопасным `core.light` fallback;
+  `ui.theme` и `visual.renderer` contributions; bundled data-only
+  `uprava.theme-dark` переключает semantic tokens, Monaco и xterm с безопасным
+  `core.light` fallback;
 - Core-owned Tool Registry, permission-first progressive discovery
   `Search -> Inspect -> Execute` и session-scoped Uprava MCP leases;
 - Node-owned observed capability inventory and desired/actual reconciliation;

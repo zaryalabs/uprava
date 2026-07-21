@@ -436,6 +436,12 @@ plugin не получает скрытого hardcoded пути: enable/disable
 effective projection and failure fallback проходят через общую package model,
 приближая платформу к extension ecosystems Obsidian и VS Code.
 
+Dynamic UI использует opt-in Generated React artifacts как основной
+expressive path. Generated code не монтируется в main Web React tree: bundled
+plugin регистрирует controlled build, sandboxed iframe runtime, Uprava React
+SDK, layout contract and permissioned action bridge. Optional declarative blocks
+остаются fast path для простых interactions, а не закрытым UI language.
+
 Полный contribution, activation, trust and theme contract определен в
 [`A-004 Modular UI and Work Surface`](areas/004-modular-ui-work-surface.md#plugin-registry-и-extension-host).
 

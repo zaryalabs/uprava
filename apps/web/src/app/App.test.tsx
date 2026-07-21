@@ -146,7 +146,13 @@ describe("App routes", () => {
     expect(
       await screen.findByRole("heading", { name: "Fix issue" }),
     ).toBeVisible();
-    expect(screen.getAllByText("Assistant reply").length).toBeGreaterThan(0);
+    await waitFor(() =>
+      expect(
+        screen
+          .getAllByText("Assistant reply")
+          .some((element) => element.closest(".uprava-markdown") !== null),
+      ).toBe(true),
+    );
     expect(screen.getByRole("link", { name: "Workspace" })).toHaveAttribute(
       "href",
       "/workspaces/placement-1/agent",
@@ -185,12 +191,19 @@ describe("App routes", () => {
       await screen.findByRole("heading", { name: "Plugins & Appearance" }),
     ).toBeVisible();
     expect(await screen.findByText("Dark Theme")).toBeVisible();
+    expect(await screen.findByText("Markdown Renderer")).toBeVisible();
     expect(screen.getByRole("radio", { name: /Light/ })).toBeChecked();
     fireEvent.click(screen.getByRole("radio", { name: /Dark/ }));
     await waitFor(() =>
       expect(document.documentElement.dataset.theme).toBe("uprava.dark"),
     );
-    fireEvent.click(screen.getByRole("button", { name: "Disable" }));
+    const darkThemeCard = screen.getByText("Dark Theme").closest("article");
+    expect(darkThemeCard).not.toBeNull();
+    fireEvent.click(
+      within(darkThemeCard as HTMLElement).getByRole("button", {
+        name: "Disable",
+      }),
+    );
     await waitFor(() =>
       expect(document.documentElement.dataset.theme).toBe("core.light"),
     );
@@ -596,11 +609,23 @@ function responseForPath(pathname: string) {
         ? { ...inventory, sessions: [...inventory.sessions, createdSession] }
         : inventory;
     case "/api/v1/plugins":
-      return { items: [pluginInstallation()] };
+      return {
+        items: protocolFixtures.plugin_contract.plugins.items.map((plugin) =>
+          plugin.package.plugin_id === "uprava.theme-dark"
+            ? pluginInstallation()
+            : plugin,
+        ),
+      };
     case "/api/v1/plugin-contributions":
       return pluginEnabled
         ? protocolFixtures.plugin_contract.effective_snapshot
-        : { contributions: [], generated_at: "2026-07-19T12:00:00Z" };
+        : {
+            contributions:
+              protocolFixtures.plugin_contract.effective_snapshot.contributions.filter(
+                (contribution) => contribution.kind !== "ui_theme",
+              ),
+            generated_at: "2026-07-19T12:00:00Z",
+          };
     case "/api/v1/node-enrollments":
       return [];
     case "/api/v1/placements/placement-1":
@@ -900,7 +925,7 @@ const messageEvent = {
   result_refs: [],
   payload: {
     type: "provider_message_completed",
-    content: "Assistant reply",
+    content: "**Assistant reply**",
   },
 };
 
@@ -913,7 +938,7 @@ const sessionDetail = {
       session_thread_id: "session-1",
       turn_id: "turn-1",
       role: "assistant",
-      content: "Assistant reply",
+      content: "**Assistant reply**",
       created_at: "2026-06-17T00:00:01Z",
       completed_at: "2026-06-17T00:00:01Z",
       source_event_id: "event-message",

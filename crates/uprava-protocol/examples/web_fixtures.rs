@@ -22,7 +22,8 @@ use uprava_protocol::{
     ToolDefinitionsResponse, ToolExecutionKind, ToolId, ToolInvocationMode, ToolRedactionPolicy,
     ToolResultEnvelope, ToolRiskLevel, ToolScope, ToolSearchFilters, ToolSearchResult,
     ToolSourceId, ToolSourceKind, ToolingCommandPayloadV1, ToolingCommandV1, ToolingEventPayloadV1,
-    ToolingEventV1, WorkspaceCommandHistoryItem, WorkspaceCommandHistoryResponse,
+    ToolingEventV1, VisualRenderScope, VisualRendererContributionV1, VisualRendererFallback,
+    VisualRendererKind, WorkspaceCommandHistoryItem, WorkspaceCommandHistoryResponse,
     WorkspaceCommandIntent, WorkspaceCommandRunResponse, WorkspaceTerminalListResponse,
     WorkspaceTerminalOpenResponse, WorkspaceTerminalOutputFrame, WorkspaceTerminalState,
     WorkspaceTerminalStreamFrame, WorkspaceTerminalSummary, TOOLING_CONTRACT_VERSION_V1,
@@ -186,7 +187,7 @@ struct PluginContractFixture {
 }
 
 fn plugin_contract_fixture(at: chrono::DateTime<Utc>) -> PluginContractFixture {
-    let contribution = PluginContribution::UiTheme {
+    let theme_contribution = PluginContribution::UiTheme {
         contract_version: 1,
         contribution: ThemeContributionV1 {
             theme_id: "uprava.dark".to_owned(),
@@ -231,10 +232,10 @@ fn plugin_contract_fixture(at: chrono::DateTime<Utc>) -> PluginContractFixture {
         install_source: PluginInstallSource::Bundled,
         trust_level: PluginTrustLevel::DataOnly,
         requested_permissions: vec!["ui.theme.contribute".to_owned()],
-        contributions: vec![contribution.clone()],
+        contributions: vec![theme_contribution.clone()],
         discovered_at: at,
     };
-    let installation = PluginInstallationSummary {
+    let theme_installation = PluginInstallationSummary {
         package,
         desired_state: PluginDesiredState::Enabled,
         effective_state: PluginEffectiveState::Active,
@@ -248,12 +249,51 @@ fn plugin_contract_fixture(at: chrono::DateTime<Utc>) -> PluginContractFixture {
         updated_at: at,
         last_error_code: None,
     };
+    let renderer_contribution = PluginContribution::VisualRenderer {
+        contract_version: 1,
+        contribution: VisualRendererContributionV1 {
+            renderer_id: "uprava.markdown.chat".to_owned(),
+            implementation_id: "uprava.markdown.v1".to_owned(),
+            renderer_kind: VisualRendererKind::Content,
+            accepted_source_kinds: vec!["chat.assistant_message".to_owned()],
+            render_scopes: vec![VisualRenderScope::ContentEnhancement],
+            allowed_surfaces: vec!["session.timeline".to_owned()],
+            fallback_strategy: VisualRendererFallback::PlainText,
+        },
+    };
+    let renderer_installation = PluginInstallationSummary {
+        package: PluginPackageSummary {
+            plugin_id: PluginId::from("uprava.markdown"),
+            version: "1.0.0".to_owned(),
+            manifest_hash: "sha256:markdown-plugin-fixture".to_owned(),
+            manifest_version: 1,
+            display_name: "Markdown Renderer".to_owned(),
+            description: "Bundled hardened Markdown rendering for agent chat messages.".to_owned(),
+            publisher: "Uprava".to_owned(),
+            install_source: PluginInstallSource::Bundled,
+            trust_level: PluginTrustLevel::TrustedBundled,
+            requested_permissions: vec!["visual.renderer.contribute".to_owned()],
+            contributions: vec![renderer_contribution.clone()],
+            discovered_at: at,
+        },
+        desired_state: PluginDesiredState::Enabled,
+        effective_state: PluginEffectiveState::Active,
+        compatibility: PluginCompatibility {
+            state: PluginCompatibilityState::Compatible,
+            diagnostics: vec![],
+        },
+        configuration_revision: 0,
+        granted_permissions: vec!["visual.renderer.contribute".to_owned()],
+        installed_at: at,
+        updated_at: at,
+        last_error_code: None,
+    };
     PluginContractFixture {
         plugins: PluginListResponse {
-            items: vec![installation],
+            items: vec![theme_installation, renderer_installation],
         },
         effective_snapshot: uprava_protocol::EffectivePluginSnapshot {
-            contributions: vec![contribution],
+            contributions: vec![theme_contribution, renderer_contribution],
             generated_at: at,
         },
     }

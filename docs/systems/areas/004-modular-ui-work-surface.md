@@ -389,6 +389,13 @@ manifest and contribution contracts. Так Uprava постепенно движ
 Obsidian/VS Code, где сама поставка доказывает extension platform встроенными
 расширениями, а базовый shell остаётся небольшим и устойчивым.
 
+Для Dynamic UI plugin-first не означает исполнение plugin или generated
+React в main workbench tree. Bundled package регистрирует sandboxed runtime,
+Uprava React SDK, layout and action contracts; generated artifact монтируется
+в изолированный iframe и общается с host только через типизированный
+message/action bridge. Opt-in настройка управляет допуском и capabilities,
+но не отменяет isolation boundary.
+
 ### Package, installation and contribution
 
 Нужно различать три уровня:
@@ -498,7 +505,9 @@ reference.handler
   preview/open/copy behavior для namespaced reference kind
 
 visual.renderer
-  renderer contract with input schema, scopes and mandatory fallback
+  versioned renderer contract with input schema, source matching, scopes and
+  mandatory fallback; typed renderer kinds include content, inline fragment,
+  viewer enhancement, block and artifact viewer
 
 artifact.type
   metadata and lifecycle contract будущего first-class artifact
@@ -547,6 +556,23 @@ namespaced keys через объявленный service contract.
 Activation должна быть lazy. Theme metadata можно активировать при bootstrap,
 а тяжелый renderer или view module загружается только при совпадении context и
 первом обращении к contribution.
+
+Первый shipped executable contribution — bundled trusted plugin
+`uprava.markdown` (`0.2.15`). Его `visual.renderer` v1 сопоставляется с
+`chat.assistant_message` на `session.timeline`, после чего Web загружает
+allowlisted Streamdown adapter. При disabled/incompatible plugin, неизвестном
+`implementation_id`, загрузке или render error host показывает исходный текст.
+HTML, images и небезопасные URL запрещены adapter-ом; разрешены только
+`http`, `https` и `mailto` links.
+
+Content and inline renderer activation обычно начинается не с explicit agent
+command, а с source format. Host сначала выбирает content renderer по source
+kind and surface, затем применяет зарегистрированные детекторы к точным source
+ranges: language-tagged code fence включает syntax highlighter, строгий color
+literal — color token renderer, Mermaid/PlantUML fence — diagram renderer.
+Source matcher является ограниченной declarative частью contribution; он не
+получает возможность выполнить произвольный код до compatibility, trust and
+permission checks. Исходный текст остается fallback и не изменяется renderer-ом.
 
 ### Core Registry and client Extension Hosts
 
@@ -1070,8 +1096,10 @@ artifact и dynamic UI направления.
 Пункты очереди `13 Visual artifact system as plugins` и `14 Dynamic UI from
 agents as plugins` продолжают эту линию. Первый активирует artifact types,
 renderers/viewers and artifact actions через bundled plugins. Второй добавляет
-declarative component catalogs, dynamic renderers and permissioned action
-bridge как contributions следующего уровня. Оба slice должны оставлять App
+Generated React runtime, Uprava UI SDK, layout contracts, dynamic renderers and
+permissioned action bridge как contributions следующего уровня. Declarative
+component catalogs могут остаться fast path для простых blocks, но не
+ограничивают expressive model. Оба slice должны оставлять App
 Shell работоспособным при disable, incompatibility or failure plugin-а и
 сохранять raw/fallback representation.
 

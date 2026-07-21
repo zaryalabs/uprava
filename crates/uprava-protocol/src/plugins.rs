@@ -14,8 +14,12 @@ use super::*;
 pub const PLUGIN_MANIFEST_VERSION_V1: u16 = 1;
 /// First supported `ui.theme` contribution major version.
 pub const THEME_CONTRIBUTION_VERSION_V1: u16 = 1;
+/// First supported `visual.renderer` contribution major version.
+pub const VISUAL_RENDERER_CONTRIBUTION_VERSION_V1: u16 = 1;
 /// Permission required by a package that contributes a theme.
 pub const THEME_CONTRIBUTION_PERMISSION: &str = "ui.theme.contribute";
+/// Permission required by a package that contributes a visual renderer.
+pub const VISUAL_RENDERER_CONTRIBUTION_PERMISSION: &str = "visual.renderer.contribute";
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
@@ -122,16 +126,51 @@ pub struct ThemeContributionV1 {
     pub terminal: TerminalThemeV1,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum VisualRendererKind {
+    Content,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum VisualRenderScope {
+    ContentEnhancement,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum VisualRendererFallback {
+    PlainText,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct VisualRendererContributionV1 {
+    pub renderer_id: String,
+    pub implementation_id: String,
+    pub renderer_kind: VisualRendererKind,
+    #[serde(default)]
+    pub accepted_source_kinds: Vec<String>,
+    #[serde(default)]
+    pub render_scopes: Vec<VisualRenderScope>,
+    #[serde(default)]
+    pub allowed_surfaces: Vec<String>,
+    pub fallback_strategy: VisualRendererFallback,
+}
+
 /// A manifest-declared extension point.
 ///
-/// `AgentTool` and `ArtifactType` reserve typed links for later slices. Plugin
-/// Registry v1 activates only `UiTheme` contributions.
+/// `AgentTool` and `ArtifactType` reserve typed links for later slices.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "kind", rename_all = "snake_case")]
 pub enum PluginContribution {
     UiTheme {
         contract_version: u16,
         contribution: ThemeContributionV1,
+    },
+    VisualRenderer {
+        contract_version: u16,
+        contribution: VisualRendererContributionV1,
     },
     AgentTool {
         contract_version: u16,
