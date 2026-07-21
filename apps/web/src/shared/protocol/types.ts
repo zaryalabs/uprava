@@ -1501,6 +1501,44 @@ export type ArtifactTypeContributionV1 = {
   fallback_strategy: "plain_text" | "source" | "metadata";
 };
 
+export type GeneratedUiLayoutIntent = "inline" | "panel" | "canvas";
+export type GeneratedUiCapability =
+  | "persist_state"
+  | "send_agent_input"
+  | "open_reference"
+  | "request_layout_change";
+export type GeneratedUiActionKind =
+  | "update_artifact_state"
+  | "send_agent_input"
+  | "open_reference";
+
+export type GeneratedUiRuntimeContributionV1 = {
+  runtime_id: string;
+  implementation_id: string;
+  runtime_version: string;
+  sdk_id: string;
+  action_bridge_id: string;
+  supported_sdk_versions: string[];
+  supported_layouts: GeneratedUiLayoutIntent[];
+  sandbox_capabilities: GeneratedUiCapability[];
+  allowed_imports: string[];
+  max_source_bytes: number;
+  max_bundle_bytes: number;
+};
+
+export type GeneratedUiSdkContributionV1 = {
+  sdk_id: string;
+  package_name: string;
+  api_version: string;
+  design_token_version: string;
+  api_schema: unknown;
+};
+
+export type GeneratedUiActionBridgeContributionV1 = {
+  bridge_id: string;
+  supported_actions: GeneratedUiActionKind[];
+};
+
 export type PluginContribution =
   | {
       kind: "ui_theme";
@@ -1525,6 +1563,24 @@ export type PluginContribution =
       contribution_id: string;
       contract_version: number;
       contribution: ArtifactTypeContributionV1;
+    }
+  | {
+      kind: "generated_ui_runtime";
+      contribution_id: string;
+      contract_version: number;
+      contribution: GeneratedUiRuntimeContributionV1;
+    }
+  | {
+      kind: "generated_ui_sdk";
+      contribution_id: string;
+      contract_version: number;
+      contribution: GeneratedUiSdkContributionV1;
+    }
+  | {
+      kind: "generated_ui_action_bridge";
+      contribution_id: string;
+      contract_version: number;
+      contribution: GeneratedUiActionBridgeContributionV1;
     };
 
 export type PluginCompatibility = {
@@ -1570,7 +1626,10 @@ export type ContributionTarget =
       render_scope: VisualRenderScope;
       selector?: string | null;
     }
-  | { kind: "artifact_type"; artifact_type: string };
+  | { kind: "artifact_type"; artifact_type: string }
+  | { kind: "generated_ui_runtime"; runtime_id: string }
+  | { kind: "generated_ui_sdk"; sdk_id: string }
+  | { kind: "generated_ui_action_bridge"; bridge_id: string };
 
 export type ContributionRef = {
   plugin_id: string;
@@ -1678,3 +1737,102 @@ export type CreateArtifactVersionRequest = Omit<
   CreateArtifactRequest,
   "artifact_type" | "title" | "scope_ref"
 > & { expected_current_version: number };
+
+export type GeneratedUiActionDefinition = {
+  action_id: string;
+  kind: GeneratedUiActionKind;
+  label: string;
+  input_schema: unknown;
+  required_capabilities: GeneratedUiCapability[];
+  confirmation_required: boolean;
+};
+
+export type GeneratedUiArtifactPayload = {
+  description: string | null;
+  runtime_id: string;
+  sdk_version: string;
+  layout_intent: GeneratedUiLayoutIntent;
+  source_blob_hash: string;
+  data_model: unknown;
+  actions: GeneratedUiActionDefinition[];
+  granted_capabilities: GeneratedUiCapability[];
+  fallback_snapshot: string | null;
+};
+
+export type GeneratedUiBuildDiagnostic = {
+  severity: "error" | "warning" | "info";
+  message: string;
+  line: number | null;
+  column: number | null;
+};
+
+export type GeneratedUiBuild = {
+  build_id: string;
+  artifact_id: string;
+  artifact_version: number;
+  state: "pending" | "ready" | "failed" | "fallback_only";
+  runtime_id: string;
+  runtime_version: string;
+  sdk_version: string;
+  source_blob_hash: string;
+  bundle_blob_hash: string | null;
+  dependency_lock: unknown;
+  diagnostics: GeneratedUiBuildDiagnostic[];
+  created_at: string;
+  completed_at: string | null;
+};
+
+export type GeneratedUiState = {
+  artifact_id: string;
+  revision: number;
+  values: unknown;
+  updated_at: string;
+};
+
+export type GeneratedUiRuntimeDetail = {
+  artifact: ArtifactDetail;
+  build: GeneratedUiBuild;
+  state: GeneratedUiState;
+};
+
+export type CreateDynamicUiProposalRequest = {
+  title: string;
+  description: string | null;
+  scope_ref: ScopeRef;
+  runtime_id: string;
+  sdk_version: string;
+  layout_intent: GeneratedUiLayoutIntent;
+  source: string;
+  data_model: unknown;
+  actions: GeneratedUiActionDefinition[];
+  requested_capabilities: GeneratedUiCapability[];
+  fallback_markdown: string;
+  fallback_snapshot: string | null;
+  source_refs: UpravaRef[];
+  evidence_refs: UpravaRef[];
+  cause_refs: UpravaRef[];
+  trace_refs: UpravaRef[];
+};
+
+export type UpdateGeneratedUiStateRequest = {
+  expected_revision: number;
+  values: unknown;
+};
+
+export type InvokeGeneratedUiActionRequest = {
+  artifact_version: number;
+  idempotency_key: string;
+  input: unknown;
+  confirmed: boolean;
+};
+
+export type GeneratedUiActionResult = {
+  action_request_id: string;
+  artifact_id: string;
+  action_id: string;
+  kind: GeneratedUiActionKind;
+  result: unknown;
+  state: GeneratedUiState | null;
+  command_id: string | null;
+  completed_at: string;
+};

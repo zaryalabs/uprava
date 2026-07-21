@@ -1,6 +1,8 @@
 # A-005 Dynamic UI from Agents
 
-Статус: `working-position`
+Статус: `implemented-baseline`
+
+Implementation baseline: `0.2.18`.
 
 Этот документ фиксирует рабочую позицию по ключевой механике `A-005 Dynamic
 UI from Agents`.
@@ -49,6 +51,29 @@ consent, но не отменяет изоляцию.
 жить inline, а сложные dashboards, graphs, calculators and editors открываются
 в отдельной canvas surface; timeline показывает их preview. Host владеет
 artifact frame, bounds, scroll and transition to fullscreen.
+
+## Implementation baseline
+
+Baseline `0.2.18` реализует первую поставку этого решения. Bundled trusted
+plugin `uprava.generated-react` выключен по умолчанию и объявляет общие
+versioned contributions runtime, SDK, action bridge, artifact type and viewer.
+Core принимает session/placement proposal, а agent-facing native tool
+`uprava.dynamic_ui.create` всегда привязывает его к текущей сессии. Source,
+artifact version, build, initial state and refs фиксируются атомарно; build and
+action outcomes публикуются как extension events.
+
+Controlled builder работает отдельным Node.js service/container без внешней
+сети, принимает bounded TSX, разрешает только React, React JSX runtime and
+`@uprava/ui-sdk`, не исполняет source и возвращает content-addressed bundle,
+diagnostics and dependency lock. Web запускает bundle в opaque iframe только с
+`sandbox="allow-scripts"`, nonce CSP and per-frame MessageChannel. Core повторно
+проверяет capability, artifact version, action schema, confirmation,
+idempotency and declared refs для persisted-state, send-agent-input and
+open-reference actions. Plugin disable, compatibility mismatch, builder/runtime
+error оставляют markdown fallback, bounded PNG/WebP snapshot, diagnostics,
+machine-readable state and reviewable source. Обновление generated source как
+новой artifact version и optional schema-driven fast path остаются дальнейшим
+increment этого направления.
 
 ## Vision
 

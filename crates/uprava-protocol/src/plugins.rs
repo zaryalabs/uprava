@@ -20,12 +20,25 @@ pub const VISUAL_RENDERER_CONTRIBUTION_VERSION_V1: u16 = 1;
 pub const VISUAL_RENDERER_CONTRIBUTION_VERSION_V2: u16 = 2;
 /// First supported `artifact.type` contribution major version.
 pub const ARTIFACT_TYPE_CONTRIBUTION_VERSION_V1: u16 = 1;
+/// First supported `generated_ui.runtime` contribution major version.
+pub const GENERATED_UI_RUNTIME_CONTRIBUTION_VERSION_V1: u16 = 1;
+/// First supported `generated_ui.sdk` contribution major version.
+pub const GENERATED_UI_SDK_CONTRIBUTION_VERSION_V1: u16 = 1;
+/// First supported `generated_ui.action_bridge` contribution major version.
+pub const GENERATED_UI_ACTION_BRIDGE_CONTRIBUTION_VERSION_V1: u16 = 1;
 /// Permission required by a package that contributes a theme.
 pub const THEME_CONTRIBUTION_PERMISSION: &str = "ui.theme.contribute";
 /// Permission required by a package that contributes a visual renderer.
 pub const VISUAL_RENDERER_CONTRIBUTION_PERMISSION: &str = "visual.renderer.contribute";
 /// Permission required by a package that contributes an artifact type.
 pub const ARTIFACT_TYPE_CONTRIBUTION_PERMISSION: &str = "artifact.type.contribute";
+/// Permission required by a package that contributes a generated UI runtime.
+pub const GENERATED_UI_RUNTIME_CONTRIBUTION_PERMISSION: &str = "generated_ui.runtime.contribute";
+/// Permission required by a package that contributes a generated UI SDK.
+pub const GENERATED_UI_SDK_CONTRIBUTION_PERMISSION: &str = "generated_ui.sdk.contribute";
+/// Permission required by a package that contributes an action bridge.
+pub const GENERATED_UI_ACTION_BRIDGE_CONTRIBUTION_PERMISSION: &str =
+    "generated_ui.action_bridge.contribute";
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
@@ -201,6 +214,41 @@ pub struct ArtifactTypeContributionV1 {
     pub fallback_strategy: VisualRendererFallback,
 }
 
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct GeneratedUiRuntimeContributionV1 {
+    pub runtime_id: String,
+    pub implementation_id: String,
+    pub runtime_version: String,
+    pub sdk_id: String,
+    pub action_bridge_id: String,
+    #[serde(default)]
+    pub supported_sdk_versions: Vec<String>,
+    #[serde(default)]
+    pub supported_layouts: Vec<GeneratedUiLayoutIntent>,
+    #[serde(default)]
+    pub sandbox_capabilities: Vec<GeneratedUiCapability>,
+    #[serde(default)]
+    pub allowed_imports: Vec<String>,
+    pub max_source_bytes: u64,
+    pub max_bundle_bytes: u64,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct GeneratedUiSdkContributionV1 {
+    pub sdk_id: String,
+    pub package_name: String,
+    pub api_version: String,
+    pub design_token_version: String,
+    pub api_schema: JsonValue,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct GeneratedUiActionBridgeContributionV1 {
+    pub bridge_id: String,
+    #[serde(default)]
+    pub supported_actions: Vec<GeneratedUiActionKind>,
+}
+
 /// A manifest-declared extension point.
 ///
 /// Contributions remain declarative; executable implementations are activated
@@ -227,6 +275,21 @@ pub enum PluginContribution {
         contribution_id: String,
         contract_version: u16,
         contribution: ArtifactTypeContributionV1,
+    },
+    GeneratedUiRuntime {
+        contribution_id: String,
+        contract_version: u16,
+        contribution: GeneratedUiRuntimeContributionV1,
+    },
+    GeneratedUiSdk {
+        contribution_id: String,
+        contract_version: u16,
+        contribution: GeneratedUiSdkContributionV1,
+    },
+    GeneratedUiActionBridge {
+        contribution_id: String,
+        contract_version: u16,
+        contribution: GeneratedUiActionBridgeContributionV1,
     },
 }
 
@@ -340,6 +403,15 @@ pub enum ContributionTarget {
     },
     ArtifactType {
         artifact_type: String,
+    },
+    GeneratedUiRuntime {
+        runtime_id: String,
+    },
+    GeneratedUiSdk {
+        sdk_id: String,
+    },
+    GeneratedUiActionBridge {
+        bridge_id: String,
     },
 }
 

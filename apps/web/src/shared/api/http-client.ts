@@ -10,12 +10,16 @@ import type {
   CreatePlacementRequest,
   CreateArtifactRequest,
   CreateArtifactVersionRequest,
+  CreateDynamicUiProposalRequest,
   CreateJobRequest,
   CreateSessionRequest,
   CreateDeductionRequest,
   DeductionAcceptedResponse,
   DeductionRecord,
   EventLogPage,
+  GeneratedUiActionResult,
+  GeneratedUiRuntimeDetail,
+  GeneratedUiState,
   HealthResponse,
   NodeCredentialRotationResponse,
   NodeDeletionResponse,
@@ -34,12 +38,14 @@ import type {
   IntegrationConnectResponse,
   IntegrationConnectionsResponse,
   IntegrationDisconnectResponse,
+  InvokeGeneratedUiActionRequest,
   McpDependencyStatusesResponse,
   PluginInstallationSummary,
   PluginListResponse,
   EffectivePluginSnapshot,
   ContributionTargetResolution,
   UpdateContributionTargetPreferencesRequest,
+  UpdateGeneratedUiStateRequest,
   ObservedCapabilitiesResponse,
   ProviderQuotaStatus,
   PersistDeductionResponse,
@@ -96,6 +102,9 @@ import {
   pluginListResponseSchema,
   effectivePluginSnapshotSchema,
   contributionTargetResolutionSchema,
+  generatedUiActionResultSchema,
+  generatedUiRuntimeDetailSchema,
+  generatedUiStateSchema,
   observedCapabilitiesResponseSchema,
   toolAvailabilityResponseSchema,
   toolCallDetailSchema,
@@ -188,6 +197,25 @@ export async function apiDelete<T>(
   schema?: ProtocolSchema<T>,
 ): Promise<T> {
   return apiRequest<T>(path, { method: "DELETE" }, schema);
+}
+
+export async function apiGetText(path: string): Promise<string> {
+  const response = await fetch(`${apiBase}${path}`, {
+    method: "GET",
+    credentials: "include",
+  });
+  if (!response.ok) {
+    throw new UpravaApiError(
+      {
+        error_code: "network.http",
+        message: `HTTP ${response.status}`,
+        retryable: response.status >= 500,
+        correlation_id: "unavailable",
+      },
+      response.status,
+    );
+  }
+  return response.text();
 }
 
 const workspaceCommandTerminalStates = new Set<CommandState>([
@@ -444,6 +472,42 @@ export const coreApi = {
       `/artifacts/${encodeURIComponent(artifactId)}/versions`,
       request,
       artifactDetailSchema,
+    ),
+  createDynamicUiProposal: (request: CreateDynamicUiProposalRequest) =>
+    apiPost<GeneratedUiRuntimeDetail>(
+      "/dynamic-ui/proposals",
+      request,
+      generatedUiRuntimeDetailSchema,
+    ),
+  generatedUiRuntime: (artifactId: string) =>
+    apiGet<GeneratedUiRuntimeDetail>(
+      `/artifacts/${encodeURIComponent(artifactId)}/dynamic-ui`,
+      generatedUiRuntimeDetailSchema,
+    ),
+  generatedUiSource: (artifactId: string) =>
+    apiGetText(
+      `/artifacts/${encodeURIComponent(artifactId)}/dynamic-ui/source`,
+    ),
+  generatedUiBundle: (blobHash: string) =>
+    apiGetText(`/generated-ui/bundles/${encodeURIComponent(blobHash)}`),
+  updateGeneratedUiState: (
+    artifactId: string,
+    request: UpdateGeneratedUiStateRequest,
+  ) =>
+    apiPut<GeneratedUiState>(
+      `/artifacts/${encodeURIComponent(artifactId)}/dynamic-ui/state`,
+      request,
+      generatedUiStateSchema,
+    ),
+  invokeGeneratedUiAction: (
+    artifactId: string,
+    actionId: string,
+    request: InvokeGeneratedUiActionRequest,
+  ) =>
+    apiPost<GeneratedUiActionResult>(
+      `/artifacts/${encodeURIComponent(artifactId)}/dynamic-ui/actions/${encodeURIComponent(actionId)}`,
+      request,
+      generatedUiActionResultSchema,
     ),
   updatePluginContributionTarget: (
     targetId: string,

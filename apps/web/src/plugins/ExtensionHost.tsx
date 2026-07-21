@@ -124,6 +124,16 @@ const bundledInlineRenderers = new Map<string, LazyInlineRenderer>([
 
 const bundledArtifactRenderers = new Map<string, LazyArtifactRenderer>([
   [
+    "uprava.generated-react.v1",
+    lazy(() =>
+      import("./bundled/generated-react/GeneratedReactArtifactViewer").then(
+        (module) => ({
+          default: module.GeneratedReactArtifactViewer,
+        }),
+      ),
+    ),
+  ],
+  [
     "uprava.diagrams.v1",
     lazy(() =>
       import("./bundled/diagrams/DiagramRenderer").then((module) => ({

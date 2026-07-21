@@ -990,6 +990,70 @@ pub(crate) const MIGRATION_15: &[&str] = &[
     "#,
 ];
 
+pub(crate) const MIGRATION_16: &[&str] = &[
+    r#"
+    create table if not exists artifact_blobs (
+        blob_hash text primary key,
+        media_type text not null,
+        content blob not null,
+        size_bytes integer not null,
+        created_at text not null
+    )
+    "#,
+    r#"
+    create table if not exists generated_ui_builds (
+        build_id text primary key,
+        artifact_id text not null references artifacts(artifact_id) on delete cascade,
+        artifact_version integer not null,
+        state text not null check (state in ('pending', 'ready', 'failed', 'fallback_only')),
+        runtime_id text not null,
+        runtime_version text not null,
+        sdk_version text not null,
+        source_blob_hash text not null references artifact_blobs(blob_hash) on delete restrict,
+        bundle_blob_hash text references artifact_blobs(blob_hash) on delete restrict,
+        dependency_lock_json text not null,
+        diagnostics_json text not null,
+        created_at text not null,
+        completed_at text,
+        unique (artifact_id, artifact_version)
+    )
+    "#,
+    r#"
+    create table if not exists generated_ui_states (
+        artifact_id text primary key references artifacts(artifact_id) on delete cascade,
+        revision integer not null,
+        values_json text not null,
+        updated_at text not null
+    )
+    "#,
+    r#"
+    create table if not exists generated_ui_action_requests (
+        action_request_id text primary key,
+        artifact_id text not null references artifacts(artifact_id) on delete cascade,
+        artifact_version integer not null,
+        action_id text not null,
+        action_kind text not null,
+        input_json text not null,
+        idempotency_key text not null,
+        state text not null check (state in ('requested', 'completed', 'failed')),
+        result_json text,
+        error_code text,
+        actor_ref_json text not null,
+        created_at text not null,
+        completed_at text,
+        unique (artifact_id, idempotency_key)
+    )
+    "#,
+    r#"
+    create index if not exists generated_ui_builds_artifact_idx
+    on generated_ui_builds(artifact_id, artifact_version desc)
+    "#,
+    r#"
+    create index if not exists generated_ui_actions_artifact_idx
+    on generated_ui_action_requests(artifact_id, created_at desc)
+    "#,
+];
+
 pub(crate) const MIGRATIONS: &[Migration] = &[
     Migration {
         version: 1,
@@ -1064,6 +1128,11 @@ pub(crate) const MIGRATIONS: &[Migration] = &[
     Migration {
         version: 15,
         statements: MIGRATION_15,
+        ignore_duplicate_columns: false,
+    },
+    Migration {
+        version: 16,
+        statements: MIGRATION_16,
         ignore_duplicate_columns: false,
     },
 ];

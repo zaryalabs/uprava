@@ -20,6 +20,7 @@ UPRAVA_NODE_STATE_PATH=/var/lib/uprava-node/node.sqlite
 UPRAVA_AUTO_APPROVE_NODE_NAME='Zarya Server'
 UPRAVA_CORE_IMAGE=ghcr.io/zaryalabs/uprava-core@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
 UPRAVA_WEB_IMAGE=ghcr.io/zaryalabs/uprava-web@sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb
+UPRAVA_GENERATED_UI_BUILDER_IMAGE=ghcr.io/zaryalabs/uprava-generated-ui-builder@sha256:dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd
 UPRAVA_NODE_ARTIFACT=ghcr.io/zaryalabs/uprava-node@sha256:cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc
 UPRAVA_NODE_SHA256=$node_sha
 UPRAVA_NODE_VERSION=0.2.3

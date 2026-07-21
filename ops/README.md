@@ -4,7 +4,8 @@
 Production-релизы не собираются и не активируются на сервере вручную.
 
 Фаза `deploy` проверяет стабильные host inputs в `/etc/uprava`, активирует
-manifest с закреплёнными digest, загружает Core/Web, проверяет checksum
+manifest с закреплёнными digest, загружает Core/Web/Generated UI Builder,
+проверяет checksum
 извлечённого Node, запускает Compose и перезапускает принадлежащий продукту
 systemd unit. Перед переключением она сохраняет согласованные links активного
 release как rollback target. Она не проверяет health, не сбрасывает состояние и

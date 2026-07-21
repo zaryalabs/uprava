@@ -10,7 +10,7 @@ provider adapter.
 
 - Rust `1.88` or newer with `cargo`, `rustfmt` and `clippy`.
 - Node.js and npm for `apps/web`.
-- Docker Compose for the Core/Web/ToolHive dev profile.
+- Docker Compose for the Core/Web/ToolHive/Generated UI Builder dev profile.
 - `curl`, `grep` and `node` for `make dev-smoke`.
 
 `make init` installs the Rust quality tools used by `make c` when they are
@@ -124,7 +124,7 @@ make dev-logs
 make dev-down
 ```
 
-Use `make dev-up` when you want Core/Web/ToolHive attached in the foreground for
+Use `make dev-up` when you want Core/Web/ToolHive/Generated UI Builder attached in the foreground for
 interactive debugging. `make dev-smoke` starts or rebuilds the dev profile in
 detached mode before running checks. Set `SMOKE_SKIP_COMPOSE_UP=1` to probe an
 already running non-default profile.
@@ -135,7 +135,8 @@ Reset local Compose state intentionally:
 make dev-reset
 ```
 
-The `compose.dev.yaml` profile starts Core, Web and a separate ToolHive bridge.
+The `compose.dev.yaml` profile starts Core, Web, a separate ToolHive bridge and
+the network-isolated Generated UI Builder.
 Host ports are bound to `127.0.0.1`; Core and ToolHive state use resettable
 Docker volumes. Run `make node-r` for a real local Node Daemon that can access
 host workspaces, Codex and user credentials. Neither Node nor Codex runs in a
@@ -480,7 +481,7 @@ make web-e2e
 make codex-smoke
 ```
 
-`make dev-smoke` covers the deterministic Core/Web/ToolHive infrastructure path through
+`make dev-smoke` covers the deterministic Core/Web/ToolHive/Generated UI Builder infrastructure path through
 Compose: hardened local auth setup/login and authenticated Core inventory
 access plus pinned ToolHive version. It does not start a Node Daemon, perform
 Linear OAuth or start a provider session.

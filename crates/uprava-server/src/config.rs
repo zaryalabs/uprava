@@ -27,12 +27,17 @@ pub struct AppConfig {
     pub public_rate_window_seconds: i64,
     pub public_global_rate_limit: usize,
     pub public_peer_rate_limit: usize,
+    pub generated_ui_builder_url: String,
+    pub generated_ui_builder_timeout_seconds: i64,
 }
 
 impl AppConfig {
     /// Load and validate Core configuration from the process environment.
     pub fn from_env() -> Result<Self, ConfigError> {
         let profile = parse_profile(std::env::var("UPRAVA_DEPLOYMENT_PROFILE").ok())?;
+        let generated_ui_builder_url = std::env::var("UPRAVA_GENERATED_UI_BUILDER_URL")
+            .unwrap_or_else(|_| "http://127.0.0.1:18082".to_owned());
+        validate_generated_ui_builder_url(&generated_ui_builder_url)?;
         Ok(Self {
             bind_address: std::env::var("UPRAVA_CORE_BIND")
                 .unwrap_or_else(|_| "127.0.0.1:8080".to_owned()),
@@ -69,6 +74,11 @@ impl AppConfig {
                 5_000,
             )?,
             public_peer_rate_limit: parse_env_positive_usize("UPRAVA_PUBLIC_PEER_RATE_LIMIT", 600)?,
+            generated_ui_builder_url,
+            generated_ui_builder_timeout_seconds: parse_env_positive_i64(
+                "UPRAVA_GENERATED_UI_BUILDER_TIMEOUT_SECONDS",
+                15,
+            )?,
         })
     }
 }
@@ -96,6 +106,18 @@ pub enum ConfigError {
     },
     #[error("integer environment variable `{name}` must be positive")]
     NonPositiveInteger { name: String },
+    #[error("invalid generated UI builder URL `{0}`")]
+    InvalidGeneratedUiBuilderUrl(String),
+}
+
+fn validate_generated_ui_builder_url(value: &str) -> Result<(), ConfigError> {
+    let parsed = reqwest::Url::parse(value)
+        .map_err(|_| ConfigError::InvalidGeneratedUiBuilderUrl(value.to_owned()))?;
+    if matches!(parsed.scheme(), "http" | "https") && parsed.host_str().is_some() {
+        Ok(())
+    } else {
+        Err(ConfigError::InvalidGeneratedUiBuilderUrl(value.to_owned()))
+    }
 }
 
 fn parse_profile(value: Option<String>) -> Result<DeploymentProfile, ConfigError> {

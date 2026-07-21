@@ -71,6 +71,9 @@ import type {
   PluginInstallationSummary,
   PluginListResponse,
   EffectivePluginSnapshot,
+  GeneratedUiActionResult,
+  GeneratedUiRuntimeDetail,
+  GeneratedUiState,
   ToolingEventV1,
   WorkspaceCommandHistoryItem,
   WorkspaceCommandHistoryResponse,
@@ -590,6 +593,18 @@ export const toolingContractFixtureSchema = z
   .strict() satisfies z.ZodType<ToolingContractFixture>;
 
 const stringMapSchema = z.record(z.string(), z.string());
+const generatedUiLayoutIntentSchema = z.enum(["inline", "panel", "canvas"]);
+const generatedUiCapabilitySchema = z.enum([
+  "persist_state",
+  "send_agent_input",
+  "open_reference",
+  "request_layout_change",
+]);
+const generatedUiActionKindSchema = z.enum([
+  "update_artifact_state",
+  "send_agent_input",
+  "open_reference",
+]);
 
 export const pluginContributionSchema = z.discriminatedUnion("kind", [
   z
@@ -685,6 +700,57 @@ export const pluginContributionSchema = z.discriminatedUnion("kind", [
         .strict(),
     })
     .strict(),
+  z
+    .object({
+      kind: z.literal("generated_ui_runtime"),
+      contribution_id: z.string(),
+      contract_version: z.number().int().positive(),
+      contribution: z
+        .object({
+          runtime_id: z.string(),
+          implementation_id: z.string(),
+          runtime_version: z.string(),
+          sdk_id: z.string(),
+          action_bridge_id: z.string(),
+          supported_sdk_versions: z.array(z.string()),
+          supported_layouts: z.array(generatedUiLayoutIntentSchema),
+          sandbox_capabilities: z.array(generatedUiCapabilitySchema),
+          allowed_imports: z.array(z.string()),
+          max_source_bytes: z.number().int().positive(),
+          max_bundle_bytes: z.number().int().positive(),
+        })
+        .strict(),
+    })
+    .strict(),
+  z
+    .object({
+      kind: z.literal("generated_ui_sdk"),
+      contribution_id: z.string(),
+      contract_version: z.number().int().positive(),
+      contribution: z
+        .object({
+          sdk_id: z.string(),
+          package_name: z.string(),
+          api_version: z.string(),
+          design_token_version: z.string(),
+          api_schema: z.unknown(),
+        })
+        .strict(),
+    })
+    .strict(),
+  z
+    .object({
+      kind: z.literal("generated_ui_action_bridge"),
+      contribution_id: z.string(),
+      contract_version: z.number().int().positive(),
+      contribution: z
+        .object({
+          bridge_id: z.string(),
+          supported_actions: z.array(generatedUiActionKindSchema),
+        })
+        .strict(),
+    })
+    .strict(),
 ]) satisfies z.ZodType<PluginContribution>;
 
 export const pluginInstallationSummarySchema = z
@@ -762,6 +828,18 @@ export const contributionTargetSchema = z.discriminatedUnion("kind", [
   z
     .object({ kind: z.literal("artifact_type"), artifact_type: z.string() })
     .strict(),
+  z
+    .object({ kind: z.literal("generated_ui_runtime"), runtime_id: z.string() })
+    .strict(),
+  z
+    .object({ kind: z.literal("generated_ui_sdk"), sdk_id: z.string() })
+    .strict(),
+  z
+    .object({
+      kind: z.literal("generated_ui_action_bridge"),
+      bridge_id: z.string(),
+    })
+    .strict(),
 ]);
 
 const scopeRefSchema = z.discriminatedUnion("kind", [
@@ -820,6 +898,86 @@ export const artifactDetailSchema = z
 export const artifactListResponseSchema = z
   .object({ items: z.array(artifactSummarySchema) })
   .strict() satisfies z.ZodType<ArtifactListResponse>;
+
+export const generatedUiStateSchema = z
+  .object({
+    artifact_id: z.string(),
+    revision: z.number().int().nonnegative(),
+    values: z.unknown(),
+    updated_at: z.string(),
+  })
+  .strict() satisfies z.ZodType<GeneratedUiState>;
+
+export const generatedUiArtifactPayloadSchema = z
+  .object({
+    description: nullableString,
+    runtime_id: z.string(),
+    sdk_version: z.string(),
+    layout_intent: generatedUiLayoutIntentSchema,
+    source_blob_hash: z.string(),
+    data_model: z.unknown(),
+    actions: z.array(
+      z
+        .object({
+          action_id: z.string(),
+          kind: generatedUiActionKindSchema,
+          label: z.string(),
+          input_schema: z.unknown(),
+          required_capabilities: z.array(generatedUiCapabilitySchema),
+          confirmation_required: z.boolean(),
+        })
+        .strict(),
+    ),
+    granted_capabilities: z.array(generatedUiCapabilitySchema),
+    fallback_snapshot: nullableString,
+  })
+  .strict() satisfies z.ZodType<import("./types").GeneratedUiArtifactPayload>;
+
+export const generatedUiRuntimeDetailSchema = z
+  .object({
+    artifact: artifactDetailSchema,
+    build: z
+      .object({
+        build_id: z.string(),
+        artifact_id: z.string(),
+        artifact_version: z.number().int().positive(),
+        state: z.enum(["pending", "ready", "failed", "fallback_only"]),
+        runtime_id: z.string(),
+        runtime_version: z.string(),
+        sdk_version: z.string(),
+        source_blob_hash: z.string(),
+        bundle_blob_hash: nullableString,
+        dependency_lock: z.unknown(),
+        diagnostics: z.array(
+          z
+            .object({
+              severity: z.enum(["error", "warning", "info"]),
+              message: z.string(),
+              line: z.number().int().nonnegative().nullable(),
+              column: z.number().int().nonnegative().nullable(),
+            })
+            .strict(),
+        ),
+        created_at: z.string(),
+        completed_at: nullableString,
+      })
+      .strict(),
+    state: generatedUiStateSchema,
+  })
+  .strict() satisfies z.ZodType<GeneratedUiRuntimeDetail>;
+
+export const generatedUiActionResultSchema = z
+  .object({
+    action_request_id: z.string(),
+    artifact_id: z.string(),
+    action_id: z.string(),
+    kind: generatedUiActionKindSchema,
+    result: z.unknown(),
+    state: generatedUiStateSchema.nullable(),
+    command_id: nullableString,
+    completed_at: z.string(),
+  })
+  .strict() satisfies z.ZodType<GeneratedUiActionResult>;
 
 export const contributionRefSchema = z
   .object({ plugin_id: z.string(), contribution_id: z.string() })

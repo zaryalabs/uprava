@@ -583,6 +583,21 @@ pub enum AppError {
 }
 
 impl AppError {
+    pub(crate) fn code(&self) -> &'static str {
+        match self {
+            Self::Database(_) => "internal.database",
+            Self::Serialization(_) => "internal.serialization",
+            Self::Io(_) => "internal.io",
+            Self::TaskJoin(_) => "internal.task_join",
+            Self::Internal { code, .. }
+            | Self::NotFound { code, .. }
+            | Self::BadRequest { code, .. }
+            | Self::Conflict { code, .. }
+            | Self::Auth { code, .. }
+            | Self::RateLimited { code, .. } => code,
+        }
+    }
+
     pub(crate) fn not_found(code: &'static str, message: impl Into<String>) -> Self {
         Self::NotFound {
             code,

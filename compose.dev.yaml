@@ -1,6 +1,36 @@
 name: uprava-dev
 
 services:
+  generated-ui-builder:
+    build:
+      context: .
+      dockerfile: Dockerfile.generated-ui-builder
+    ports:
+      - "127.0.0.1:18082:18082"
+    read_only: true
+    init: true
+    cap_drop: [ALL]
+    pids_limit: 64
+    mem_limit: 512m
+    cpus: 1.0
+    tmpfs:
+      - /tmp:rw,noexec,nosuid,nodev,size=64m
+    security_opt:
+      - no-new-privileges:true
+    networks:
+      - generated-ui-private
+    healthcheck:
+      test:
+        [
+          "CMD",
+          "node",
+          "-e",
+          "fetch('http://127.0.0.1:18082/health').then(r=>{if(!r.ok)process.exit(1)})",
+        ]
+      interval: 5s
+      timeout: 4s
+      retries: 20
+
   toolhive:
     build:
       context: .
@@ -35,11 +65,18 @@ services:
       UPRAVA_DATABASE_URL: sqlite:///data/core.sqlite
       UPRAVA_DEPLOYMENT_PROFILE: controlled_dev
       UPRAVA_ALLOWED_ORIGINS: http://127.0.0.1:5173,http://localhost:5173
+      UPRAVA_GENERATED_UI_BUILDER_URL: http://generated-ui-builder:18082
       RUST_LOG: info,uprava_server=debug
     ports:
       - "127.0.0.1:8080:8080"
     volumes:
       - uprava-dev-core-data:/data
+    depends_on:
+      generated-ui-builder:
+        condition: service_healthy
+    networks:
+      - default
+      - generated-ui-private
     healthcheck:
       test: ["CMD", "uprava-server", "healthcheck", "127.0.0.1:8080"]
       interval: 5s
@@ -61,4 +98,6 @@ volumes:
   uprava-dev-toolhive-data:
 
 networks:
+  generated-ui-private:
+    internal: true
   toolhive-private:

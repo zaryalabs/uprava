@@ -372,6 +372,9 @@ function contributionTargetLabel(resolution: ContributionTargetResolution) {
   const target = resolution.target;
   if (target.kind === "ui_theme") return target.theme_id;
   if (target.kind === "artifact_type") return target.artifact_type;
+  if (target.kind === "generated_ui_runtime") return target.runtime_id;
+  if (target.kind === "generated_ui_sdk") return target.sdk_id;
+  if (target.kind === "generated_ui_action_bridge") return target.bridge_id;
   const selector = target.selector ? ` · ${target.selector}` : "";
   return `${target.source_kind} · ${target.surface} · ${target.render_scope}${selector}`;
 }
@@ -459,6 +462,12 @@ function contributionLabel(
       return `agent.tool:${contribution.tool_id}`;
     case "artifact_type":
       return `artifact.type:${contribution.contribution.artifact_type_id}`;
+    case "generated_ui_runtime":
+      return `generated_ui.runtime:${contribution.contribution.runtime_id}`;
+    case "generated_ui_sdk":
+      return `generated_ui.sdk:${contribution.contribution.sdk_id}`;
+    case "generated_ui_action_bridge":
+      return `generated_ui.action_bridge:${contribution.contribution.bridge_id}`;
   }
 }
 

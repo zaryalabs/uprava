@@ -1,6 +1,35 @@
 name: uprava
 
 services:
+  generated-ui-builder:
+    image: ${UPRAVA_GENERATED_UI_BUILDER_IMAGE:-uprava-generated-ui-builder:local}
+    container_name: uprava-generated-ui-builder
+    restart: unless-stopped
+    read_only: true
+    init: true
+    cap_drop: [ALL]
+    pids_limit: 64
+    mem_limit: 512m
+    cpus: 1.0
+    security_opt:
+      - no-new-privileges:true
+    tmpfs:
+      - /tmp:rw,noexec,nosuid,nodev,size=64m
+    healthcheck:
+      test:
+        [
+          "CMD",
+          "node",
+          "-e",
+          "fetch('http://127.0.0.1:18082/health').then(r=>{if(!r.ok)process.exit(1)})",
+        ]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
+    networks:
+      - generated-ui-private
+
   core:
     image: ${UPRAVA_CORE_IMAGE:-uprava-core:local}
     container_name: uprava-core
@@ -21,9 +50,13 @@ services:
       UPRAVA_CLIENT_LOG_FILE: ${UPRAVA_CLIENT_LOG_FILE:-/data/client.log}
       UPRAVA_CORE_LOG_FILE: ${UPRAVA_CORE_LOG_FILE:-/data/core.log}
       UPRAVA_AUTO_APPROVE_NODE_NAME: ${UPRAVA_AUTO_APPROVE_NODE_NAME:-}
+      UPRAVA_GENERATED_UI_BUILDER_URL: http://generated-ui-builder:18082
       RUST_LOG: ${UPRAVA_CORE_RUST_LOG:-info}
     volumes:
       - ./${UPRAVA_CORE_STATE_DIR:-state/core}:/data
+    depends_on:
+      generated-ui-builder:
+        condition: service_healthy
     healthcheck:
       test: ["CMD", "uprava-server", "healthcheck", "127.0.0.1:8080"]
       interval: 30s
@@ -48,6 +81,7 @@ services:
       - traefik.http.services.uprava-core.loadbalancer.server.port=8080
     networks:
       - platform
+      - generated-ui-private
 
   web:
     image: ${UPRAVA_WEB_IMAGE:-uprava-web:local}
@@ -92,5 +126,7 @@ services:
       - platform
 
 networks:
+  generated-ui-private:
+    internal: true
   platform:
     external: true

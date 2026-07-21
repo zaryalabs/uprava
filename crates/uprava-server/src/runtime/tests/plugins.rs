@@ -35,12 +35,12 @@ async fn bundled_plugins_should_bootstrap_idempotently() {
         .expect("second bootstrap succeeds");
     let plugins = list_plugins(&state).await.expect("plugins load");
 
-    assert_eq!(plugins.items.len(), 7);
+    assert_eq!(plugins.items.len(), 8);
     let latest_migration: i64 = sqlx::query_scalar("select max(version) from schema_migrations")
         .fetch_one(&state.pool)
         .await
         .expect("migration version loads");
-    assert_eq!(latest_migration, 15);
+    assert_eq!(latest_migration, 16);
 }
 
 #[tokio::test]

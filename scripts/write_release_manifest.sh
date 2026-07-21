@@ -89,6 +89,7 @@ require_image_var() {
 
 core_image="$(require_image_var UPRAVA_CORE_IMAGE)"
 web_image="$(require_image_var UPRAVA_WEB_IMAGE)"
+generated_ui_builder_image="$(require_image_var UPRAVA_GENERATED_UI_BUILDER_IMAGE)"
 node_image="$(require_image_var UPRAVA_NODE_IMAGE)"
 node_sha="$(scripts/extract-node-artifact.sh "$node_image" "$node_artifact_path")"
 
@@ -108,6 +109,7 @@ tmp_file="$(mktemp)"
   printf "UPRAVA_AUTO_APPROVE_NODE_NAME='%s'\n" "$auto_approve_node_name"
   printf "UPRAVA_CORE_IMAGE=%s\n" "$core_image"
   printf "UPRAVA_WEB_IMAGE=%s\n" "$web_image"
+  printf "UPRAVA_GENERATED_UI_BUILDER_IMAGE=%s\n" "$generated_ui_builder_image"
   printf "UPRAVA_NODE_ARTIFACT=%s\n" "$node_image"
   printf "UPRAVA_NODE_SHA256=%s\n" "$node_sha"
   if [[ -n "$node_version" ]]; then

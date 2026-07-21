@@ -25,6 +25,7 @@ IMAGE_NAMESPACE ?= $(IMAGE_REGISTRY)/$(IMAGE_OWNER)
 IMAGE_TAG ?= sha-$(GIT_SHA)
 UPRAVA_CORE_IMAGE ?= $(IMAGE_NAMESPACE)/uprava-core:$(IMAGE_TAG)
 UPRAVA_WEB_IMAGE ?= $(IMAGE_NAMESPACE)/uprava-web:$(IMAGE_TAG)
+UPRAVA_GENERATED_UI_BUILDER_IMAGE ?= $(IMAGE_NAMESPACE)/uprava-generated-ui-builder:$(IMAGE_TAG)
 UPRAVA_NODE_IMAGE ?= $(IMAGE_NAMESPACE)/uprava-node:$(IMAGE_TAG)
 UPRAVA_NODE_PACKAGE_VERSION := $(shell awk -F'"' '/^version = / { print $$2; exit }' crates/uprava-node/Cargo.toml)
 UPRAVA_NODE_VERSION ?= $(UPRAVA_NODE_PACKAGE_VERSION)+$(GIT_SHA)
@@ -64,7 +65,7 @@ PLAYWRIGHT_RUN ?= $(WEB_RUN)
 help: ## Show available make targets
 	@awk 'BEGIN {FS = ":.*## "}; /^[a-zA-Z0-9_.-]+:.*## / {printf "  %-14s %s\n", $$1, $$2}' $(MAKEFILE_LIST)
 
-prepare: rust-toolchain protocol-check rust-l rust-t web-l web-t web-dl web-e2e ops-config systemd-check scripts-check ## Run all pre-release checks
+prepare: rust-toolchain protocol-check rust-l rust-t web-l web-t generated-ui-t web-dl web-e2e ops-config systemd-check scripts-check ## Run all pre-release checks
 
 ci-prepare: ## Run the prepare phase in the current execution boundary
 	ci/prepare.sh
@@ -78,7 +79,7 @@ ci-deploy: ## Bootstrap and activate one published release on the host
 ci-finalize: ## Validate the active release and apply bounded retention
 	ci/finalize.sh
 
-build: ## Build releasable Core/Web images and Node artifact
+build: ## Build releasable Core/Web/Generated UI images and Node artifact
 	docker build --build-arg UPRAVA_GIT_SHA="$(GIT_SHA)" -t "$(UPRAVA_CORE_IMAGE)" -f Dockerfile.core .
 	docker build \
 		--build-arg VITE_UPRAVA_API_BASE=/api/v1 \
@@ -86,12 +87,14 @@ build: ## Build releasable Core/Web images and Node artifact
 		-t "$(UPRAVA_WEB_IMAGE)" \
 		-f apps/web/Dockerfile \
 		apps/web
+	docker build -t "$(UPRAVA_GENERATED_UI_BUILDER_IMAGE)" -f Dockerfile.generated-ui-builder .
 	docker build --build-arg UPRAVA_GIT_SHA="$(GIT_SHA)" -t "$(UPRAVA_NODE_IMAGE)" -f Dockerfile.node .
 	scripts/extract-node-artifact.sh "$(UPRAVA_NODE_IMAGE)" "$(NODE_ARTIFACT_PATH)" >/dev/null
 
 image-runtime: ## Run production images non-root with read-only filesystems
 	UPRAVA_CORE_IMAGE="$(UPRAVA_CORE_IMAGE)" \
 	UPRAVA_WEB_IMAGE="$(UPRAVA_WEB_IMAGE)" \
+	UPRAVA_GENERATED_UI_BUILDER_IMAGE="$(UPRAVA_GENERATED_UI_BUILDER_IMAGE)" \
 	UPRAVA_NODE_IMAGE="$(UPRAVA_NODE_IMAGE)" \
 	UPRAVA_RELEASE_SHA="$(GIT_SHA)" \
 	scripts/check-image-runtime.sh
@@ -103,6 +106,7 @@ clean-state-restore: ## Rehearse isolated 0.2.0 Core/Node state and online resto
 push: ## Push releasable artifacts and write release manifest
 	docker push "$(UPRAVA_CORE_IMAGE)"
 	docker push "$(UPRAVA_WEB_IMAGE)"
+	docker push "$(UPRAVA_GENERATED_UI_BUILDER_IMAGE)"
 	docker push "$(UPRAVA_NODE_IMAGE)"
 	$(MAKE) --no-print-directory release-manifest
 
@@ -113,6 +117,7 @@ release-manifest: ## Write builds/releases/<release-id>.env.release
 	BUILD_TIMESTAMP="$(BUILD_TIMESTAMP)" \
 	UPRAVA_CORE_IMAGE="$(UPRAVA_CORE_IMAGE)" \
 	UPRAVA_WEB_IMAGE="$(UPRAVA_WEB_IMAGE)" \
+	UPRAVA_GENERATED_UI_BUILDER_IMAGE="$(UPRAVA_GENERATED_UI_BUILDER_IMAGE)" \
 	UPRAVA_NODE_IMAGE="$(UPRAVA_NODE_IMAGE)" \
 	UPRAVA_NODE_VERSION="$(UPRAVA_NODE_VERSION)" \
 	UPRAVA_RELEASE_FAMILY="$(UPRAVA_RELEASE_FAMILY)" \
@@ -174,11 +179,11 @@ l: docs-l rust-l web-l ## Run light checks
 
 dl: l protocol-check rust-dl web-dl ## Run deep checks
 
-t: rust-t web-t ## Run tests
+t: rust-t web-t generated-ui-t ## Run tests
 
 c: fmt dl t ## Run full local quality gate
 
-push-check: docs-l protocol-check rust-l rust-t web-l web-t web-dl scripts-check push-check-msrv rust-dl web-e2e ## Run the same source checks as a main CI prepare
+push-check: docs-l protocol-check rust-l rust-t web-l web-t generated-ui-t web-dl scripts-check push-check-msrv rust-dl web-e2e ## Run the same source checks as a main CI prepare
 
 push-check-msrv: ## Check the Rust workspace against the minimum supported toolchain
 	$(RUSTUP) run 1.88.0 cargo check --workspace --all-targets --locked
@@ -350,6 +355,9 @@ rust-t: ## Run Rust tests when Cargo workspace exists
 		echo "No Cargo.toml found; skipping Rust tests"; \
 	fi
 
+generated-ui-t: ## Run Generated UI builder tests
+	node --test services/generated-ui-builder/server.test.mjs
+
 web-r: ## Run web development server when web app exists
 	@if [ -f "$(WEB_PACKAGE)" ]; then \
 		if [ -d "$(WEB_NODE_MODULES)" ]; then $(WEB_RUN) run dev; else echo "Web dependencies are not installed; run make init"; fi; \
@@ -371,44 +379,46 @@ node-r: ## Run Node Daemon locally when Cargo workspace exists
 		echo "No Cargo.toml found; skipping Node run"; \
 	fi
 
-dev-up: ## Start local Core/Web/ToolHive development profile
+dev-up: ## Start local Core/Web/ToolHive/Generated UI development profile
 	@set -e; \
 	if [ -f "$(DEV_COMPOSE_FILE)" ]; then \
 		COMPOSE_PARALLEL_LIMIT=$(COMPOSE_PARALLEL_LIMIT) $(DEV_COMPOSE_CMD) build core; \
 		COMPOSE_PARALLEL_LIMIT=$(COMPOSE_PARALLEL_LIMIT) $(DEV_COMPOSE_CMD) build web; \
+		COMPOSE_PARALLEL_LIMIT=$(COMPOSE_PARALLEL_LIMIT) $(DEV_COMPOSE_CMD) build generated-ui-builder; \
 		COMPOSE_PARALLEL_LIMIT=$(COMPOSE_PARALLEL_LIMIT) $(DEV_COMPOSE_CMD) build toolhive; \
 		COMPOSE_PARALLEL_LIMIT=$(COMPOSE_PARALLEL_LIMIT) $(DEV_COMPOSE_CMD) up --no-build; \
 	else \
 		echo "No $(DEV_COMPOSE_FILE) found; skipping dev up"; \
 	fi
 
-dev-down: ## Stop local Core/Web/ToolHive development profile
+dev-down: ## Stop local development profile
 	@if [ -f "$(DEV_COMPOSE_FILE)" ]; then \
 		$(DEV_COMPOSE_CMD) down; \
 	else \
 		echo "No $(DEV_COMPOSE_FILE) found; skipping dev down"; \
 	fi
 
-dev-logs: ## Show local Core/Web/ToolHive development logs
+dev-logs: ## Show local development logs
 	@if [ -f "$(DEV_COMPOSE_FILE)" ]; then \
 		$(DEV_COMPOSE_CMD) logs -f; \
 	else \
 		echo "No $(DEV_COMPOSE_FILE) found; skipping dev logs"; \
 	fi
 
-dev-reset: ## Remove local Core/Web/ToolHive development state intentionally
+dev-reset: ## Remove local development state intentionally
 	@if [ -f "$(DEV_COMPOSE_FILE)" ]; then \
 		$(DEV_COMPOSE_CMD) down -v; \
 	else \
 		echo "No $(DEV_COMPOSE_FILE) found; skipping dev reset"; \
 	fi
 
-dev-smoke: ## Smoke-check local Core/Web/ToolHive development profile
+dev-smoke: ## Smoke-check local development profile
 	@set -e; \
 	if [ "$${SMOKE_SKIP_COMPOSE_UP:-0}" != "1" ]; then \
 		if [ -f "$(DEV_COMPOSE_FILE)" ]; then \
 			COMPOSE_PARALLEL_LIMIT=$(COMPOSE_PARALLEL_LIMIT) $(DEV_COMPOSE_CMD) build core; \
 			COMPOSE_PARALLEL_LIMIT=$(COMPOSE_PARALLEL_LIMIT) $(DEV_COMPOSE_CMD) build web; \
+			COMPOSE_PARALLEL_LIMIT=$(COMPOSE_PARALLEL_LIMIT) $(DEV_COMPOSE_CMD) build generated-ui-builder; \
 			COMPOSE_PARALLEL_LIMIT=$(COMPOSE_PARALLEL_LIMIT) $(DEV_COMPOSE_CMD) build toolhive; \
 			COMPOSE_PARALLEL_LIMIT=$(COMPOSE_PARALLEL_LIMIT) $(DEV_COMPOSE_CMD) up -d --no-build; \
 		else \
@@ -491,4 +501,4 @@ clean: ## Remove common local build and cache artifacts
 	rm -rf target htmlcov coverage .pytest_cache .ruff_cache .mypy_cache .ty
 	rm -rf $(WEB_DIR)/dist $(WEB_DIR)/coverage
 
-.PHONY: help prepare ci-prepare ci-build ci-deploy ci-finalize build image-runtime clean-state-restore push release-manifest install-release-manifest install-ops init fmt l dl t c push-check push-check-msrv pc claw-doctor claw-init claw-map claw-review claw-report claw-ci claw-show claw-fix docs-fmt docs-l web-install ops-config systemd-check scripts-check rust-fmt rust-l rust-dl rust-tools-install rust-t web-r web-fmt web-l web-dl web-t web-e2e core-r node-r dev-up dev-down dev-logs dev-reset dev-smoke compose-up compose-down compose-logs compose-reset compose-smoke codex-smoke clean
+.PHONY: help prepare ci-prepare ci-build ci-deploy ci-finalize build image-runtime clean-state-restore push release-manifest install-release-manifest install-ops init fmt l dl t c push-check push-check-msrv pc claw-doctor claw-init claw-map claw-review claw-report claw-ci claw-show claw-fix docs-fmt docs-l web-install ops-config systemd-check scripts-check rust-fmt rust-l rust-dl rust-tools-install rust-t generated-ui-t web-r web-fmt web-l web-dl web-t web-e2e core-r node-r dev-up dev-down dev-logs dev-reset dev-smoke compose-up compose-down compose-logs compose-reset compose-smoke codex-smoke clean

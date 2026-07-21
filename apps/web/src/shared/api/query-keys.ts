@@ -51,4 +51,6 @@ export const queryKeys = {
   artifacts: (scopeKey: string) => ["artifacts", scopeKey] as const,
   artifact: (artifactId: string, version?: number) =>
     ["artifact", artifactId, version ?? "current"] as const,
+  generatedUiRuntime: (artifactId: string) =>
+    ["artifact", artifactId, "generated-ui"] as const,
 };

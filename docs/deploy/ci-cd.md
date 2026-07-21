@@ -79,7 +79,7 @@ toolchain, необходимый общему набору проверок.
 `build` запускается только после успешного обновления `main` и не изменяет
 production. Он:
 
-1. собирает production images Core, Web и Node;
+1. собирает production images Core, Web, Generated UI Builder и Node;
 2. выполняет короткие image startup/runtime checks;
 3. извлекает и проверяет Node binary;
 4. публикует immutable images;
@@ -98,7 +98,7 @@ rehearsal не требуется для каждой сборки; достат
 2. устанавливает candidate manifest из `build`;
 3. сохраняет активный release как проверяемый rollback target;
 4. активирует candidate и скачивает digest-pinned artifacts;
-5. применяет Core/Web через Compose;
+5. применяет Core/Web/Generated UI Builder через Compose;
 6. устанавливает и перезапускает Node binary через разрешённый systemd unit.
 
 Он не запускает smoke, не проверяет business projections, не очищает artifacts,

@@ -155,6 +155,30 @@ pub fn build_router(state: Arc<AppState>) -> Router {
             post(create_artifact_version_route),
         )
         .route(
+            "/dynamic-ui/proposals",
+            post(create_dynamic_ui_proposal_route),
+        )
+        .route(
+            "/artifacts/{artifact_id}/dynamic-ui",
+            get(generated_ui_runtime_detail_route),
+        )
+        .route(
+            "/artifacts/{artifact_id}/dynamic-ui/source",
+            get(generated_ui_source_route),
+        )
+        .route(
+            "/artifacts/{artifact_id}/dynamic-ui/state",
+            put(update_generated_ui_state_route),
+        )
+        .route(
+            "/artifacts/{artifact_id}/dynamic-ui/actions/{action_id}",
+            post(invoke_generated_ui_action_route),
+        )
+        .route(
+            "/generated-ui/bundles/{blob_hash}",
+            get(generated_ui_bundle_route),
+        )
+        .route(
             "/plugin-contribution-targets/{target_id}",
             put(update_plugin_contribution_preferences_route),
         )

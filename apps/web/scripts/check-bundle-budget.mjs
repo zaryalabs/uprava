@@ -41,6 +41,20 @@ if (initialFiles.has(markdownRenderer.file)) {
   );
 }
 
+const generatedUiRenderer = dynamicEntries.find(
+  (chunk) => chunk.name === "GeneratedReactArtifactViewer",
+);
+if (!generatedUiRenderer?.isDynamicEntry) {
+  throw new Error(
+    "Generated React renderer was not emitted as an on-demand chunk",
+  );
+}
+if (initialFiles.has(generatedUiRenderer.file)) {
+  throw new Error(
+    "Generated React renderer leaked into the initial application graph",
+  );
+}
+
 let gzipBytes = 0;
 for (const file of initialFiles) {
   const contents = await readFile(new URL(file, dist));

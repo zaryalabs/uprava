@@ -102,7 +102,7 @@ docs/systems/areas/013-task-based-sandbox-runtime.md
 - Distributed Runtime Coordination должен быть общим dispatch/resource-awareness слоем для interactive sessions, future task runs and sandboxed runtimes.
 - Human UI и agent-readable UI должны развиваться вместе.
 - Local development and UI verification являются частью проектирования системы: Docker
-  Compose должен давать reproducible hardened Core/Web/ToolHive setup, while host Node
+  Compose должен давать reproducible hardened Core/Web/ToolHive/Generated UI Builder setup, while host Node
   Daemon and Codex provider execution are covered by separate smoke paths.
   Playwright должен покрывать automated E2E checks и agent/operator inspection
   через `playwright-cli`.

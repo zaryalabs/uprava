@@ -8,21 +8,22 @@ use serde_json::{json, Value};
 use sha2::{Digest, Sha256};
 use sqlx::{Row, Sqlite, Transaction};
 use uprava_protocol::{
-    compute_tool_schema_hash, ExecuteToolRequest, ExecuteToolResponse, InspectToolRequest,
-    InspectToolResponse, IntegrationAuthState, IntegrationConnectRequest,
-    IntegrationConnectResponse, IntegrationConnectionSummary, IntegrationConnectionsResponse,
-    IntegrationDesiredState, IntegrationDisconnectRequest, IntegrationDisconnectResponse,
-    IntegrationId, McpAccessLeaseClaims, McpAccessLeaseId, McpDependencyActualState,
-    McpDependencyInstanceId, McpDependencyStatus, McpDependencyStatusesResponse,
-    ObservedCapabilitiesResponse, ObservedCapability, PolicyDecision, SearchToolsRequest,
-    SearchToolsResponse, ToolAvailability, ToolAvailabilityResponse, ToolAvailabilityState,
-    ToolCallDetail, ToolCallId, ToolCallState, ToolCallSummary, ToolCallsResponse, ToolDefinition,
-    ToolDefinitionState, ToolDefinitionsResponse, ToolExecutionError, ToolExecutionErrorCode,
-    ToolExecutionKind, ToolId, ToolInvocationMode, ToolRedactionPolicy, ToolResultEnvelope,
-    ToolRiskLevel, ToolScope, ToolSearchResult, ToolSourceId, ToolSourceKind,
-    ToolUnavailableReason, ToolingCommandPayloadV1, ToolingCommandV1, ToolingEventPayloadV1,
-    ToolingEventV1, TOOLING_CONTRACT_VERSION_V1, TOOL_RESULT_MAX_BYTES, TOOL_SEARCH_DEFAULT_LIMIT,
-    TOOL_SEARCH_MAX_LIMIT, UPRAVA_MCP_LEASE_AUDIENCE,
+    compute_tool_schema_hash, CreateDynamicUiProposalRequest, ExecuteToolRequest,
+    ExecuteToolResponse, InspectToolRequest, InspectToolResponse, IntegrationAuthState,
+    IntegrationConnectRequest, IntegrationConnectResponse, IntegrationConnectionSummary,
+    IntegrationConnectionsResponse, IntegrationDesiredState, IntegrationDisconnectRequest,
+    IntegrationDisconnectResponse, IntegrationId, McpAccessLeaseClaims, McpAccessLeaseId,
+    McpDependencyActualState, McpDependencyInstanceId, McpDependencyStatus,
+    McpDependencyStatusesResponse, ObservedCapabilitiesResponse, ObservedCapability,
+    PolicyDecision, ScopeRef, SearchToolsRequest, SearchToolsResponse, ToolAvailability,
+    ToolAvailabilityResponse, ToolAvailabilityState, ToolCallDetail, ToolCallId, ToolCallState,
+    ToolCallSummary, ToolCallsResponse, ToolDefinition, ToolDefinitionState,
+    ToolDefinitionsResponse, ToolExecutionError, ToolExecutionErrorCode, ToolExecutionKind, ToolId,
+    ToolInvocationMode, ToolRedactionPolicy, ToolResultEnvelope, ToolRiskLevel, ToolScope,
+    ToolSearchResult, ToolSourceId, ToolSourceKind, ToolUnavailableReason, ToolingCommandPayloadV1,
+    ToolingCommandV1, ToolingEventPayloadV1, ToolingEventV1, TOOLING_CONTRACT_VERSION_V1,
+    TOOL_RESULT_MAX_BYTES, TOOL_SEARCH_DEFAULT_LIMIT, TOOL_SEARCH_MAX_LIMIT,
+    UPRAVA_MCP_LEASE_AUDIENCE,
 };
 
 use super::super::*;
@@ -589,6 +590,61 @@ async fn execute_tool_route(
                 .await
                 .map_err(app_tool_error)?;
             (content, vec![UpravaRef::Node { node_id }])
+        }
+        "uprava.dynamic_ui.inspect" => (
+            super::dynamic_ui::inspect_generated_ui_capabilities(state)
+                .await
+                .map_err(app_tool_error)?,
+            vec![],
+        ),
+        "uprava.dynamic_ui.create" => {
+            let session_thread_id = request.scope.session_thread_id.clone().ok_or_else(|| {
+                tool_error(
+                    ToolExecutionErrorCode::InvalidArguments,
+                    "A session-scoped tool call is required",
+                    false,
+                )
+            })?;
+            let mut proposal = arguments.clone();
+            proposal
+                .as_object_mut()
+                .ok_or_else(|| {
+                    tool_error(
+                        ToolExecutionErrorCode::InvalidArguments,
+                        "arguments must be an object",
+                        false,
+                    )
+                })?
+                .insert(
+                    "scope_ref".to_owned(),
+                    serde_json::to_value(ScopeRef::Session {
+                        session_thread_id: session_thread_id.clone(),
+                    })
+                    .map_err(internal_tool_error)?,
+                );
+            let proposal: CreateDynamicUiProposalRequest = serde_json::from_value(proposal)
+                .map_err(|error| {
+                    tool_error(
+                        ToolExecutionErrorCode::InvalidArguments,
+                        &format!("Invalid dynamic UI proposal: {error}"),
+                        false,
+                    )
+                })?;
+            let detail = super::dynamic_ui::create_dynamic_ui_proposal_as(
+                state,
+                proposal,
+                request.scope.actor_ref.clone(),
+            )
+            .await
+            .map_err(app_tool_error)?;
+            let artifact_id = detail.artifact.artifact.artifact_id.clone();
+            (
+                serde_json::to_value(detail).map_err(internal_tool_error)?,
+                vec![
+                    UpravaRef::Artifact { artifact_id },
+                    UpravaRef::Session { session_thread_id },
+                ],
+            )
         }
         _ if definition.source_id.as_str() == MOCK_SOURCE_ID => {
             if arguments.get("fail").and_then(Value::as_bool) == Some(true) {
@@ -2842,7 +2898,58 @@ fn native_tool_definitions() -> Result<Vec<ToolDefinition>, AppError> {
             "additionalProperties": false
         }),
     )))
+    .chain(std::iter::once(native_definition(
+        &source_id,
+        "uprava.dynamic_ui.inspect",
+        "dynamic_ui.inspect",
+        "Inspect generated UI",
+        "Inspect the installed Generated React runtime, Uprava UI SDK contract, layouts, capabilities and opt-in state.",
+        json!({
+            "type": "object",
+            "properties": {},
+            "additionalProperties": false
+        }),
+    )))
+    .chain(std::iter::once(dynamic_ui_tool_definition(&source_id)))
     .collect()
+}
+
+fn dynamic_ui_tool_definition(source_id: &ToolSourceId) -> Result<ToolDefinition, AppError> {
+    let mut definition = native_definition(
+        source_id,
+        "uprava.dynamic_ui.create",
+        "dynamic_ui.create",
+        "Create generated UI",
+        "Propose a session-scoped Generated React artifact with a readable fallback. Inspect uprava.dynamic_ui.inspect first for the SDK contract and opt-in state.",
+        json!({
+            "type": "object",
+            "properties": {
+                "title": { "type": "string", "minLength": 1, "maxLength": 240 },
+                "description": { "type": "string", "maxLength": 2000 },
+                "runtime_id": { "type": "string", "minLength": 1 },
+                "sdk_version": { "type": "string", "minLength": 1 },
+                "layout_intent": { "type": "string", "enum": ["inline", "panel", "canvas"] },
+                "source": { "type": "string", "minLength": 1 },
+                "data_model": {},
+                "actions": { "type": "array" },
+                "requested_capabilities": { "type": "array" },
+                "fallback_markdown": { "type": "string", "minLength": 1 },
+                "fallback_snapshot": { "type": "string" },
+                "source_refs": { "type": "array" },
+                "evidence_refs": { "type": "array" },
+                "cause_refs": { "type": "array" },
+                "trace_refs": { "type": "array" }
+            },
+            "required": [
+                "title", "runtime_id", "sdk_version", "layout_intent", "source",
+                "data_model", "fallback_markdown"
+            ],
+            "additionalProperties": false
+        }),
+    )?;
+    definition.risk_level = ToolRiskLevel::WorkspaceWrite;
+    definition.required_permissions = vec!["dynamic_ui.propose".to_owned()];
+    Ok(definition)
 }
 
 fn native_definition(

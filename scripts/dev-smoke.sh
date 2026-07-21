@@ -4,6 +4,7 @@ set -eu
 CORE_URL="${CORE_URL:-http://127.0.0.1:8080}"
 WEB_URL="${WEB_URL:-http://127.0.0.1:5173}"
 TOOLHIVE_URL="${TOOLHIVE_URL:-http://127.0.0.1:18081}"
+GENERATED_UI_BUILDER_URL="${GENERATED_UI_BUILDER_URL:-http://127.0.0.1:18082}"
 SMOKE_RETRIES="${SMOKE_RETRIES:-30}"
 SMOKE_DELAY_SECONDS="${SMOKE_DELAY_SECONDS:-2}"
 SMOKE_WEB_PASSWORD="${SMOKE_WEB_PASSWORD:-uprava-smoke-password}"
@@ -185,6 +186,7 @@ require_command node
 wait_for_contains "core health" "$CORE_URL/api/v1/health" '"status":"ok"'
 wait_for_contains "web entrypoint" "$WEB_URL/" '<title>Uprava</title>'
 wait_for_contains "toolhive bridge" "$TOOLHIVE_URL/api/v1/version" '0.40.0'
+wait_for_contains "generated UI builder" "$GENERATED_UI_BUILDER_URL/health" '"status":"ok"'
 authenticate
 wait_for_auth_contains "core inventory" "$CORE_URL/api/v1/inventory" '"nodes"'
 

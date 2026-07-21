@@ -37,7 +37,7 @@ dependency, complexity, risk and value. Позиции могут двигать
 
 ## Обзор очереди
 
-Current release baseline: `0.2.17`. Закрытые пункты `0` through `13`, unified
+Current release baseline: `0.2.18`. Закрытые пункты `0` through `14`, unified
 audit hardening release и `5a` workspace renderer release соответствуют shipped
 versions, зафиксированным в [`releases.md`](../releases.md). Пункт `6` включает
 workbench alignment, первый стабильный self-hosted deployment path и
@@ -48,8 +48,8 @@ Agent Tooling and Tool Registry v1 — `0.2.11`, Plugin Registry v1 — `0.2.12`
 CI/SQLite reliability fix slice — `0.2.13`, отдельная ToolHive Compose topology
 для ручного Linear acceptance — `0.2.14`, bundled Markdown renderer plugin —
 `0.2.15`, Plugin contribution resolution — `0.2.16`, Visual Artifact System —
-`0.2.17`. Следующий плановый пункт очереди —
-`14 Dynamic UI from agents as plugins`.
+`0.2.17`, Dynamic UI from Agents — `0.2.18`. Следующий плановый пункт очереди —
+`15 Task-based sandbox runtime`.
 
 | Order | Done | Mechanism / Feature Slice | First Useful Slice | Dependency | Complexity |
 | --- | --- | --- | --- | --- | --- |
@@ -70,7 +70,7 @@ CI/SQLite reliability fix slice — `0.2.13`, отдельная ToolHive Compos
 | 12a | + | Markdown renderer plugin | Typed `visual.renderer` contribution, safe Streamdown rendering and plain-text fallback for assistant chat content | Plugin Registry v1 | Medium |
 | 12b | + | Plugin contribution resolution | Target-based `exclusive`/`ordered` resolution, configurable contribution order and visible conflicts in Plugin Panel | Plugin Registry v1, Markdown renderer plugin | High |
 | 13 | + | Visual artifact system as plugins | Plugin-driven content enhancements for code, colors and diagrams plus artifact viewers for reports, diffs and timelines | Trace, Plugin contribution resolution | High |
-| 14 | - | Dynamic UI from agents as plugins | Opt-in bundled Generated React plugin with sandboxed runtime, Uprava UI SDK, safe fallbacks and permissioned actions | Plugin-delivered visual artifact system | High |
+| 14 | + | Dynamic UI from agents as plugins | Opt-in bundled Generated React plugin with sandboxed runtime, Uprava UI SDK, safe fallbacks and permissioned actions | Plugin-delivered visual artifact system | High |
 | 15 | - | Task-based sandbox runtime | Docker/OpenSandbox bounded run, isolated worktree, persistent Codex auth and expected evidence | Runtime, workspace, trace | Very high |
 | 15a | - | Provider-native persistent execution policy | Safe provider defaults, explicit unsafe mode, real approvals and visible effective policy | Task-based sandbox runtime, provider-native persistent runtime | Very high |
 | 16 | - | Hybrid managed sessions | Persistent session can spawn bounded runs and merge evidence back | Task runtime | Very high |
@@ -589,6 +589,19 @@ controlled embeds, capability-scoped runtimes and agent-readable UI state.
 Каждый новый dynamic UI family должен
 одновременно улучшать пользовательскую функцию и приближать package lifecycle,
 extension points, isolation and interoperability к уровню Obsidian/VS Code.
+
+**Current implementation note:** `0.2.18` поставляет выключенный по умолчанию
+`uprava.generated-react` с versioned `generated_ui.runtime`,
+`generated_ui.sdk` and `generated_ui.action_bridge` contributions. Migration 16
+атомарно связывает artifact version, content-addressed source, build, persisted
+state и idempotent action requests. Native tool `uprava.dynamic_ui.create`
+принудительно создаёт session-scoped proposal; отдельный network-isolated
+builder принимает только React and `@uprava/ui-sdk`, фиксирует dependency lock
+и не исполняет generated source. Web загружает готовый bundle только в opaque
+`sandbox="allow-scripts"` iframe с nonce CSP and MessageChannel bridge. State,
+agent input и declared reference actions повторно авторизуются Core; build,
+runtime, plugin disable or render failure сохраняют markdown fallback,
+ограниченный PNG/WebP snapshot, diagnostics и reviewable source.
 
 ### 15. Task-based sandbox runtime
 

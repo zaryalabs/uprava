@@ -7,15 +7,21 @@ use uprava_protocol::{
     compute_plugin_manifest_hash, ArtifactTypeContributionV1, ContributionRef,
     ContributionResolutionMode, ContributionTarget, ContributionTargetResolution,
     EffectiveContribution, EffectiveContributionState, EffectivePluginSnapshot,
-    PluginCompatibility, PluginCompatibilityState, PluginContribution, PluginDesiredState,
-    PluginEffectiveState, PluginId, PluginInstallSource, PluginInstallationSummary,
-    PluginListResponse, PluginManifest, PluginPackageSummary, PluginTrustLevel, PluginVersionRange,
-    ThemeContributionV1, UpdateContributionTargetPreferencesRequest, VisualRenderScope,
-    VisualRendererContributionV1, VisualRendererKind, VisualSourceMatcherV1,
-    ARTIFACT_TYPE_CONTRIBUTION_PERMISSION, ARTIFACT_TYPE_CONTRIBUTION_VERSION_V1,
-    CURRENT_PROTOCOL_VERSION, PLUGIN_MANIFEST_VERSION_V1, THEME_CONTRIBUTION_PERMISSION,
-    THEME_CONTRIBUTION_VERSION_V1, VISUAL_RENDERER_CONTRIBUTION_PERMISSION,
-    VISUAL_RENDERER_CONTRIBUTION_VERSION_V1, VISUAL_RENDERER_CONTRIBUTION_VERSION_V2,
+    GeneratedUiActionBridgeContributionV1, GeneratedUiRuntimeContributionV1,
+    GeneratedUiSdkContributionV1, PluginCompatibility, PluginCompatibilityState,
+    PluginContribution, PluginDesiredState, PluginEffectiveState, PluginId, PluginInstallSource,
+    PluginInstallationSummary, PluginListResponse, PluginManifest, PluginPackageSummary,
+    PluginTrustLevel, PluginVersionRange, ThemeContributionV1,
+    UpdateContributionTargetPreferencesRequest, VisualRenderScope, VisualRendererContributionV1,
+    VisualRendererKind, VisualSourceMatcherV1, ARTIFACT_TYPE_CONTRIBUTION_PERMISSION,
+    ARTIFACT_TYPE_CONTRIBUTION_VERSION_V1, CURRENT_PROTOCOL_VERSION,
+    GENERATED_UI_ACTION_BRIDGE_CONTRIBUTION_PERMISSION,
+    GENERATED_UI_ACTION_BRIDGE_CONTRIBUTION_VERSION_V1,
+    GENERATED_UI_RUNTIME_CONTRIBUTION_PERMISSION, GENERATED_UI_RUNTIME_CONTRIBUTION_VERSION_V1,
+    GENERATED_UI_SDK_CONTRIBUTION_PERMISSION, GENERATED_UI_SDK_CONTRIBUTION_VERSION_V1,
+    PLUGIN_MANIFEST_VERSION_V1, THEME_CONTRIBUTION_PERMISSION, THEME_CONTRIBUTION_VERSION_V1,
+    VISUAL_RENDERER_CONTRIBUTION_PERMISSION, VISUAL_RENDERER_CONTRIBUTION_VERSION_V1,
+    VISUAL_RENDERER_CONTRIBUTION_VERSION_V2,
 };
 
 use super::super::*;
@@ -34,6 +40,8 @@ const REVIEW_ARTIFACTS_MANIFEST: &str =
     include_str!("../../../bundled-plugins/uprava.review-artifacts/manifest.json");
 const TRACE_ARTIFACTS_MANIFEST: &str =
     include_str!("../../../bundled-plugins/uprava.trace-artifacts/manifest.json");
+const GENERATED_REACT_MANIFEST: &str =
+    include_str!("../../../bundled-plugins/uprava.generated-react/manifest.json");
 const MAX_PLUGIN_ID_CHARS: usize = 128;
 const MAX_PLUGIN_TEXT_CHARS: usize = 2_000;
 const MAX_PLUGIN_PERMISSIONS: usize = 64;
@@ -76,6 +84,7 @@ pub(crate) async fn bootstrap_bundled_plugins(state: &AppState) -> Result<(), Ap
         (DIAGRAMS_MANIFEST, PluginDesiredState::Enabled),
         (REVIEW_ARTIFACTS_MANIFEST, PluginDesiredState::Enabled),
         (TRACE_ARTIFACTS_MANIFEST, PluginDesiredState::Enabled),
+        (GENERATED_REACT_MANIFEST, PluginDesiredState::Disabled),
     ] {
         let manifest: PluginManifest = serde_json::from_str(source)?;
         validate_plugin_manifest(&manifest)?;
@@ -121,11 +130,17 @@ pub(crate) async fn plugin_contributions_route(
     State(state): State<Arc<AppState>>,
     Query(query): Query<PluginContributionQuery>,
 ) -> Result<Json<EffectivePluginSnapshot>, AppError> {
-    if query
-        .kind
-        .as_deref()
-        .is_some_and(|kind| !matches!(kind, "ui.theme" | "visual.renderer" | "artifact.type"))
-    {
+    if query.kind.as_deref().is_some_and(|kind| {
+        !matches!(
+            kind,
+            "ui.theme"
+                | "visual.renderer"
+                | "artifact.type"
+                | "generated_ui.runtime"
+                | "generated_ui.sdk"
+                | "generated_ui.action_bridge"
+        )
+    }) {
         return Err(AppError::bad_request(
             "plugin.contribution_kind_unsupported",
             "Unsupported plugin contribution kind",
@@ -565,6 +580,8 @@ pub(crate) async fn effective_plugin_snapshot(
     let mut target_groups: BTreeMap<String, TargetGroupDraft> = BTreeMap::new();
     for manifest_json in manifest_rows {
         let manifest: PluginManifest = serde_json::from_str(&manifest_json)?;
+        let plugin_id = manifest.plugin_id.clone();
+        let plugin_version = manifest.version.clone();
         for contribution in manifest.contributions {
             match &contribution {
                 PluginContribution::UiTheme {
@@ -652,6 +669,63 @@ pub(crate) async fn effective_plugin_snapshot(
                         .contributions
                         .push(effective);
                 }
+                PluginContribution::GeneratedUiRuntime {
+                    contribution_id,
+                    contract_version: GENERATED_UI_RUNTIME_CONTRIBUTION_VERSION_V1,
+                    contribution: runtime,
+                } => {
+                    let target = ContributionTarget::GeneratedUiRuntime {
+                        runtime_id: runtime.runtime_id.clone(),
+                    };
+                    push_exclusive_contribution(
+                        &mut target_groups,
+                        &plugin_id,
+                        &plugin_version,
+                        contribution_id,
+                        "generated_ui.runtime",
+                        GENERATED_UI_RUNTIME_CONTRIBUTION_VERSION_V1,
+                        target,
+                        contribution.clone(),
+                    )?;
+                }
+                PluginContribution::GeneratedUiSdk {
+                    contribution_id,
+                    contract_version: GENERATED_UI_SDK_CONTRIBUTION_VERSION_V1,
+                    contribution: sdk,
+                } => {
+                    let target = ContributionTarget::GeneratedUiSdk {
+                        sdk_id: sdk.sdk_id.clone(),
+                    };
+                    push_exclusive_contribution(
+                        &mut target_groups,
+                        &plugin_id,
+                        &plugin_version,
+                        contribution_id,
+                        "generated_ui.sdk",
+                        GENERATED_UI_SDK_CONTRIBUTION_VERSION_V1,
+                        target,
+                        contribution.clone(),
+                    )?;
+                }
+                PluginContribution::GeneratedUiActionBridge {
+                    contribution_id,
+                    contract_version: GENERATED_UI_ACTION_BRIDGE_CONTRIBUTION_VERSION_V1,
+                    contribution: bridge,
+                } => {
+                    let target = ContributionTarget::GeneratedUiActionBridge {
+                        bridge_id: bridge.bridge_id.clone(),
+                    };
+                    push_exclusive_contribution(
+                        &mut target_groups,
+                        &plugin_id,
+                        &plugin_version,
+                        contribution_id,
+                        "generated_ui.action_bridge",
+                        GENERATED_UI_ACTION_BRIDGE_CONTRIBUTION_VERSION_V1,
+                        target,
+                        contribution.clone(),
+                    )?;
+                }
                 _ => {}
             }
         }
@@ -710,6 +784,43 @@ pub(crate) async fn effective_plugin_snapshot(
         resolutions,
         generated_at: Utc::now(),
     })
+}
+
+#[expect(
+    clippy::too_many_arguments,
+    reason = "the helper mirrors the generic effective contribution envelope"
+)]
+fn push_exclusive_contribution(
+    target_groups: &mut BTreeMap<String, TargetGroupDraft>,
+    plugin_id: &PluginId,
+    plugin_version: &str,
+    contribution_id: &str,
+    extension_point: &'static str,
+    contract_version: u16,
+    target: ContributionTarget,
+    contribution: PluginContribution,
+) -> Result<(), AppError> {
+    let target_id = contribution_target_id(&target)?;
+    let effective = EffectiveContribution {
+        plugin_id: plugin_id.clone(),
+        plugin_version: plugin_version.to_owned(),
+        contribution_id: contribution_id.to_owned(),
+        extension_point: extension_point.to_owned(),
+        contract_version,
+        target: target.clone(),
+        effective_state: EffectiveContributionState::Available,
+        contribution,
+    };
+    target_groups
+        .entry(target_id)
+        .or_insert_with(|| TargetGroupDraft {
+            extension_point,
+            target,
+            contributions: Vec::new(),
+        })
+        .contributions
+        .push(effective);
+    Ok(())
 }
 
 fn renderer_selectors(renderer: &VisualRendererContributionV1) -> Vec<Option<String>> {
@@ -926,6 +1037,9 @@ fn validate_plugin_manifest(manifest: &PluginManifest) -> Result<(), AppError> {
             THEME_CONTRIBUTION_PERMISSION
                 | VISUAL_RENDERER_CONTRIBUTION_PERMISSION
                 | ARTIFACT_TYPE_CONTRIBUTION_PERMISSION
+                | GENERATED_UI_RUNTIME_CONTRIBUTION_PERMISSION
+                | GENERATED_UI_SDK_CONTRIBUTION_PERMISSION
+                | GENERATED_UI_ACTION_BRIDGE_CONTRIBUTION_PERMISSION
         )
     }) {
         return Err(plugin_manifest_error(
@@ -1014,6 +1128,57 @@ fn validate_plugin_manifest(manifest: &PluginManifest) -> Result<(), AppError> {
                     ));
                 }
                 validate_artifact_type_contribution(contribution)?;
+            }
+            PluginContribution::GeneratedUiRuntime {
+                contract_version,
+                contribution,
+                ..
+            } => {
+                if *contract_version != GENERATED_UI_RUNTIME_CONTRIBUTION_VERSION_V1 {
+                    return Err(plugin_manifest_error(
+                        "Unsupported generated_ui.runtime contribution version",
+                    ));
+                }
+                require_manifest_permission(
+                    manifest,
+                    GENERATED_UI_RUNTIME_CONTRIBUTION_PERMISSION,
+                    "Generated UI runtime",
+                )?;
+                validate_generated_ui_runtime_contribution(contribution)?;
+            }
+            PluginContribution::GeneratedUiSdk {
+                contract_version,
+                contribution,
+                ..
+            } => {
+                if *contract_version != GENERATED_UI_SDK_CONTRIBUTION_VERSION_V1 {
+                    return Err(plugin_manifest_error(
+                        "Unsupported generated_ui.sdk contribution version",
+                    ));
+                }
+                require_manifest_permission(
+                    manifest,
+                    GENERATED_UI_SDK_CONTRIBUTION_PERMISSION,
+                    "Generated UI SDK",
+                )?;
+                validate_generated_ui_sdk_contribution(contribution)?;
+            }
+            PluginContribution::GeneratedUiActionBridge {
+                contract_version,
+                contribution,
+                ..
+            } => {
+                if *contract_version != GENERATED_UI_ACTION_BRIDGE_CONTRIBUTION_VERSION_V1 {
+                    return Err(plugin_manifest_error(
+                        "Unsupported generated_ui.action_bridge contribution version",
+                    ));
+                }
+                require_manifest_permission(
+                    manifest,
+                    GENERATED_UI_ACTION_BRIDGE_CONTRIBUTION_PERMISSION,
+                    "Generated UI action bridge",
+                )?;
+                validate_generated_ui_action_bridge_contribution(contribution)?;
             }
             PluginContribution::AgentTool { .. } => {}
         }
@@ -1154,6 +1319,97 @@ fn validate_artifact_type_contribution(
     Ok(())
 }
 
+fn require_manifest_permission(
+    manifest: &PluginManifest,
+    permission: &str,
+    contribution_label: &str,
+) -> Result<(), AppError> {
+    if manifest
+        .requested_permissions
+        .iter()
+        .any(|requested| requested == permission)
+    {
+        Ok(())
+    } else {
+        Err(plugin_manifest_error(format!(
+            "{contribution_label} contribution requires {permission}"
+        )))
+    }
+}
+
+fn validate_generated_ui_runtime_contribution(
+    contribution: &GeneratedUiRuntimeContributionV1,
+) -> Result<(), AppError> {
+    validate_namespaced_id(&contribution.runtime_id, "runtime_id")?;
+    validate_namespaced_id(&contribution.implementation_id, "implementation_id")?;
+    validate_namespaced_id(&contribution.sdk_id, "sdk_id")?;
+    validate_namespaced_id(&contribution.action_bridge_id, "action_bridge_id")?;
+    Version::parse(&contribution.runtime_version)
+        .map_err(|_| plugin_manifest_error("Generated UI runtime version must be SemVer"))?;
+    if contribution.supported_sdk_versions.is_empty()
+        || contribution.supported_layouts.is_empty()
+        || contribution.allowed_imports.is_empty()
+        || contribution.max_source_bytes == 0
+        || contribution.max_source_bytes > 512 * 1024
+        || contribution.max_bundle_bytes == 0
+        || contribution.max_bundle_bytes > 4 * 1024 * 1024
+        || has_duplicates(&contribution.supported_sdk_versions)
+        || has_duplicates(&contribution.supported_layouts)
+        || has_duplicates(&contribution.sandbox_capabilities)
+        || has_duplicates(&contribution.allowed_imports)
+    {
+        return Err(plugin_manifest_error(
+            "Generated UI runtime bounds are empty, duplicated or invalid",
+        ));
+    }
+    if contribution
+        .supported_sdk_versions
+        .iter()
+        .any(|version| Version::parse(version).is_err())
+        || contribution.allowed_imports.iter().any(|name| {
+            name.is_empty()
+                || name.len() > MAX_PLUGIN_TEXT_CHARS
+                || name.bytes().any(|byte| byte.is_ascii_whitespace())
+        })
+    {
+        return Err(plugin_manifest_error(
+            "Generated UI runtime SDK version or import allowlist is invalid",
+        ));
+    }
+    Ok(())
+}
+
+fn validate_generated_ui_sdk_contribution(
+    contribution: &GeneratedUiSdkContributionV1,
+) -> Result<(), AppError> {
+    validate_namespaced_id(&contribution.sdk_id, "sdk_id")?;
+    if contribution.package_name != "@uprava/ui-sdk"
+        || Version::parse(&contribution.api_version).is_err()
+        || contribution.design_token_version.is_empty()
+        || !contribution.api_schema.0.is_object()
+        || serde_json::to_vec(&contribution.api_schema)
+            .is_ok_and(|encoded| encoded.len() > 64 * 1024)
+    {
+        return Err(plugin_manifest_error(
+            "Generated UI SDK metadata is invalid",
+        ));
+    }
+    Ok(())
+}
+
+fn validate_generated_ui_action_bridge_contribution(
+    contribution: &GeneratedUiActionBridgeContributionV1,
+) -> Result<(), AppError> {
+    validate_namespaced_id(&contribution.bridge_id, "bridge_id")?;
+    if contribution.supported_actions.is_empty() || has_duplicates(&contribution.supported_actions)
+    {
+        return Err(plugin_manifest_error(
+            "Generated UI action bridge actions are empty or duplicated",
+        ));
+    }
+    Ok(())
+}
+
 fn has_duplicates<T: PartialEq>(values: &[T]) -> bool {
     values
         .iter()
@@ -1173,6 +1429,15 @@ fn contribution_id(contribution: &PluginContribution) -> &str {
             contribution_id, ..
         }
         | PluginContribution::ArtifactType {
+            contribution_id, ..
+        }
+        | PluginContribution::GeneratedUiRuntime {
+            contribution_id, ..
+        }
+        | PluginContribution::GeneratedUiSdk {
+            contribution_id, ..
+        }
+        | PluginContribution::GeneratedUiActionBridge {
             contribution_id, ..
         } => contribution_id,
     }

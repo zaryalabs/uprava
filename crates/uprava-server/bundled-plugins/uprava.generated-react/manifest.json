@@ -1,0 +1,135 @@
+{
+  "manifest_version": 1,
+  "plugin_id": "uprava.generated-react",
+  "version": "1.0.0",
+  "display_name": "Generated React UI",
+  "description": "Opt-in generated React artifacts with a controlled builder, sandboxed iframe runtime, Uprava UI SDK and permissioned actions.",
+  "publisher": "Uprava",
+  "license": null,
+  "homepage": null,
+  "install_source": "bundled",
+  "trust_level": "trusted_bundled",
+  "compatibility": {
+    "core": { "minimum": "0.2.18", "maximum_exclusive": "0.3.0" },
+    "web": { "minimum": "0.2.18", "maximum_exclusive": "0.3.0" },
+    "node": null,
+    "protocol_versions": ["v2"]
+  },
+  "activation_conditions": [],
+  "requested_permissions": [
+    "visual.renderer.contribute",
+    "artifact.type.contribute",
+    "generated_ui.runtime.contribute",
+    "generated_ui.sdk.contribute",
+    "generated_ui.action_bridge.contribute"
+  ],
+  "configuration_schema": {
+    "type": "object",
+    "properties": {
+      "mode": { "type": "string", "enum": ["off", "sandboxed"] }
+    },
+    "additionalProperties": false
+  },
+  "contributions": [
+    {
+      "kind": "generated_ui_sdk",
+      "contribution_id": "uprava.generated-react.sdk",
+      "contract_version": 1,
+      "contribution": {
+        "sdk_id": "uprava.ui-sdk",
+        "package_name": "@uprava/ui-sdk",
+        "api_version": "1.0.0",
+        "design_token_version": "1",
+        "api_schema": {
+          "entrypoint": "default exported React component",
+          "hooks": {
+            "useArtifactData": "() => proposal data_model",
+            "usePersistedState": "() => [values, save(values), revision]",
+            "useAction": "(actionId) => { definition, invoke(input), available }",
+            "useContainer": "() => { layout, requestLayout(layout) }"
+          },
+          "components": {
+            "Stack": ["children", "gap: sm|md|lg", "className?"],
+            "Row": ["children", "className?"],
+            "Section": ["title?", "children"],
+            "Card": ["children", "className?"],
+            "Heading": ["children", "level: 1|2|3"],
+            "Text": ["children", "muted?"],
+            "Badge": ["children", "tone: neutral|risk"],
+            "Button": ["standard button props"],
+            "TextInput": ["standard text input props"],
+            "NumberInput": ["standard number input props"],
+            "Select": ["standard select props"],
+            "Checkbox": ["standard checkbox props"],
+            "Table": ["columns: {key,label}[]", "rows: object[]"]
+          }
+        }
+      }
+    },
+    {
+      "kind": "generated_ui_action_bridge",
+      "contribution_id": "uprava.generated-react.actions",
+      "contract_version": 1,
+      "contribution": {
+        "bridge_id": "uprava.generated-react.actions",
+        "supported_actions": [
+          "update_artifact_state",
+          "send_agent_input",
+          "open_reference"
+        ]
+      }
+    },
+    {
+      "kind": "generated_ui_runtime",
+      "contribution_id": "uprava.generated-react.runtime",
+      "contract_version": 1,
+      "contribution": {
+        "runtime_id": "uprava.generated-react",
+        "implementation_id": "uprava.generated-react.v1",
+        "runtime_version": "1.0.0",
+        "sdk_id": "uprava.ui-sdk",
+        "action_bridge_id": "uprava.generated-react.actions",
+        "supported_sdk_versions": ["1.0.0"],
+        "supported_layouts": ["inline", "panel", "canvas"],
+        "sandbox_capabilities": [
+          "persist_state",
+          "send_agent_input",
+          "open_reference",
+          "request_layout_change"
+        ],
+        "allowed_imports": ["react", "react/jsx-runtime", "@uprava/ui-sdk"],
+        "max_source_bytes": 131072,
+        "max_bundle_bytes": 1048576
+      }
+    },
+    {
+      "kind": "artifact_type",
+      "contribution_id": "uprava.generated-react.type",
+      "contract_version": 1,
+      "contribution": {
+        "artifact_type_id": "uprava.generated-react",
+        "display_name": "Generated React UI",
+        "description": "A versioned generated React surface with durable data, actions and readable fallback.",
+        "schema_version": 1,
+        "fallback_strategy": "source"
+      }
+    },
+    {
+      "kind": "visual_renderer",
+      "contribution_id": "uprava.generated-react.viewer",
+      "contract_version": 2,
+      "contribution": {
+        "renderer_id": "uprava.generated-react.viewer",
+        "implementation_id": "uprava.generated-react.v1",
+        "renderer_kind": "artifact_viewer",
+        "accepted_source_kinds": ["artifact.uprava.generated-react"],
+        "render_scopes": ["artifact_viewer", "detail_view"],
+        "allowed_surfaces": ["artifact.viewer"],
+        "fallback_strategy": "source",
+        "source_matcher": null,
+        "visual_kinds": ["visual.generated-ui"],
+        "actions": ["artifact.open_canvas", "artifact.show_source"]
+      }
+    }
+  ]
+}

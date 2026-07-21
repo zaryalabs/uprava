@@ -469,6 +469,12 @@ plugin регистрирует controlled build, sandboxed iframe runtime, Upra
 SDK, layout contract and permissioned action bridge. Optional declarative blocks
 остаются fast path для простых interactions, а не закрытым UI language.
 
+Baseline `0.2.18` реализует этот путь через disabled-by-default
+`uprava.generated-react`, Core-owned content-addressed source/build/state/action
+lifecycle и отдельный internal-network builder service. Web получает только
+готовый bundle и исполняет его в opaque iframe; MessageChannel requests не
+обходят Core permissions, idempotency, confirmation or event trace.
+
 Полный contribution, activation, trust and theme contract определен в
 [`A-004 Modular UI and Work Surface`](areas/004-modular-ui-work-surface.md#plugin-registry-и-extension-host).
 

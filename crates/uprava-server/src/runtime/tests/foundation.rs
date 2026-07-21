@@ -38,6 +38,8 @@ fn app_config_from_env_uses_documented_defaults() {
     assert_eq!(config.public_rate_window_seconds, 60);
     assert_eq!(config.public_global_rate_limit, 5_000);
     assert_eq!(config.public_peer_rate_limit, 600);
+    assert_eq!(config.generated_ui_builder_url, "http://127.0.0.1:18082");
+    assert_eq!(config.generated_ui_builder_timeout_seconds, 15);
 }
 
 #[test]
@@ -63,6 +65,11 @@ fn app_config_from_env_parses_overrides() {
     std::env::set_var("UPRAVA_PUBLIC_RATE_WINDOW_SECONDS", "30");
     std::env::set_var("UPRAVA_PUBLIC_GLOBAL_RATE_LIMIT", "9000");
     std::env::set_var("UPRAVA_PUBLIC_PEER_RATE_LIMIT", "900");
+    std::env::set_var(
+        "UPRAVA_GENERATED_UI_BUILDER_URL",
+        "http://builder.internal:19082",
+    );
+    std::env::set_var("UPRAVA_GENERATED_UI_BUILDER_TIMEOUT_SECONDS", "7");
 
     let config = AppConfig::from_env().expect("overridden core config parses");
 
@@ -97,6 +104,25 @@ fn app_config_from_env_parses_overrides() {
     assert_eq!(config.public_rate_window_seconds, 30);
     assert_eq!(config.public_global_rate_limit, 9_000);
     assert_eq!(config.public_peer_rate_limit, 900);
+    assert_eq!(
+        config.generated_ui_builder_url,
+        "http://builder.internal:19082"
+    );
+    assert_eq!(config.generated_ui_builder_timeout_seconds, 7);
+}
+
+#[test]
+fn app_config_rejects_non_http_generated_ui_builder_urls() {
+    let _lock = env_lock();
+    let _env = EnvGuard::cleared(CORE_CONFIG_ENV_VARS);
+    std::env::set_var("UPRAVA_GENERATED_UI_BUILDER_URL", "file:///tmp/builder");
+
+    let error = AppConfig::from_env().expect_err("non-http builder URL should fail");
+
+    assert!(matches!(
+        error,
+        ConfigError::InvalidGeneratedUiBuilderUrl(_)
+    ));
 }
 
 #[test]
@@ -244,7 +270,7 @@ async fn migration_creates_baseline_schema_from_empty_database() {
             .expect("migration versions load");
     assert_eq!(
         applied_versions,
-        vec![1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15]
+        vec![1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16]
     );
 
     let metadata: (String, i64) =
@@ -270,7 +296,7 @@ async fn migration_runner_is_idempotent_and_does_not_duplicate_versions() {
         .fetch_one(&state.pool)
         .await
         .expect("migration count loads");
-    assert_eq!(migration_count, 15);
+    assert_eq!(migration_count, 16);
 }
 
 #[tokio::test]
@@ -320,7 +346,7 @@ async fn migration_upgrades_the_0_2_10_numbered_baseline() {
     .await
     .expect("tooling tables count loads");
 
-    assert_eq!(latest_version, 15);
+    assert_eq!(latest_version, 16);
     assert_eq!(tooling_table_count, 3);
 }
 
@@ -535,7 +561,7 @@ async fn migration_concurrent_file_backed_starts_share_one_numbered_history() {
         .fetch_one(&pool)
         .await
         .expect("migration count loads");
-    assert_eq!(count, 15);
+    assert_eq!(count, 16);
     drop(first_state);
     drop(second_state);
     pool.close().await;

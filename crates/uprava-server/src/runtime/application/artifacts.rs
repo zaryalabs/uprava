@@ -18,6 +18,14 @@ const MAX_ARTIFACT_REFS: usize = 256;
 const MAX_ARTIFACT_SOURCE_VERSION_CHARS: usize = 1_024;
 const MAX_ARTIFACT_JSON_DEPTH: usize = 32;
 const MAX_ARTIFACT_JSON_STRING_CHARS: usize = 131_072;
+const GENERATED_UI_ARTIFACT_TYPE: &str = "uprava.generated-react";
+
+pub(crate) struct PreparedArtifactCreation {
+    pub(crate) artifact_id: ArtifactId,
+    owner_plugin_id: PluginId,
+    created_by: ActorRef,
+    created_at: DateTime<Utc>,
+}
 
 #[derive(Debug, Deserialize)]
 pub(crate) struct ArtifactListQuery {
@@ -52,6 +60,12 @@ pub(crate) async fn create_artifact_route(
     State(state): State<Arc<AppState>>,
     Json(request): Json<CreateArtifactRequest>,
 ) -> Result<Json<ArtifactDetail>, AppError> {
+    if request.artifact_type == GENERATED_UI_ARTIFACT_TYPE {
+        return Err(AppError::bad_request(
+            "generated_ui.proposal_required",
+            "Generated React artifacts must be created through the dynamic UI proposal lifecycle",
+        ));
+    }
     Ok(Json(create_artifact(&state, request).await?))
 }
 
@@ -60,6 +74,17 @@ pub(crate) async fn create_artifact_version_route(
     Path(artifact_id): Path<String>,
     Json(request): Json<CreateArtifactVersionRequest>,
 ) -> Result<Json<ArtifactDetail>, AppError> {
+    if load_artifact_detail(&state, &ArtifactId::from(artifact_id.clone()), None)
+        .await?
+        .artifact
+        .artifact_type
+        == GENERATED_UI_ARTIFACT_TYPE
+    {
+        return Err(AppError::bad_request(
+            "generated_ui.version_lifecycle_required",
+            "Generated React versions must be created through the dynamic UI lifecycle",
+        ));
+    }
     Ok(Json(
         create_artifact_version(&state, &ArtifactId::from(artifact_id), request).await?,
     ))
@@ -116,7 +141,27 @@ pub(crate) async fn create_artifact(
     state: &AppState,
     request: CreateArtifactRequest,
 ) -> Result<ArtifactDetail, AppError> {
-    validate_create_artifact_request(&request)?;
+    let prepared = prepare_artifact_creation(state, &request).await?;
+    let artifact_id = prepared.artifact_id.clone();
+    let mut transaction = state.pool.begin().await?;
+    insert_prepared_artifact(&mut transaction, &prepared, &request).await?;
+    transaction.commit().await?;
+    load_artifact_detail(state, &artifact_id, Some(1)).await
+}
+
+pub(crate) async fn prepare_artifact_creation(
+    state: &AppState,
+    request: &CreateArtifactRequest,
+) -> Result<PreparedArtifactCreation, AppError> {
+    prepare_artifact_creation_as(state, request, ActorRef::local_user()).await
+}
+
+pub(crate) async fn prepare_artifact_creation_as(
+    state: &AppState,
+    request: &CreateArtifactRequest,
+    created_by: ActorRef,
+) -> Result<PreparedArtifactCreation, AppError> {
+    validate_create_artifact_request(request)?;
     validate_artifact_scope(state, &request.scope_ref).await?;
     let (owner_plugin_id, declared_schema_version) =
         resolve_active_artifact_type(state, &request.artifact_type).await?;
@@ -126,10 +171,19 @@ pub(crate) async fn create_artifact(
             "Artifact payload does not match the active artifact type schema version",
         ));
     }
-    let artifact_id = ArtifactId::new();
-    let now = Utc::now();
-    let actor = ActorRef::local_user();
-    let mut transaction = state.pool.begin().await?;
+    Ok(PreparedArtifactCreation {
+        artifact_id: ArtifactId::new(),
+        owner_plugin_id,
+        created_by,
+        created_at: Utc::now(),
+    })
+}
+
+pub(crate) async fn insert_prepared_artifact(
+    transaction: &mut sqlx::Transaction<'_, sqlx::Sqlite>,
+    prepared: &PreparedArtifactCreation,
+    request: &CreateArtifactRequest,
+) -> Result<(), AppError> {
     sqlx::query(
         r#"
         insert into artifacts (
@@ -138,18 +192,18 @@ pub(crate) async fn create_artifact(
         ) values (?1, ?2, ?3, ?4, ?5, 1, 'active', ?6, ?7, ?7)
         "#,
     )
-    .bind(artifact_id.as_str())
+    .bind(prepared.artifact_id.as_str())
     .bind(&request.artifact_type)
     .bind(&request.title)
     .bind(serde_json::to_string(&request.scope_ref)?)
-    .bind(owner_plugin_id.as_str())
-    .bind(serde_json::to_string(&actor)?)
-    .bind(now)
-    .execute(&mut *transaction)
+    .bind(prepared.owner_plugin_id.as_str())
+    .bind(serde_json::to_string(&prepared.created_by)?)
+    .bind(prepared.created_at)
+    .execute(&mut **transaction)
     .await?;
     insert_artifact_version(
-        &mut transaction,
-        &artifact_id,
+        transaction,
+        &prepared.artifact_id,
         1,
         request.schema_version,
         &request.payload,
@@ -160,11 +214,10 @@ pub(crate) async fn create_artifact(
         &request.cause_refs,
         &request.trace_refs,
         &request.provenance,
-        now,
+        prepared.created_at,
     )
     .await?;
-    transaction.commit().await?;
-    load_artifact_detail(state, &artifact_id, Some(1)).await
+    Ok(())
 }
 
 pub(crate) async fn create_artifact_version(

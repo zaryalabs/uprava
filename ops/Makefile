@@ -48,8 +48,8 @@ validate: require-release ## Validate the selected immutable release and host in
 	test -n "$${UPRAVA_RELEASE_SHA:-}"; \
 	test -n "$${UPRAVA_NODE_VERSION:-}"; \
 	test -n "$${UPRAVA_AUTO_APPROVE_NODE_NAME:-}"; \
-	case "$${UPRAVA_CORE_IMAGE:-}:$${UPRAVA_WEB_IMAGE:-}:$${UPRAVA_NODE_ARTIFACT:-}" in \
-		*@sha256:*@sha256:*@sha256:*) ;; \
+	case "$${UPRAVA_CORE_IMAGE:-}:$${UPRAVA_WEB_IMAGE:-}:$${UPRAVA_GENERATED_UI_BUILDER_IMAGE:-}:$${UPRAVA_NODE_ARTIFACT:-}" in \
+		*@sha256:*@sha256:*@sha256:*@sha256:*) ;; \
 		*) echo "Every runtime artifact must be digest-pinned" >&2; exit 1 ;; \
 	esac; \
 	test -f "$(CORE_CONFIG)" || { echo "Missing $(CORE_CONFIG)" >&2; exit 1; }; \

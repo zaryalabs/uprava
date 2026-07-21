@@ -21,9 +21,10 @@ check_image() {
 
 check_image Dockerfile.core uprava
 check_image Dockerfile.node uprava
+check_image Dockerfile.generated-ui-builder node
 check_image apps/web/Dockerfile 101
 
-for file in Dockerfile.core Dockerfile.node apps/web/Dockerfile; do
+for file in Dockerfile.core Dockerfile.node Dockerfile.generated-ui-builder apps/web/Dockerfile; do
     if grep '^FROM[[:space:]]' "$file" | grep -Ev '^FROM[[:space:]]+[^[:space:]]+@sha256:[0-9a-f]{64}([[:space:]]|$)' >/dev/null; then
         echo "$file: every release base must use an immutable digest" >&2
         exit 1
@@ -33,6 +34,8 @@ done
 grep -q 'cargo build --locked --release -p uprava-server --bin uprava-server' Dockerfile.core
 grep -q 'cargo build --locked --release -p uprava-node --bin uprava-node' Dockerfile.node
 grep -q '^RUN npm ci$' apps/web/Dockerfile
+grep -q '^RUN npm ci$' Dockerfile.generated-ui-builder
+grep -q '^CMD \["node", "services/generated-ui-builder/server.mjs"\]$' Dockerfile.generated-ui-builder
 grep -q '^FROM nginxinc/nginx-unprivileged:' apps/web/Dockerfile
 if awk '/^FROM / { stage++ } stage > 1 { print }' apps/web/Dockerfile | grep -Eq 'node_modules|npm run|vite'; then
     echo "apps/web/Dockerfile: runtime stage must be static-only" >&2

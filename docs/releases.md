@@ -2,7 +2,7 @@
 
 Статус: `active`
 
-Current release baseline: `0.2.17`.
+Current release baseline: `0.2.18`.
 
 Этот ledger фиксирует implementation baselines. Он не заменяет
 [`feature-queue.md`](product/feature-queue.md), где остается ранжированная очередь
@@ -38,16 +38,29 @@ future work.
 | `0.2.14` | 2026-07-20 | shipped | ToolHive Compose topology: отдельный pinned runtime, bounded host Node bridge, persistent OAuth state, smoke и ручной Linear acceptance runbook |
 | `0.2.15` | 2026-07-21 | shipped | Bundled Markdown renderer plugin: typed `visual.renderer` contribution, безопасный Streamdown для static/streaming chat content, lazy Web activation и plain-text fallback |
 | `0.2.16` | 2026-07-21 | shipped | Plugin contribution resolution: normalized targets, deterministic exclusive chains, revisioned order/disable preferences, visible conflicts и bundled Markdown/Plain Text fallback chain |
-| `0.2.17` | 2026-07-21 | current | Plugin-driven Visual Artifact System: generic versioned artifacts, source matchers, inline/block/artifact viewers и bundled color, diagram, review and trace plugins с mandatory fallbacks |
+| `0.2.17` | 2026-07-21 | shipped | Plugin-driven Visual Artifact System: generic versioned artifacts, source matchers, inline/block/artifact viewers и bundled color, diagram, review and trace plugins с mandatory fallbacks |
+| `0.2.18` | 2026-07-21 | current | Dynamic UI from Agents: opt-in Generated React plugin, controlled builder, sandboxed iframe, Uprava UI SDK, persisted state, permissioned actions и safe fallbacks |
 
 ## Current Baseline
 
-`0.2.17` включает baseline `0.2.16`, protocol-v2 baseline `0.2.0`, завершённое Zarya 0.1 Web UI/UX
+`0.2.18` включает baseline `0.2.17`, protocol-v2 baseline `0.2.0`, завершённое Zarya 0.1 Web UI/UX
 alignment и clean-bootstrap four-phase delivery path. Текущая реализация включает
 первый working distributed
-control panel, семнадцать implementation slices после `0.1.0`, unified audit
+control panel, восемнадцать implementation slices после `0.1.0`, unified audit
 hardening slice и workspace
 renderer/PTY terminal layer, а также первый deployable self-hosted release path:
+
+- opt-in bundled `uprava.generated-react` публикует Generated UI runtime, SDK,
+  action bridge, artifact type and viewer contributions через общий target
+  resolver; native `uprava.dynamic_ui.create` даёт агенту session-scoped path;
+- migration 16 хранит content-addressed TypeScript and bundles, atomic artifact
+  build/state records и idempotent action requests; controlled builder имеет
+  strict import/size policy, dependency lock и отдельный network-isolated
+  container в dev and production topology;
+- Web исполняет готовый bundle в opaque sandboxed iframe с nonce CSP и
+  MessageChannel. Persisted state, send-agent-input, open-reference and layout
+  requests проходят bounded protocol and Core authorization; PNG/WebP snapshot,
+  markdown fallback, diagnostics and source review остаются при любой ошибке;
 
 - Core хранит generic artifact identity и immutable versions с type, scope,
   source/evidence/cause/trace refs, provenance и обязательным readable fallback;
@@ -164,7 +177,7 @@ renderer/PTY terminal layer, а также первый deployable self-hosted r
   input/output streaming;
 - retained bounded command runner для traceable controlled checks вроде
   `make l` and `make c`;
-- GitHub Actions CI/CD для Core/Web images, Node artifact publishing, release
+- GitHub Actions CI/CD для Core/Web/Generated UI Builder images, Node artifact publishing, release
   manifest generation and deploy activation;
 - server Make targets and scripts для release manifests, host Node artifact
   extraction, activation and deploy;
@@ -182,7 +195,7 @@ renderer/PTY terminal layer, а также первый deployable self-hosted r
   успешного обновления `main`;
 - bounded per-job CI workspaces с unconditional cleanup, orphaned-workspace GC и
   free-space preflight;
-- digest-pinned Core/Web/Node manifests, temporary registry credentials и
+- digest-pinned Core/Web/Generated UI Builder/Node manifests, temporary registry credentials и
   project-scoped image/release retention;
 - phase boundaries GitHub Actions `prepare -> build -> deploy -> finalize` с
   immutable manifest artifact handoff;
