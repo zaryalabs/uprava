@@ -1,14 +1,19 @@
 //! Core-owned Plugin Registry lifecycle and effective contribution projection.
 
+use std::collections::{BTreeMap, HashSet};
+
 use semver::Version;
 use uprava_protocol::{
-    compute_plugin_manifest_hash, EffectivePluginSnapshot, PluginCompatibility,
-    PluginCompatibilityState, PluginContribution, PluginDesiredState, PluginEffectiveState,
-    PluginId, PluginInstallSource, PluginInstallationSummary, PluginListResponse, PluginManifest,
-    PluginPackageSummary, PluginTrustLevel, PluginVersionRange, ThemeContributionV1,
-    VisualRendererContributionV1, CURRENT_PROTOCOL_VERSION, PLUGIN_MANIFEST_VERSION_V1,
-    THEME_CONTRIBUTION_PERMISSION, THEME_CONTRIBUTION_VERSION_V1,
-    VISUAL_RENDERER_CONTRIBUTION_PERMISSION, VISUAL_RENDERER_CONTRIBUTION_VERSION_V1,
+    compute_plugin_manifest_hash, ContributionRef, ContributionResolutionMode, ContributionTarget,
+    ContributionTargetResolution, EffectiveContribution, EffectiveContributionState,
+    EffectivePluginSnapshot, PluginCompatibility, PluginCompatibilityState, PluginContribution,
+    PluginDesiredState, PluginEffectiveState, PluginId, PluginInstallSource,
+    PluginInstallationSummary, PluginListResponse, PluginManifest, PluginPackageSummary,
+    PluginTrustLevel, PluginVersionRange, ThemeContributionV1,
+    UpdateContributionTargetPreferencesRequest, VisualRendererContributionV1,
+    CURRENT_PROTOCOL_VERSION, PLUGIN_MANIFEST_VERSION_V1, THEME_CONTRIBUTION_PERMISSION,
+    THEME_CONTRIBUTION_VERSION_V1, VISUAL_RENDERER_CONTRIBUTION_PERMISSION,
+    VISUAL_RENDERER_CONTRIBUTION_VERSION_V1,
 };
 
 use super::super::*;
@@ -17,6 +22,8 @@ const DARK_THEME_MANIFEST: &str =
     include_str!("../../../bundled-plugins/uprava.theme-dark/manifest.json");
 const MARKDOWN_MANIFEST: &str =
     include_str!("../../../bundled-plugins/uprava.markdown/manifest.json");
+const PLAIN_TEXT_MANIFEST: &str =
+    include_str!("../../../bundled-plugins/uprava.plain-text/manifest.json");
 const MAX_PLUGIN_ID_CHARS: usize = 128;
 const MAX_PLUGIN_TEXT_CHARS: usize = 2_000;
 const MAX_PLUGIN_PERMISSIONS: usize = 64;
@@ -24,6 +31,7 @@ const MAX_PLUGIN_CONTRIBUTIONS: usize = 128;
 const MAX_THEME_TOKENS: usize = 128;
 const MAX_THEME_ADAPTER_COLORS: usize = 128;
 const MAX_RENDERER_TARGETS: usize = 32;
+const MAX_NORMALIZED_RENDERER_TARGETS: usize = 128;
 
 const REQUIRED_THEME_TOKENS: &[&str] = &[
     "surface.background",
@@ -53,6 +61,7 @@ pub(crate) async fn bootstrap_bundled_plugins(state: &AppState) -> Result<(), Ap
     for (source, default_state) in [
         (DARK_THEME_MANIFEST, PluginDesiredState::Disabled),
         (MARKDOWN_MANIFEST, PluginDesiredState::Enabled),
+        (PLAIN_TEXT_MANIFEST, PluginDesiredState::Enabled),
     ] {
         let manifest: PluginManifest = serde_json::from_str(source)?;
         validate_plugin_manifest(&manifest)?;
@@ -112,12 +121,35 @@ pub(crate) async fn plugin_contributions_route(
     if let Some(kind) = query.kind.as_deref() {
         snapshot
             .contributions
-            .retain(|contribution| contribution_kind(contribution) == kind);
+            .retain(|contribution| contribution.extension_point == kind);
+        snapshot
+            .resolutions
+            .retain(|resolution| resolution.extension_point == kind);
     }
     Ok(Json(snapshot))
 }
 
-async fn register_bundled_plugin(
+pub(crate) async fn update_plugin_contribution_preferences_route(
+    State(state): State<Arc<AppState>>,
+    Path(target_id): Path<String>,
+    Json(request): Json<UpdateContributionTargetPreferencesRequest>,
+) -> Result<Json<ContributionTargetResolution>, AppError> {
+    update_contribution_target_preferences(&state, &target_id, request).await?;
+    let snapshot = effective_plugin_snapshot(&state).await?;
+    let resolution = snapshot
+        .resolutions
+        .into_iter()
+        .find(|resolution| resolution.target_id == target_id)
+        .ok_or_else(|| {
+            AppError::not_found(
+                "plugin.contribution_target_not_found",
+                "Plugin contribution target not found",
+            )
+        })?;
+    Ok(Json(resolution))
+}
+
+pub(crate) async fn register_bundled_plugin(
     state: &AppState,
     manifest: &PluginManifest,
     default_state: PluginDesiredState,
@@ -197,6 +229,30 @@ async fn register_bundled_plugin(
     .bind(now)
     .execute(&mut *transaction)
     .await?;
+
+    let active_version: String =
+        sqlx::query_scalar("select active_version from plugin_installations where plugin_id = ?1")
+            .bind(manifest.plugin_id.as_str())
+            .fetch_one(&mut *transaction)
+            .await?;
+    let active_semver = Version::parse(&active_version)
+        .map_err(|_| AppError::internal("installed plugin version is not SemVer"))?;
+    let discovered_semver = Version::parse(&manifest.version)
+        .map_err(|_| AppError::internal("bundled plugin version is not SemVer"))?;
+    if discovered_semver > active_semver {
+        sqlx::query(
+            r#"
+            update plugin_installations
+            set active_version = ?1, updated_at = ?2
+            where plugin_id = ?3
+            "#,
+        )
+        .bind(&manifest.version)
+        .bind(now)
+        .bind(manifest.plugin_id.as_str())
+        .execute(&mut *transaction)
+        .await?;
+    }
 
     let empty_configuration = JsonValue(json!({}));
     let configuration_json = serde_json::to_string(&empty_configuration.0)?;
@@ -470,26 +526,296 @@ pub(crate) async fn effective_plugin_snapshot(
     )
     .fetch_all(&state.pool)
     .await?;
-    let mut contributions = Vec::new();
+    let preference_rows = sqlx::query(
+        r#"
+        select target_id, revision, ordered_contributions_json, disabled_contributions_json
+        from plugin_contribution_target_preferences
+        "#,
+    )
+    .fetch_all(&state.pool)
+    .await?;
+    let mut preferences = BTreeMap::new();
+    for row in preference_rows {
+        preferences.insert(
+            row.get::<String, _>("target_id"),
+            StoredContributionPreference {
+                revision: u64::try_from(row.get::<i64, _>("revision"))
+                    .map_err(|_| AppError::internal("plugin preference revision is invalid"))?,
+                ordered: serde_json::from_str(row.get("ordered_contributions_json"))?,
+                disabled: serde_json::from_str(row.get("disabled_contributions_json"))?,
+            },
+        );
+    }
+
+    let mut direct_contributions = Vec::new();
+    let mut target_groups: BTreeMap<String, TargetGroupDraft> = BTreeMap::new();
     for manifest_json in manifest_rows {
         let manifest: PluginManifest = serde_json::from_str(&manifest_json)?;
-        contributions.extend(manifest.contributions.into_iter().filter(|contribution| {
-            matches!(
-                contribution,
+        for contribution in manifest.contributions {
+            match &contribution {
                 PluginContribution::UiTheme {
+                    contribution_id,
                     contract_version: THEME_CONTRIBUTION_VERSION_V1,
-                    ..
-                } | PluginContribution::VisualRenderer {
+                    contribution: theme,
+                } => direct_contributions.push(EffectiveContribution {
+                    plugin_id: manifest.plugin_id.clone(),
+                    plugin_version: manifest.version.clone(),
+                    contribution_id: contribution_id.clone(),
+                    extension_point: "ui.theme".to_owned(),
+                    contract_version: THEME_CONTRIBUTION_VERSION_V1,
+                    target: ContributionTarget::UiTheme {
+                        theme_id: theme.theme_id.clone(),
+                    },
+                    effective_state: EffectiveContributionState::Available,
+                    contribution,
+                }),
+                PluginContribution::VisualRenderer {
+                    contribution_id,
                     contract_version: VISUAL_RENDERER_CONTRIBUTION_VERSION_V1,
-                    ..
+                    contribution: renderer,
+                } => {
+                    for source_kind in &renderer.accepted_source_kinds {
+                        for surface in &renderer.allowed_surfaces {
+                            for render_scope in &renderer.render_scopes {
+                                let target = ContributionTarget::VisualRenderer {
+                                    source_kind: source_kind.clone(),
+                                    surface: surface.clone(),
+                                    render_scope: *render_scope,
+                                };
+                                let target_id = contribution_target_id(&target)?;
+                                let effective = EffectiveContribution {
+                                    plugin_id: manifest.plugin_id.clone(),
+                                    plugin_version: manifest.version.clone(),
+                                    contribution_id: contribution_id.clone(),
+                                    extension_point: "visual.renderer".to_owned(),
+                                    contract_version: VISUAL_RENDERER_CONTRIBUTION_VERSION_V1,
+                                    target: target.clone(),
+                                    effective_state: EffectiveContributionState::Available,
+                                    contribution: contribution.clone(),
+                                };
+                                target_groups
+                                    .entry(target_id)
+                                    .or_insert_with(|| TargetGroupDraft {
+                                        target,
+                                        contributions: Vec::new(),
+                                    })
+                                    .contributions
+                                    .push(effective);
+                            }
+                        }
+                    }
                 }
-            )
-        }));
+                _ => {}
+            }
+        }
     }
+
+    let mut resolutions = Vec::with_capacity(target_groups.len());
+    for (target_id, mut draft) in target_groups {
+        draft.contributions.sort_by(|left, right| {
+            contribution_ref_sort_key(left).cmp(&contribution_ref_sort_key(right))
+        });
+        let preference = preferences.remove(&target_id).unwrap_or_default();
+        let mut ordered = Vec::with_capacity(draft.contributions.len());
+        for preferred in &preference.ordered {
+            if let Some(index) = draft
+                .contributions
+                .iter()
+                .position(|candidate| contribution_matches(candidate, preferred))
+            {
+                ordered.push(draft.contributions.remove(index));
+            }
+        }
+        ordered.append(&mut draft.contributions);
+        let disabled: HashSet<String> = preference
+            .disabled
+            .iter()
+            .map(contribution_ref_key)
+            .collect();
+        for candidate in &mut ordered {
+            if disabled.contains(&effective_contribution_key(candidate)) {
+                candidate.effective_state = EffectiveContributionState::Disabled;
+            }
+        }
+        let conflict = ordered
+            .iter()
+            .filter(|candidate| candidate.effective_state == EffectiveContributionState::Available)
+            .count()
+            > 1;
+        resolutions.push(ContributionTargetResolution {
+            target_id,
+            extension_point: "visual.renderer".to_owned(),
+            mode: ContributionResolutionMode::Exclusive,
+            target: draft.target,
+            revision: preference.revision,
+            conflict,
+            contributions: ordered,
+        });
+    }
+    let mut contributions = direct_contributions;
+    contributions.extend(
+        resolutions
+            .iter()
+            .flat_map(|resolution| resolution.contributions.iter().cloned()),
+    );
     Ok(EffectivePluginSnapshot {
         contributions,
+        resolutions,
         generated_at: Utc::now(),
     })
+}
+
+#[derive(Default)]
+struct StoredContributionPreference {
+    revision: u64,
+    ordered: Vec<ContributionRef>,
+    disabled: Vec<ContributionRef>,
+}
+
+struct TargetGroupDraft {
+    target: ContributionTarget,
+    contributions: Vec<EffectiveContribution>,
+}
+
+fn contribution_target_id(target: &ContributionTarget) -> Result<String, AppError> {
+    let encoded = serde_json::to_vec(target)?;
+    Ok(format!("{:x}", Sha256::digest(encoded)))
+}
+
+fn contribution_ref_sort_key(contribution: &EffectiveContribution) -> (&str, &str) {
+    (
+        contribution.plugin_id.as_str(),
+        contribution.contribution_id.as_str(),
+    )
+}
+
+fn contribution_ref_key(reference: &ContributionRef) -> String {
+    format!("{}\u{1f}{}", reference.plugin_id, reference.contribution_id)
+}
+
+fn effective_contribution_key(contribution: &EffectiveContribution) -> String {
+    format!(
+        "{}\u{1f}{}",
+        contribution.plugin_id, contribution.contribution_id
+    )
+}
+
+fn contribution_matches(contribution: &EffectiveContribution, reference: &ContributionRef) -> bool {
+    contribution.plugin_id == reference.plugin_id
+        && contribution.contribution_id == reference.contribution_id
+}
+
+pub(crate) async fn update_contribution_target_preferences(
+    state: &AppState,
+    target_id: &str,
+    request: UpdateContributionTargetPreferencesRequest,
+) -> Result<(), AppError> {
+    let snapshot = effective_plugin_snapshot(state).await?;
+    let resolution = snapshot
+        .resolutions
+        .iter()
+        .find(|resolution| resolution.target_id == target_id)
+        .ok_or_else(|| {
+            AppError::not_found(
+                "plugin.contribution_target_not_found",
+                "Plugin contribution target not found",
+            )
+        })?;
+    if resolution.revision != request.expected_revision {
+        return Err(AppError::conflict(
+            "plugin.contribution_preference_conflict",
+            "Plugin contribution preferences changed; reload and retry",
+        ));
+    }
+    validate_contribution_references(resolution, &request.ordered_contributions)?;
+    validate_contribution_references(resolution, &request.disabled_contributions)?;
+
+    let next_revision = request.expected_revision.checked_add(1).ok_or_else(|| {
+        AppError::bad_request(
+            "plugin.contribution_revision_invalid",
+            "Plugin contribution preference revision is exhausted",
+        )
+    })?;
+    let target_json = serde_json::to_string(&resolution.target)?;
+    let ordered_json = serde_json::to_string(&request.ordered_contributions)?;
+    let disabled_json = serde_json::to_string(&request.disabled_contributions)?;
+    let updated = sqlx::query(
+        r#"
+        insert into plugin_contribution_target_preferences (
+            target_id, target_json, revision, ordered_contributions_json,
+            disabled_contributions_json, updated_at
+        ) values (?1, ?2, ?3, ?4, ?5, ?6)
+        on conflict(target_id) do update set
+            target_json = excluded.target_json,
+            revision = excluded.revision,
+            ordered_contributions_json = excluded.ordered_contributions_json,
+            disabled_contributions_json = excluded.disabled_contributions_json,
+            updated_at = excluded.updated_at
+        where plugin_contribution_target_preferences.revision = ?7
+        "#,
+    )
+    .bind(target_id)
+    .bind(target_json)
+    .bind(i64::try_from(next_revision).map_err(|_| {
+        AppError::bad_request(
+            "plugin.contribution_revision_invalid",
+            "Plugin contribution preference revision is invalid",
+        )
+    })?)
+    .bind(ordered_json)
+    .bind(disabled_json)
+    .bind(Utc::now())
+    .bind(i64::try_from(request.expected_revision).map_err(|_| {
+        AppError::bad_request(
+            "plugin.contribution_revision_invalid",
+            "Plugin contribution preference revision is invalid",
+        )
+    })?)
+    .execute(&state.pool)
+    .await?;
+    if updated.rows_affected() != 1 {
+        return Err(AppError::conflict(
+            "plugin.contribution_preference_conflict",
+            "Plugin contribution preferences changed; reload and retry",
+        ));
+    }
+    audit_security_event(
+        state,
+        "plugin.contribution_preferences_changed",
+        None,
+        Some("web.local_user".to_owned()),
+        "updated",
+        JsonValue(json!({
+            "target_id": target_id,
+            "revision": next_revision,
+            "ordered_count": request.ordered_contributions.len(),
+            "disabled_count": request.disabled_contributions.len()
+        })),
+    )
+    .await?;
+    Ok(())
+}
+
+fn validate_contribution_references(
+    resolution: &ContributionTargetResolution,
+    references: &[ContributionRef],
+) -> Result<(), AppError> {
+    let mut seen = HashSet::new();
+    for reference in references {
+        let key = contribution_ref_key(reference);
+        if !seen.insert(key)
+            || !resolution
+                .contributions
+                .iter()
+                .any(|candidate| contribution_matches(candidate, reference))
+        {
+            return Err(AppError::bad_request(
+                "plugin.contribution_preference_invalid",
+                "Plugin contribution preference contains an unknown or duplicate entry",
+            ));
+        }
+    }
+    Ok(())
 }
 
 fn validate_plugin_manifest(manifest: &PluginManifest) -> Result<(), AppError> {
@@ -542,11 +868,20 @@ fn validate_plugin_manifest(manifest: &PluginManifest) -> Result<(), AppError> {
     {
         return Err(plugin_manifest_error("Reserved plugin namespace"));
     }
+    let mut contribution_ids = HashSet::new();
     for contribution in &manifest.contributions {
+        let contribution_id = contribution_id(contribution);
+        validate_namespaced_id(contribution_id, "contribution_id")?;
+        if !contribution_ids.insert(contribution_id) {
+            return Err(plugin_manifest_error(
+                "Plugin contribution identifiers must be unique",
+            ));
+        }
         match contribution {
             PluginContribution::UiTheme {
                 contract_version,
                 contribution,
+                ..
             } => {
                 if *contract_version != THEME_CONTRIBUTION_VERSION_V1 {
                     return Err(plugin_manifest_error(
@@ -567,6 +902,7 @@ fn validate_plugin_manifest(manifest: &PluginManifest) -> Result<(), AppError> {
             PluginContribution::VisualRenderer {
                 contract_version,
                 contribution,
+                ..
             } => {
                 if *contract_version != VISUAL_RENDERER_CONTRIBUTION_VERSION_V1 {
                     return Err(plugin_manifest_error(
@@ -611,6 +947,22 @@ fn validate_visual_renderer_contribution(
             "Visual renderer targets are empty or oversized",
         ));
     }
+    let normalized_target_count = renderer
+        .accepted_source_kinds
+        .len()
+        .checked_mul(renderer.render_scopes.len())
+        .and_then(|count| count.checked_mul(renderer.allowed_surfaces.len()))
+        .filter(|count| *count <= MAX_NORMALIZED_RENDERER_TARGETS)
+        .ok_or_else(|| plugin_manifest_error("Visual renderer expands to too many targets"))?;
+    if normalized_target_count == 0
+        || has_duplicates(&renderer.accepted_source_kinds)
+        || has_duplicates(&renderer.render_scopes)
+        || has_duplicates(&renderer.allowed_surfaces)
+    {
+        return Err(plugin_manifest_error(
+            "Visual renderer targets must be unique",
+        ));
+    }
     for source_kind in &renderer.accepted_source_kinds {
         validate_namespaced_id(source_kind, "accepted_source_kind")?;
     }
@@ -620,12 +972,27 @@ fn validate_visual_renderer_contribution(
     Ok(())
 }
 
-fn contribution_kind(contribution: &PluginContribution) -> &'static str {
+fn has_duplicates<T: PartialEq>(values: &[T]) -> bool {
+    values
+        .iter()
+        .enumerate()
+        .any(|(index, value)| values[index + 1..].contains(value))
+}
+
+fn contribution_id(contribution: &PluginContribution) -> &str {
     match contribution {
-        PluginContribution::UiTheme { .. } => "ui.theme",
-        PluginContribution::VisualRenderer { .. } => "visual.renderer",
-        PluginContribution::AgentTool { .. } => "agent.tool",
-        PluginContribution::ArtifactType { .. } => "artifact.type",
+        PluginContribution::UiTheme {
+            contribution_id, ..
+        }
+        | PluginContribution::VisualRenderer {
+            contribution_id, ..
+        }
+        | PluginContribution::AgentTool {
+            contribution_id, ..
+        }
+        | PluginContribution::ArtifactType {
+            contribution_id, ..
+        } => contribution_id,
     }
 }
 
@@ -893,6 +1260,33 @@ mod tests {
             serde_json::from_str(MARKDOWN_MANIFEST).expect("manifest parses");
 
         validate_plugin_manifest(&manifest).expect("manifest validates");
+    }
+
+    #[test]
+    fn plain_text_manifest_should_validate() {
+        let manifest: PluginManifest =
+            serde_json::from_str(PLAIN_TEXT_MANIFEST).expect("manifest parses");
+
+        validate_plugin_manifest(&manifest).expect("manifest validates");
+    }
+
+    #[test]
+    fn visual_renderer_should_reject_duplicate_targets() {
+        let mut manifest: PluginManifest =
+            serde_json::from_str(MARKDOWN_MANIFEST).expect("manifest parses");
+        let PluginContribution::VisualRenderer { contribution, .. } =
+            &mut manifest.contributions[0]
+        else {
+            panic!("fixture contains a visual renderer");
+        };
+        contribution
+            .accepted_source_kinds
+            .push("chat.assistant_message".to_owned());
+
+        let error =
+            validate_plugin_manifest(&manifest).expect_err("duplicate targets are rejected");
+
+        assert!(matches!(error, AppError::BadRequest { .. }));
     }
 
     #[test]

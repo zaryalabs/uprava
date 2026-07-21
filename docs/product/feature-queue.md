@@ -37,7 +37,7 @@ dependency, complexity, risk and value. Позиции могут двигать
 
 ## Обзор очереди
 
-Current release baseline: `0.2.15`. Закрытые пункты `0` through `12a`, unified
+Current release baseline: `0.2.16`. Закрытые пункты `0` through `12b`, unified
 audit hardening release и `5a` workspace renderer release соответствуют shipped
 versions, зафиксированным в [`releases.md`](../releases.md). Пункт `6` включает
 workbench alignment, первый стабильный self-hosted deployment path и
@@ -47,8 +47,8 @@ workspace-centered UI follow-up `0.2.6` и Causality/Trace/Deduction slice
 Agent Tooling and Tool Registry v1 — `0.2.11`, Plugin Registry v1 — `0.2.12`,
 CI/SQLite reliability fix slice — `0.2.13`, отдельная ToolHive Compose topology
 для ручного Linear acceptance — `0.2.14`, bundled Markdown renderer plugin —
-`0.2.15`.
-Следующий плановый пункт очереди — `12b Plugin contribution resolution`.
+`0.2.15`, Plugin contribution resolution — `0.2.16`.
+Следующий плановый пункт очереди — `13 Visual artifact system as plugins`.
 
 | Order | Done | Mechanism / Feature Slice | First Useful Slice | Dependency | Complexity |
 | --- | --- | --- | --- | --- | --- |
@@ -67,7 +67,7 @@ CI/SQLite reliability fix slice — `0.2.13`, отдельная ToolHive Compos
 | 11 | + | Agent Tooling and Tool Registry v1 | Uprava MCP, progressive discovery, ToolHive runtime, scoped registry and trace | V01 capability model, events | High |
 | 12 | + | Plugin Registry v1 | Core registry, manifest-driven Web Extension Host and bundled Dark Theme plugin | Stable workbench shell, design tokens | High |
 | 12a | + | Markdown renderer plugin | Typed `visual.renderer` contribution, safe Streamdown rendering and plain-text fallback for assistant chat content | Plugin Registry v1 | Medium |
-| 12b | - | Plugin contribution resolution | Target-based `exclusive`/`ordered` resolution, configurable contribution order and visible conflicts in Plugin Panel | Plugin Registry v1, Markdown renderer plugin | High |
+| 12b | + | Plugin contribution resolution | Target-based `exclusive`/`ordered` resolution, configurable contribution order and visible conflicts in Plugin Panel | Plugin Registry v1, Markdown renderer plugin | High |
 | 13 | - | Visual artifact system as plugins | Plugin-driven content enhancements for code, colors and diagrams plus artifact viewers for reports, diffs and timelines | Trace, Plugin contribution resolution | High |
 | 14 | - | Dynamic UI from agents as plugins | Opt-in bundled Generated React plugin with sandboxed runtime, Uprava UI SDK, safe fallbacks and permissioned actions | Plugin-delivered visual artifact system | High |
 | 15 | - | Task-based sandbox runtime | Bounded run contract, isolated workspace, expected evidence | Runtime, workspace, trace | Very high |
@@ -487,6 +487,15 @@ dependency/conflict graph, `before`/`after`, arbitrary numeric priorities,
 constraint solver, heuristic specificity ranking и runtime collision history.
 Подробная модель зафиксирована в
 [`A-012 Plugin Contribution Resolution`](../systems/areas/012-plugin-contribution-resolution.md).
+
+**Current implementation note:** `0.2.16` добавляет versioned contribution
+identity and provenance, normalized `visual.renderer` targets, migration 14 с
+revisioned per-target order/disable preferences, deterministic exclusive
+resolver and conflict metadata. Plugin Panel показывает winner and alternatives,
+позволяет менять порядок, отключать отдельную contribution и сбрасывать order.
+Bundled `uprava.markdown` и `uprava.plain-text` образуют первый acceptance chain;
+ошибка или недоступность renderer-а переводит Host к следующему candidate, затем
+к обязательному raw-text fallback.
 
 ### 13. Visual artifact system as plugins
 

@@ -1480,17 +1480,25 @@ export type VisualRendererContributionV1 = {
 export type PluginContribution =
   | {
       kind: "ui_theme";
+      contribution_id: string;
       contract_version: number;
       contribution: ThemeContributionV1;
     }
   | {
       kind: "visual_renderer";
+      contribution_id: string;
       contract_version: number;
       contribution: VisualRendererContributionV1;
     }
-  | { kind: "agent_tool"; contract_version: number; tool_id: string }
+  | {
+      kind: "agent_tool";
+      contribution_id: string;
+      contract_version: number;
+      tool_id: string;
+    }
   | {
       kind: "artifact_type";
+      contribution_id: string;
       contract_version: number;
       artifact_type_id: string;
       display_name: string;
@@ -1530,8 +1538,50 @@ export type PluginInstallationSummary = {
 
 export type PluginListResponse = { items: PluginInstallationSummary[] };
 
+export type ContributionTarget =
+  | { kind: "ui_theme"; theme_id: string }
+  | {
+      kind: "visual_renderer";
+      source_kind: string;
+      surface: string;
+      render_scope: "content_enhancement";
+    };
+
+export type ContributionRef = {
+  plugin_id: string;
+  contribution_id: string;
+};
+
+export type EffectiveContribution = {
+  plugin_id: string;
+  plugin_version: string;
+  contribution_id: string;
+  extension_point: string;
+  contract_version: number;
+  target: ContributionTarget;
+  effective_state: "available" | "disabled";
+  contribution: PluginContribution;
+};
+
+export type ContributionTargetResolution = {
+  target_id: string;
+  extension_point: string;
+  mode: "exclusive" | "ordered";
+  target: ContributionTarget;
+  revision: number;
+  conflict: boolean;
+  contributions: EffectiveContribution[];
+};
+
+export type UpdateContributionTargetPreferencesRequest = {
+  expected_revision: number;
+  ordered_contributions: ContributionRef[];
+  disabled_contributions: ContributionRef[];
+};
+
 export type EffectivePluginSnapshot = {
-  contributions: PluginContribution[];
+  contributions: EffectiveContribution[];
+  resolutions: ContributionTargetResolution[];
   generated_at: string;
 };
 

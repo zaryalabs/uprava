@@ -165,18 +165,22 @@ pub struct VisualRendererContributionV1 {
 #[serde(tag = "kind", rename_all = "snake_case")]
 pub enum PluginContribution {
     UiTheme {
+        contribution_id: String,
         contract_version: u16,
         contribution: ThemeContributionV1,
     },
     VisualRenderer {
+        contribution_id: String,
         contract_version: u16,
         contribution: VisualRendererContributionV1,
     },
     AgentTool {
+        contribution_id: String,
         contract_version: u16,
         tool_id: ToolId,
     },
     ArtifactType {
+        contribution_id: String,
         contract_version: u16,
         artifact_type_id: String,
         display_name: String,
@@ -264,9 +268,76 @@ pub struct PluginListResponse {
     pub items: Vec<PluginInstallationSummary>,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum ContributionResolutionMode {
+    Exclusive,
+    Ordered,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum EffectiveContributionState {
+    Available,
+    Disabled,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(tag = "kind", rename_all = "snake_case")]
+pub enum ContributionTarget {
+    UiTheme {
+        theme_id: String,
+    },
+    VisualRenderer {
+        source_kind: String,
+        surface: String,
+        render_scope: VisualRenderScope,
+    },
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ContributionRef {
+    pub plugin_id: PluginId,
+    pub contribution_id: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct EffectiveContribution {
+    pub plugin_id: PluginId,
+    pub plugin_version: String,
+    pub contribution_id: String,
+    pub extension_point: String,
+    pub contract_version: u16,
+    pub target: ContributionTarget,
+    pub effective_state: EffectiveContributionState,
+    pub contribution: PluginContribution,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ContributionTargetResolution {
+    pub target_id: String,
+    pub extension_point: String,
+    pub mode: ContributionResolutionMode,
+    pub target: ContributionTarget,
+    pub revision: u64,
+    pub conflict: bool,
+    pub contributions: Vec<EffectiveContribution>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct UpdateContributionTargetPreferencesRequest {
+    pub expected_revision: u64,
+    #[serde(default)]
+    pub ordered_contributions: Vec<ContributionRef>,
+    #[serde(default)]
+    pub disabled_contributions: Vec<ContributionRef>,
+}
+
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct EffectivePluginSnapshot {
-    pub contributions: Vec<PluginContribution>,
+    pub contributions: Vec<EffectiveContribution>,
+    #[serde(default)]
+    pub resolutions: Vec<ContributionTargetResolution>,
     pub generated_at: DateTime<Utc>,
 }
 
@@ -310,6 +381,7 @@ mod tests {
             requested_permissions: vec![THEME_CONTRIBUTION_PERMISSION.to_owned()],
             configuration_schema: None,
             contributions: vec![PluginContribution::UiTheme {
+                contribution_id: "uprava.theme-dark.theme".to_owned(),
                 contract_version: THEME_CONTRIBUTION_VERSION_V1,
                 contribution: ThemeContributionV1 {
                     theme_id: "uprava.dark".to_owned(),

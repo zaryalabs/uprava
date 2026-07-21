@@ -43,63 +43,210 @@
         {
           "contract_version": 1,
           "contribution": {
-            "color_scheme": "dark",
-            "kind": "dark",
-            "label": "Dark",
-            "monaco": {
-              "base": "vs-dark",
-              "colors": {
-                "editor.background": "#151814"
-              }
+            "contract_version": 1,
+            "contribution": {
+              "color_scheme": "dark",
+              "kind": "dark",
+              "label": "Dark",
+              "monaco": {
+                "base": "vs-dark",
+                "colors": {
+                  "editor.background": "#151814"
+                }
+              },
+              "semantic_tokens": {
+                "border.default": "#3a4038",
+                "border.strong": "#d7dbd1",
+                "content.inverse": "#111310",
+                "content.muted": "#a9ada3",
+                "content.primary": "#f1f2ec",
+                "editor.background": "#151814",
+                "editor.foreground": "#e5e9df",
+                "focus": "#f1f2ec",
+                "selection": "#355343",
+                "status.notice": "#b7a0ff",
+                "status.risk": "#ff777d",
+                "surface.background": "#111310",
+                "surface.muted": "#191c18",
+                "surface.raised": "#20241f",
+                "terminal.background": "#10130f",
+                "terminal.foreground": "#dce8dd"
+              },
+              "terminal": {
+                "colors": {
+                  "background": "#10130f"
+                }
+              },
+              "theme_id": "uprava.dark"
             },
-            "semantic_tokens": {
-              "border.default": "#3a4038",
-              "border.strong": "#d7dbd1",
-              "content.inverse": "#111310",
-              "content.muted": "#a9ada3",
-              "content.primary": "#f1f2ec",
-              "editor.background": "#151814",
-              "editor.foreground": "#e5e9df",
-              "focus": "#f1f2ec",
-              "selection": "#355343",
-              "status.notice": "#b7a0ff",
-              "status.risk": "#ff777d",
-              "surface.background": "#111310",
-              "surface.muted": "#191c18",
-              "surface.raised": "#20241f",
-              "terminal.background": "#10130f",
-              "terminal.foreground": "#dce8dd"
-            },
-            "terminal": {
-              "colors": {
-                "background": "#10130f"
-              }
-            },
-            "theme_id": "uprava.dark"
+            "contribution_id": "uprava.theme-dark.theme",
+            "kind": "ui_theme"
           },
-          "kind": "ui_theme"
+          "contribution_id": "uprava.theme-dark.theme",
+          "effective_state": "available",
+          "extension_point": "ui.theme",
+          "plugin_id": "uprava.theme-dark",
+          "plugin_version": "1.1.0",
+          "target": {
+            "kind": "ui_theme",
+            "theme_id": "uprava.dark"
+          }
         },
         {
           "contract_version": 1,
           "contribution": {
-            "accepted_source_kinds": [
-              "chat.assistant_message"
-            ],
-            "allowed_surfaces": [
-              "session.timeline"
-            ],
-            "fallback_strategy": "plain_text",
-            "implementation_id": "uprava.markdown.v1",
-            "render_scopes": [
-              "content_enhancement"
-            ],
-            "renderer_id": "uprava.markdown.chat",
-            "renderer_kind": "content"
+            "contract_version": 1,
+            "contribution": {
+              "accepted_source_kinds": [
+                "chat.assistant_message"
+              ],
+              "allowed_surfaces": [
+                "session.timeline"
+              ],
+              "fallback_strategy": "plain_text",
+              "implementation_id": "uprava.markdown.v1",
+              "render_scopes": [
+                "content_enhancement"
+              ],
+              "renderer_id": "uprava.markdown.chat",
+              "renderer_kind": "content"
+            },
+            "contribution_id": "uprava.markdown.chat",
+            "kind": "visual_renderer"
           },
-          "kind": "visual_renderer"
+          "contribution_id": "uprava.markdown.chat",
+          "effective_state": "available",
+          "extension_point": "visual.renderer",
+          "plugin_id": "uprava.markdown",
+          "plugin_version": "1.1.0",
+          "target": {
+            "kind": "visual_renderer",
+            "render_scope": "content_enhancement",
+            "source_kind": "chat.assistant_message",
+            "surface": "session.timeline"
+          }
+        },
+        {
+          "contract_version": 1,
+          "contribution": {
+            "contract_version": 1,
+            "contribution": {
+              "accepted_source_kinds": [
+                "chat.assistant_message"
+              ],
+              "allowed_surfaces": [
+                "session.timeline"
+              ],
+              "fallback_strategy": "plain_text",
+              "implementation_id": "uprava.plain-text.v1",
+              "render_scopes": [
+                "content_enhancement"
+              ],
+              "renderer_id": "uprava.plain-text.chat",
+              "renderer_kind": "content"
+            },
+            "contribution_id": "uprava.plain-text.chat",
+            "kind": "visual_renderer"
+          },
+          "contribution_id": "uprava.plain-text.chat",
+          "effective_state": "available",
+          "extension_point": "visual.renderer",
+          "plugin_id": "uprava.plain-text",
+          "plugin_version": "1.0.0",
+          "target": {
+            "kind": "visual_renderer",
+            "render_scope": "content_enhancement",
+            "source_kind": "chat.assistant_message",
+            "surface": "session.timeline"
+          }
         }
       ],
-      "generated_at": "2026-07-10T12:00:00Z"
+      "generated_at": "2026-07-10T12:00:00Z",
+      "resolutions": [
+        {
+          "conflict": true,
+          "contributions": [
+            {
+              "contract_version": 1,
+              "contribution": {
+                "contract_version": 1,
+                "contribution": {
+                  "accepted_source_kinds": [
+                    "chat.assistant_message"
+                  ],
+                  "allowed_surfaces": [
+                    "session.timeline"
+                  ],
+                  "fallback_strategy": "plain_text",
+                  "implementation_id": "uprava.markdown.v1",
+                  "render_scopes": [
+                    "content_enhancement"
+                  ],
+                  "renderer_id": "uprava.markdown.chat",
+                  "renderer_kind": "content"
+                },
+                "contribution_id": "uprava.markdown.chat",
+                "kind": "visual_renderer"
+              },
+              "contribution_id": "uprava.markdown.chat",
+              "effective_state": "available",
+              "extension_point": "visual.renderer",
+              "plugin_id": "uprava.markdown",
+              "plugin_version": "1.1.0",
+              "target": {
+                "kind": "visual_renderer",
+                "render_scope": "content_enhancement",
+                "source_kind": "chat.assistant_message",
+                "surface": "session.timeline"
+              }
+            },
+            {
+              "contract_version": 1,
+              "contribution": {
+                "contract_version": 1,
+                "contribution": {
+                  "accepted_source_kinds": [
+                    "chat.assistant_message"
+                  ],
+                  "allowed_surfaces": [
+                    "session.timeline"
+                  ],
+                  "fallback_strategy": "plain_text",
+                  "implementation_id": "uprava.plain-text.v1",
+                  "render_scopes": [
+                    "content_enhancement"
+                  ],
+                  "renderer_id": "uprava.plain-text.chat",
+                  "renderer_kind": "content"
+                },
+                "contribution_id": "uprava.plain-text.chat",
+                "kind": "visual_renderer"
+              },
+              "contribution_id": "uprava.plain-text.chat",
+              "effective_state": "available",
+              "extension_point": "visual.renderer",
+              "plugin_id": "uprava.plain-text",
+              "plugin_version": "1.0.0",
+              "target": {
+                "kind": "visual_renderer",
+                "render_scope": "content_enhancement",
+                "source_kind": "chat.assistant_message",
+                "surface": "session.timeline"
+              }
+            }
+          ],
+          "extension_point": "visual.renderer",
+          "mode": "exclusive",
+          "revision": 0,
+          "target": {
+            "kind": "visual_renderer",
+            "render_scope": "content_enhancement",
+            "source_kind": "chat.assistant_message",
+            "surface": "session.timeline"
+          },
+          "target_id": "renderer-target-fixture"
+        }
+      ]
     },
     "plugins": {
       "items": [
@@ -155,6 +302,7 @@
                   },
                   "theme_id": "uprava.dark"
                 },
+                "contribution_id": "uprava.theme-dark.theme",
                 "kind": "ui_theme"
               }
             ],
@@ -170,7 +318,7 @@
               "ui.theme.contribute"
             ],
             "trust_level": "data_only",
-            "version": "1.0.0"
+            "version": "1.1.0"
           },
           "updated_at": "2026-07-10T12:00:00Z"
         },
@@ -206,6 +354,7 @@
                   "renderer_id": "uprava.markdown.chat",
                   "renderer_kind": "content"
                 },
+                "contribution_id": "uprava.markdown.chat",
                 "kind": "visual_renderer"
               }
             ],
@@ -216,6 +365,58 @@
             "manifest_hash": "sha256:markdown-plugin-fixture",
             "manifest_version": 1,
             "plugin_id": "uprava.markdown",
+            "publisher": "Uprava",
+            "requested_permissions": [
+              "visual.renderer.contribute"
+            ],
+            "trust_level": "trusted_bundled",
+            "version": "1.1.0"
+          },
+          "updated_at": "2026-07-10T12:00:00Z"
+        },
+        {
+          "compatibility": {
+            "diagnostics": [],
+            "state": "compatible"
+          },
+          "configuration_revision": 0,
+          "desired_state": "enabled",
+          "effective_state": "active",
+          "granted_permissions": [
+            "visual.renderer.contribute"
+          ],
+          "installed_at": "2026-07-10T12:00:00Z",
+          "last_error_code": null,
+          "package": {
+            "contributions": [
+              {
+                "contract_version": 1,
+                "contribution": {
+                  "accepted_source_kinds": [
+                    "chat.assistant_message"
+                  ],
+                  "allowed_surfaces": [
+                    "session.timeline"
+                  ],
+                  "fallback_strategy": "plain_text",
+                  "implementation_id": "uprava.plain-text.v1",
+                  "render_scopes": [
+                    "content_enhancement"
+                  ],
+                  "renderer_id": "uprava.plain-text.chat",
+                  "renderer_kind": "content"
+                },
+                "contribution_id": "uprava.plain-text.chat",
+                "kind": "visual_renderer"
+              }
+            ],
+            "description": "Bundled readable fallback renderer for agent chat messages.",
+            "discovered_at": "2026-07-10T12:00:00Z",
+            "display_name": "Plain Text Renderer",
+            "install_source": "bundled",
+            "manifest_hash": "sha256:plain-text-plugin-fixture",
+            "manifest_version": 1,
+            "plugin_id": "uprava.plain-text",
             "publisher": "Uprava",
             "requested_permissions": [
               "visual.renderer.contribute"

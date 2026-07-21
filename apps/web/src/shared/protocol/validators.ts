@@ -591,6 +591,7 @@ export const pluginContributionSchema = z.discriminatedUnion("kind", [
   z
     .object({
       kind: z.literal("ui_theme"),
+      contribution_id: z.string(),
       contract_version: z.number().int().positive(),
       contribution: z
         .object({
@@ -610,6 +611,7 @@ export const pluginContributionSchema = z.discriminatedUnion("kind", [
   z
     .object({
       kind: z.literal("agent_tool"),
+      contribution_id: z.string(),
       contract_version: z.number().int().positive(),
       tool_id: z.string(),
     })
@@ -617,6 +619,7 @@ export const pluginContributionSchema = z.discriminatedUnion("kind", [
   z
     .object({
       kind: z.literal("visual_renderer"),
+      contribution_id: z.string(),
       contract_version: z.number().int().positive(),
       contribution: z
         .object({
@@ -634,6 +637,7 @@ export const pluginContributionSchema = z.discriminatedUnion("kind", [
   z
     .object({
       kind: z.literal("artifact_type"),
+      contribution_id: z.string(),
       contract_version: z.number().int().positive(),
       artifact_type_id: z.string(),
       display_name: z.string(),
@@ -696,9 +700,51 @@ export const pluginListResponseSchema = z
   .object({ items: z.array(pluginInstallationSummarySchema) })
   .strict() satisfies z.ZodType<PluginListResponse>;
 
+export const contributionTargetSchema = z.discriminatedUnion("kind", [
+  z.object({ kind: z.literal("ui_theme"), theme_id: z.string() }).strict(),
+  z
+    .object({
+      kind: z.literal("visual_renderer"),
+      source_kind: z.string(),
+      surface: z.string(),
+      render_scope: z.literal("content_enhancement"),
+    })
+    .strict(),
+]);
+
+export const contributionRefSchema = z
+  .object({ plugin_id: z.string(), contribution_id: z.string() })
+  .strict();
+
+export const effectiveContributionSchema = z
+  .object({
+    plugin_id: z.string(),
+    plugin_version: z.string(),
+    contribution_id: z.string(),
+    extension_point: z.string(),
+    contract_version: z.number().int().positive(),
+    target: contributionTargetSchema,
+    effective_state: z.enum(["available", "disabled"]),
+    contribution: pluginContributionSchema,
+  })
+  .strict();
+
+export const contributionTargetResolutionSchema = z
+  .object({
+    target_id: z.string(),
+    extension_point: z.string(),
+    mode: z.enum(["exclusive", "ordered"]),
+    target: contributionTargetSchema,
+    revision: z.number().int().nonnegative(),
+    conflict: z.boolean(),
+    contributions: z.array(effectiveContributionSchema),
+  })
+  .strict();
+
 export const effectivePluginSnapshotSchema = z
   .object({
-    contributions: z.array(pluginContributionSchema),
+    contributions: z.array(effectiveContributionSchema),
+    resolutions: z.array(contributionTargetResolutionSchema),
     generated_at: z.string(),
   })
   .strict() satisfies z.ZodType<EffectivePluginSnapshot>;

@@ -1,6 +1,7 @@
 use uprava_protocol::{
-    PluginCompatibilityState, PluginContribution, PluginDesiredState, PluginEffectiveState,
-    PluginId,
+    ContributionRef, EffectiveContributionState, PluginCompatibilityState, PluginContribution,
+    PluginDesiredState, PluginEffectiveState, PluginId, PluginManifest,
+    UpdateContributionTargetPreferencesRequest,
 };
 
 use super::*;
@@ -14,12 +15,51 @@ async fn bundled_plugins_should_bootstrap_idempotently() {
         .expect("second bootstrap succeeds");
     let plugins = list_plugins(&state).await.expect("plugins load");
 
-    assert_eq!(plugins.items.len(), 2);
+    assert_eq!(plugins.items.len(), 3);
     let latest_migration: i64 = sqlx::query_scalar("select max(version) from schema_migrations")
         .fetch_one(&state.pool)
         .await
         .expect("migration version loads");
-    assert_eq!(latest_migration, 13);
+    assert_eq!(latest_migration, 14);
+}
+
+#[tokio::test]
+async fn bundled_upgrade_should_preserve_desired_state() {
+    let state = test_state().await;
+    let mut manifest: PluginManifest = serde_json::from_str(include_str!(
+        "../../../bundled-plugins/uprava.markdown/manifest.json"
+    ))
+    .expect("manifest parses");
+    manifest.plugin_id = PluginId::from("uprava.upgrade-fixture");
+    manifest.version = "1.0.0".to_owned();
+    let PluginContribution::VisualRenderer {
+        contribution_id,
+        contribution,
+        ..
+    } = &mut manifest.contributions[0]
+    else {
+        panic!("fixture contains a visual renderer");
+    };
+    *contribution_id = "uprava.upgrade-fixture.chat".to_owned();
+    contribution.renderer_id = "uprava.upgrade-fixture.chat".to_owned();
+    contribution.implementation_id = "uprava.upgrade-fixture.v1".to_owned();
+    register_bundled_plugin(&state, &manifest, PluginDesiredState::Enabled)
+        .await
+        .expect("old package registers");
+    set_plugin_desired_state(&state, &manifest.plugin_id, PluginDesiredState::Disabled)
+        .await
+        .expect("fixture disables");
+    manifest.version = "1.1.0".to_owned();
+
+    register_bundled_plugin(&state, &manifest, PluginDesiredState::Enabled)
+        .await
+        .expect("new package registers");
+    let installation = load_plugin_installation(&state, &manifest.plugin_id)
+        .await
+        .expect("upgraded installation loads");
+
+    assert_eq!(installation.package.version, "1.1.0");
+    assert_eq!(installation.desired_state, PluginDesiredState::Disabled);
 }
 
 #[tokio::test]
@@ -50,6 +90,95 @@ async fn dark_theme_should_bootstrap_disabled() {
 }
 
 #[tokio::test]
+async fn exclusive_renderer_target_should_have_stable_visible_conflict() {
+    let state = test_state().await;
+    let snapshot = effective_plugin_snapshot(&state)
+        .await
+        .expect("snapshot loads");
+    let resolution = snapshot
+        .resolutions
+        .first()
+        .expect("renderer target resolves");
+
+    assert!(resolution.conflict);
+    assert_eq!(
+        resolution.contributions[0].plugin_id,
+        "uprava.markdown".into()
+    );
+    assert_eq!(
+        resolution.contributions[1].plugin_id,
+        "uprava.plain-text".into()
+    );
+}
+
+#[tokio::test]
+async fn contribution_preferences_should_reorder_and_disable_candidates() {
+    let state = test_state().await;
+    let snapshot = effective_plugin_snapshot(&state)
+        .await
+        .expect("snapshot loads");
+    let resolution = snapshot.resolutions.first().expect("target exists");
+    let markdown = ContributionRef {
+        plugin_id: PluginId::from("uprava.markdown"),
+        contribution_id: "uprava.markdown.chat".to_owned(),
+    };
+    let plain_text = ContributionRef {
+        plugin_id: PluginId::from("uprava.plain-text"),
+        contribution_id: "uprava.plain-text.chat".to_owned(),
+    };
+
+    update_contribution_target_preferences(
+        &state,
+        &resolution.target_id,
+        UpdateContributionTargetPreferencesRequest {
+            expected_revision: 0,
+            ordered_contributions: vec![plain_text, markdown.clone()],
+            disabled_contributions: vec![markdown],
+        },
+    )
+    .await
+    .expect("preferences update");
+    let updated = effective_plugin_snapshot(&state)
+        .await
+        .expect("updated snapshot loads");
+    let updated = updated.resolutions.first().expect("target remains");
+
+    assert_eq!(updated.revision, 1);
+    assert_eq!(
+        updated.contributions[0].plugin_id,
+        PluginId::from("uprava.plain-text")
+    );
+    assert_eq!(
+        updated.contributions[1].effective_state,
+        EffectiveContributionState::Disabled
+    );
+    assert!(!updated.conflict);
+}
+
+#[tokio::test]
+async fn contribution_preferences_should_reject_stale_revision() {
+    let state = test_state().await;
+    let snapshot = effective_plugin_snapshot(&state)
+        .await
+        .expect("snapshot loads");
+    let target_id = snapshot.resolutions[0].target_id.clone();
+    let request = UpdateContributionTargetPreferencesRequest {
+        expected_revision: 0,
+        ordered_contributions: Vec::new(),
+        disabled_contributions: Vec::new(),
+    };
+    update_contribution_target_preferences(&state, &target_id, request.clone())
+        .await
+        .expect("first update succeeds");
+
+    let error = update_contribution_target_preferences(&state, &target_id, request)
+        .await
+        .expect_err("stale update fails");
+
+    assert!(matches!(error, AppError::Conflict { .. }));
+}
+
+#[tokio::test]
 async fn plugin_enable_and_disable_should_change_effective_snapshot() {
     let state = test_state().await;
     let plugin_id = PluginId::from("uprava.theme-dark");
@@ -60,13 +189,7 @@ async fn plugin_enable_and_disable_should_change_effective_snapshot() {
     let enabled = effective_plugin_snapshot(&state)
         .await
         .expect("snapshot loads");
-    assert!(matches!(
-        enabled.contributions.as_slice(),
-        [
-            PluginContribution::VisualRenderer { .. },
-            PluginContribution::UiTheme { .. }
-        ]
-    ));
+    assert_eq!(enabled.contributions.len(), 3);
 
     set_plugin_desired_state(&state, &plugin_id, PluginDesiredState::Disabled)
         .await
@@ -74,10 +197,7 @@ async fn plugin_enable_and_disable_should_change_effective_snapshot() {
     let disabled = effective_plugin_snapshot(&state)
         .await
         .expect("snapshot loads");
-    assert!(matches!(
-        disabled.contributions.as_slice(),
-        [PluginContribution::VisualRenderer { .. }]
-    ));
+    assert_eq!(disabled.contributions.len(), 2);
 }
 
 #[tokio::test]

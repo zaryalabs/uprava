@@ -145,6 +145,10 @@ pub fn build_router(state: Arc<AppState>) -> Router {
         .route("/plugins/{plugin_id}/enable", post(enable_plugin_route))
         .route("/plugins/{plugin_id}/disable", post(disable_plugin_route))
         .route("/plugin-contributions", get(plugin_contributions_route))
+        .route(
+            "/plugin-contribution-targets/{target_id}",
+            put(update_plugin_contribution_preferences_route),
+        )
         .route("/references/resolve", post(resolve_reference_route))
         .route("/sessions/{session_thread_id}/stream", get(session_stream))
         .route(

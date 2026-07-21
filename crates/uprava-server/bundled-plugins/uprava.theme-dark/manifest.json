@@ -1,7 +1,7 @@
 {
   "manifest_version": 1,
   "plugin_id": "uprava.theme-dark",
-  "version": "1.0.0",
+  "version": "1.1.0",
   "display_name": "Dark Theme",
   "description": "Bundled data-only dark appearance for Uprava.",
   "publisher": "Uprava",
@@ -21,6 +21,7 @@
   "contributions": [
     {
       "kind": "ui_theme",
+      "contribution_id": "uprava.theme-dark.theme",
       "contract_version": 1,
       "contribution": {
         "theme_id": "uprava.dark",

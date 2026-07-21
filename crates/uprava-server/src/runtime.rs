@@ -34,7 +34,7 @@ use axum::{
     },
     middleware::{self, Next},
     response::{IntoResponse, Sse},
-    routing::{get, patch, post},
+    routing::{get, patch, post, put},
     Json, Router,
 };
 use chrono::{DateTime, Duration as ChronoDuration, Timelike, Utc};

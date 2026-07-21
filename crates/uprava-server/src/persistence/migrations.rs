@@ -912,6 +912,17 @@ pub(crate) const MIGRATION_13: &[&str] = &[
     "#,
 ];
 
+pub(crate) const MIGRATION_14: &[&str] = &[r#"
+    create table if not exists plugin_contribution_target_preferences (
+        target_id text primary key,
+        target_json text not null,
+        revision integer not null,
+        ordered_contributions_json text not null,
+        disabled_contributions_json text not null,
+        updated_at text not null
+    )
+    "#];
+
 pub(crate) const MIGRATIONS: &[Migration] = &[
     Migration {
         version: 1,
@@ -976,6 +987,11 @@ pub(crate) const MIGRATIONS: &[Migration] = &[
     Migration {
         version: 13,
         statements: MIGRATION_13,
+        ignore_duplicate_columns: false,
+    },
+    Migration {
+        version: 14,
+        statements: MIGRATION_14,
         ignore_duplicate_columns: false,
     },
 ];

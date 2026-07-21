@@ -574,6 +574,8 @@ pub enum AppError {
     NotFound { code: &'static str, message: String },
     #[error("bad request: {message}")]
     BadRequest { code: &'static str, message: String },
+    #[error("conflict: {message}")]
+    Conflict { code: &'static str, message: String },
     #[error("auth error: {message}")]
     Auth { code: &'static str, message: String },
     #[error("rate limited: {message}")]
@@ -590,6 +592,13 @@ impl AppError {
 
     pub(crate) fn bad_request(code: &'static str, message: impl Into<String>) -> Self {
         Self::BadRequest {
+            code,
+            message: message.into(),
+        }
+    }
+
+    pub(crate) fn conflict(code: &'static str, message: impl Into<String>) -> Self {
+        Self::Conflict {
             code,
             message: message.into(),
         }
@@ -670,6 +679,7 @@ impl IntoResponse for AppError {
             }
             Self::NotFound { code, message } => (StatusCode::NOT_FOUND, code, message, false),
             Self::BadRequest { code, message } => (StatusCode::BAD_REQUEST, code, message, false),
+            Self::Conflict { code, message } => (StatusCode::CONFLICT, code, message, false),
             Self::Auth { code, message } => (StatusCode::UNAUTHORIZED, code, message, false),
             Self::RateLimited { code, message } => {
                 (StatusCode::TOO_MANY_REQUESTS, code, message, true)

@@ -34,6 +34,8 @@ import type {
   PluginInstallationSummary,
   PluginListResponse,
   EffectivePluginSnapshot,
+  ContributionTargetResolution,
+  UpdateContributionTargetPreferencesRequest,
   ObservedCapabilitiesResponse,
   ProviderQuotaStatus,
   PersistDeductionResponse,
@@ -87,6 +89,7 @@ import {
   pluginInstallationSummarySchema,
   pluginListResponseSchema,
   effectivePluginSnapshotSchema,
+  contributionTargetResolutionSchema,
   observedCapabilitiesResponseSchema,
   toolAvailabilityResponseSchema,
   toolCallDetailSchema,
@@ -151,6 +154,22 @@ export async function apiPatch<T>(
     path,
     {
       method: "PATCH",
+      headers: { "content-type": "application/json" },
+      body: body === undefined ? undefined : JSON.stringify(body),
+    },
+    schema,
+  );
+}
+
+export async function apiPut<T>(
+  path: string,
+  body?: unknown,
+  schema?: ProtocolSchema<T>,
+): Promise<T> {
+  return apiRequest<T>(
+    path,
+    {
+      method: "PUT",
       headers: { "content-type": "application/json" },
       body: body === undefined ? undefined : JSON.stringify(body),
     },
@@ -382,6 +401,15 @@ export const coreApi = {
     apiGet<EffectivePluginSnapshot>(
       "/plugin-contributions",
       effectivePluginSnapshotSchema,
+    ),
+  updatePluginContributionTarget: (
+    targetId: string,
+    request: UpdateContributionTargetPreferencesRequest,
+  ) =>
+    apiPut<ContributionTargetResolution>(
+      `/plugin-contribution-targets/${encodeURIComponent(targetId)}`,
+      request,
+      contributionTargetResolutionSchema,
     ),
   enablePlugin: (pluginId: string) =>
     apiPost<PluginInstallationSummary>(

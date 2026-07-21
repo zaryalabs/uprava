@@ -293,6 +293,7 @@ pub(crate) fn scheduled_message_failure(error: &AppError) -> (String, String) {
     match error {
         AppError::NotFound { code, message }
         | AppError::BadRequest { code, message }
+        | AppError::Conflict { code, message }
         | AppError::Auth { code, message }
         | AppError::RateLimited { code, message }
         | AppError::Internal { code, message } => ((*code).to_owned(), message.clone()),

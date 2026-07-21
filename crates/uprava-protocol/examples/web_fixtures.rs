@@ -5,29 +5,30 @@ use serde::Serialize;
 use serde_json::{json, Map, Value};
 use uprava_protocol::{
     compute_tool_schema_hash, ActorRef, CommandAcceptedResponse, CommandKind, CommandState,
-    CorrelationId, EventEnvelope, EventId, EventKind, ExecuteToolRequest, ExecuteToolResponse,
-    InspectToolRequest, InspectToolResponse, IntegrationAuthState, IntegrationConnectRequest,
-    IntegrationConnectResponse, IntegrationConnectionSummary, IntegrationConnectionsResponse,
-    IntegrationDesiredState, IntegrationDisconnectRequest, IntegrationDisconnectResponse,
-    McpAccessLeaseClaims, McpAccessLeaseId, McpDependencyActualState, McpDependencyInstanceId,
-    McpDependencyStatus, McpDependencyStatusesResponse, MonacoThemeV1,
-    ObservedCapabilitiesResponse, ObservedCapability, ObservedCapabilityState, PluginCompatibility,
-    PluginCompatibilityState, PluginContribution, PluginDesiredState, PluginEffectiveState,
-    PluginId, PluginInstallSource, PluginInstallationSummary, PluginListResponse,
-    PluginPackageSummary, PluginTrustLevel, PolicyDecision, ProjectId, ProjectPlacementId,
-    ScopeRef, SearchToolsRequest, SearchToolsResponse, SessionThreadId, TerminalId,
-    TerminalThemeV1, ThemeColorScheme, ThemeContributionV1, ThemeKind, ToolAvailability,
-    ToolAvailabilityResponse, ToolAvailabilityState, ToolCallDetail, ToolCallId, ToolCallState,
-    ToolCallSummary, ToolCallsResponse, ToolDefinition, ToolDefinitionState,
-    ToolDefinitionsResponse, ToolExecutionKind, ToolId, ToolInvocationMode, ToolRedactionPolicy,
-    ToolResultEnvelope, ToolRiskLevel, ToolScope, ToolSearchFilters, ToolSearchResult,
-    ToolSourceId, ToolSourceKind, ToolingCommandPayloadV1, ToolingCommandV1, ToolingEventPayloadV1,
-    ToolingEventV1, VisualRenderScope, VisualRendererContributionV1, VisualRendererFallback,
-    VisualRendererKind, WorkspaceCommandHistoryItem, WorkspaceCommandHistoryResponse,
-    WorkspaceCommandIntent, WorkspaceCommandRunResponse, WorkspaceTerminalListResponse,
-    WorkspaceTerminalOpenResponse, WorkspaceTerminalOutputFrame, WorkspaceTerminalState,
-    WorkspaceTerminalStreamFrame, WorkspaceTerminalSummary, TOOLING_CONTRACT_VERSION_V1,
-    UPRAVA_MCP_LEASE_AUDIENCE,
+    ContributionResolutionMode, ContributionTarget, ContributionTargetResolution, CorrelationId,
+    EffectiveContribution, EffectiveContributionState, EventEnvelope, EventId, EventKind,
+    ExecuteToolRequest, ExecuteToolResponse, InspectToolRequest, InspectToolResponse,
+    IntegrationAuthState, IntegrationConnectRequest, IntegrationConnectResponse,
+    IntegrationConnectionSummary, IntegrationConnectionsResponse, IntegrationDesiredState,
+    IntegrationDisconnectRequest, IntegrationDisconnectResponse, McpAccessLeaseClaims,
+    McpAccessLeaseId, McpDependencyActualState, McpDependencyInstanceId, McpDependencyStatus,
+    McpDependencyStatusesResponse, MonacoThemeV1, ObservedCapabilitiesResponse, ObservedCapability,
+    ObservedCapabilityState, PluginCompatibility, PluginCompatibilityState, PluginContribution,
+    PluginDesiredState, PluginEffectiveState, PluginId, PluginInstallSource,
+    PluginInstallationSummary, PluginListResponse, PluginPackageSummary, PluginTrustLevel,
+    PolicyDecision, ProjectId, ProjectPlacementId, ScopeRef, SearchToolsRequest,
+    SearchToolsResponse, SessionThreadId, TerminalId, TerminalThemeV1, ThemeColorScheme,
+    ThemeContributionV1, ThemeKind, ToolAvailability, ToolAvailabilityResponse,
+    ToolAvailabilityState, ToolCallDetail, ToolCallId, ToolCallState, ToolCallSummary,
+    ToolCallsResponse, ToolDefinition, ToolDefinitionState, ToolDefinitionsResponse,
+    ToolExecutionKind, ToolId, ToolInvocationMode, ToolRedactionPolicy, ToolResultEnvelope,
+    ToolRiskLevel, ToolScope, ToolSearchFilters, ToolSearchResult, ToolSourceId, ToolSourceKind,
+    ToolingCommandPayloadV1, ToolingCommandV1, ToolingEventPayloadV1, ToolingEventV1,
+    VisualRenderScope, VisualRendererContributionV1, VisualRendererFallback, VisualRendererKind,
+    WorkspaceCommandHistoryItem, WorkspaceCommandHistoryResponse, WorkspaceCommandIntent,
+    WorkspaceCommandRunResponse, WorkspaceTerminalListResponse, WorkspaceTerminalOpenResponse,
+    WorkspaceTerminalOutputFrame, WorkspaceTerminalState, WorkspaceTerminalStreamFrame,
+    WorkspaceTerminalSummary, TOOLING_CONTRACT_VERSION_V1, UPRAVA_MCP_LEASE_AUDIENCE,
 };
 
 fn main() {
@@ -188,6 +189,7 @@ struct PluginContractFixture {
 
 fn plugin_contract_fixture(at: chrono::DateTime<Utc>) -> PluginContractFixture {
     let theme_contribution = PluginContribution::UiTheme {
+        contribution_id: "uprava.theme-dark.theme".to_owned(),
         contract_version: 1,
         contribution: ThemeContributionV1 {
             theme_id: "uprava.dark".to_owned(),
@@ -223,7 +225,7 @@ fn plugin_contract_fixture(at: chrono::DateTime<Utc>) -> PluginContractFixture {
     };
     let package = PluginPackageSummary {
         plugin_id: PluginId::from("uprava.theme-dark"),
-        version: "1.0.0".to_owned(),
+        version: "1.1.0".to_owned(),
         manifest_hash: "sha256:plugin-fixture".to_owned(),
         manifest_version: 1,
         display_name: "Dark Theme".to_owned(),
@@ -250,6 +252,7 @@ fn plugin_contract_fixture(at: chrono::DateTime<Utc>) -> PluginContractFixture {
         last_error_code: None,
     };
     let renderer_contribution = PluginContribution::VisualRenderer {
+        contribution_id: "uprava.markdown.chat".to_owned(),
         contract_version: 1,
         contribution: VisualRendererContributionV1 {
             renderer_id: "uprava.markdown.chat".to_owned(),
@@ -264,7 +267,7 @@ fn plugin_contract_fixture(at: chrono::DateTime<Utc>) -> PluginContractFixture {
     let renderer_installation = PluginInstallationSummary {
         package: PluginPackageSummary {
             plugin_id: PluginId::from("uprava.markdown"),
-            version: "1.0.0".to_owned(),
+            version: "1.1.0".to_owned(),
             manifest_hash: "sha256:markdown-plugin-fixture".to_owned(),
             manifest_version: 1,
             display_name: "Markdown Renderer".to_owned(),
@@ -288,12 +291,105 @@ fn plugin_contract_fixture(at: chrono::DateTime<Utc>) -> PluginContractFixture {
         updated_at: at,
         last_error_code: None,
     };
+    let plain_text_contribution = PluginContribution::VisualRenderer {
+        contribution_id: "uprava.plain-text.chat".to_owned(),
+        contract_version: 1,
+        contribution: VisualRendererContributionV1 {
+            renderer_id: "uprava.plain-text.chat".to_owned(),
+            implementation_id: "uprava.plain-text.v1".to_owned(),
+            renderer_kind: VisualRendererKind::Content,
+            accepted_source_kinds: vec!["chat.assistant_message".to_owned()],
+            render_scopes: vec![VisualRenderScope::ContentEnhancement],
+            allowed_surfaces: vec!["session.timeline".to_owned()],
+            fallback_strategy: VisualRendererFallback::PlainText,
+        },
+    };
+    let plain_text_installation = PluginInstallationSummary {
+        package: PluginPackageSummary {
+            plugin_id: PluginId::from("uprava.plain-text"),
+            version: "1.0.0".to_owned(),
+            manifest_hash: "sha256:plain-text-plugin-fixture".to_owned(),
+            manifest_version: 1,
+            display_name: "Plain Text Renderer".to_owned(),
+            description: "Bundled readable fallback renderer for agent chat messages.".to_owned(),
+            publisher: "Uprava".to_owned(),
+            install_source: PluginInstallSource::Bundled,
+            trust_level: PluginTrustLevel::TrustedBundled,
+            requested_permissions: vec!["visual.renderer.contribute".to_owned()],
+            contributions: vec![plain_text_contribution.clone()],
+            discovered_at: at,
+        },
+        desired_state: PluginDesiredState::Enabled,
+        effective_state: PluginEffectiveState::Active,
+        compatibility: PluginCompatibility {
+            state: PluginCompatibilityState::Compatible,
+            diagnostics: vec![],
+        },
+        configuration_revision: 0,
+        granted_permissions: vec!["visual.renderer.contribute".to_owned()],
+        installed_at: at,
+        updated_at: at,
+        last_error_code: None,
+    };
+    let theme_effective = EffectiveContribution {
+        plugin_id: PluginId::from("uprava.theme-dark"),
+        plugin_version: "1.1.0".to_owned(),
+        contribution_id: "uprava.theme-dark.theme".to_owned(),
+        extension_point: "ui.theme".to_owned(),
+        contract_version: 1,
+        target: ContributionTarget::UiTheme {
+            theme_id: "uprava.dark".to_owned(),
+        },
+        effective_state: EffectiveContributionState::Available,
+        contribution: theme_contribution,
+    };
+    let renderer_effective = EffectiveContribution {
+        plugin_id: PluginId::from("uprava.markdown"),
+        plugin_version: "1.1.0".to_owned(),
+        contribution_id: "uprava.markdown.chat".to_owned(),
+        extension_point: "visual.renderer".to_owned(),
+        contract_version: 1,
+        target: ContributionTarget::VisualRenderer {
+            source_kind: "chat.assistant_message".to_owned(),
+            surface: "session.timeline".to_owned(),
+            render_scope: VisualRenderScope::ContentEnhancement,
+        },
+        effective_state: EffectiveContributionState::Available,
+        contribution: renderer_contribution,
+    };
+    let plain_text_effective = EffectiveContribution {
+        plugin_id: PluginId::from("uprava.plain-text"),
+        plugin_version: "1.0.0".to_owned(),
+        contribution_id: "uprava.plain-text.chat".to_owned(),
+        extension_point: "visual.renderer".to_owned(),
+        contract_version: 1,
+        target: renderer_effective.target.clone(),
+        effective_state: EffectiveContributionState::Available,
+        contribution: plain_text_contribution,
+    };
     PluginContractFixture {
         plugins: PluginListResponse {
-            items: vec![theme_installation, renderer_installation],
+            items: vec![
+                theme_installation,
+                renderer_installation,
+                plain_text_installation,
+            ],
         },
         effective_snapshot: uprava_protocol::EffectivePluginSnapshot {
-            contributions: vec![theme_contribution, renderer_contribution],
+            contributions: vec![
+                theme_effective,
+                renderer_effective.clone(),
+                plain_text_effective.clone(),
+            ],
+            resolutions: vec![ContributionTargetResolution {
+                target_id: "renderer-target-fixture".to_owned(),
+                extension_point: "visual.renderer".to_owned(),
+                mode: ContributionResolutionMode::Exclusive,
+                target: renderer_effective.target.clone(),
+                revision: 0,
+                conflict: true,
+                contributions: vec![renderer_effective, plain_text_effective],
+            }],
             generated_at: at,
         },
     }

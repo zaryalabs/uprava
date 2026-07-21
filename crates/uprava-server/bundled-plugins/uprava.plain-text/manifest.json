@@ -1,9 +1,9 @@
 {
   "manifest_version": 1,
-  "plugin_id": "uprava.markdown",
-  "version": "1.1.0",
-  "display_name": "Markdown Renderer",
-  "description": "Bundled hardened Markdown rendering for agent chat messages.",
+  "plugin_id": "uprava.plain-text",
+  "version": "1.0.0",
+  "display_name": "Plain Text Renderer",
+  "description": "Bundled readable fallback renderer for agent chat messages.",
   "publisher": "Uprava",
   "license": null,
   "homepage": null,
@@ -21,11 +21,11 @@
   "contributions": [
     {
       "kind": "visual_renderer",
-      "contribution_id": "uprava.markdown.chat",
+      "contribution_id": "uprava.plain-text.chat",
       "contract_version": 1,
       "contribution": {
-        "renderer_id": "uprava.markdown.chat",
-        "implementation_id": "uprava.markdown.v1",
+        "renderer_id": "uprava.plain-text.chat",
+        "implementation_id": "uprava.plain-text.v1",
         "renderer_kind": "content",
         "accepted_source_kinds": ["chat.assistant_message"],
         "render_scopes": ["content_enhancement"],

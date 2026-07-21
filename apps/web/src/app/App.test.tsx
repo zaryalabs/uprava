@@ -192,6 +192,21 @@ describe("App routes", () => {
     ).toBeVisible();
     expect(await screen.findByText("Dark Theme")).toBeVisible();
     expect(await screen.findByText("Markdown Renderer")).toBeVisible();
+    expect(await screen.findByText("Plain Text Renderer")).toBeVisible();
+    expect(await screen.findByText("Conflict")).toBeVisible();
+    expect(screen.getByText("Winner")).toBeVisible();
+    fireEvent.click(
+      screen.getByRole("button", { name: "Move uprava.plain-text up" }),
+    );
+    await waitFor(() =>
+      expect(lastContributionPreferenceRequest).toMatchObject({
+        expected_revision: 0,
+        ordered_contributions: [
+          { plugin_id: "uprava.plain-text" },
+          { plugin_id: "uprava.markdown" },
+        ],
+      }),
+    );
     expect(screen.getByRole("radio", { name: /Light/ })).toBeChecked();
     fireEvent.click(screen.getByRole("radio", { name: /Dark/ }));
     await waitFor(() =>
@@ -466,6 +481,7 @@ function renderApp(path: string, options: { jobsFail?: boolean } = {}) {
   jobsShouldFail = options.jobsFail ?? false;
   workspaceReviewRequests = 0;
   pluginEnabled = true;
+  lastContributionPreferenceRequest = null;
   vi.stubGlobal("fetch", vi.fn(mockFetch));
   vi.stubGlobal("EventSource", MockEventSource);
   MockEventSource.reset();
@@ -526,9 +542,20 @@ let jobsRequests = 0;
 let jobsShouldFail = false;
 let workspaceReviewRequests = 0;
 let pluginEnabled = true;
+let lastContributionPreferenceRequest: unknown = null;
 
 async function mockFetch(input: RequestInfo | URL, init?: RequestInit) {
   const url = new URL(input.toString());
+  if (
+    url.pathname ===
+      "/api/v1/plugin-contribution-targets/renderer-target-fixture" &&
+    init?.method === "PUT"
+  ) {
+    lastContributionPreferenceRequest = JSON.parse(String(init.body));
+    return jsonResponse(
+      protocolFixtures.plugin_contract.effective_snapshot.resolutions[0],
+    );
+  }
   if (url.pathname === "/api/v1/sessions" && init?.method === "POST") {
     lastCreateSessionRequest = JSON.parse(String(init.body));
     createdSession = {
@@ -622,8 +649,10 @@ function responseForPath(pathname: string) {
         : {
             contributions:
               protocolFixtures.plugin_contract.effective_snapshot.contributions.filter(
-                (contribution) => contribution.kind !== "ui_theme",
+                (contribution) => contribution.contribution.kind !== "ui_theme",
               ),
+            resolutions:
+              protocolFixtures.plugin_contract.effective_snapshot.resolutions,
             generated_at: "2026-07-19T12:00:00Z",
           };
     case "/api/v1/node-enrollments":

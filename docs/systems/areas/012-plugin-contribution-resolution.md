@@ -1,6 +1,8 @@
 # A-012 Plugin Contribution Resolution
 
-Статус: `working-position`
+Статус: `implemented-baseline`
+
+Implementation baseline: `0.2.16`.
 
 Этот документ фиксирует минимальную общую механику разрешения plugin
 contributions. Она нужна до появления нескольких renderers, artifact viewers,
@@ -241,6 +243,14 @@ sandboxed iframe. Composition внутри sandbox не входит в перв
 Текущий Markdown renderer является первым acceptance case: второй renderer с
 тем же target должен появиться как видимый конфликт, порядок должен меняться
 пользователем, а результат не должен зависеть от порядка ответа Core.
+
+Реализация `0.2.16` использует bundled `uprava.markdown` и
+`uprava.plain-text`. Core нормализует каждую комбинацию `source_kind`, `surface`
+and `render_scope`, хранит атомарные revisioned preferences в
+`plugin_contribution_target_preferences` и публикует provenance-aware effective
+projection. Web Extension Host применяет persisted order, пропускает disabled or
+unknown implementations и при load/render failure переходит к следующей
+contribution до обязательного raw fallback.
 
 ## Не входит в первый contract
 

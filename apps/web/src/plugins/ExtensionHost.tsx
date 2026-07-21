@@ -18,8 +18,8 @@ import { coreApi } from "../shared/api/http-client";
 import { queryKeys } from "../shared/api/query-keys";
 import { logClientEvent } from "../shared/logging/client-logger";
 import type {
+  EffectivePluginSnapshot,
   ThemeContributionV1,
-  VisualRendererContributionV1,
 } from "../shared/protocol/types";
 import {
   cacheEffectiveTheme,
@@ -28,7 +28,6 @@ import {
   rememberSelectedTheme,
 } from "./appearance-preference";
 import {
-  CONTENT_RENDERER_CONTRACT_VERSION,
   type ContentRendererProps,
   type LazyContentRenderer,
 } from "./content-renderers";
@@ -38,6 +37,7 @@ import {
   normalizeTheme,
   THEME_CONTRACT_VERSION,
 } from "./themes";
+import { resolveVisualRendererChain } from "./contribution-resolution";
 
 type ThemeHostValue = {
   themes: ThemeContributionV1[];
@@ -60,11 +60,11 @@ const DEFAULT_THEME_HOST: ThemeHostValue = {
 const ThemeHostContext = createContext<ThemeHostValue>(DEFAULT_THEME_HOST);
 
 type ContentRendererHostValue = {
-  renderers: VisualRendererContributionV1[];
+  snapshot: EffectivePluginSnapshot | undefined;
 };
 
 const DEFAULT_CONTENT_RENDERER_HOST: ContentRendererHostValue = {
-  renderers: [],
+  snapshot: undefined,
 };
 
 const ContentRendererHostContext = createContext<ContentRendererHostValue>(
@@ -80,6 +80,14 @@ const bundledContentRenderers = new Map<string, LazyContentRenderer>([
       })),
     ),
   ],
+  [
+    "uprava.plain-text.v1",
+    lazy(() =>
+      import("./bundled/plain-text/PlainTextRenderer").then((module) => ({
+        default: module.PlainTextRenderer,
+      })),
+    ),
+  ],
 ]);
 
 export function ExtensionHostProvider({ children }: PropsWithChildren) {
@@ -91,13 +99,15 @@ export function ExtensionHostProvider({ children }: PropsWithChildren) {
   const themes = useMemo(() => {
     const resolved = [CORE_LIGHT_THEME];
     for (const item of contributions.data?.contributions ?? []) {
+      const declared = item.contribution;
       if (
-        item.kind !== "ui_theme" ||
+        item.effective_state !== "available" ||
+        declared.kind !== "ui_theme" ||
         item.contract_version !== THEME_CONTRACT_VERSION
       ) {
         continue;
       }
-      const theme = normalizeTheme(item.contribution);
+      const theme = normalizeTheme(declared.contribution);
       if (
         theme &&
         !resolved.some((current) => current.theme_id === theme.theme_id)
@@ -107,16 +117,6 @@ export function ExtensionHostProvider({ children }: PropsWithChildren) {
     }
     return resolved;
   }, [contributions.data?.contributions]);
-  const renderers = useMemo(
-    () =>
-      (contributions.data?.contributions ?? []).flatMap((item) =>
-        item.kind === "visual_renderer" &&
-        item.contract_version === CONTENT_RENDERER_CONTRACT_VERSION
-          ? [item.contribution]
-          : [],
-      ),
-    [contributions.data?.contributions],
-  );
   const effectiveTheme =
     themes.find((theme) => theme.theme_id === selectedThemeId) ??
     CORE_LIGHT_THEME;
@@ -154,8 +154,8 @@ export function ExtensionHostProvider({ children }: PropsWithChildren) {
     ],
   );
   const rendererValue = useMemo<ContentRendererHostValue>(
-    () => ({ renderers }),
-    [renderers],
+    () => ({ snapshot: contributions.data }),
+    [contributions.data],
   );
 
   return (
@@ -184,28 +184,68 @@ export function PluginContentRenderer({
   fallback: ReactNode;
 }) {
   const host = useContext(ContentRendererHostContext);
-  const registration = host.renderers.find(
-    (renderer) =>
-      renderer.renderer_kind === "content" &&
-      renderer.render_scopes.includes("content_enhancement") &&
-      renderer.accepted_source_kinds.includes(sourceKind) &&
-      renderer.allowed_surfaces.includes(surfaceId),
+  const candidates = resolveVisualRendererChain(
+    host.snapshot,
+    sourceKind,
+    surfaceId,
   );
-  if (!registration) {
-    return fallback;
-  }
-  const Renderer = bundledContentRenderers.get(registration.implementation_id);
-  if (!Renderer) {
-    return fallback;
-  }
+  const chainKey = candidates
+    .map((candidate) => `${candidate.plugin_id}:${candidate.contribution_id}`)
+    .join("|");
+  return (
+    <ExclusiveRendererChain
+      key={chainKey}
+      candidates={candidates}
+      content={content}
+      state={state}
+      sourceRef={sourceRef}
+      fallback={fallback}
+    />
+  );
+}
+
+function ExclusiveRendererChain({
+  candidates,
+  content,
+  state,
+  sourceRef,
+  fallback,
+}: ContentRendererProps & {
+  candidates: ReturnType<typeof resolveVisualRendererChain>;
+  fallback: ReactNode;
+}) {
+  const [failedCount, setFailedCount] = useState(0);
+  const available = candidates.flatMap((candidate) => {
+    if (candidate.contribution.kind !== "visual_renderer") return [];
+    const Renderer = bundledContentRenderers.get(
+      candidate.contribution.contribution.implementation_id,
+    );
+    return Renderer
+      ? [
+          {
+            Renderer,
+            rendererId: candidate.contribution.contribution.renderer_id,
+          },
+        ]
+      : [];
+  });
+  const selected = available[failedCount];
+  if (!selected) return fallback;
+
+  const rendererId = selected.rendererId;
   return (
     <RendererErrorBoundary
-      key={registration.renderer_id}
+      key={rendererId}
       fallback={fallback}
-      rendererId={registration.renderer_id}
+      rendererId={rendererId}
+      onFailure={() => setFailedCount((count) => count + 1)}
     >
       <Suspense fallback={fallback}>
-        <Renderer content={content} state={state} sourceRef={sourceRef} />
+        <selected.Renderer
+          content={content}
+          state={state}
+          sourceRef={sourceRef}
+        />
       </Suspense>
     </RendererErrorBoundary>
   );
@@ -215,6 +255,7 @@ class RendererErrorBoundary extends Component<
   PropsWithChildren<{
     fallback: ReactNode;
     rendererId: string;
+    onFailure: () => void;
   }>,
   { failed: boolean }
 > {
@@ -229,6 +270,7 @@ class RendererErrorBoundary extends Component<
       renderer_id: this.props.rendererId,
       component_stack: info.componentStack,
     });
+    this.props.onFailure();
   }
 
   render() {
