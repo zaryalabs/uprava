@@ -2,17 +2,22 @@
 set -eu
 
 repo=$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd)
+
+grep -q 'UPRAVA_TOOLHIVE_IMAGE:-uprava-toolhive:inactive' "$repo/ops/compose.yaml"
 tmp=$(mktemp -d)
 trap 'rm -rf "$tmp"' EXIT INT TERM
 install="$tmp/install"
 releases="$install/builds/releases"
-mkdir -p "$tmp/bin" "$releases/old" "$releases/new" "$install/scripts"
+mkdir -p "$tmp/bin" "$releases/old" "$releases/new" "$install/scripts" \
+    "$install/state/core" "$install/backups/pre-deploy/new"
 cp "$repo/ops/Makefile" "$install/Makefile"
 cp "$repo/ops/compose.yaml" "$install/compose.yaml"
+cp "$repo/scripts/backup-sqlite.sh" "$repo/scripts/verify-sqlite-backup.sh" "$install/scripts/"
 
 write_manifest() {
     release=$1
     sha=$2
+    profile=$3
     cat >"$releases/$release.env.release" <<EOF
 UPRAVA_RELEASE_ID=$release
 UPRAVA_RELEASE_SHA=$sha
@@ -24,16 +29,28 @@ UPRAVA_NODE_STATE_PATH=/var/lib/uprava-node/node.sqlite
 UPRAVA_AUTO_APPROVE_NODE_NAME='Zarya Server'
 UPRAVA_NODE_VERSION=0.2.7+$sha
 EOF
+    if [ "$profile" = toolhive ]; then
+        cat >>"$releases/$release.env.release" <<EOF
+UPRAVA_TOOLHIVE_PROFILE=toolhive
+UPRAVA_TOOLHIVE_STATE_DIR=state/toolhive
+UPRAVA_TOOLHIVE_VERSION=0.40.0
+UPRAVA_TOOLHIVE_CONFIG=/etc/uprava/toolhive.env
+EOF
+    fi
     printf '#!/bin/sh\nexit 0\n' >"$releases/$release/uprava-node"
     chmod 755 "$releases/$release/uprava-node"
 }
 
-write_manifest old aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
-write_manifest new bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb
+write_manifest old aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa legacy
+write_manifest new bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb toolhive
 
 cat >"$tmp/bin/docker" <<'SH'
 #!/bin/sh
+printf '%s\n' "$*" >>"${MOCK_DOCKER_LOG:?}"
 case " $* " in
+    *' exec -T toolhive thv version '*)
+        test "${MOCK_HEALTH:-fail}" = pass && printf '%s\n' 'ToolHive 0.40.0'
+        ;;
     *' exec -T '*) test "${MOCK_HEALTH:-fail}" = pass ;;
     *) exit 0 ;;
 esac
@@ -44,6 +61,7 @@ exit 0
 SH
 cat >"$tmp/bin/sudo" <<'SH'
 #!/bin/sh
+test "${1:-}" != chown || exit 0
 case "$1" in *=*) exec env "$@" ;; *) exec "$@" ;; esac
 SH
 cat >"$tmp/bin/curl" <<'SH'
@@ -56,22 +74,34 @@ esac
 SH
 chmod 755 "$tmp/bin/"*
 
+sqlite3 "$install/state/core/core.sqlite" \
+    "create table release_marker(value text not null); insert into release_marker values ('old');"
+"$repo/scripts/backup-sqlite.sh" "$install/state/core/core.sqlite" \
+    "$install/backups/pre-deploy/new/core.sqlite"
+(cd "$install/backups/pre-deploy/new" && sha256sum core.sqlite >core.sqlite.sha256)
+sqlite3 "$install/state/core/core.sqlite" "update release_marker set value = 'new';"
+
 ln -s "$releases/old.env.release" "$install/.env.release"
 ln -s "$releases/old" "$install/current"
 make -C "$install" --no-print-directory remember-current SUDO= RELEASES_DIR="$releases"
 ln -sfn "$releases/new.env.release" "$install/.env.release"
 ln -sfn "$releases/new" "$install/current"
 
-if PATH="$tmp/bin:$PATH" SUDO="$tmp/bin/sudo" MAKE=make INSTALL_DIR="$install" \
+if PATH="$tmp/bin:$PATH" MOCK_DOCKER_LOG="$tmp/docker.log" SUDO="$tmp/bin/sudo" MAKE=make INSTALL_DIR="$install" CORE_STATE_OWNER= \
     RELEASE_MANIFEST="$releases/new.env.release" UPRAVA_ROOT_PHASE=1 UPRAVA_DOMAIN=example.test \
     FINALIZE_RETRIES=1 bash "$repo/ci/finalize.sh" >"$tmp/finalize.log" 2>&1; then
     echo "Finalize unexpectedly accepted an unhealthy candidate" >&2
     exit 1
 fi
 
+test -L "$install/.env.release" || { cat "$tmp/finalize.log" >&2; exit 1; }
 test "$(readlink "$install/.env.release")" = "$releases/old.env.release"
 test "$(readlink "$install/current")" = "$releases/old"
 grep -q 'automatic rollback completed' "$tmp/finalize.log"
+test "$(sqlite3 "$install/state/core/core.sqlite" 'select value from release_marker')" = old
+rollback_compose=$(tail -n 1 "$tmp/docker.log")
+case "$rollback_compose" in *' compose '*' up -d --remove-orphans') ;; *) echo "Rollback did not reapply Compose" >&2; exit 1 ;; esac
+case "$rollback_compose" in *'--profile toolhive'*) echo "Legacy rollback kept the ToolHive profile" >&2; exit 1 ;; esac
 
 ln -sfn "$releases/new.env.release" "$install/.env.release"
 ln -sfn "$releases/new" "$install/current"
@@ -84,7 +114,7 @@ cat >"$install/scripts/prune-uprava-images.sh" <<'SH'
 exit 0
 SH
 chmod 755 "$install/scripts/"*
-if PATH="$tmp/bin:$PATH" MOCK_HEALTH=pass SUDO="$tmp/bin/sudo" MAKE=make INSTALL_DIR="$install" \
+if PATH="$tmp/bin:$PATH" MOCK_HEALTH=pass MOCK_DOCKER_LOG="$tmp/docker.log" SUDO="$tmp/bin/sudo" MAKE=make INSTALL_DIR="$install" CORE_STATE_OWNER= \
     RELEASE_MANIFEST="$releases/new.env.release" UPRAVA_ROOT_PHASE=1 UPRAVA_DOMAIN=example.test \
     FINALIZE_RETRIES=1 bash "$repo/ci/finalize.sh" >"$tmp/retention.log" 2>&1; then
     echo "Finalize unexpectedly accepted failed retention" >&2
@@ -98,7 +128,7 @@ test "$(readlink "$install/current")" = "$releases/new"
 rm -f "$install/.env.previous" "$install/previous"
 ln -sfn "$releases/new.env.release" "$install/.env.release"
 ln -sfn "$releases/new" "$install/current"
-if PATH="$tmp/bin:$PATH" SUDO="$tmp/bin/sudo" MAKE=make INSTALL_DIR="$install" \
+if PATH="$tmp/bin:$PATH" MOCK_DOCKER_LOG="$tmp/docker.log" SUDO="$tmp/bin/sudo" MAKE=make INSTALL_DIR="$install" CORE_STATE_OWNER= \
     RELEASE_MANIFEST="$releases/new.env.release" UPRAVA_ROOT_PHASE=1 UPRAVA_DOMAIN=example.test \
     FINALIZE_RETRIES=1 bash "$repo/ci/finalize.sh" >"$tmp/bootstrap.log" 2>&1; then
     echo "Finalize unexpectedly accepted an unhealthy first release" >&2

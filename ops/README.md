@@ -3,18 +3,22 @@
 Эти файлы устанавливаются с нуля автоматическим pipeline ветки `main`.
 Production-релизы не собираются и не активируются на сервере вручную.
 
-Фаза `deploy` проверяет стабильные host inputs в `/etc/uprava`, активирует
-manifest с закреплёнными digest, загружает Core/Web/Generated UI Builder,
+Фаза `deploy` проверяет стабильные host inputs в `/etc/uprava`, создаёт
+проверенный candidate-specific online backup Core SQLite, активирует manifest с
+закреплёнными digest, загружает Core/Web/ToolHive/Generated UI Builder,
 проверяет checksum
 извлечённого Node, запускает Compose и перезапускает принадлежащий продукту
 systemd unit. Перед переключением она сохраняет согласованные links активного
 release как rollback target. Она не проверяет health, не сбрасывает состояние и
 не удаляет артефакты. За operational readiness, автоматический возврат
 совместимого предыдущего release при failure и ограниченное удержание только
-артефактов Uprava отвечает отдельная фаза `finalize`. Если безопасного target
-нет, failed candidate останавливается и active links удаляются.
+артефактов Uprava отвечает отдельная фаза `finalize`. Rollback сначала
+проверяет checksum/integrity и восстанавливает pre-deploy Core state, поэтому
+старый Core не увидит неизвестные новые миграции. Если backup или безопасного
+target нет, failed candidate останавливается и active links удаляются.
 
 Для чистой установки нужны `/etc/uprava/core.env`, `/etc/uprava/node.env`,
+`/etc/uprava/toolhive.env`,
 пользователь `uprava`, Docker/Compose/systemd и общая сеть `platform`.
 Изменяемое состояние Core и Node хранится вне директорий релизов и не удаляется
 обычными релизами.

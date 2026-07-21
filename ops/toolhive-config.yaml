@@ -1,0 +1,4 @@
+secrets:
+  provider_type: encrypted
+  setup_completed: true
+disable_usage_metrics: true

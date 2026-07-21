@@ -8,29 +8,34 @@ RUN --mount=type=cache,target=/usr/local/cargo/registry,sharing=locked \
     cargo build --locked --release -p uprava-toolhive --bin uprava-toolhive \
     && cp /app/target/release/uprava-toolhive /app/uprava-toolhive
 
-FROM rust:1.88-bookworm@sha256:af306cfa71d987911a781c37b59d7d67d934f49684058f96cf72079c3626bfe0 AS toolhive
+FROM golang:1.26-bookworm@sha256:1ecb7edf62a0408027bd5729dfd6b1b8766e578e8df93995b225dfd0944eb651 AS toolhive
 ARG TARGETARCH
 ARG TOOLHIVE_VERSION=0.40.0
-RUN set -eu; \
-    case "$TARGETARCH" in \
-      amd64) checksum="01d7a8a12105cce01005104dee0b01424ff732371088065829dc2f2abec6267a" ;; \
-      arm64) checksum="778423ed74a418e45b8ffe8049ea7a6bd3a9be6d562392d4909c7cf756b98cf3" ;; \
-      *) echo "unsupported ToolHive architecture: $TARGETARCH" >&2; exit 1 ;; \
-    esac; \
-    archive="toolhive_${TOOLHIVE_VERSION}_linux_${TARGETARCH}.tar.gz"; \
-    curl --fail --location --proto '=https' --tlsv1.2 \
-      "https://github.com/stacklok/toolhive/releases/download/v${TOOLHIVE_VERSION}/${archive}" \
-      --output "/tmp/${archive}"; \
-    printf '%s  %s\n' "$checksum" "/tmp/${archive}" | sha256sum --check --strict; \
-    tar -xzf "/tmp/${archive}" -C /tmp thv; \
-    install -m 0755 /tmp/thv /usr/local/bin/thv
+ARG TOOLHIVE_COMMIT=505df835ed73790bb9be7db7944ec772dc136a0e
+ARG TOOLHIVE_SOURCE_SHA256=2e3d5dd2a9be6a98ca72a6fdcc5e2f07e5a359bd48680352b5ba987fbcdec5fa
+WORKDIR /toolhive
+RUN curl --fail --location --proto '=https' --tlsv1.2 \
+      "https://codeload.github.com/stacklok/toolhive/tar.gz/refs/tags/v${TOOLHIVE_VERSION}" \
+      --output /tmp/toolhive.tar.gz \
+    && printf '%s  %s\n' "$TOOLHIVE_SOURCE_SHA256" /tmp/toolhive.tar.gz \
+      | sha256sum --check --strict \
+    && tar -xzf /tmp/toolhive.tar.gz --strip-components=1 -C /toolhive
+COPY patches/toolhive/0001-headless-encrypted-secrets.patch /tmp/toolhive.patch
+RUN git apply --whitespace=error /tmp/toolhive.patch \
+    && CGO_ENABLED=0 GOOS=linux GOARCH="$TARGETARCH" \
+      go build -trimpath \
+      -ldflags "-s -w -X github.com/stacklok/toolhive/pkg/versions.Version=${TOOLHIVE_VERSION} -X github.com/stacklok/toolhive/pkg/versions.Commit=${TOOLHIVE_COMMIT} -X github.com/stacklok/toolhive/pkg/versions.BuildType=release" \
+      -o /usr/local/bin/thv ./cmd/thv
 
 FROM debian:bookworm-slim@sha256:60eac759739651111db372c07be67863818726f754804b8707c90979bda511df
-RUN install -d /var/lib/toolhive/.config /var/lib/toolhive/.local/share \
-        /var/lib/toolhive/.local/state /var/lib/toolhive/.local/logs
+RUN install -d -o 10002 -g 10002 /var/lib/toolhive/.config /var/lib/toolhive/.local/share \
+        /var/lib/toolhive/.local/state /var/lib/toolhive/.local/logs \
+    && install -d -o 0 -g 0 /usr/local/share/uprava
 COPY --from=builder --chown=0:0 /app/uprava-toolhive /usr/local/bin/uprava-toolhive
 COPY --from=toolhive --chown=0:0 /usr/local/bin/thv /usr/local/bin/thv
 COPY --from=builder --chown=0:0 /etc/ssl/certs/ca-certificates.crt /etc/ssl/certs/ca-certificates.crt
+COPY --chown=0:0 ops/toolhive-config.yaml /usr/local/share/uprava/toolhive-config.yaml
+COPY --chown=0:0 --chmod=0755 scripts/toolhive-entrypoint.sh /usr/local/bin/toolhive-entrypoint
 ENV HOME=/var/lib/toolhive \
     XDG_CONFIG_HOME=/var/lib/toolhive/.config \
     XDG_DATA_HOME=/var/lib/toolhive/.local/share \
@@ -41,4 +46,6 @@ ENV HOME=/var/lib/toolhive \
 EXPOSE 18081 18765
 HEALTHCHECK --interval=5s --timeout=4s --retries=20 \
     CMD ["uprava-toolhive", "healthcheck"]
+USER 10002:10002
+ENTRYPOINT ["toolhive-entrypoint"]
 CMD ["uprava-toolhive"]

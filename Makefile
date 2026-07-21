@@ -27,6 +27,8 @@ UPRAVA_CORE_IMAGE ?= $(IMAGE_NAMESPACE)/uprava-core:$(IMAGE_TAG)
 UPRAVA_WEB_IMAGE ?= $(IMAGE_NAMESPACE)/uprava-web:$(IMAGE_TAG)
 UPRAVA_GENERATED_UI_BUILDER_IMAGE ?= $(IMAGE_NAMESPACE)/uprava-generated-ui-builder:$(IMAGE_TAG)
 UPRAVA_NODE_IMAGE ?= $(IMAGE_NAMESPACE)/uprava-node:$(IMAGE_TAG)
+UPRAVA_TOOLHIVE_IMAGE ?= $(IMAGE_NAMESPACE)/uprava-toolhive:$(IMAGE_TAG)
+UPRAVA_TOOLHIVE_VERSION ?= 0.40.0
 UPRAVA_TASK_RUNTIME_IMAGE ?= $(IMAGE_NAMESPACE)/uprava-codex-runtime:$(IMAGE_TAG)
 UPRAVA_OPENSANDBOX_IMAGE ?= opensandbox/server:v0.2.2
 UPRAVA_TASK_RUNTIME_DEV_IMAGE ?= uprava/codex-runtime:0.2.19
@@ -40,10 +42,13 @@ BUILD_TIMESTAMP ?= $(shell date -u "+%Y-%m-%dT%H:%M:%SZ")
 ALLOW_UNRESOLVED_DIGESTS ?= 0
 UPRAVA_RELEASE_FAMILY ?= 0.2.0
 UPRAVA_CORE_STATE_DIR ?= state/core
+UPRAVA_TOOLHIVE_STATE_DIR ?= state/toolhive
 UPRAVA_CORE_CONFIG ?= /etc/uprava/core.env
 UPRAVA_NODE_CONFIG ?= /etc/uprava/node.env
+UPRAVA_TOOLHIVE_CONFIG ?= /etc/uprava/toolhive.env
 UPRAVA_NODE_STATE_PATH ?= /var/lib/uprava-node/node.sqlite
 UPRAVA_AUTO_APPROVE_NODE_NAME ?= Zarya Server
+UPRAVA_TOOLHIVE_PROFILE ?= toolhive
 INSTALL_DIR ?= /opt/apps/uprava
 SYSTEMD_UNIT_PATH ?= /etc/systemd/system/uprava-node.service
 SUDO ?=
@@ -92,6 +97,7 @@ build: ## Build releasable Core/Web/Generated UI images and Node artifact
 		apps/web
 	docker build -t "$(UPRAVA_GENERATED_UI_BUILDER_IMAGE)" -f Dockerfile.generated-ui-builder .
 	docker build --build-arg UPRAVA_GIT_SHA="$(GIT_SHA)" -t "$(UPRAVA_NODE_IMAGE)" -f Dockerfile.node .
+	docker build -t "$(UPRAVA_TOOLHIVE_IMAGE)" -f Dockerfile.toolhive .
 	docker build -t "$(UPRAVA_TASK_RUNTIME_IMAGE)" -f Dockerfile.codex-runtime .
 	docker pull "$(UPRAVA_OPENSANDBOX_IMAGE)"
 	scripts/extract-node-artifact.sh "$(UPRAVA_NODE_IMAGE)" "$(NODE_ARTIFACT_PATH)" >/dev/null
@@ -101,6 +107,8 @@ image-runtime: ## Run production images non-root with read-only filesystems
 	UPRAVA_WEB_IMAGE="$(UPRAVA_WEB_IMAGE)" \
 	UPRAVA_GENERATED_UI_BUILDER_IMAGE="$(UPRAVA_GENERATED_UI_BUILDER_IMAGE)" \
 	UPRAVA_NODE_IMAGE="$(UPRAVA_NODE_IMAGE)" \
+	UPRAVA_TOOLHIVE_IMAGE="$(UPRAVA_TOOLHIVE_IMAGE)" \
+	UPRAVA_TOOLHIVE_VERSION="$(UPRAVA_TOOLHIVE_VERSION)" \
 	UPRAVA_RELEASE_SHA="$(GIT_SHA)" \
 	scripts/check-image-runtime.sh
 
@@ -113,6 +121,7 @@ push: ## Push releasable artifacts and write release manifest
 	docker push "$(UPRAVA_WEB_IMAGE)"
 	docker push "$(UPRAVA_GENERATED_UI_BUILDER_IMAGE)"
 	docker push "$(UPRAVA_NODE_IMAGE)"
+	docker push "$(UPRAVA_TOOLHIVE_IMAGE)"
 	docker push "$(UPRAVA_TASK_RUNTIME_IMAGE)"
 	$(MAKE) --no-print-directory release-manifest
 
@@ -125,15 +134,20 @@ release-manifest: ## Write builds/releases/<release-id>.env.release
 	UPRAVA_WEB_IMAGE="$(UPRAVA_WEB_IMAGE)" \
 	UPRAVA_GENERATED_UI_BUILDER_IMAGE="$(UPRAVA_GENERATED_UI_BUILDER_IMAGE)" \
 	UPRAVA_NODE_IMAGE="$(UPRAVA_NODE_IMAGE)" \
+	UPRAVA_TOOLHIVE_IMAGE="$(UPRAVA_TOOLHIVE_IMAGE)" \
+	UPRAVA_TOOLHIVE_VERSION="$(UPRAVA_TOOLHIVE_VERSION)" \
 	UPRAVA_TASK_RUNTIME_IMAGE="$(UPRAVA_TASK_RUNTIME_IMAGE)" \
 	UPRAVA_OPENSANDBOX_IMAGE="$(UPRAVA_OPENSANDBOX_IMAGE)" \
 	UPRAVA_NODE_VERSION="$(UPRAVA_NODE_VERSION)" \
 	UPRAVA_RELEASE_FAMILY="$(UPRAVA_RELEASE_FAMILY)" \
 	UPRAVA_CORE_STATE_DIR="$(UPRAVA_CORE_STATE_DIR)" \
+	UPRAVA_TOOLHIVE_STATE_DIR="$(UPRAVA_TOOLHIVE_STATE_DIR)" \
 	UPRAVA_CORE_CONFIG="$(UPRAVA_CORE_CONFIG)" \
 	UPRAVA_NODE_CONFIG="$(UPRAVA_NODE_CONFIG)" \
+	UPRAVA_TOOLHIVE_CONFIG="$(UPRAVA_TOOLHIVE_CONFIG)" \
 	UPRAVA_NODE_STATE_PATH="$(UPRAVA_NODE_STATE_PATH)" \
 	UPRAVA_AUTO_APPROVE_NODE_NAME="$(UPRAVA_AUTO_APPROVE_NODE_NAME)" \
+	UPRAVA_TOOLHIVE_PROFILE="$(UPRAVA_TOOLHIVE_PROFILE)" \
 	NODE_ARTIFACT_PATH="$(NODE_ARTIFACT_PATH)" \
 	ALLOW_UNRESOLVED_DIGESTS="$(ALLOW_UNRESOLVED_DIGESTS)" \
 	scripts/write_release_manifest.sh
@@ -147,6 +161,7 @@ install-ops: ## Bootstrap product-owned directories and ops files
 	$(SUDO) install -d -o root -g root -m 755 "$(INSTALL_DIR)"
 	$(SUDO) install -d -o root -g root -m 755 "$(INSTALL_DIR)/builds/releases"
 	$(SUDO) install -d -o 10001 -g 10001 -m 750 "$(INSTALL_DIR)/state/core"
+	$(SUDO) install -d -o 10002 -g 10002 -m 700 "$(INSTALL_DIR)/state/toolhive"
 	$(SUDO) install -d -o root -g root -m 750 "$(INSTALL_DIR)/state/opensandbox"
 	$(SUDO) install -d -o root -g root -m 755 "$(INSTALL_DIR)/scripts" "$(INSTALL_DIR)/systemd"
 	$(SUDO) install -d -o uprava -g uprava -m 700 /var/lib/uprava-node
@@ -250,7 +265,10 @@ web-install: ## Install web dependencies when web app exists
 	fi
 
 ops-config: ## Validate production ops Compose config
-	@cd ops && $(COMPOSE) -f compose.yaml config >/dev/null
+	@cd ops && UPRAVA_TOOLHIVE_CONFIG=toolhive.env.example \
+		$(COMPOSE) --env-file toolhive.env.example -f compose.yaml config >/dev/null
+	@cd ops && UPRAVA_TOOLHIVE_CONFIG=toolhive.env.example UPRAVA_TOOLHIVE_IMAGE=uprava-toolhive:test \
+		$(COMPOSE) --env-file toolhive.env.example --profile toolhive -f compose.yaml config >/dev/null
 
 systemd-check: ## Validate product-owned systemd unit template is present
 	@test -s ops/systemd/uprava-node.service.example

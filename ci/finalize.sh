@@ -46,9 +46,14 @@ source "$manifest"
 test -n "${UPRAVA_RELEASE_SHA:-}"
 test -n "${UPRAVA_NODE_VERSION:-}"
 test -n "${UPRAVA_AUTO_APPROVE_NODE_NAME:-}"
+test "${UPRAVA_TOOLHIVE_PROFILE:-}" = toolhive
+test "${UPRAVA_TOOLHIVE_VERSION:-}" = 0.40.0
+test "${UPRAVA_TOOLHIVE_CONFIG:-}" = /etc/uprava/toolhive.env
 
 domain=${UPRAVA_DOMAIN:-$("$sudo_cmd" awk -F= '$1 == "UPRAVA_DOMAIN" {print $2}' /etc/uprava/core.env)}
-compose=("$sudo_cmd" docker compose --env-file /etc/uprava/core.env --env-file "$install_dir/.env.release" -f "$install_dir/compose.yaml")
+compose=("$sudo_cmd" docker compose --env-file /etc/uprava/core.env \
+  --env-file "$UPRAVA_TOOLHIVE_CONFIG" --env-file "$install_dir/.env.release" \
+  --profile toolhive -f "$install_dir/compose.yaml")
 
 wait_until() {
   local description=$1
@@ -68,6 +73,16 @@ ci_set_stage core-web-health
 wait_until core "${compose[@]}" exec -T core uprava-server healthcheck 127.0.0.1:8080
 wait_until web "${compose[@]}" exec -T web wget -qO- http://127.0.0.1:8080/health
 
+toolhive_version_ready() {
+  local version_output
+  version_output=$("${compose[@]}" exec -T toolhive thv version 2>/dev/null) || return 1
+  grep -Fq "$UPRAVA_TOOLHIVE_VERSION" <<<"$version_output"
+}
+
+ci_set_stage toolhive-readiness
+wait_until toolhive "${compose[@]}" exec -T toolhive uprava-toolhive healthcheck
+wait_until toolhive-version toolhive_version_ready
+
 ci_set_stage public-release
 wait_until public-health curl -fsS "https://${domain}/health"
 version_json=$(curl -fsS "https://${domain}/api/v1/version")
@@ -86,5 +101,6 @@ ci_set_stage retention
 "$sudo_cmd" "$install_dir/scripts/prune-uprava-images.sh"
 
 ci_set_stage summary
-printf 'release=%s core=healthy web=healthy node=%s node_version=%s\n' \
-  "$UPRAVA_RELEASE_SHA" "$UPRAVA_AUTO_APPROVE_NODE_NAME" "$UPRAVA_NODE_VERSION"
+printf 'release=%s core=healthy web=healthy toolhive=%s node=%s node_version=%s\n' \
+  "$UPRAVA_RELEASE_SHA" "$UPRAVA_TOOLHIVE_VERSION" \
+  "$UPRAVA_AUTO_APPROVE_NODE_NAME" "$UPRAVA_NODE_VERSION"

@@ -1,6 +1,41 @@
 name: uprava
 
 services:
+  toolhive:
+    profiles: [toolhive]
+    # The inactive fallback keeps rollback to a pre-ToolHive manifest parseable.
+    image: ${UPRAVA_TOOLHIVE_IMAGE:-uprava-toolhive:inactive}
+    container_name: uprava-toolhive
+    restart: unless-stopped
+    read_only: true
+    init: true
+    cap_drop: [ALL]
+    security_opt:
+      - no-new-privileges:true
+    group_add:
+      - ${UPRAVA_DOCKER_GID:?UPRAVA_DOCKER_GID is required}
+    tmpfs:
+      - /tmp:rw,noexec,nosuid,nodev,size=64m
+    env_file:
+      - path: ${UPRAVA_TOOLHIVE_CONFIG:-/etc/uprava/toolhive.env}
+        required: true
+    environment:
+      RUST_LOG: ${UPRAVA_TOOLHIVE_RUST_LOG:-info}
+    ports:
+      - 127.0.0.1:18081:18081
+      - 127.0.0.1:18765:18765
+    volumes:
+      - ./${UPRAVA_TOOLHIVE_STATE_DIR:-state/toolhive}:/var/lib/toolhive
+      - /var/run/docker.sock:/var/run/docker.sock
+    healthcheck:
+      test: ["CMD", "uprava-toolhive", "healthcheck"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
+    networks:
+      - toolhive-private
+
   opensandbox:
     image: ${UPRAVA_OPENSANDBOX_IMAGE:-opensandbox/server:v0.2.2}
     container_name: uprava-opensandbox
@@ -150,3 +185,5 @@ networks:
     internal: true
   platform:
     external: true
+  toolhive-private:
+    driver: bridge

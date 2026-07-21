@@ -5,6 +5,8 @@ set -eu
 : "${UPRAVA_WEB_IMAGE:?set UPRAVA_WEB_IMAGE}"
 : "${UPRAVA_GENERATED_UI_BUILDER_IMAGE:?set UPRAVA_GENERATED_UI_BUILDER_IMAGE}"
 : "${UPRAVA_NODE_IMAGE:?set UPRAVA_NODE_IMAGE}"
+: "${UPRAVA_TOOLHIVE_IMAGE:?set UPRAVA_TOOLHIVE_IMAGE}"
+: "${UPRAVA_TOOLHIVE_VERSION:?set UPRAVA_TOOLHIVE_VERSION}"
 : "${UPRAVA_RELEASE_SHA:?set UPRAVA_RELEASE_SHA}"
 
 suffix=$$
@@ -13,12 +15,13 @@ core="uprava-runtime-core-$suffix"
 web="uprava-runtime-web-$suffix"
 generated_ui_builder="uprava-runtime-generated-ui-builder-$suffix"
 node="uprava-runtime-node-$suffix"
+toolhive="uprava-runtime-toolhive-$suffix"
 core_port=${UPRAVA_RUNTIME_CORE_PORT:-39080}
 web_port=${UPRAVA_RUNTIME_WEB_PORT:-39081}
 generated_ui_builder_port=${UPRAVA_RUNTIME_GENERATED_UI_BUILDER_PORT:-39082}
 
 cleanup() {
-    docker rm -f "$node" "$web" "$core" "$generated_ui_builder" >/dev/null 2>&1 || true
+    docker rm -f "$toolhive" "$node" "$web" "$core" "$generated_ui_builder" >/dev/null 2>&1 || true
     docker network rm "$network" >/dev/null 2>&1 || true
 }
 trap cleanup EXIT INT TERM
@@ -92,6 +95,16 @@ docker run -d --name "$node" --network "$network" \
     -e UPRAVA_NODE_LOG_FILE=/var/lib/uprava-node/node.log \
     "$UPRAVA_NODE_IMAGE" >/dev/null
 
+docker_gid=$(stat -c '%g' /var/run/docker.sock)
+docker run -d --name "$toolhive" --network "$network" \
+    --read-only --cap-drop ALL --security-opt no-new-privileges \
+    --group-add "$docker_gid" \
+    --tmpfs /tmp:rw,noexec,nosuid,nodev,size=64m \
+    --tmpfs /var/lib/toolhive:rw,nosuid,nodev,size=64m,uid=10002,gid=10002 \
+    -v /var/run/docker.sock:/var/run/docker.sock \
+    -e TOOLHIVE_SECRETS_PASSWORD=runtime-check-only \
+    "$UPRAVA_TOOLHIVE_IMAGE" >/dev/null
+
 attempt=0
 until [ "$(docker inspect -f '{{.State.Status}}' "$node")" = running ] \
     && docker exec "$node" sh -c 'test -s /var/lib/uprava-node/node.log && test -s /var/lib/uprava-node/node.sqlite'; do
@@ -104,7 +117,22 @@ until [ "$(docker inspect -f '{{.State.Status}}' "$node")" = running ] \
     sleep 1
 done
 
-for container in "$core" "$web" "$generated_ui_builder" "$node"; do
+attempt=0
+until docker exec "$toolhive" uprava-toolhive healthcheck >/dev/null 2>&1; do
+    attempt=$((attempt + 1))
+    status=$(docker inspect -f '{{.State.Status}}' "$toolhive")
+    if [ "$status" = exited ] || [ "$attempt" -ge 30 ]; then
+        docker logs "$toolhive"
+        exit 1
+    fi
+    sleep 1
+done
+toolhive_version=$(docker exec "$toolhive" thv version)
+printf '%s\n' "$toolhive_version" | grep -Fq "$UPRAVA_TOOLHIVE_VERSION"
+docker exec "$toolhive" sh -c 'test -s /var/lib/toolhive/.config/toolhive/config.yaml'
+docker exec "$toolhive" sh -c 'test ! -w /usr/local/bin/thv && test ! -w /usr/local/bin/uprava-toolhive && test ! -w /usr/local/share/uprava/toolhive-config.yaml'
+
+for container in "$core" "$web" "$generated_ui_builder" "$node" "$toolhive"; do
     test "$(docker inspect -f '{{.HostConfig.ReadonlyRootfs}}' "$container")" = true
     test "$(docker inspect -f '{{.State.Status}}' "$container")" = running
     test "$(docker inspect -f '{{json .HostConfig.CapDrop}}' "$container")" = '["ALL"]'
@@ -113,5 +141,6 @@ test "$(docker inspect -f '{{.Config.User}}' "$core")" = uprava
 test "$(docker inspect -f '{{.Config.User}}' "$web")" = 101
 test "$(docker inspect -f '{{.Config.User}}' "$generated_ui_builder")" = node
 test "$(docker inspect -f '{{.Config.User}}' "$node")" = uprava
+test "$(docker inspect -f '{{.Config.User}}' "$toolhive")" = 10002:10002
 
 echo "Production image runtime check passed for $UPRAVA_RELEASE_SHA"

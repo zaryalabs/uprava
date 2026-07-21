@@ -5,10 +5,12 @@ repo=$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd)
 tmp=$(mktemp -d)
 trap 'rm -rf "$tmp"' EXIT INT TERM
 releases="$tmp/builds/releases"
-mkdir -p "$releases"
+backups="$tmp/backups/pre-deploy"
+mkdir -p "$releases" "$backups"
 
 for release in pruned-oldest active previous kept-second kept-newest; do
     mkdir -p "$releases/$release"
+    mkdir -p "$backups/$release"
     printf 'UPRAVA_RELEASE_ID=%s\n' "$release" >"$releases/$release.env.release"
     sleep 1
 done
@@ -23,5 +25,8 @@ test -f "$releases/previous.env.release"
 test -f "$releases/kept-second.env.release"
 test -f "$releases/kept-newest.env.release"
 test ! -e "$releases/pruned-oldest.env.release"
+test ! -e "$backups/pruned-oldest"
+test -d "$backups/active"
+test -d "$backups/previous"
 
 echo "Release retention preserves the active release and the newest bounded set"
