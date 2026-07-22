@@ -30,6 +30,62 @@ pub(crate) fn capabilities(config: &NodeConfig) -> Vec<CapabilitySummary> {
             },
         },
         CapabilitySummary {
+            key: ProviderRuntimeCapability::CodexExec.as_str().to_owned(),
+            value: CapabilityValue::Provider {
+                available: codex_available,
+                configured: true,
+                mode: "exec_compatibility".to_owned(),
+                timeout_seconds: Some(config.codex_timeout.as_secs()),
+                unavailable_reason: (!codex_available).then(|| "binary_not_found".to_owned()),
+            },
+        },
+        CapabilitySummary {
+            key: ProviderRuntimeCapability::CodexManaged.as_str().to_owned(),
+            value: CapabilityValue::Provider {
+                available: false,
+                configured: false,
+                mode: "managed".to_owned(),
+                timeout_seconds: None,
+                unavailable_reason: Some("managed_driver_not_implemented".to_owned()),
+            },
+        },
+        CapabilitySummary {
+            key: ProviderRuntimeCapability::CodexManagedApproval
+                .as_str()
+                .to_owned(),
+            value: CapabilityValue::Provider {
+                available: false,
+                configured: false,
+                mode: "managed".to_owned(),
+                timeout_seconds: None,
+                unavailable_reason: Some("managed_driver_not_implemented".to_owned()),
+            },
+        },
+        CapabilitySummary {
+            key: ProviderRuntimeCapability::CodexManagedInterrupt
+                .as_str()
+                .to_owned(),
+            value: CapabilityValue::Provider {
+                available: false,
+                configured: false,
+                mode: "managed".to_owned(),
+                timeout_seconds: None,
+                unavailable_reason: Some("managed_driver_not_implemented".to_owned()),
+            },
+        },
+        CapabilitySummary {
+            key: ProviderRuntimeCapability::CodexManagedResume
+                .as_str()
+                .to_owned(),
+            value: CapabilityValue::Provider {
+                available: false,
+                configured: false,
+                mode: "managed".to_owned(),
+                timeout_seconds: None,
+                unavailable_reason: Some("managed_driver_not_implemented".to_owned()),
+            },
+        },
+        CapabilitySummary {
             key: "workspace.validation".to_owned(),
             value: CapabilityValue::WorkspaceValidation {
                 mode: "explicit_path".to_owned(),

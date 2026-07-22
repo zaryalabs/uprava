@@ -1,4 +1,5 @@
 import type {
+  AGENT_EXECUTION_PROFILE_VALUES,
   CLIENT_LOG_LEVEL_VALUES,
   ACTION_CAPABILITY_VALUES,
   COMMAND_KIND_VALUES,
@@ -14,6 +15,11 @@ import type {
   PLACEMENT_STATE_VALUES,
   POLICY_DECISION_VALUES,
   RUNTIME_SESSION_STATE_VALUES,
+  RUNTIME_ATTEMPT_STATE_VALUES,
+  RUNTIME_RECOVERY_STATUS_VALUES,
+  PROVIDER_RUNTIME_CAPABILITY_VALUES,
+  PROVIDER_INTERACTION_KIND_VALUES,
+  PROVIDER_INTERACTION_STATE_VALUES,
   SCHEDULED_MESSAGE_STATE_VALUES,
   SESSION_THREAD_STATE_VALUES,
   TOOL_AVAILABILITY_STATE_VALUES,
@@ -33,6 +39,17 @@ import type {
 } from "./literals";
 
 export type DeploymentProfile = (typeof DEPLOYMENT_PROFILE_VALUES)[number];
+export type AgentExecutionProfile =
+  (typeof AGENT_EXECUTION_PROFILE_VALUES)[number];
+export type RuntimeAttemptState = (typeof RUNTIME_ATTEMPT_STATE_VALUES)[number];
+export type RuntimeRecoveryStatus =
+  (typeof RUNTIME_RECOVERY_STATUS_VALUES)[number];
+export type ProviderRuntimeCapability =
+  (typeof PROVIDER_RUNTIME_CAPABILITY_VALUES)[number];
+export type ProviderInteractionKind =
+  (typeof PROVIDER_INTERACTION_KIND_VALUES)[number];
+export type ProviderInteractionState =
+  (typeof PROVIDER_INTERACTION_STATE_VALUES)[number];
 export type NodePresence = (typeof NODE_PRESENCE_VALUES)[number];
 export type RuntimeSessionState = (typeof RUNTIME_SESSION_STATE_VALUES)[number];
 export type SessionThreadState = (typeof SESSION_THREAD_STATE_VALUES)[number];
@@ -422,13 +439,69 @@ export type WorkspaceTerminalStreamFrame =
       sent_at: string;
     };
 
+export type EffectiveRuntimePolicy = {
+  contract_version: number;
+  execution_profile: AgentExecutionProfile;
+  provider: string;
+  provider_version: string | null;
+  provider_capabilities: ProviderRuntimeCapability[];
+  sandbox_mode: "read-only" | "workspace-write" | "danger-full-access";
+  approval_mode: "untrusted" | "on_failure" | "on_request" | "never";
+  workspace_root: string;
+  additional_writable_paths: string[];
+  network_posture:
+    | "denied"
+    | "restricted"
+    | "allowed"
+    | "provider_default"
+    | "unsupported";
+  tool_exposure: {
+    server_count: number;
+    tool_count: number;
+    server_names: string[];
+  };
+  credential_profile_ref: string | null;
+  unsafe_override: {
+    actor: ActorRef;
+    reason: string;
+    expires_at: string;
+  } | null;
+  capability_metadata: Record<string, string>;
+};
+
+export type RuntimeAttemptSummary = {
+  runtime_attempt_id: string;
+  state: RuntimeAttemptState;
+  started_at: string;
+  ready_at: string | null;
+  stopped_at: string | null;
+  start_reason: string;
+  stop_reason: string | null;
+  recovery_reason: string | null;
+};
+
+export type ProviderInteractionSummary = {
+  provider_interaction_id: string;
+  runtime_attempt_id: string;
+  kind: ProviderInteractionKind;
+  state: ProviderInteractionState;
+  prompt: string;
+  requested_at: string;
+  resolved_at: string | null;
+};
+
 export type RuntimeSummary = {
   runtime_session_id: string;
   provider: string;
+  execution_profile?: AgentExecutionProfile;
   state: RuntimeSessionState;
   resume_supported: boolean;
   degraded_reason: string | null;
   last_runtime_step_at: string | null;
+  current_attempt?: RuntimeAttemptSummary | null;
+  effective_policy?: EffectiveRuntimePolicy | null;
+  effective_policy_hash?: string | null;
+  recovery_status?: RuntimeRecoveryStatus;
 };
 
 export type SessionSummary = {
@@ -475,6 +548,20 @@ export type EventEnvelope = {
 };
 
 export type EventPayload =
+  | {
+      type:
+        | "runtime_attempt_started"
+        | "runtime_attempt_ready"
+        | "runtime_attempt_disconnected"
+        | "runtime_attempt_reconnecting"
+        | "runtime_attempt_recovered"
+        | "runtime_attempt_failed";
+      runtime_attempt_id: string;
+      state: RuntimeAttemptState;
+      reason: string | null;
+      code: string | null;
+      message: string | null;
+    }
   | ({ type: RuntimeStatePayloadType } & RuntimeStateEventData)
   | { type: "runtime_error"; code: string; message: string }
   | { type: "turn_started" }
@@ -486,6 +573,22 @@ export type EventPayload =
       message: string | null;
     }
   | ({ type: "provider_activity" } & ProviderActivityEventData)
+  | {
+      type: "provider_interaction_requested";
+      provider_interaction_id: string;
+      runtime_attempt_id: string;
+      interaction_kind: ProviderInteractionKind;
+      prompt: string;
+      expires_at: string | null;
+    }
+  | {
+      type: "provider_interaction_resolved";
+      provider_interaction_id: string;
+      runtime_attempt_id: string;
+      interaction_kind: ProviderInteractionKind;
+      approved: boolean | null;
+      answers: string[];
+    }
   | { type: "provider_output_delta"; content: string }
   | { type: "provider_message_completed"; content: string }
   | {
@@ -501,6 +604,16 @@ export type EventPayload =
       approval_id: string;
       approved: boolean;
       message: string;
+    }
+  | {
+      type: "runtime_policy_effective";
+      policy: EffectiveRuntimePolicy | null;
+      policy_hash: string | null;
+    }
+  | {
+      type: "runtime_policy_override";
+      policy_hash: string | null;
+      policy_override: EffectiveRuntimePolicy["unsafe_override"];
     }
   | {
       type: "coordination_warning_acknowledged";
@@ -631,6 +744,7 @@ export type SessionDetail = {
   messages: Message[];
   events: EventEnvelope[];
   scheduled_messages?: ScheduledSessionMessage[];
+  pending_interactions?: ProviderInteractionSummary[];
 };
 
 export type ScheduledMessageFailure = {
@@ -665,6 +779,7 @@ export type CreateSessionRequest = {
   project_placement_id: string;
   title?: string;
   provider: string;
+  execution_profile?: AgentExecutionProfile;
   force?: boolean;
 };
 
@@ -1172,6 +1287,7 @@ export type AgentProjection = {
   runtime_summary: RuntimeSummary;
   current_turn: string | null;
   pending_approvals: string[];
+  pending_interactions?: ProviderInteractionSummary[];
   active_warnings: ResourceBadge[];
   recent_turn_summaries: string[];
   recent_message_refs: UpravaRef[];
@@ -1789,6 +1905,8 @@ export type PluginContractFixture = {
 
 export type ScopeRef =
   | { kind: "runtime"; runtime_session_id: string }
+  | { kind: "runtime_attempt"; runtime_attempt_id: string }
+  | { kind: "provider_interaction"; provider_interaction_id: string }
   | { kind: "session"; session_thread_id: string }
   | { kind: "node"; node_id: string }
   | { kind: "placement"; project_placement_id: string }

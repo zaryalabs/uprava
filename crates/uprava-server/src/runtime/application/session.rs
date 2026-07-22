@@ -37,8 +37,23 @@ pub(crate) async fn create_session_with_correlation(
     }
     ensure_node_commandable(state, &placement.node_id).await?;
     ensure_placement_startable(&placement)?;
-    ensure_node_supports_provider(state, &placement.node_id, &provider).await?;
+    let execution_profile = request.execution_profile.unwrap_or_default();
+    let provider_capabilities = ensure_node_supports_execution_profile(
+        state,
+        &placement.node_id,
+        &provider,
+        execution_profile,
+    )
+    .await?;
     ensure_provider_quota_admission(state, &provider, request.force, "session.start").await?;
+    let effective_policy = resolve_effective_runtime_policy(
+        &provider,
+        execution_profile,
+        &placement.workspace_path,
+        provider_capabilities,
+    );
+    let effective_policy_hash = effective_policy.policy_hash()?;
+    let effective_policy_json = serde_json::to_string(&effective_policy)?;
     let now = Utc::now();
     let session_thread_id = SessionThreadId::new();
     let runtime_session_id = RuntimeSessionId::new();
@@ -70,15 +85,20 @@ pub(crate) async fn create_session_with_correlation(
         insert into runtime_sessions (
             runtime_session_id, session_thread_id, provider, state,
             resume_supported, provider_resume_ref_json, degraded_reason,
-            last_runtime_step_at, created_at, updated_at
+            last_runtime_step_at, execution_profile, effective_policy_json,
+            effective_policy_hash, recovery_status, created_at, updated_at
         )
-        values (?1, ?2, ?3, 'starting', 1, null, null, ?4, ?4, ?4)
+        values (?1, ?2, ?3, 'starting', 1, null, null, ?4, ?5, ?6, ?7,
+                'not_required', ?4, ?4)
         "#,
     )
     .bind(runtime_session_id.as_str())
     .bind(session_thread_id.as_str())
     .bind(&provider)
     .bind(now)
+    .bind(format_execution_profile(execution_profile))
+    .bind(&effective_policy_json)
+    .bind(effective_policy_hash.as_str())
     .execute(&mut *aggregate_transaction)
     .await?;
     let command = CommandEnvelope {
@@ -98,6 +118,9 @@ pub(crate) async fn create_session_with_correlation(
         payload: CommandPayload::StartRuntime {
             provider: provider.clone(),
             workspace_path: placement.workspace_path,
+            execution_profile,
+            effective_policy: Some(effective_policy),
+            effective_policy_hash: Some(effective_policy_hash),
         },
     };
     record_command_on_connection(&mut aggregate_transaction, &command).await?;
@@ -105,6 +128,49 @@ pub(crate) async fn create_session_with_correlation(
     dispatch_pending_commands(state, command.target.node_id()).await?;
 
     load_session_detail(state, &session_thread_id).await
+}
+
+pub(crate) fn resolve_effective_runtime_policy(
+    provider: &str,
+    execution_profile: AgentExecutionProfile,
+    workspace_root: &str,
+    provider_capabilities: Vec<ProviderRuntimeCapability>,
+) -> EffectiveRuntimePolicy {
+    let (sandbox_mode, approval_mode, network_posture) = match execution_profile {
+        AgentExecutionProfile::Managed => (
+            ProviderSandboxMode::WorkspaceWrite,
+            ProviderApprovalMode::Untrusted,
+            RuntimeNetworkPosture::Unsupported,
+        ),
+        AgentExecutionProfile::ExecCompatibility => (
+            ProviderSandboxMode::DangerFullAccess,
+            ProviderApprovalMode::Never,
+            RuntimeNetworkPosture::ProviderDefault,
+        ),
+    };
+    EffectiveRuntimePolicy {
+        contract_version: 1,
+        execution_profile,
+        provider: provider.to_owned(),
+        provider_version: None,
+        provider_capabilities,
+        sandbox_mode,
+        approval_mode,
+        workspace_root: workspace_root.to_owned(),
+        additional_writable_paths: Vec::new(),
+        network_posture,
+        tool_exposure: RuntimeToolExposureSummary {
+            server_count: 0,
+            tool_count: 0,
+            server_names: Vec::new(),
+        },
+        credential_profile_ref: None,
+        unsafe_override: None,
+        capability_metadata: BTreeMap::from([(
+            "policy_source".to_owned(),
+            "core.foundation.v1".to_owned(),
+        )]),
+    }
 }
 
 pub(crate) async fn session_detail(
@@ -702,6 +768,28 @@ pub(crate) async fn deduction_scope_belongs_to_session(
     match scope_ref {
         UpravaRef::Session { session_thread_id } => Ok(session_thread_id == session_id),
         UpravaRef::Runtime { runtime_session_id } => Ok(runtime_session_id == runtime_id),
+        UpravaRef::RuntimeAttempt { runtime_attempt_id } => {
+            let count: i64 = sqlx::query_scalar(
+                "select count(*) from runtime_attempts where runtime_attempt_id = ?1 and runtime_session_id = ?2",
+            )
+            .bind(runtime_attempt_id.as_str())
+            .bind(runtime_id.as_str())
+            .fetch_one(&state.pool)
+            .await?;
+            Ok(count > 0)
+        }
+        UpravaRef::ProviderInteraction {
+            provider_interaction_id,
+        } => {
+            let count: i64 = sqlx::query_scalar(
+                "select count(*) from provider_interactions where provider_interaction_id = ?1 and session_thread_id = ?2",
+            )
+            .bind(provider_interaction_id.as_str())
+            .bind(session_id.as_str())
+            .fetch_one(&state.pool)
+            .await?;
+            Ok(count > 0)
+        }
         UpravaRef::Placement {
             placement_id: candidate,
         }

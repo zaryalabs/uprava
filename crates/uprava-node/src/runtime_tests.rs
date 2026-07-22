@@ -236,11 +236,17 @@ fn command_fixture_with_content(
         CommandKind::StartRuntime => CommandPayload::StartRuntime {
             provider: "codex".to_owned(),
             workspace_path: std::env::temp_dir().display().to_string(),
+            execution_profile: AgentExecutionProfile::ExecCompatibility,
+            effective_policy: None,
+            effective_policy_hash: None,
         },
         CommandKind::ResumeRuntime => CommandPayload::ResumeRuntime {
             provider: "codex".to_owned(),
             workspace_path: std::env::temp_dir().display().to_string(),
             provider_resume_ref: None,
+            execution_profile: AgentExecutionProfile::ExecCompatibility,
+            effective_policy: None,
+            effective_policy_hash: None,
         },
         CommandKind::SendTurn => CommandPayload::SendTurn {
             turn_id: TurnId::from("turn-1"),
@@ -248,11 +254,20 @@ fn command_fixture_with_content(
         },
         CommandKind::ResolveApproval => CommandPayload::ResolveApproval {
             approval_id: ApprovalId::from("approval-1"),
+            provider_interaction_id: None,
             approved: true,
             message: Some("approved".to_owned()),
         },
-        CommandKind::InterruptRuntime => CommandPayload::InterruptRuntime,
-        CommandKind::StopRuntime => CommandPayload::StopRuntime,
+        CommandKind::SubmitUserInput => CommandPayload::SubmitUserInput {
+            provider_interaction_id: ProviderInteractionId::from("interaction-1"),
+            answers: vec!["fixture".to_owned()],
+        },
+        CommandKind::InterruptRuntime => CommandPayload::InterruptRuntime {
+            runtime_attempt_id: None,
+        },
+        CommandKind::StopRuntime => CommandPayload::StopRuntime {
+            runtime_attempt_id: None,
+        },
         _ => CommandPayload::Extension {
             name: "test.fixture".to_owned(),
             value: JsonValue(serde_json::json!({})),

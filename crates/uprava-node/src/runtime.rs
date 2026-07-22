@@ -39,8 +39,6 @@ use tokio_tungstenite::{
     tungstenite::{client::IntoClientRequest, http::HeaderValue, Message as WsMessage},
 };
 use uprava_logging::init_tracing;
-#[cfg(test)]
-use uprava_protocol::CommandTarget;
 use uprava_protocol::{
     is_supported_protocol_version, serde_json_value::JsonValue, ActorRef, ApiError, ApprovalId,
     CapabilitySummary, CapabilityValue, CommandEnvelope, CommandId, CommandKind, CommandPayload,
@@ -52,14 +50,14 @@ use uprava_protocol::{
     NodeEnrollmentClaimRequest, NodeEnrollmentClaimResponse, NodeEnrollmentRequest,
     NodeEnrollmentRequestedResponse, NodeHeartbeatRequest, NodeHeartbeatResponse, NodeId,
     ObservedCapability, ObservedCapabilityState, PlacementState, PolicyDecision,
-    ProjectPlacementId, ProviderMcpAccess, ProviderMcpAccessRequest, ResourceBadge,
-    RuntimeSessionId, RuntimeSessionState, ScheduledMessageFailure, ScopeRef, SessionThreadId,
-    SleepHint, TaskArtifactEvidence, TaskCheckResult, TaskCleanupState, TaskRunResultPackage,
-    TaskRunSpec, TaskRunState, TerminalId, TextRange, ToolCallId, ToolDefinition,
-    ToolDefinitionState, ToolExecutionError, ToolExecutionErrorCode, ToolExecutionKind, ToolId,
-    ToolRedactionPolicy, ToolResultEnvelope, ToolRiskLevel, ToolSourceId, ToolSourceKind,
-    ToolhiveBridgeAuthorizationResponse, ToolhiveBridgeMcpRequest, ToolhiveBridgeMcpResponse,
-    ToolhiveBridgeVersionResponse, ToolhiveBridgeWorkloadRequest,
+    ProjectPlacementId, ProviderMcpAccess, ProviderMcpAccessRequest, ProviderRuntimeCapability,
+    ResourceBadge, RuntimeSessionId, RuntimeSessionState, ScheduledMessageFailure, ScopeRef,
+    SessionThreadId, SleepHint, TaskArtifactEvidence, TaskCheckResult, TaskCleanupState,
+    TaskRunResultPackage, TaskRunSpec, TaskRunState, TerminalId, TextRange, ToolCallId,
+    ToolDefinition, ToolDefinitionState, ToolExecutionError, ToolExecutionErrorCode,
+    ToolExecutionKind, ToolId, ToolRedactionPolicy, ToolResultEnvelope, ToolRiskLevel,
+    ToolSourceId, ToolSourceKind, ToolhiveBridgeAuthorizationResponse, ToolhiveBridgeMcpRequest,
+    ToolhiveBridgeMcpResponse, ToolhiveBridgeVersionResponse, ToolhiveBridgeWorkloadRequest,
     ToolhiveBridgeWorkloadStatusResponse, ToolingCommandPayloadV1, ToolingCommandV1,
     ToolingEventPayloadV1, ToolingEventV1, TurnId, UpravaRef, WarningSeverity,
     WorkspaceCommandIntent, WorkspaceCommandRunRequest, WorkspaceCommandRunResponse,
@@ -71,6 +69,8 @@ use uprava_protocol::{
     WorkspaceTreeResponse, CURRENT_PROTOCOL_VERSION as API_VERSION,
     TOOLHIVE_BRIDGE_CONTRACT_VERSION_V1, TOOLING_CONTRACT_VERSION_V1, TOOL_RESULT_MAX_BYTES,
 };
+#[cfg(test)]
+use uprava_protocol::{AgentExecutionProfile, CommandTarget, ProviderInteractionId};
 use uuid::Uuid;
 
 #[path = "config.rs"]

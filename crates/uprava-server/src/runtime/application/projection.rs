@@ -315,10 +315,16 @@ pub(crate) async fn load_sessions(state: &AppState) -> Result<Vec<SessionSummary
         r#"
         select st.session_thread_id, st.project_placement_id, st.runtime_session_id, st.title,
                st.state as session_state, st.updated_at, rs.provider, rs.state as runtime_state,
-               rs.resume_supported, rs.degraded_reason, rs.last_runtime_step_at,
+               rs.execution_profile, rs.resume_supported, rs.degraded_reason,
+               rs.last_runtime_step_at, rs.effective_policy_json, rs.effective_policy_hash,
+               rs.recovery_status, ra.runtime_attempt_id, ra.state as attempt_state,
+               ra.started_at as attempt_started_at, ra.ready_at as attempt_ready_at,
+               ra.stopped_at as attempt_stopped_at, ra.start_reason as attempt_start_reason,
+               ra.stop_reason as attempt_stop_reason, ra.recovery_reason as attempt_recovery_reason,
                (select count(*) from messages m where m.session_thread_id = st.session_thread_id) as message_count
         from session_threads st
         join runtime_sessions rs on rs.runtime_session_id = st.runtime_session_id
+        left join runtime_attempts ra on ra.runtime_attempt_id = rs.current_attempt_id
         order by st.updated_at desc
         "#,
     )
@@ -330,6 +336,31 @@ pub(crate) async fn load_sessions(state: &AppState) -> Result<Vec<SessionSummary
 pub(crate) fn row_to_session(row: sqlx::sqlite::SqliteRow) -> Result<SessionSummary, AppError> {
     let runtime_session_id =
         RuntimeSessionId::from(row.try_get::<String, _>("runtime_session_id")?);
+    let effective_policy_json: Option<String> = row.try_get("effective_policy_json")?;
+    let effective_policy = effective_policy_json
+        .as_deref()
+        .map(serde_json::from_str)
+        .transpose()?;
+    let effective_policy_hash: Option<String> = row.try_get("effective_policy_hash")?;
+    let current_attempt_id: Option<String> = row.try_get("runtime_attempt_id")?;
+    let current_attempt = current_attempt_id
+        .map(
+            |runtime_attempt_id| -> Result<RuntimeAttemptSummary, AppError> {
+                Ok(RuntimeAttemptSummary {
+                    runtime_attempt_id: RuntimeAttemptId::from(runtime_attempt_id),
+                    state: parse_runtime_attempt_state(
+                        row.try_get::<String, _>("attempt_state")?.as_str(),
+                    ),
+                    started_at: row.try_get("attempt_started_at")?,
+                    ready_at: row.try_get("attempt_ready_at")?,
+                    stopped_at: row.try_get("attempt_stopped_at")?,
+                    start_reason: row.try_get("attempt_start_reason")?,
+                    stop_reason: row.try_get("attempt_stop_reason")?,
+                    recovery_reason: row.try_get("attempt_recovery_reason")?,
+                })
+            },
+        )
+        .transpose()?;
     Ok(SessionSummary {
         session_thread_id: SessionThreadId::from(row.try_get::<String, _>("session_thread_id")?),
         project_placement_id: ProjectPlacementId::from(
@@ -341,10 +372,19 @@ pub(crate) fn row_to_session(row: sqlx::sqlite::SqliteRow) -> Result<SessionSumm
         runtime: RuntimeSummary {
             runtime_session_id,
             provider: row.try_get("provider")?,
+            execution_profile: parse_execution_profile(
+                row.try_get::<String, _>("execution_profile")?.as_str(),
+            ),
             state: parse_runtime_state(row.try_get::<String, _>("runtime_state")?.as_str()),
             resume_supported: row.try_get::<i64, _>("resume_supported")? != 0,
             degraded_reason: row.try_get("degraded_reason")?,
             last_runtime_step_at: row.try_get("last_runtime_step_at")?,
+            current_attempt,
+            effective_policy,
+            effective_policy_hash: effective_policy_hash.map(RuntimePolicyHash),
+            recovery_status: parse_runtime_recovery_status(
+                row.try_get::<String, _>("recovery_status")?.as_str(),
+            ),
         },
         message_count: row.try_get("message_count")?,
         updated_at: row.try_get("updated_at")?,
@@ -365,13 +405,66 @@ pub(crate) async fn load_session_detail(
     let messages = load_messages(state, session_id).await?;
     let events = load_events(state, session_id, 0).await?;
     let scheduled_messages = load_scheduled_messages(state, session_id).await?;
+    let pending_interactions = load_pending_provider_interactions(state, session_id).await?;
     Ok(SessionDetail {
         session,
         placement,
         messages,
         events,
         scheduled_messages,
+        pending_interactions,
     })
+}
+
+pub(crate) async fn load_pending_provider_interactions(
+    state: &AppState,
+    session_id: &SessionThreadId,
+) -> Result<Vec<ProviderInteractionSummary>, AppError> {
+    let rows = sqlx::query(
+        r#"
+        select provider_interaction_id, runtime_attempt_id, interaction_kind, state,
+               request_payload_json, requested_at, resolved_at
+        from provider_interactions
+        where session_thread_id = ?1 and state = 'requested'
+        order by requested_at, provider_interaction_id
+        "#,
+    )
+    .bind(session_id.as_str())
+    .fetch_all(&state.pool)
+    .await?;
+    rows.into_iter()
+        .map(|row| {
+            let request_payload_json: String = row.try_get("request_payload_json")?;
+            let request_payload: serde_json::Value = serde_json::from_str(&request_payload_json)?;
+            let interaction_kind = match row.try_get::<String, _>("interaction_kind")?.as_str() {
+                "user_input" => ProviderInteractionKind::UserInput,
+                _ => ProviderInteractionKind::Approval,
+            };
+            let state = match row.try_get::<String, _>("state")?.as_str() {
+                "resolved" => ProviderInteractionState::Resolved,
+                "expired" => ProviderInteractionState::Expired,
+                "cancelled" => ProviderInteractionState::Cancelled,
+                _ => ProviderInteractionState::Requested,
+            };
+            Ok(ProviderInteractionSummary {
+                provider_interaction_id: ProviderInteractionId::from(
+                    row.try_get::<String, _>("provider_interaction_id")?,
+                ),
+                runtime_attempt_id: RuntimeAttemptId::from(
+                    row.try_get::<String, _>("runtime_attempt_id")?,
+                ),
+                kind: interaction_kind,
+                state,
+                prompt: request_payload
+                    .get("prompt")
+                    .and_then(serde_json::Value::as_str)
+                    .unwrap_or_default()
+                    .to_owned(),
+                requested_at: row.try_get("requested_at")?,
+                resolved_at: row.try_get("resolved_at")?,
+            })
+        })
+        .collect()
 }
 
 pub(crate) async fn load_messages(
@@ -1307,6 +1400,12 @@ pub(crate) fn reference_title(reference: &UpravaRef) -> String {
         }
         UpravaRef::Session { session_thread_id } => format!("Session {session_thread_id}"),
         UpravaRef::Runtime { runtime_session_id } => format!("Runtime {runtime_session_id}"),
+        UpravaRef::RuntimeAttempt { runtime_attempt_id } => {
+            format!("Runtime attempt {runtime_attempt_id}")
+        }
+        UpravaRef::ProviderInteraction {
+            provider_interaction_id,
+        } => format!("Provider interaction {provider_interaction_id}"),
         UpravaRef::TaskRun { task_run_id } => format!("Task run {task_run_id}"),
         UpravaRef::Turn { turn_id } => format!("Turn {turn_id}"),
         UpravaRef::Message { message_id } | UpravaRef::MessageRange { message_id, .. } => {
@@ -1456,7 +1555,13 @@ pub(crate) async fn build_agent_projection(
     let available_commands = available_commands(
         detail.session.state,
         detail.session.runtime.state,
-        !pending_approvals.is_empty(),
+        PendingInteractionCapabilities {
+            approval: !pending_approvals.is_empty(),
+            user_input: detail
+                .pending_interactions
+                .iter()
+                .any(|interaction| interaction.kind == ProviderInteractionKind::UserInput),
+        },
         !active_warnings.is_empty(),
         node_accepts_commands(node_presence),
         placement_has_hard_block(&detail.placement),
@@ -1468,6 +1573,7 @@ pub(crate) async fn build_agent_projection(
         runtime_summary: detail.session.runtime,
         current_turn,
         pending_approvals,
+        pending_interactions: detail.pending_interactions,
         active_warnings,
         recent_turn_summaries,
         recent_message_refs,
@@ -1764,10 +1870,16 @@ pub(crate) fn source_cause_summary(events: &[EventEnvelope]) -> String {
     )
 }
 
+#[derive(Debug, Clone, Copy)]
+pub(crate) struct PendingInteractionCapabilities {
+    approval: bool,
+    user_input: bool,
+}
+
 pub(crate) fn available_commands(
     session_state: SessionThreadState,
     runtime_state: RuntimeSessionState,
-    has_pending_approvals: bool,
+    pending_interactions: PendingInteractionCapabilities,
     has_active_warnings: bool,
     node_accepts_commands: bool,
     placement_has_hard_block: bool,
@@ -1815,13 +1927,21 @@ pub(crate) fn available_commands(
     {
         commands.push(ActionCapability::RuntimeResume);
     }
-    if has_pending_approvals
+    if pending_interactions.approval
         && runtime_state == RuntimeSessionState::Blocked
         && node_accepts_commands
         && provider_available
         && session_is_attached
     {
         commands.push(ActionCapability::ApprovalResolve);
+    }
+    if pending_interactions.user_input
+        && runtime_state == RuntimeSessionState::Blocked
+        && node_accepts_commands
+        && provider_available
+        && session_is_attached
+    {
+        commands.push(ActionCapability::ProviderInteractionSubmitInput);
     }
     if has_active_warnings {
         commands.push(ActionCapability::WarningAcknowledge);

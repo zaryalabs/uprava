@@ -584,6 +584,14 @@ reference, но не process/socket/request ids. Потеря managed process с
 новый attempt и explicit provider resume or typed degraded recovery; она
 никогда не переключает runtime на Exec compatibility молча.
 
+Foundation `0.2.21` материализует эту границу в shared Rust/Web contracts и
+Core SQLite migration 18. Execution profile, policy snapshot/hash,
+RuntimeAttempt identity, recovery и pending provider interactions входят в
+session read model; capability admission остаётся Core-owned. До появления
+Node-managed driver managed capabilities публикуются как unavailable, поэтому
+работающий Agent и internal Jobs продолжают явный Exec compatibility path без
+изменения Task Run contract.
+
 ### Client отвечает за
 
 - human interaction;

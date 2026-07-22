@@ -240,6 +240,14 @@ pub fn build_router(state: Arc<AppState>) -> Router {
             post(resolve_approval_route),
         )
         .route(
+            "/sessions/{session_thread_id}/provider-interactions/{provider_interaction_id}/input",
+            post(submit_provider_input_route),
+        )
+        .route(
+            "/sessions/{session_thread_id}/provider-interactions/{provider_interaction_id}/approval",
+            post(resolve_provider_approval_route),
+        )
+        .route(
             "/sessions/{session_thread_id}/warnings/{warning_kind}/acknowledge",
             post(acknowledge_warning_route),
         )

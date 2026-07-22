@@ -1,6 +1,101 @@
 use super::*;
 
 #[tokio::test]
+async fn managed_attempt_and_interaction_events_round_trip_through_persistence() {
+    let state = test_state().await;
+    let (node_id, detail, workspace_path) = create_test_session(&state).await;
+    let attempt_id = "attempt-foundation-1";
+    let mut started = node_event_fixture(
+        &detail,
+        node_id.clone(),
+        "attempt-foundation-started",
+        1,
+        EventKind::RuntimeAttemptStarted,
+        json!({
+            "runtime_attempt_id": attempt_id,
+            "state": "starting",
+            "reason": "session_start",
+        }),
+    );
+    started.turn_id = None;
+    accept_node_event(&state, started)
+        .await
+        .expect("attempt event accepts");
+    let mut requested = node_event_fixture(
+        &detail,
+        node_id.clone(),
+        "interaction-foundation-requested",
+        2,
+        EventKind::ProviderInteractionRequested,
+        json!({
+            "provider_interaction_id": "interaction-foundation-1",
+            "runtime_attempt_id": attempt_id,
+            "interaction_kind": "user_input",
+            "prompt": "Choose a target",
+            "expires_at": null,
+        }),
+    );
+    requested.turn_id = None;
+    accept_node_event(&state, requested)
+        .await
+        .expect("interaction event accepts");
+    let projected = load_session_detail(&state, &detail.session.session_thread_id)
+        .await
+        .expect("session projection loads");
+
+    assert_eq!(
+        (
+            projected
+                .session
+                .runtime
+                .current_attempt
+                .as_ref()
+                .map(|attempt| attempt.runtime_attempt_id.as_str()),
+            projected.pending_interactions.first().map(|interaction| (
+                interaction.provider_interaction_id.as_str(),
+                interaction.kind,
+                interaction.prompt.as_str(),
+            )),
+        ),
+        (
+            Some(attempt_id),
+            Some((
+                "interaction-foundation-1",
+                ProviderInteractionKind::UserInput,
+                "Choose a target",
+            )),
+        )
+    );
+
+    let mut resolved = node_event_fixture(
+        &detail,
+        node_id,
+        "interaction-foundation-resolved",
+        3,
+        EventKind::ProviderInteractionResolved,
+        json!({
+            "provider_interaction_id": "interaction-foundation-1",
+            "runtime_attempt_id": attempt_id,
+            "interaction_kind": "user_input",
+            "approved": null,
+            "answers": ["workspace"],
+        }),
+    );
+    resolved.turn_id = None;
+    accept_node_event(&state, resolved)
+        .await
+        .expect("resolved interaction event accepts");
+    let pending_count: i64 =
+        sqlx::query_scalar("select count(*) from provider_interactions where state = 'requested'")
+            .fetch_one(&state.pool)
+            .await
+            .expect("pending interaction count loads");
+    std::fs::remove_dir_all(&workspace_path).expect("workspace dir removes");
+
+    assert_eq!(pending_count, 0);
+}
+
+#[tokio::test]
 async fn turn_events_update_durable_turn_state_and_blocked_approval() {
     let state = test_state().await;
     let (node_id, detail, workspace_path) = create_test_session(&state).await;
@@ -322,7 +417,7 @@ async fn send_turn_rejects_missing_provider_capability_without_recording_command
     assert!(matches!(
         result,
         Err(AppError::BadRequest {
-            code: "node.capability_missing",
+            code: "runtime.profile_capability_unavailable",
             ..
         })
     ));

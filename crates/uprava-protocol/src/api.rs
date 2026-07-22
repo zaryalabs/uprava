@@ -23,10 +23,15 @@ pub struct SessionSummary {
 pub struct RuntimeSummary {
     pub runtime_session_id: RuntimeSessionId,
     pub provider: String,
+    pub execution_profile: AgentExecutionProfile,
     pub state: RuntimeSessionState,
     pub resume_supported: bool,
     pub degraded_reason: Option<String>,
     pub last_runtime_step_at: Option<DateTime<Utc>>,
+    pub current_attempt: Option<RuntimeAttemptSummary>,
+    pub effective_policy: Option<EffectiveRuntimePolicy>,
+    pub effective_policy_hash: Option<RuntimePolicyHash>,
+    pub recovery_status: RuntimeRecoveryStatus,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -36,6 +41,8 @@ pub struct SessionDetail {
     pub messages: Vec<Message>,
     pub events: Vec<EventEnvelope>,
     pub scheduled_messages: Vec<ScheduledSessionMessage>,
+    #[serde(default)]
+    pub pending_interactions: Vec<ProviderInteractionSummary>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -97,6 +104,9 @@ pub struct CreateSessionRequest {
     pub project_placement_id: ProjectPlacementId,
     pub title: Option<String>,
     pub provider: String,
+    /// Missing remains Exec compatibility until the managed default-on gate.
+    #[serde(default)]
+    pub execution_profile: Option<AgentExecutionProfile>,
     #[serde(default)]
     pub force: bool,
 }
@@ -224,6 +234,11 @@ pub struct UpdateScheduledMessageRequest {
 pub struct ResolveApprovalRequest {
     pub approved: bool,
     pub message: Option<String>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct SubmitProviderInputRequest {
+    pub answers: Vec<String>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]

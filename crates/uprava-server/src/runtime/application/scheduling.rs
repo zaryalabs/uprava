@@ -1207,8 +1207,23 @@ pub(crate) async fn start_job_run(state: &AppState, run: &JobRunSummary) -> Resu
     let placement = load_placement(state, &snapshot.project_placement_id).await?;
     ensure_node_commandable(state, &placement.node_id).await?;
     ensure_placement_startable(&placement)?;
-    ensure_node_supports_provider(state, &placement.node_id, &snapshot.provider).await?;
+    let execution_profile = AgentExecutionProfile::ExecCompatibility;
+    let provider_capabilities = ensure_node_supports_execution_profile(
+        state,
+        &placement.node_id,
+        &snapshot.provider,
+        execution_profile,
+    )
+    .await?;
     ensure_provider_quota_admission(state, &snapshot.provider, run.force, "job.run").await?;
+    let effective_policy = resolve_effective_runtime_policy(
+        &snapshot.provider,
+        execution_profile,
+        &placement.workspace_path,
+        provider_capabilities,
+    );
+    let effective_policy_hash = effective_policy.policy_hash()?;
+    let effective_policy_json = serde_json::to_string(&effective_policy)?;
 
     let now = Utc::now();
     let session_thread_id = SessionThreadId::new();
@@ -1230,6 +1245,9 @@ pub(crate) async fn start_job_run(state: &AppState, run: &JobRunSummary) -> Resu
         payload: CommandPayload::StartRuntime {
             provider: snapshot.provider.clone(),
             workspace_path: placement.workspace_path,
+            execution_profile,
+            effective_policy: Some(effective_policy),
+            effective_policy_hash: Some(effective_policy_hash.clone()),
         },
     };
     let mut transaction = state.pool.begin().await?;
@@ -1256,12 +1274,14 @@ pub(crate) async fn start_job_run(state: &AppState, run: &JobRunSummary) -> Resu
     .execute(&mut *transaction)
     .await?;
     sqlx::query(
-        "insert into runtime_sessions (runtime_session_id, session_thread_id, provider, state, resume_supported, provider_resume_ref_json, degraded_reason, last_runtime_step_at, created_at, updated_at) values (?1, ?2, ?3, 'starting', 1, null, null, ?4, ?4, ?4)",
+        "insert into runtime_sessions (runtime_session_id, session_thread_id, provider, state, resume_supported, provider_resume_ref_json, degraded_reason, last_runtime_step_at, execution_profile, effective_policy_json, effective_policy_hash, recovery_status, created_at, updated_at) values (?1, ?2, ?3, 'starting', 1, null, null, ?4, 'exec_compatibility', ?5, ?6, 'not_required', ?4, ?4)",
     )
     .bind(runtime_session_id.as_str())
     .bind(session_thread_id.as_str())
     .bind(&snapshot.provider)
     .bind(now)
+    .bind(effective_policy_json)
+    .bind(effective_policy_hash.as_str())
     .execute(&mut *transaction)
     .await?;
     sqlx::query(

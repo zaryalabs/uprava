@@ -1,6 +1,6 @@
 # План реализации feature 16: Managed Agent Work Loop
 
-Статус: `in-progress` — этап 0 поставлен в `0.2.20`
+Статус: `in-progress` — этапы 0–1 поставлены в `0.2.20`–`0.2.21`
 
 Целевой delivery range: после implementation baseline `0.2.19`; фича может
 занять несколько последовательных SemVer slices. Точные версии назначаются при
@@ -292,6 +292,15 @@ interrupt and reconnect:
   workaround.
 
 ## Этап 1. Shared contracts, persistence and policy foundation
+
+Статус: `completed` в implementation baseline `0.2.21`.
+
+Shared Rust/Web vocabulary, typed command/event extensions, migration 18,
+immutable policy snapshot/hash, runtime attempts, provider interactions и
+profile-aware capability admission реализованы. Existing sessions и отсутствие
+profile сохраняют `exec_compatibility`; Node до этапа 2 объявляет managed
+capabilities unavailable, поэтому managed start получает typed rejection без
+fallback.
 
 ### Цель
 

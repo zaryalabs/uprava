@@ -13,6 +13,9 @@ async fn codex_start_runtime_records_provider_and_workspace_metadata() {
     command.payload = CommandPayload::StartRuntime {
         provider: "codex".to_owned(),
         workspace_path: workspace_path.clone(),
+        execution_profile: AgentExecutionProfile::ExecCompatibility,
+        effective_policy: None,
+        effective_policy_hash: None,
     };
     let mut local_state = NodeLocalState::default();
 

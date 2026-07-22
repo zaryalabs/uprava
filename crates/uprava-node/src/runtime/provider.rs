@@ -418,6 +418,7 @@ impl CodexProviderAdapter {
                     approval_id,
                     approved,
                     message,
+                    ..
                 } = &command.payload
                 else {
                     return vec![runtime_error_event(

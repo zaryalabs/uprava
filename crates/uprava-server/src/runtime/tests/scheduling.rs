@@ -559,6 +559,7 @@ async fn provider_quota_blocks_session_and_force_override_is_audited() {
         project_placement_id: detail.placement.project_placement_id.clone(),
         title: Some("Quota session".to_owned()),
         provider: "codex".to_owned(),
+        execution_profile: None,
         force,
     };
 

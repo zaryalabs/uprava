@@ -30,7 +30,9 @@ fn command_execution_key_prefers_runtime_then_placement() {
 async fn command_dispatch_rejects_payload_kind_mismatch_before_execution() {
     let config = config_fixture();
     let mut command = command_fixture("command-mismatch", CommandKind::SendTurn);
-    command.payload = CommandPayload::StopRuntime;
+    command.payload = CommandPayload::StopRuntime {
+        runtime_attempt_id: None,
+    };
     let mut local_state = NodeLocalState::default();
 
     let outcome = prepare_command_dispatch(&config, &mut local_state, &command).await;
