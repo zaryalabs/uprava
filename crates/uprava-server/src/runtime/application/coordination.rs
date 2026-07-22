@@ -111,6 +111,12 @@ pub(crate) async fn submit_provider_input_route(
             "Provider interaction does not accept typed user input",
         ));
     }
+    if interaction.state != ProviderInteractionState::Requested {
+        return Err(AppError::conflict(
+            "provider_interaction.already_resolving",
+            "Provider interaction already has a decision awaiting provider confirmation",
+        ));
+    }
     if request.answers.is_empty()
         || request
             .answers
@@ -122,44 +128,16 @@ pub(crate) async fn submit_provider_input_route(
             "At least one bounded answer is required",
         ));
     }
-    ensure_session_commandable(&state, &detail, CommandKind::SubmitUserInput).await?;
-    let command_id = CommandId::new();
-    record_and_dispatch_command(
+    let response = resolve_provider_interaction(
         &state,
-        CommandEnvelope {
-            command_id: command_id.clone(),
-            kind: CommandKind::SubmitUserInput,
-            target: CommandTarget::SessionRuntime {
-                node_id: detail.placement.node_id.clone(),
-                project_placement_id: detail.placement.project_placement_id.clone(),
-                session_thread_id: session_id.clone(),
-                runtime_session_id: detail.session.runtime.runtime_session_id.clone(),
-            },
-            actor_ref: ActorRef::local_user(),
-            source_refs: vec![],
-            cause_refs: vec![UpravaRef::Session {
-                session_thread_id: session_id.clone(),
-            }],
-            issued_at: Utc::now(),
-            correlation_id: request_correlation_id(&headers),
-            payload: CommandPayload::SubmitUserInput {
-                provider_interaction_id: interaction_id.clone(),
-                answers: request.answers,
-            },
-        },
+        &detail,
+        interaction_id,
+        interaction.runtime_attempt_id.clone(),
+        ProviderResolution::Input(request.answers),
+        request_correlation_id(&headers),
     )
     .await?;
-    sqlx::query(
-        "update provider_interactions set resolve_command_id = ?1 where provider_interaction_id = ?2 and state = 'requested'",
-    )
-    .bind(command_id.as_str())
-    .bind(interaction_id.as_str())
-    .execute(&state.pool)
-    .await?;
-    Ok(Json(CommandAcceptedResponse {
-        command_id,
-        session: Some(load_session_detail(&state, &session_id).await?),
-    }))
+    Ok(Json(response))
 }
 
 pub(crate) async fn resolve_provider_approval_route(
@@ -171,6 +149,16 @@ pub(crate) async fn resolve_provider_approval_route(
     let session_id = SessionThreadId::from(session_thread_id);
     let interaction_id = ProviderInteractionId::from(provider_interaction_id);
     let detail = load_session_detail(&state, &session_id).await?;
+    if request
+        .message
+        .as_ref()
+        .is_some_and(|message| message.chars().count() > 16_384)
+    {
+        return Err(AppError::bad_request(
+            "provider_interaction.message_too_large",
+            "Approval message exceeds the character limit",
+        ));
+    }
     let interaction = detail
         .pending_interactions
         .iter()
@@ -187,46 +175,170 @@ pub(crate) async fn resolve_provider_approval_route(
             "Provider interaction is not an approval request",
         ));
     }
-    ensure_session_commandable(&state, &detail, CommandKind::ResolveApproval).await?;
-    let command_id = CommandId::new();
-    record_and_dispatch_command(
+    if interaction.state != ProviderInteractionState::Requested {
+        return Err(AppError::conflict(
+            "provider_interaction.already_resolving",
+            "Provider interaction already has a decision awaiting provider confirmation",
+        ));
+    }
+    let response = resolve_provider_interaction(
         &state,
-        CommandEnvelope {
-            command_id: command_id.clone(),
-            kind: CommandKind::ResolveApproval,
-            target: CommandTarget::SessionRuntime {
-                node_id: detail.placement.node_id.clone(),
-                project_placement_id: detail.placement.project_placement_id.clone(),
-                session_thread_id: session_id.clone(),
-                runtime_session_id: detail.session.runtime.runtime_session_id.clone(),
-            },
-            actor_ref: ActorRef::local_user(),
-            source_refs: vec![],
-            cause_refs: vec![UpravaRef::Session {
-                session_thread_id: session_id.clone(),
-            }],
-            issued_at: Utc::now(),
-            correlation_id: request_correlation_id(&headers),
-            payload: CommandPayload::ResolveApproval {
+        &detail,
+        interaction_id,
+        interaction.runtime_attempt_id.clone(),
+        ProviderResolution::Approval {
+            approved: request.approved,
+            message: request.message,
+        },
+        request_correlation_id(&headers),
+    )
+    .await?;
+    Ok(Json(response))
+}
+
+enum ProviderResolution {
+    Approval {
+        approved: bool,
+        message: Option<String>,
+    },
+    Input(Vec<String>),
+}
+
+async fn resolve_provider_interaction(
+    state: &AppState,
+    detail: &SessionDetail,
+    interaction_id: ProviderInteractionId,
+    runtime_attempt_id: RuntimeAttemptId,
+    resolution: ProviderResolution,
+    correlation_id: CorrelationId,
+) -> Result<CommandAcceptedResponse, AppError> {
+    let current_attempt_id = detail
+        .session
+        .runtime
+        .current_attempt
+        .as_ref()
+        .map(|attempt| &attempt.runtime_attempt_id);
+    if current_attempt_id != Some(&runtime_attempt_id) {
+        return Err(AppError::conflict(
+            "provider_interaction.attempt_superseded",
+            "Provider interaction belongs to a superseded runtime attempt",
+        ));
+    }
+    let command_kind = match &resolution {
+        ProviderResolution::Approval { .. } => CommandKind::ResolveApproval,
+        ProviderResolution::Input(_) => CommandKind::SubmitUserInput,
+    };
+    ensure_session_commandable(state, detail, command_kind).await?;
+    let command_id = CommandId::new();
+    let now = Utc::now();
+    let (payload, intent) = match resolution {
+        ProviderResolution::Approval { approved, message } => (
+            CommandPayload::ResolveApproval {
                 approval_id: ApprovalId::from(interaction_id.as_str()),
                 provider_interaction_id: Some(interaction_id.clone()),
-                approved: request.approved,
-                message: request.message,
+                approved,
+                message,
             },
+            json!({ "decision": if approved { "approved" } else { "denied" } }),
+        ),
+        ProviderResolution::Input(answers) => {
+            let answer_count = answers.len();
+            (
+                CommandPayload::SubmitUserInput {
+                    provider_interaction_id: interaction_id.clone(),
+                    answers,
+                },
+                json!({ "answer_count": answer_count }),
+            )
+        }
+    };
+    let command = CommandEnvelope {
+        command_id: command_id.clone(),
+        kind: command_kind,
+        target: CommandTarget::SessionRuntime {
+            node_id: detail.placement.node_id.clone(),
+            project_placement_id: detail.placement.project_placement_id.clone(),
+            session_thread_id: detail.session.session_thread_id.clone(),
+            runtime_session_id: detail.session.runtime.runtime_session_id.clone(),
         },
+        actor_ref: ActorRef::local_user(),
+        source_refs: vec![UpravaRef::ProviderInteraction {
+            provider_interaction_id: interaction_id.clone(),
+        }],
+        cause_refs: vec![UpravaRef::RuntimeAttempt {
+            runtime_attempt_id: runtime_attempt_id.clone(),
+        }],
+        issued_at: now,
+        correlation_id,
+        payload,
+    };
+
+    let mut transaction = state.pool.begin().await?;
+    let expired = sqlx::query(
+        "update provider_interactions set state = 'expired', resolved_at = ?1 where provider_interaction_id = ?2 and state = 'requested' and expires_at is not null and expires_at <= ?1",
     )
-    .await?;
-    sqlx::query(
-        "update provider_interactions set resolve_command_id = ?1 where provider_interaction_id = ?2 and state = 'requested'",
-    )
-    .bind(command_id.as_str())
+    .bind(now)
     .bind(interaction_id.as_str())
-    .execute(&state.pool)
+    .execute(&mut *transaction)
     .await?;
-    Ok(Json(CommandAcceptedResponse {
+    if expired.rows_affected() > 0 {
+        transaction.commit().await?;
+        return Err(AppError::conflict(
+            "provider_interaction.expired",
+            "Provider interaction expired before the decision was accepted",
+        ));
+    }
+    record_command_on_connection(&mut transaction, &command).await?;
+    let transitioned = sqlx::query(
+        r#"
+        update provider_interactions
+        set state = 'resolving', resolution_intent_json = ?1,
+            resolve_command_id = ?2, resolving_at = ?3
+        where provider_interaction_id = ?4 and session_thread_id = ?5
+          and runtime_attempt_id = ?6 and state = 'requested'
+          and (expires_at is null or expires_at > ?3)
+        "#,
+    )
+    .bind(serde_json::to_string(&intent)?)
+    .bind(command_id.as_str())
+    .bind(now)
+    .bind(interaction_id.as_str())
+    .bind(detail.session.session_thread_id.as_str())
+    .bind(runtime_attempt_id.as_str())
+    .execute(&mut *transaction)
+    .await?;
+    if transitioned.rows_affected() == 0 {
+        transaction.rollback().await?;
+        return Err(AppError::conflict(
+            "provider_interaction.not_resolvable",
+            "Provider interaction is expired, terminal, or already resolving",
+        ));
+    }
+    sqlx::query("update commands set state = 'pending_dispatch' where command_id = ?1")
+        .bind(command_id.as_str())
+        .execute(&mut *transaction)
+        .await?;
+    sqlx::query(
+        "insert into security_audit_events (audit_event_id, kind, node_id, origin, outcome, metadata_json, happened_at) values (?1, 'provider.interaction.resolution_requested', ?2, 'local_user', 'accepted', ?3, ?4)",
+    )
+    .bind(Uuid::new_v4().to_string())
+    .bind(detail.placement.node_id.as_str())
+    .bind(serde_json::to_string(&json!({
+        "provider_interaction_id": interaction_id,
+        "runtime_attempt_id": runtime_attempt_id,
+        "command_id": command_id,
+        "kind": format!("{command_kind:?}"),
+    }))?)
+    .bind(now)
+    .execute(&mut *transaction)
+    .await?;
+    transaction.commit().await?;
+    dispatch_pending_commands(state, &detail.placement.node_id).await?;
+
+    Ok(CommandAcceptedResponse {
         command_id,
-        session: Some(load_session_detail(&state, &session_id).await?),
-    }))
+        session: Some(load_session_detail(state, &detail.session.session_thread_id).await?),
+    })
 }
 
 async fn provider_interaction_for_approval(
@@ -1255,6 +1367,26 @@ pub(crate) async fn project_managed_runtime_event_on_connection(
                     "Runtime attempt event is missing runtime session identity",
                 ));
             };
+            let current_attempt: Option<(String, String)> = sqlx::query_as(
+                r#"
+                select a.runtime_attempt_id, a.state
+                from runtime_sessions r
+                join runtime_attempts a on a.runtime_attempt_id = r.current_attempt_id
+                where r.runtime_session_id = ?1
+                "#,
+            )
+            .bind(runtime_session_id.as_str())
+            .fetch_optional(&mut *connection)
+            .await?;
+            if current_attempt.as_ref().is_some_and(|(current_id, state)| {
+                current_id != runtime_attempt_id.as_str()
+                    && !matches!(state.as_str(), "stopped" | "failed" | "lost")
+            }) {
+                return Err(AppError::conflict(
+                    "runtime_attempt.active_conflict",
+                    "A new runtime attempt cannot supersede an active attempt",
+                ));
+            }
             let inserted = sqlx::query(
                 r#"
                 insert into runtime_attempts (
@@ -1294,6 +1426,14 @@ pub(crate) async fn project_managed_runtime_event_on_connection(
                     ));
                 }
             }
+            sqlx::query(
+                "update provider_interactions set state = 'superseded', resolved_at = ?1 where runtime_session_id = ?2 and runtime_attempt_id <> ?3 and state in ('requested', 'resolving')",
+            )
+            .bind(event.happened_at)
+            .bind(runtime_session_id.as_str())
+            .bind(runtime_attempt_id.as_str())
+            .execute(&mut *connection)
+            .await?;
             sqlx::query(
                 "update runtime_sessions set current_attempt_id = ?1, recovery_status = 'live', updated_at = ?2 where runtime_session_id = ?3",
             )
@@ -1367,6 +1507,13 @@ pub(crate) async fn project_managed_runtime_event_on_connection(
             .bind(event.happened_at)
             .execute(&mut *connection)
             .await?;
+            sqlx::query(
+                "update provider_interactions set state = 'cancelled', resolved_at = ?1 where runtime_attempt_id = ?2 and state in ('requested', 'resolving')",
+            )
+            .bind(event.happened_at)
+            .bind(runtime_attempt_id.as_str())
+            .execute(&mut *connection)
+            .await?;
         }
         EventPayloadKind::ProviderInteractionRequested {
             provider_interaction_id,
@@ -1384,7 +1531,20 @@ pub(crate) async fn project_managed_runtime_event_on_connection(
                     "Provider interaction event is missing runtime or session identity",
                 ));
             };
-            sqlx::query(
+            let current_attempt_id: Option<String> = sqlx::query_scalar(
+                "select current_attempt_id from runtime_sessions where runtime_session_id = ?1",
+            )
+            .bind(runtime_session_id.as_str())
+            .fetch_optional(&mut *connection)
+            .await?
+            .flatten();
+            if current_attempt_id.as_deref() != Some(runtime_attempt_id.as_str()) {
+                return Err(AppError::conflict(
+                    "provider_interaction.attempt_superseded",
+                    "Provider interaction belongs to a non-current runtime attempt",
+                ));
+            }
+            let inserted = sqlx::query(
                 r#"
                 insert into provider_interactions (
                     provider_interaction_id, runtime_attempt_id, runtime_session_id,
@@ -1392,8 +1552,8 @@ pub(crate) async fn project_managed_runtime_event_on_connection(
                     provider_request_id, request_payload_json, response_payload_json,
                     requested_event_id, resolved_event_id, resolve_command_id,
                     requested_at, resolved_at, expires_at
-                ) values (?1, ?2, ?3, ?4, ?5, ?6, 'requested', ?1, ?7, null,
-                          ?8, null, null, ?9, null, ?10)
+                ) values (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?1, ?8, null,
+                          ?9, null, null, ?10, null, ?11)
                 on conflict(provider_interaction_id) do nothing
                 "#,
             )
@@ -1403,27 +1563,63 @@ pub(crate) async fn project_managed_runtime_event_on_connection(
             .bind(session_thread_id.as_str())
             .bind(event.turn_id.as_ref().map(TurnId::as_str))
             .bind(format_provider_interaction_kind(*interaction_kind))
+            .bind("requested")
             .bind(serde_json::to_string(&json!({ "prompt": prompt }))?)
             .bind(event.event_id.as_str())
             .bind(event.happened_at)
             .bind(expires_at)
             .execute(&mut *connection)
             .await?;
+            if inserted.rows_affected() == 0 {
+                let existing: Option<(String, String, String)> = sqlx::query_as(
+                    "select runtime_attempt_id, runtime_session_id, interaction_kind from provider_interactions where provider_interaction_id = ?1",
+                )
+                .bind(provider_interaction_id.as_str())
+                .fetch_optional(&mut *connection)
+                .await?;
+                if existing
+                    .as_ref()
+                    .is_some_and(|(attempt_id, runtime_id, kind)| {
+                        attempt_id != runtime_attempt_id.as_str()
+                            || runtime_id != runtime_session_id.as_str()
+                            || kind != format_provider_interaction_kind(*interaction_kind)
+                    })
+                {
+                    return Err(AppError::conflict(
+                        "provider_interaction.identity_conflict",
+                        "Provider reused an interaction identity with a different scope or kind",
+                    ));
+                }
+            }
         }
         EventPayloadKind::ProviderInteractionResolved {
             provider_interaction_id,
+            runtime_attempt_id,
+            interaction_kind,
             approved,
             answers,
-            ..
         } => {
-            sqlx::query(
+            let terminal_state = match (interaction_kind, approved) {
+                (ProviderInteractionKind::Approval, Some(true)) => "approved",
+                (ProviderInteractionKind::Approval, Some(false)) => "denied",
+                (ProviderInteractionKind::Approval, None) => {
+                    return Err(AppError::bad_request(
+                        "provider_interaction.approval_decision_missing",
+                        "Provider approval resolution is missing its decision",
+                    ));
+                }
+                (ProviderInteractionKind::UserInput, _) => "answered",
+            };
+            let updated = sqlx::query(
                 r#"
                 update provider_interactions
-                set state = 'resolved', response_payload_json = ?1,
-                    resolved_event_id = ?2, resolved_at = ?3
-                where provider_interaction_id = ?4 and state = 'requested'
+                set state = ?1, response_payload_json = ?2,
+                    resolved_event_id = ?3, resolved_at = ?4
+                where provider_interaction_id = ?5 and runtime_attempt_id = ?6
+                  and interaction_kind = ?7 and state = 'resolving'
                 "#,
             )
+            .bind(terminal_state)
             .bind(serde_json::to_string(&json!({
                 "approved": approved,
                 "answers": answers,
@@ -1431,8 +1627,47 @@ pub(crate) async fn project_managed_runtime_event_on_connection(
             .bind(event.event_id.as_str())
             .bind(event.happened_at)
             .bind(provider_interaction_id.as_str())
+            .bind(runtime_attempt_id.as_str())
+            .bind(format_provider_interaction_kind(*interaction_kind))
             .execute(&mut *connection)
             .await?;
+            if updated.rows_affected() == 0 {
+                return Err(AppError::conflict(
+                    "provider_interaction.resolution_conflict",
+                    "Provider resolution does not match a resolving interaction",
+                ));
+            }
+            sqlx::query(
+                "insert into security_audit_events (audit_event_id, kind, node_id, origin, outcome, metadata_json, happened_at) values (?1, 'provider.interaction.resolved', ?2, 'node', ?3, ?4, ?5)",
+            )
+            .bind(Uuid::new_v4().to_string())
+            .bind(event.node_id.as_ref().map(NodeId::as_str))
+            .bind(terminal_state)
+            .bind(serde_json::to_string(&json!({
+                "provider_interaction_id": provider_interaction_id,
+                "runtime_attempt_id": runtime_attempt_id,
+                "kind": format_provider_interaction_kind(*interaction_kind),
+            }))?)
+            .bind(event.happened_at)
+            .execute(&mut *connection)
+            .await?;
+            if let Some(runtime_session_id) = event.runtime_session_id.as_ref() {
+                let pending_count: i64 = sqlx::query_scalar(
+                    "select count(*) from provider_interactions where runtime_session_id = ?1 and state in ('requested', 'resolving')",
+                )
+                .bind(runtime_session_id.as_str())
+                .fetch_one(&mut *connection)
+                .await?;
+                if pending_count == 0 {
+                    update_runtime_state_on_connection(
+                        connection,
+                        runtime_session_id,
+                        RuntimeSessionState::Running,
+                        event.happened_at,
+                    )
+                    .await?;
+                }
+            }
         }
         EventPayloadKind::RuntimePolicyEffective {
             policy: Some(policy),
@@ -1500,14 +1735,43 @@ async fn update_attempt_from_event(
             RuntimeAttemptState::Failed | RuntimeAttemptState::Lost => "failed",
             _ => "live",
         };
-        sqlx::query(
-            "update runtime_sessions set recovery_status = ?1, updated_at = ?2 where runtime_session_id = ?3",
+        let current_attempt_updated = sqlx::query(
+            "update runtime_sessions set recovery_status = ?1, updated_at = ?2 where runtime_session_id = ?3 and current_attempt_id = ?4",
         )
         .bind(recovery_status)
         .bind(event.happened_at)
         .bind(runtime_session_id.as_str())
+        .bind(runtime_attempt_id.as_str())
         .execute(&mut *connection)
         .await?;
+        let audit_kind = match state {
+            RuntimeAttemptState::Disconnected | RuntimeAttemptState::Reconnecting => {
+                Some("runtime.recovery.started")
+            }
+            RuntimeAttemptState::Recovered => Some("runtime.recovery.completed"),
+            RuntimeAttemptState::Failed | RuntimeAttemptState::Lost => {
+                Some("runtime.recovery.failed")
+            }
+            _ => None,
+        };
+        if current_attempt_updated.rows_affected() > 0 {
+            if let Some(audit_kind) = audit_kind {
+                sqlx::query(
+                "insert into security_audit_events (audit_event_id, kind, node_id, origin, outcome, metadata_json, happened_at) values (?1, ?2, ?3, 'node', ?4, ?5, ?6)",
+            )
+            .bind(Uuid::new_v4().to_string())
+            .bind(audit_kind)
+            .bind(event.node_id.as_ref().map(NodeId::as_str))
+            .bind(recovery_status)
+            .bind(serde_json::to_string(&json!({
+                "runtime_attempt_id": runtime_attempt_id,
+                "reason": recovery_reason,
+            }))?)
+            .bind(event.happened_at)
+            .execute(&mut *connection)
+                .await?;
+            }
+        }
     }
     Ok(())
 }

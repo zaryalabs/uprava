@@ -272,7 +272,7 @@ async fn migration_creates_baseline_schema_from_empty_database() {
             .expect("migration versions load");
     assert_eq!(
         applied_versions,
-        vec![1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18]
+        vec![1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19]
     );
 
     let metadata: (String, i64) =
@@ -298,7 +298,7 @@ async fn migration_runner_is_idempotent_and_does_not_duplicate_versions() {
         .fetch_one(&state.pool)
         .await
         .expect("migration count loads");
-    assert_eq!(migration_count, 18);
+    assert_eq!(migration_count, 19);
 }
 
 #[tokio::test]
@@ -348,7 +348,7 @@ async fn migration_upgrades_the_0_2_10_numbered_baseline() {
     .await
     .expect("tooling tables count loads");
 
-    assert_eq!(latest_version, 18);
+    assert_eq!(latest_version, 19);
     assert_eq!(tooling_table_count, 3);
 }
 
@@ -629,7 +629,7 @@ async fn migration_concurrent_file_backed_starts_share_one_numbered_history() {
         .fetch_one(&pool)
         .await
         .expect("migration count loads");
-    assert_eq!(count, 18);
+    assert_eq!(count, 19);
     drop(first_state);
     drop(second_state);
     pool.close().await;

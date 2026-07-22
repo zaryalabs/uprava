@@ -783,6 +783,19 @@ export type CreateSessionRequest = {
   force?: boolean;
 };
 
+export type PreviewSessionPolicyRequest = {
+  project_placement_id: string;
+  provider: string;
+  execution_profile: AgentExecutionProfile;
+};
+
+export type SessionPolicyPreview = {
+  project_placement_id: string;
+  node_id: string;
+  effective_policy: EffectiveRuntimePolicy;
+  effective_policy_hash: string;
+};
+
 export type JobSchedule =
   | { kind: "interval"; minutes: number }
   | { kind: "daily"; hour: number; minute: number }

@@ -46,6 +46,23 @@ pub(crate) async fn run_control_channel(
         .clone()
         .context("credential is missing for control channel")?;
     let active_runtime_ids = active_runtime_ids(&local_state);
+    let mut actual_runtime_attempts = local_state
+        .managed_attempts
+        .iter()
+        .map(|(runtime_session_id, attempt)| RuntimeAttemptActualState {
+            runtime_session_id: RuntimeSessionId::from(runtime_session_id.as_str()),
+            runtime_attempt_id: attempt.runtime_attempt_id.clone(),
+            state: attempt.state,
+            effective_policy_hash: attempt.policy_hash.clone(),
+            active_turn_id: attempt.active_turn_id.clone(),
+            started_at: attempt.started_at,
+        })
+        .collect::<Vec<_>>();
+    actual_runtime_attempts.sort_by(|left, right| {
+        left.runtime_session_id
+            .as_str()
+            .cmp(right.runtime_session_id.as_str())
+    });
     let event_outbox = local_state.event_outbox.clone();
     let url = control_url(&config.core_url)?;
     let mut request = url
@@ -107,6 +124,7 @@ pub(crate) async fn run_control_channel(
             node_id: node_id.clone(),
             daemon_version: daemon_version(),
             active_runtime_ids,
+            actual_runtime_attempts,
         },
     )
     .await?;

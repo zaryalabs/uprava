@@ -1182,6 +1182,60 @@ pub(crate) const MIGRATION_18: &[&str] = &[
     "update runtime_sessions set execution_profile = 'exec_compatibility' where execution_profile is null or execution_profile = ''",
 ];
 
+pub(crate) const MIGRATION_19: &[&str] = &[
+    "alter table provider_interactions rename to provider_interactions_v18",
+    r#"
+    create table provider_interactions (
+        provider_interaction_id text primary key,
+        runtime_attempt_id text not null references runtime_attempts(runtime_attempt_id) on delete cascade,
+        runtime_session_id text not null references runtime_sessions(runtime_session_id) on delete cascade,
+        session_thread_id text not null references session_threads(session_thread_id) on delete cascade,
+        turn_id text references turns(turn_id) on delete set null,
+        interaction_kind text not null check (interaction_kind in ('approval', 'user_input')),
+        state text not null check (state in (
+            'requested', 'resolving', 'approved', 'denied', 'answered',
+            'expired', 'cancelled', 'superseded'
+        )),
+        provider_request_id text not null,
+        request_payload_json text not null,
+        resolution_intent_json text,
+        response_payload_json text,
+        requested_event_id text references events(event_id) on delete set null,
+        resolved_event_id text references events(event_id) on delete set null,
+        resolve_command_id text references commands(command_id) on delete set null,
+        requested_at text not null,
+        resolving_at text,
+        resolved_at text,
+        expires_at text,
+        unique(runtime_attempt_id, provider_request_id)
+    )
+    "#,
+    r#"
+    insert into provider_interactions (
+        provider_interaction_id, runtime_attempt_id, runtime_session_id,
+        session_thread_id, turn_id, interaction_kind, state,
+        provider_request_id, request_payload_json, resolution_intent_json,
+        response_payload_json, requested_event_id, resolved_event_id,
+        resolve_command_id, requested_at, resolving_at, resolved_at, expires_at
+    )
+    select provider_interaction_id, runtime_attempt_id, runtime_session_id,
+           session_thread_id, turn_id, interaction_kind,
+           case when state = 'resolved' and interaction_kind = 'user_input' then 'answered'
+                when state = 'resolved' then 'approved'
+                else state end,
+           provider_request_id, request_payload_json, null, response_payload_json,
+           requested_event_id, resolved_event_id, resolve_command_id,
+           requested_at, null, resolved_at, expires_at
+    from provider_interactions_v18
+    "#,
+    "drop table provider_interactions_v18",
+    r#"
+    create index provider_interactions_pending_session_idx
+    on provider_interactions(session_thread_id, requested_at, provider_interaction_id)
+    where state in ('requested', 'resolving')
+    "#,
+];
+
 pub(crate) const MIGRATIONS: &[Migration] = &[
     Migration {
         version: 1,
@@ -1271,6 +1325,11 @@ pub(crate) const MIGRATIONS: &[Migration] = &[
     Migration {
         version: 18,
         statements: MIGRATION_18,
+        ignore_duplicate_columns: false,
+    },
+    Migration {
+        version: 19,
+        statements: MIGRATION_19,
         ignore_duplicate_columns: false,
     },
 ];

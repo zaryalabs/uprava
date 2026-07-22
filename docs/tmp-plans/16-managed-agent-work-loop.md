@@ -1,6 +1,6 @@
 # План реализации feature 16: Managed Agent Work Loop
 
-Статус: `in-progress` — этапы 0–2 поставлены в `0.2.20`–`0.2.22`
+Статус: `in-progress` — этапы 0–3 поставлены в `0.2.20`–`0.2.23`
 
 Целевой delivery range: после implementation baseline `0.2.19`; фича может
 занять несколько последовательных SemVer slices. Точные версии назначаются при
@@ -549,6 +549,13 @@ Provider refactor не должен менять Tasks. Current internal Job ses
 - no provider secret appears in command args, events, DB or debug logs.
 
 ## Этап 3. Core orchestration and real interaction loop
+
+Статус: `completed` в implementation baseline `0.2.23`.
+
+Core теперь рассчитывает и показывает policy preview до start, атомарно хранит
+profile/policy/command/audit, различает accepted resolution intent и provider
+confirmation, проецирует blocked/running turns, сверяет current attempt при
+events/reconnect и публикует bounded recovery/interaction diagnostics.
 
 ### Цель
 

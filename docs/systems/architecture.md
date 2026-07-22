@@ -592,9 +592,13 @@ Node-managed driver baseline `0.2.22` реализует process-per-attempt sup
 policy/hash gate, typed provider interactions, native interrupt/stop, bounded
 event normalization и explicit lost/stale reconciliation после Node restart.
 Managed capabilities публикуются при доступном Codex binary с распознанной
-совместимой версией, но Agent default и
-internal Jobs остаются на явном Exec compatibility path до Core/Web и rollout
-gates; Task Run contract не меняется.
+совместимой версией. Core orchestration baseline `0.2.23` добавляет единый policy
+preview/admission resolver, атомарный interaction decision intent,
+provider-event confirmation и attempt-aware actual-state reconciliation. Stale
+Node report не может воскресить superseded attempt, а отсутствие live managed
+process даёт explicit provider-resumable projection. Agent default и internal
+Jobs остаются на явном Exec compatibility path до Web и rollout gates; Task Run
+contract не меняется.
 
 ### Client отвечает за
 

@@ -36,6 +36,54 @@ async fn create_session_defaults_to_exec_compatibility_with_hashed_policy() {
 }
 
 #[tokio::test]
+async fn policy_preview_matches_creation_and_explicit_exec_selection_is_audited() {
+    let state = test_state().await;
+    let (_node_id, detail, workspace_path) = create_test_session(&state).await;
+    let placement_id = detail.placement.project_placement_id.clone();
+    let preview = preview_session_policy_route(
+        State(state.clone()),
+        Json(PreviewSessionPolicyRequest {
+            project_placement_id: placement_id.clone(),
+            provider: "codex".to_owned(),
+            execution_profile: AgentExecutionProfile::ExecCompatibility,
+        }),
+    )
+    .await
+    .expect("policy preview resolves")
+    .0;
+    let created = create_session(
+        State(state.clone()),
+        Json(CreateSessionRequest {
+            project_placement_id: placement_id,
+            title: Some("Explicit compatibility".to_owned()),
+            provider: "codex".to_owned(),
+            execution_profile: Some(AgentExecutionProfile::ExecCompatibility),
+            force: false,
+        }),
+    )
+    .await
+    .expect("explicit compatibility session creates")
+    .0;
+    let audit_count: i64 = sqlx::query_scalar(
+        "select count(*) from security_audit_events where kind = 'runtime.policy.unsafe_override' and metadata_json like ?1",
+    )
+    .bind(format!(
+        "%{}%",
+        created.session.runtime.runtime_session_id.as_str()
+    ))
+    .fetch_one(&state.pool)
+    .await
+    .expect("runtime policy audit count loads");
+
+    assert_eq!(
+        Some(preview.effective_policy_hash),
+        created.session.runtime.effective_policy_hash
+    );
+    assert_eq!(audit_count, 1);
+    std::fs::remove_dir_all(&workspace_path).expect("workspace dir removes");
+}
+
+#[tokio::test]
 async fn runtime_session_effective_policy_is_database_immutable() {
     let state = test_state().await;
     let (_node_id, detail, workspace_path) = create_test_session(&state).await;

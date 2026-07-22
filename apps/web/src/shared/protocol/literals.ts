@@ -33,9 +33,13 @@ export const PROVIDER_INTERACTION_KIND_VALUES = [
 
 export const PROVIDER_INTERACTION_STATE_VALUES = [
   "requested",
-  "resolved",
+  "resolving",
+  "approved",
+  "denied",
+  "answered",
   "expired",
   "cancelled",
+  "superseded",
 ] as const;
 
 export const RUNTIME_RECOVERY_STATUS_VALUES = [

@@ -112,6 +112,21 @@ pub struct CreateSessionRequest {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct PreviewSessionPolicyRequest {
+    pub project_placement_id: ProjectPlacementId,
+    pub provider: String,
+    pub execution_profile: AgentExecutionProfile,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct SessionPolicyPreview {
+    pub project_placement_id: ProjectPlacementId,
+    pub node_id: NodeId,
+    pub effective_policy: EffectiveRuntimePolicy,
+    pub effective_policy_hash: RuntimePolicyHash,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "kind", rename_all = "snake_case")]
 pub enum JobSchedule {
     Interval { minutes: u32 },

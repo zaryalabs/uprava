@@ -67,6 +67,54 @@ async fn managed_attempt_and_interaction_events_round_trip_through_persistence()
         )
     );
 
+    let _ = submit_provider_input_route(
+        State(state.clone()),
+        HeaderMap::new(),
+        Path((
+            detail.session.session_thread_id.to_string(),
+            "interaction-foundation-1".to_owned(),
+        )),
+        Json(SubmitProviderInputRequest {
+            answers: vec!["workspace".to_owned()],
+        }),
+    )
+    .await
+    .expect("Core accepts a typed resolution intent");
+    let resolving_state: String = sqlx::query_scalar(
+        "select state from provider_interactions where provider_interaction_id = 'interaction-foundation-1'",
+    )
+    .fetch_one(&state.pool)
+    .await
+    .expect("resolving interaction loads");
+    assert_eq!(resolving_state, "resolving");
+    let duplicate = submit_provider_input_route(
+        State(state.clone()),
+        HeaderMap::new(),
+        Path((
+            detail.session.session_thread_id.to_string(),
+            "interaction-foundation-1".to_owned(),
+        )),
+        Json(SubmitProviderInputRequest {
+            answers: vec!["duplicate".to_owned()],
+        }),
+    )
+    .await;
+    assert!(matches!(
+        duplicate,
+        Err(AppError::Conflict {
+            code: "provider_interaction.already_resolving",
+            ..
+        })
+    ));
+    let resolution_command_count: i64 = sqlx::query_scalar(
+        "select count(*) from commands where kind = 'SubmitUserInput' and runtime_session_id = ?1",
+    )
+    .bind(detail.session.runtime.runtime_session_id.as_str())
+    .fetch_one(&state.pool)
+    .await
+    .expect("resolution command count loads");
+    assert_eq!(resolution_command_count, 1);
+
     let mut resolved = node_event_fixture(
         &detail,
         node_id,
@@ -85,14 +133,15 @@ async fn managed_attempt_and_interaction_events_round_trip_through_persistence()
     accept_node_event(&state, resolved)
         .await
         .expect("resolved interaction event accepts");
-    let pending_count: i64 =
-        sqlx::query_scalar("select count(*) from provider_interactions where state = 'requested'")
+    let terminal_state: String = sqlx::query_scalar(
+        "select state from provider_interactions where provider_interaction_id = 'interaction-foundation-1'",
+    )
             .fetch_one(&state.pool)
             .await
-            .expect("pending interaction count loads");
+            .expect("terminal interaction loads");
     std::fs::remove_dir_all(&workspace_path).expect("workspace dir removes");
 
-    assert_eq!(pending_count, 0);
+    assert_eq!(terminal_state, "answered");
 }
 
 #[tokio::test]

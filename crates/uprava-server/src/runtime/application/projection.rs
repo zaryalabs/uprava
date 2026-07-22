@@ -425,7 +425,7 @@ pub(crate) async fn load_pending_provider_interactions(
         select provider_interaction_id, runtime_attempt_id, interaction_kind, state,
                request_payload_json, requested_at, resolved_at
         from provider_interactions
-        where session_thread_id = ?1 and state = 'requested'
+        where session_thread_id = ?1 and state in ('requested', 'resolving')
         order by requested_at, provider_interaction_id
         "#,
     )
@@ -441,9 +441,13 @@ pub(crate) async fn load_pending_provider_interactions(
                 _ => ProviderInteractionKind::Approval,
             };
             let state = match row.try_get::<String, _>("state")?.as_str() {
-                "resolved" => ProviderInteractionState::Resolved,
+                "resolving" => ProviderInteractionState::Resolving,
+                "approved" => ProviderInteractionState::Approved,
+                "denied" => ProviderInteractionState::Denied,
+                "answered" => ProviderInteractionState::Answered,
                 "expired" => ProviderInteractionState::Expired,
                 "cancelled" => ProviderInteractionState::Cancelled,
+                "superseded" => ProviderInteractionState::Superseded,
                 _ => ProviderInteractionState::Requested,
             };
             Ok(ProviderInteractionSummary {

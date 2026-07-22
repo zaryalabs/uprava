@@ -27,10 +27,12 @@ import type {
   NodeEnrollmentSummary,
   NodeRevocationResponse,
   PlacementDeletionResponse,
+  PreviewSessionPolicyRequest,
   ResolveApprovalRequest,
   SendTurnRequest,
   CreateScheduledMessageRequest,
   ScheduledSessionMessage,
+  SessionPolicyPreview,
   JobDetail,
   JobRunSummary,
   JobSummary,
@@ -720,6 +722,8 @@ export const coreApi = {
     ),
   createSession: (request: CreateSessionRequest) =>
     apiPost<import("../protocol/types").SessionDetail>("/sessions", request),
+  previewSessionPolicy: (request: PreviewSessionPolicyRequest) =>
+    apiPost<SessionPolicyPreview>("/sessions/policy-preview", request),
   session: (sessionThreadId: string) =>
     apiGet<import("../protocol/types").SessionDetail>(
       `/sessions/${encodeURIComponent(sessionThreadId)}`,

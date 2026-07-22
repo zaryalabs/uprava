@@ -81,9 +81,14 @@ pub enum ProviderInteractionKind {
 #[serde(rename_all = "snake_case")]
 pub enum ProviderInteractionState {
     Requested,
-    Resolved,
+    /// Core durably accepted a decision, but the provider has not confirmed it yet.
+    Resolving,
+    Approved,
+    Denied,
+    Answered,
     Expired,
     Cancelled,
+    Superseded,
 }
 
 /// Recovery state visible to Core and Web after transport or process loss.
@@ -210,6 +215,17 @@ pub struct RuntimeAttemptSummary {
     pub start_reason: String,
     pub stop_reason: Option<String>,
     pub recovery_reason: Option<String>,
+}
+
+/// Secret-free Node actual-state fact used to reconcile Core after reconnect.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct RuntimeAttemptActualState {
+    pub runtime_session_id: RuntimeSessionId,
+    pub runtime_attempt_id: RuntimeAttemptId,
+    pub state: RuntimeAttemptState,
+    pub effective_policy_hash: RuntimePolicyHash,
+    pub active_turn_id: Option<TurnId>,
+    pub started_at: DateTime<Utc>,
 }
 
 /// Pending or resolved provider interaction exposed to clients.

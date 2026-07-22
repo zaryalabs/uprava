@@ -37,6 +37,7 @@ pub(crate) async fn create_session_with_correlation(
     }
     ensure_node_commandable(state, &placement.node_id).await?;
     ensure_placement_startable(&placement)?;
+    let profile_was_explicit = request.execution_profile.is_some();
     let execution_profile = request.execution_profile.unwrap_or_default();
     let provider_capabilities = ensure_node_supports_execution_profile(
         state,
@@ -120,14 +121,97 @@ pub(crate) async fn create_session_with_correlation(
             workspace_path: placement.workspace_path,
             execution_profile,
             effective_policy: Some(effective_policy),
-            effective_policy_hash: Some(effective_policy_hash),
+            effective_policy_hash: Some(effective_policy_hash.clone()),
         },
     };
     record_command_on_connection(&mut aggregate_transaction, &command).await?;
+    for (kind, outcome, metadata) in [
+        (
+            "runtime.profile.selected",
+            "accepted",
+            json!({
+                "session_thread_id": session_thread_id,
+                "runtime_session_id": runtime_session_id,
+                "profile": format_execution_profile(execution_profile),
+                "explicit": profile_was_explicit,
+            }),
+        ),
+        (
+            "runtime.policy.effective",
+            "accepted",
+            json!({
+                "runtime_session_id": runtime_session_id,
+                "policy_hash": effective_policy_hash,
+                "profile": format_execution_profile(execution_profile),
+            }),
+        ),
+    ] {
+        sqlx::query(
+            "insert into security_audit_events (audit_event_id, kind, node_id, origin, outcome, metadata_json, happened_at) values (?1, ?2, ?3, 'local_user', ?4, ?5, ?6)",
+        )
+        .bind(Uuid::new_v4().to_string())
+        .bind(kind)
+        .bind(placement.node_id.as_str())
+        .bind(outcome)
+        .bind(serde_json::to_string(&metadata)?)
+        .bind(now)
+        .execute(&mut *aggregate_transaction)
+        .await?;
+    }
+    if profile_was_explicit && execution_profile == AgentExecutionProfile::ExecCompatibility {
+        sqlx::query(
+            "insert into security_audit_events (audit_event_id, kind, node_id, origin, outcome, metadata_json, happened_at) values (?1, 'runtime.policy.unsafe_override', ?2, 'local_user', 'accepted', ?3, ?4)",
+        )
+        .bind(Uuid::new_v4().to_string())
+        .bind(placement.node_id.as_str())
+        .bind(serde_json::to_string(&json!({
+            "runtime_session_id": runtime_session_id,
+            "reason": "explicit_exec_compatibility_selection",
+        }))?)
+        .bind(now)
+        .execute(&mut *aggregate_transaction)
+        .await?;
+    }
     aggregate_transaction.commit().await?;
     dispatch_pending_commands(state, command.target.node_id()).await?;
 
     load_session_detail(state, &session_thread_id).await
+}
+
+pub(crate) async fn preview_session_policy_route(
+    State(state): State<Arc<AppState>>,
+    Json(request): Json<PreviewSessionPolicyRequest>,
+) -> Result<Json<SessionPolicyPreview>, AppError> {
+    let placement = load_placement(&state, &request.project_placement_id).await?;
+    let provider = request.provider.trim();
+    if provider.is_empty() {
+        return Err(AppError::bad_request(
+            "validation.provider_required",
+            "Provider is required",
+        ));
+    }
+    ensure_node_commandable(&state, &placement.node_id).await?;
+    ensure_placement_startable(&placement)?;
+    let capabilities = ensure_node_supports_execution_profile(
+        &state,
+        &placement.node_id,
+        provider,
+        request.execution_profile,
+    )
+    .await?;
+    let effective_policy = resolve_effective_runtime_policy(
+        provider,
+        request.execution_profile,
+        &placement.workspace_path,
+        capabilities,
+    );
+    let effective_policy_hash = effective_policy.policy_hash()?;
+    Ok(Json(SessionPolicyPreview {
+        project_placement_id: request.project_placement_id,
+        node_id: placement.node_id,
+        effective_policy,
+        effective_policy_hash,
+    }))
 }
 
 pub(crate) fn resolve_effective_runtime_policy(

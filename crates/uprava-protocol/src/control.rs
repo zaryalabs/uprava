@@ -1200,6 +1200,8 @@ pub enum ControlFrame {
         node_id: NodeId,
         daemon_version: String,
         active_runtime_ids: Vec<RuntimeSessionId>,
+        #[serde(default)]
+        actual_runtime_attempts: Vec<RuntimeAttemptActualState>,
     },
     HelloAck {
         frame_id: String,
