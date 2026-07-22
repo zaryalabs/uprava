@@ -705,8 +705,11 @@ controlled deployment и Exec compatibility mode. Текущие normalized
 
 **Target direction:** Provider-neutral managed runtime contract, richer
 TUI-equivalent interaction, runtime recovery, checkpoints and handoff. Agent
-позже может получить tool для делегирования bounded `TaskRun`, но hybrid
-task spawning больше не является headline или exit criterion этого пункта.
+позже может получить tool для делегирования bounded `TaskRun`, но такое task
+spawning больше не является headline или exit criterion этого пункта.
+
+Крупные этапы и release gates разложены во временном
+[implementation plan](../tmp-plans/16-managed-agent-work-loop.md).
 
 ### 17. Team/cloud model
 
