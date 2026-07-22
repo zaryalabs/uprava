@@ -416,7 +416,10 @@ provider codes:
 `provider.empty_output`.
 
 This is the accepted V01 Codex protocol after the local CLI spike: exec-mode
-adapter, not the final provider-native persistent runtime. `ResumeRuntime` can
+adapter, not the final provider-native managed runtime. Пункт
+[`16 Managed Agent Work Loop`](../product/feature-queue.md#16-managed-agent-work-loop)
+должен сделать live protocol основным Agent mode, сохранив этот path как явный
+unrestricted compatibility mode. `ResumeRuntime` can
 return to `ready` by restoring a persisted provider resume ref or, when no
 provider resume ref exists, by using bounded node-local transcript context for
 future turns. Persistent interactive ownership, live streaming and real

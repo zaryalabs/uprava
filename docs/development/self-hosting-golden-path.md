@@ -107,15 +107,17 @@ state, включая auth, находится в `/var/lib/uprava/.codex` с п
 self-hosting posture: внутренний Linux sandbox Codex может быть недоступен на
 сервере, поэтому effective boundary сейчас задают Unix user `uprava`,
 `UPRAVA_NODE_WORKSPACES` allow-list, inherited workspace ACLs and production
-boundary ниже. Future live provider/runtime path должен заменить это
-fine-grained permissions and approval handling.
+boundary ниже. Пункт `16 Managed Agent Work Loop` должен сделать
+provider-native managed path с safe sandbox и реальными approvals основным
+режимом Agent. Текущий path при этом сохраняется как явный unrestricted Exec
+compatibility mode.
 
 Это accepted audit risk P0-3, а не production-grade hostile-workload
 isolation. Точный follow-up и exit criteria зафиксированы в
-[`feature-queue.md`](../product/feature-queue.md#16a-provider-native-persistent-execution-policy):
-safe-by-default sandboxing, explicit unsafe-mode switch, real approval handling
-и visible effective policy. Quality-foundation work 0.2.0 не меняет текущие
-launch flags.
+[`feature-queue.md`](../product/feature-queue.md#16-managed-agent-work-loop):
+provider-native live runtime, safe-by-default sandboxing, real approval
+handling, явный unsafe compatibility mode и visible effective policy.
+Quality-foundation work 0.2.0 не меняет текущие launch flags.
 
 ## Git Credentials
 

@@ -849,7 +849,8 @@ Clients and agents не обходят Core policy при managed tool calls.
 ### A-002 Run Mode
 
 Run Mode определяет lifecycle agent workload. A-007 определяет effective
-toolset этой session/run. Persistent, sandbox and hybrid modes могут иметь
+toolset этой session/run. Managed Agent, exec compatibility, sandboxed Task и
+sessionless Job profiles могут иметь
 разные Node placements and integration policies.
 
 ### A-003 Distributed Runtime Coordination
