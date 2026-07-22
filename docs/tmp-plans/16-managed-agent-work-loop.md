@@ -1,6 +1,6 @@
 # План реализации feature 16: Managed Agent Work Loop
 
-Статус: `in-progress` — этапы 0–3 поставлены в `0.2.20`–`0.2.23`
+Статус: `in-progress` — этапы 0–4 поставлены в `0.2.20`–`0.2.24`
 
 Целевой delivery range: после implementation baseline `0.2.19`; фича может
 занять несколько последовательных SemVer slices. Точные версии назначаются при
@@ -662,6 +662,14 @@ and recovery reason without prompt, secrets or raw workspace content.
 - projection tests cover duplicate, late, conflicting and expired interactions.
 
 ## Этап 4. Agent Web work surface
+
+Статус: `completed` в implementation baseline `0.2.24`.
+
+Web даёт явный opt-in Managed и acknowledgement-gated Exec compatibility,
+показывает policy preview до старта и immutable runtime policy после него,
+рендерит semantic provider activity и typed interaction cards, а lifecycle
+controls следуют projected capabilities. Managed пока не становится default:
+это остаётся rollout gate этапа 5.
 
 ### Цель
 

@@ -596,9 +596,11 @@ Managed capabilities публикуются при доступном Codex bina
 preview/admission resolver, атомарный interaction decision intent,
 provider-event confirmation и attempt-aware actual-state reconciliation. Stale
 Node report не может воскресить superseded attempt, а отсутствие live managed
-process даёт explicit provider-resumable projection. Agent default и internal
-Jobs остаются на явном Exec compatibility path до Web и rollout gates; Task Run
-contract не меняется.
+process даёт explicit provider-resumable projection. Web baseline `0.2.24`
+добавляет явный profile/policy start contract, semantic activity and interaction
+cards, persistent runtime diagnostics и capability-aware lifecycle. Managed
+остаётся opt-in до real-provider rollout gate; internal Jobs остаются на явном
+Exec compatibility path, а Task Run contract не меняется.
 
 ### Client отвечает за
 

@@ -984,6 +984,10 @@ export type ResolveApprovalRequest = {
   message?: string | null;
 };
 
+export type SubmitProviderInputRequest = {
+  answers: string[];
+};
+
 export type AcknowledgeWarningRequest = {
   message?: string | null;
 };
