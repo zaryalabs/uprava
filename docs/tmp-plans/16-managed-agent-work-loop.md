@@ -1,6 +1,6 @@
 # План реализации feature 16: Managed Agent Work Loop
 
-Статус: `planned`
+Статус: `in-progress` — этап 0 поставлен в `0.2.20`
 
 Целевой delivery range: после implementation baseline `0.2.19`; фича может
 занять несколько последовательных SemVer slices. Точные версии назначаются при
@@ -184,6 +184,16 @@ RuntimeAttempt. Shared multi-session daemon допустим только есл
 attempt baseline.
 
 ## Этап 0. Provider protocol spike and architecture gate
+
+Статус: `completed` в implementation baseline `0.2.20`.
+
+Выбран experimental Codex app-server v2 из `codex-cli 0.144.1` через локальный
+WebSocket и topology process-per-`RuntimeAttempt`. Disposable Rust probe,
+scrubbed fixtures, measured recovery/policy results и принятые решения находятся
+в `tools/codex-app-server-probe` и каноническом
+[`A-002 Run Mode`](../systems/areas/002-run-mode.md#provider-protocol-gate-0220).
+Managed mode ещё не реализован и не становится default: следующий gate — этап
+1, shared contracts and persistence foundation.
 
 ### Цель
 

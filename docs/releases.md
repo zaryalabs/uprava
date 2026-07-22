@@ -2,7 +2,7 @@
 
 Статус: `active`
 
-Current release baseline: `0.2.19`.
+Current release baseline: `0.2.20`.
 
 Этот ledger фиксирует implementation baselines. Он не заменяет
 [`feature-queue.md`](product/feature-queue.md), где остается ранжированная очередь
@@ -40,16 +40,26 @@ future work.
 | `0.2.16` | 2026-07-21 | shipped | Plugin contribution resolution: normalized targets, deterministic exclusive chains, revisioned order/disable preferences, visible conflicts и bundled Markdown/Plain Text fallback chain |
 | `0.2.17` | 2026-07-21 | shipped | Plugin-driven Visual Artifact System: generic versioned artifacts, source matchers, inline/block/artifact viewers и bundled color, diagram, review and trace plugins с mandatory fallbacks |
 | `0.2.18` | 2026-07-21 | shipped | Dynamic UI from Agents: opt-in Generated React plugin, controlled builder, sandboxed iframe, Uprava UI SDK, persisted state, permissioned actions и safe fallbacks |
-| `0.2.19` | 2026-07-21 | current | Task-based sandbox runtime mechanics: durable Task Runs, isolated Git worktrees, Docker/OpenSandbox execution, cancel/recovery, bounded evidence, Tasks UI и immutable Codex runtime image; credential profiles отложены |
+| `0.2.19` | 2026-07-21 | shipped | Task-based sandbox runtime mechanics: durable Task Runs, isolated Git worktrees, Docker/OpenSandbox execution, cancel/recovery, bounded evidence, Tasks UI и immutable Codex runtime image; credential profiles отложены |
+| `0.2.20` | 2026-07-22 | current | Managed Agent Work Loop foundation: Codex app-server 0.144.1 protocol spike, process-per-attempt architecture gate, scrubbed fixtures и measured approval/input/interrupt/reconnect/resume policy evidence |
 
 ## Current Baseline
 
-`0.2.19` включает baseline `0.2.18`, protocol-v2 baseline `0.2.0`, завершённое Zarya 0.1 Web UI/UX
+`0.2.20` включает baseline `0.2.19`, protocol-v2 baseline `0.2.0`, завершённое Zarya 0.1 Web UI/UX
 alignment и clean-bootstrap four-phase delivery path. Текущая реализация включает
 первый working distributed
-control panel, девятнадцать implementation slices после `0.1.0`, unified audit
+control panel, двадцать implementation slices после `0.1.0`, unified audit
 hardening slice и workspace
 renderer/PTY terminal layer, а также первый deployable self-hosted release path:
+
+- provider protocol gate для Managed Agent Work Loop выбирает experimental
+  Codex app-server v2 из `codex-cli 0.144.1` over loopback WebSocket;
+  disposable Rust probe подтверждает два live turns, typed activity,
+  approval/input continuation, interrupt, reconnect/resume, safe/unrestricted
+  policy echo, Uprava-shaped MCP bearer boundary and process recovery;
+- каноническая модель разделяет Core-owned `SessionThread`/`RuntimeSession` и
+  Node-owned process-per-attempt `RuntimeAttempt`. Managed mode ещё не
+  реализован и не включён по умолчанию; `0.2.20` закрывает только stage 0 gate;
 
 - Core хранит отдельный `TaskRun` и dispatch-ит его на capability-compatible
   Node без создания interactive session; Node создаёт linked Git worktree,

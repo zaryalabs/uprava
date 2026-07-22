@@ -575,6 +575,15 @@ workflow hooks
 - local secret/env access;
 - applying patches and file changes.
 
+Provider protocol gate `0.2.20` уточняет managed boundary. Node запускает один
+loopback-only Codex app-server process на `RuntimeAttempt`, владеет endpoint,
+live request correlation, cancellation, process group and provider secrets и
+нормализует ordered events до отправки в Core. Core хранит `SessionThread`,
+`RuntimeSession`, immutable effective policy and bounded opaque provider resume
+reference, но не process/socket/request ids. Потеря managed process создаёт
+новый attempt и explicit provider resume or typed degraded recovery; она
+никогда не переключает runtime на Exec compatibility молча.
+
 ### Client отвечает за
 
 - human interaction;

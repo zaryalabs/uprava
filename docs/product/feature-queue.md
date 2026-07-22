@@ -40,7 +40,7 @@ dependency, complexity, risk and value. Позиции могут двигать
 
 ## Обзор очереди
 
-Current release baseline: `0.2.19`. Закрытые пункты `0` through `14`, unified
+Current release baseline: `0.2.20`. Закрытые пункты `0` through `14`, unified
 audit hardening release и `5a` workspace renderer release соответствуют shipped
 versions, зафиксированным в [`releases.md`](../releases.md). Пункт `6` включает
 workbench alignment, первый стабильный self-hosted deployment path и
@@ -702,6 +702,14 @@ Agent slice.
 controlled deployment и Exec compatibility mode. Текущие normalized
 `approval.requested` events не считаются реальным enforcement: managed mode
 должен продолжать тот же provider execution только после решения Core/User/Node.
+
+**Current implementation note:** `0.2.20` закрыл stage 0 architecture gate:
+выбран experimental Codex app-server v2 из `codex-cli 0.144.1` over local
+WebSocket, подтверждены bidirectional approvals/input, interrupt,
+reconnect/resume, policy echo and MCP credential boundary, приняты
+process-per-`RuntimeAttempt` topology and typed degraded recovery. Production
+contracts, Node driver, Core loop and Web managed surface ещё не реализованы;
+Exec compatibility остаётся текущим Agent mode.
 
 **Target direction:** Provider-neutral managed runtime contract, richer
 TUI-equivalent interaction, runtime recovery, checkpoints and handoff. Agent
