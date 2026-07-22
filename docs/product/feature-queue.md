@@ -76,8 +76,7 @@ OpenSandbox API key и ручной Docker acceptance.
 | 13 | + | Visual artifact system as plugins | Plugin-driven content enhancements for code, colors and diagrams plus artifact viewers for reports, diffs and timelines | Trace, Plugin contribution resolution | High |
 | 14 | + | Dynamic UI from agents as plugins | Opt-in bundled Generated React plugin with sandboxed runtime, Uprava UI SDK, safe fallbacks and permissioned actions | Plugin-delivered visual artifact system | High |
 | 15 | ~ | Task-based sandbox runtime | Docker/OpenSandbox bounded run, isolated worktree, persistent Codex auth and expected evidence | Runtime, workspace, trace | Very high |
-| 15a | - | Provider-native persistent execution policy | Safe provider defaults, explicit unsafe mode, real approvals and visible effective policy | Task-based sandbox runtime, provider-native persistent runtime | Very high |
-| 16 | - | Hybrid managed sessions | Persistent session can spawn bounded runs and merge evidence back | Task runtime | Very high |
+| 16 | - | Managed Agent Work Loop | Provider-native live Codex session with real approvals, interruption, reconnect/resume and an explicit exec compatibility mode | Agent/session runtime baseline, provider-native managed protocol | Very high |
 | 17 | - | Team/cloud model | Users, roles, shared projects, managed Core/nodes | Mature personal workflow | Very high |
 | 18 | - | Beyond software development | Research, analytics, documents, finance, knowledge workflows | Mature artifact/plugin model | Very high |
 | 19 | - | Audit follow-up refactors | Core/Node module split, generated protocol contracts, async workspace command API | `0.1.6` audit hardening | Medium |
@@ -304,11 +303,12 @@ not-before-when-ready, видимая history и notifications о failure. Recur
 agent work, не объявляя бессмертный process или непрозрачный workflow graph
 продуктовой моделью.
 
-**Dependency:** Project/workspace placements, обычный provider runtime path и
-durable Core events. Job не вводит отдельный скрытый executor. Provider-native
-sandboxing и более строгая execution policy из пункта `15a` не блокируют этот
-срез: для текущего controlled deployment сознательно принимается изоляция
-отдельным OS user и/или VM вместе с рисками unrestricted provider execution.
+**Dependency:** Project/workspace placements, обычный provider execution path и
+durable Core events. Provider-native managed Agent runtime из пункта `16` не
+блокирует этот срез: Jobs являются unattended one-shot work contract, а не
+долговечными интерактивными сессиями. Для поставленного controlled-deployment
+baseline сознательно приняты изоляция отдельным OS user и/или VM и риски
+unrestricted provider execution.
 
 **First useful slice:** Paused-by-default Job definition с одним target
 placement, prompt/task description и параметрами запуска, manual test run и
@@ -316,7 +316,7 @@ placement, prompt/task description и параметрами запуска, man
 только в текущем placement workspace; worktree и isolated task runtime
 отложены. Каждый запуск сохраняется как наблюдаемый Job Run. UI показывает
 конфигурацию, run history, итоговый summary, доступный provider output/logs,
-typed skipped/failed outcomes и переход к обычной session/trace evidence.
+typed skipped/failed outcomes и переход к run trace/evidence.
 Default overlap policy — `skip`, не больше одного active run на Job.
 
 Расписание по умолчанию использует stop-on-error policy: failed или не
@@ -332,12 +332,15 @@ typed reason. Пользователь может сделать explicit force 
 даёт надёжных machine-readable данных, состояние quota должно быть `unknown`, а
 не выдуманным числом; отсутствие данных само по себе не блокирует запуск.
 
-**Target direction:** Immutable configuration revisions, event и task-tracker
-triggers, explicit buffering policies, budgets, notifications, richer
-summaries/evidence, review/PR loops, worktrees и затем isolated task runtimes.
-Первый срез исключает visual workflow canvas, arbitrary multi-step pipelines и
-unlimited backfill. Ограничения должны добавляться по подтверждённой
-необходимости; основная task behavior пока задаётся prompt/description.
+**Target direction:** Каждый `JobRun` использует sessionless one-shot
+`codex exec`: provider sandbox включён, `workspace-write` является обычным
+write-профилем, а unattended approval policy не ждёт человека и возвращает
+запрещённые действия модели как execution failure. Dangerous bypass не является
+default и требует отдельного explicit unsafe override, если такая возможность
+будет добавлена. Дальше возможны immutable configuration revisions, event и
+task-tracker triggers, budgets, notifications, richer summaries/evidence,
+review/PR loops, worktrees и isolated task runtimes. Первый срез исключает
+visual workflow canvas, arbitrary multi-step pipelines и unlimited backfill.
 
 **Delivered в `0.2.5`:** Core хранит paused Job definitions и Job Runs со
 snapshot конфигурации, атомарно claim-ит interval/daily/weekly IANA schedule
@@ -642,42 +645,68 @@ reconciliation, bounded diff/check/artifact evidence, digest-pinned task image
 реализованы по явному решению текущего среза; до их добавления runtime profile
 остаётся controlled-development only, а пункт отмечен частично выполненным.
 
-### 15a. Provider-native persistent execution policy
+Для Tasks `--dangerously-bypass-approvals-and-sandbox` является осознанной
+provider policy: Codex исполняется unrestricted **внутри** внешней границы
+OpenSandbox. Итоговая безопасность определяется изолированным worktree,
+container mounts, credentials, network, resource limits, timeout and TTL, а не
+внутренним sandbox Codex. Trace/evidence должен показывать оба слоя явно.
 
-**Value:** Делает persistent provider execution безопасной и понятной, не
-подменяя provider sandbox workspace allow-list или Unix account.
+### 16. Managed Agent Work Loop
 
-**Dependency:** Task-based sandbox runtime и provider-native persistent runtime
-path, способный остановиться для policy and approval decisions.
+**Value:** Agent становится основной поверхностью живой совместной работы с
+Codex, а не chat wrapper над последовательностью `codex exec`. Пользователь
+ведёт долговечную рабочую сессию, видит structured activity, отвечает на
+approvals и provider questions, вмешивается в выполнение, отключается и
+возвращается без потери session/workspace context.
 
-**First useful slice and exit criteria:** Обязательны все четыре условия:
+Речь идёт о TUI-equivalent возможностях через provider-native protocol, а не о
+встраивании Codex TUI или эмуляции terminal UI внутри Web Control Panel.
 
-1. sandboxed execution является safe default;
-2. unrestricted execution доступна только через explicit unsafe-mode switch;
-3. provider approval requests проходят реальный Core/User/Node approval flow
-   до продолжения execution;
-4. effective sandbox and approval policy видна до start и в runtime
-   trace/evidence.
+**Dependency:** Существующая Agent/session surface, Core/Node command and event
+path, durable session state и доказанный provider-native managed protocol,
+способный поддерживать двустороннее выполнение, approvals, interruption and
+reconnect/resume. Task-based sandbox runtime не является зависимостью этого
+Agent slice.
 
-**Accepted risk before delivery:** Audit finding P0-3 остаётся accepted risk
-для controlled deployment. Release quality-foundation 0.2.0 не меняет
-существующие Codex launch flags, не называет текущие normalized approval events
-реальным enforcement и не обещает team, cloud or hostile-workload isolation.
+**First useful slice and exit criteria:**
 
-**Target direction:** Применить тот же explicit policy contract к будущим
-provider-native persistent runtimes, сохраняя provider-specific enforcement and
-evidence.
+1. создание Agent session по умолчанию запускает provider-native managed Codex
+   runtime, а не отдельный `codex exec` на каждый turn;
+2. Core и Node поддерживают live streaming, structured tool/command activity,
+   provider questions, real approval round-trip, interrupt, stop,
+   detach/reattach и controlled resume/recovery;
+3. provider sandbox является safe default, а effective sandbox/approval policy
+   видна до start, во время работы и в trace/evidence;
+4. unrestricted execution доступна только как явный unsafe choice и никогда не
+   включается через скрытый fallback;
+5. текущий `codex exec/resume` с
+   `--dangerously-bypass-approvals-and-sandbox` сохраняется как отдельный
+   надёжный **Exec compatibility mode** для Agent;
+6. потеря Web/Core connection не уничтожает session thread; потеря provider
+   process приводит к observable reconnect/resume или честному degraded state.
 
-### 16. Hybrid managed sessions
+**Execution profiles:**
 
-**Value:** Live sessions and background tasks становятся одним work loop вместо
-отдельных продуктов.
+- **Agent / Managed** — provider-native live runtime, safe sandbox, interactive
+  approvals and user input; основной режим;
+- **Agent / Exec compatibility** — `codex exec/resume`, unrestricted provider,
+  без обещания настоящего approval continuation; явный fallback с постоянным
+  warning/effective-policy badge;
+- **Tasks** — one-shot `codex exec`, unrestricted provider внутри OpenSandbox;
+  Task contract и внешний sandbox остаются отдельной поверхностью;
+- **Jobs** — целевой sessionless one-shot `codex exec`, sandbox enabled и
+  non-interactive approval policy по умолчанию; переход Jobs на этот contract
+  является отдельным follow-up и не блокирует поставку Agent runtime.
 
-**First useful slice:** Persistent session может spawn bounded run and link run
-evidence back into session trace/review model.
+**Accepted risk before delivery:** Audit finding P0-3 остаётся accepted risk для
+controlled deployment и Exec compatibility mode. Текущие normalized
+`approval.requested` events не считаются реальным enforcement: managed mode
+должен продолжать тот же provider execution только после решения Core/User/Node.
 
-**Target direction:** Orchestrated workflows, semi-deterministic pipelines,
-handoff between live and bounded work and review debt visibility.
+**Target direction:** Provider-neutral managed runtime contract, richer
+TUI-equivalent interaction, runtime recovery, checkpoints and handoff. Agent
+позже может получить tool для делегирования bounded `TaskRun`, но hybrid
+task spawning больше не является headline или exit criterion этого пункта.
 
 ### 17. Team/cloud model
 
@@ -727,3 +756,9 @@ area.
   scenario после обязательного Uprava-native proof?
 - Насколько маленькой может быть первая visual artifact system, чтобы при этом
   уже изменить product experience beyond text?
+- Какой Codex managed protocol даёт достаточно стабильные lifecycle,
+  approval, interrupt and reconnect contracts для основного Agent mode?
+- Нужна ли отдельная `RuntimeAttempt` identity для перезапусков managed
+  provider process или достаточно одной `RuntimeSession` с attempt events?
+- Какой workspace concurrency guard должен не позволять sessionless Job Run
+  конфликтовать с живой Agent session на том же placement?

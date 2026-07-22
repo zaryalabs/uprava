@@ -154,9 +154,14 @@ AI-agent workload, который запускается через Node Daemon 
 
 AI Agent может работать в разных execution modes:
 
-- persistent agent session;
+- provider-native managed Agent session;
+- Agent exec/resume compatibility session;
 - task-based sandbox run;
-- hybrid managed session.
+- sessionless one-shot Job Run.
+
+Опциональная будущая композиция позволяет managed Agent запускать bounded
+`TaskRun`, но она не является отдельным основным режимом и не определяет
+контракт живой Agent surface.
 
 ## Почему Core Backend нужен
 
@@ -193,7 +198,8 @@ Core дает этот endpoint и позволяет:
 
 ### Workflow state
 
-Task-based режим, hybrid mode, CI callbacks and long-running work требуют долговечного состояния:
+Task-based режим, future Agent-to-Task delegation, CI callbacks and long-running
+work требуют долговечного состояния:
 
 - что было запущено;
 - где работа остановилась;
@@ -557,7 +563,9 @@ workflow hooks
 - file access;
 - terminal/PTY;
 - process lifecycle;
-- persistent agent sessions;
+- provider-native managed Agent sessions;
+- Agent exec/resume compatibility executions;
+- sessionless Job provider executions;
 - task-based sandbox runs;
 - sandbox/microVM integration;
 - local tool execution;
