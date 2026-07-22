@@ -2,7 +2,7 @@
 
 Статус: `active`
 
-Current release baseline: `0.2.21`.
+Current release baseline: `0.2.22`.
 
 Этот ledger фиксирует implementation baselines. Он не заменяет
 [`feature-queue.md`](product/feature-queue.md), где остается ранжированная очередь
@@ -42,17 +42,29 @@ future work.
 | `0.2.18` | 2026-07-21 | shipped | Dynamic UI from Agents: opt-in Generated React plugin, controlled builder, sandboxed iframe, Uprava UI SDK, persisted state, permissioned actions и safe fallbacks |
 | `0.2.19` | 2026-07-21 | shipped | Task-based sandbox runtime mechanics: durable Task Runs, isolated Git worktrees, Docker/OpenSandbox execution, cancel/recovery, bounded evidence, Tasks UI и immutable Codex runtime image; credential profiles отложены |
 | `0.2.20` | 2026-07-22 | shipped | Managed Agent Work Loop protocol gate: Codex app-server 0.144.1 spike, process-per-attempt architecture, scrubbed fixtures и measured approval/input/interrupt/reconnect/resume policy evidence |
-| `0.2.21` | 2026-07-22 | current | Managed Agent Work Loop stage 1: shared profiles/attempts/interactions, immutable effective policy/hash, migration 18, Rust/Web fixtures и typed capability admission без fallback |
+| `0.2.21` | 2026-07-22 | shipped | Managed Agent Work Loop stage 1: shared profiles/attempts/interactions, immutable effective policy/hash, migration 18, Rust/Web fixtures и typed capability admission без fallback |
+| `0.2.22` | 2026-07-22 | current | Managed Agent Work Loop stage 2: Node-owned Codex app-server supervisor, live semantic stream, interactions, interrupt/stop, resume descriptors и restart reconciliation |
 
 ## Current Baseline
 
-`0.2.21` включает baseline `0.2.20`, protocol-v2 baseline `0.2.0`, завершённое Zarya 0.1 Web UI/UX
+`0.2.22` включает baseline `0.2.21`, protocol-v2 baseline `0.2.0`, завершённое Zarya 0.1 Web UI/UX
 alignment и clean-bootstrap four-phase delivery path. Текущая реализация включает
 первый working distributed
-control panel, двадцать один implementation slice после `0.1.0`, unified audit
+control panel, двадцать два implementation slice после `0.1.0`, unified audit
 hardening slice и workspace
 renderer/PTY terminal layer, а также первый deployable self-hosted release path:
 
+- Node владеет process-per-attempt Codex app-server v2 supervisor: проверяет
+  immutable policy/hash до запуска, сохраняет socket/process/request ids только
+  in-memory, сериализует один active turn, нормализует bounded deltas/activity,
+  approvals и user input и не выполняет silent Exec fallback;
+- native `turn/interrupt`, scoped process-group stop и opaque thread resume
+  reference сохраняют lifecycle конкретного attempt; после Node restart
+  непроверяемый live descriptor становится explicit `lost/stale`, после чего
+  допускается только отдельный provider-native Resume;
+- deterministic fake app-server regression доказывает два turns в одном live
+  thread, approval/input continuation и stop; существующий Exec compatibility
+  и OpenSandbox Task paths остаются отдельными;
 - shared Managed Agent contracts различают `managed` и `exec_compatibility`,
   `RuntimeSession` и конкретный `RuntimeAttempt`, approval и user-input
   interactions; Core сохраняет immutable effective policy JSON/hash, recovery
@@ -67,8 +79,8 @@ renderer/PTY terminal layer, а также первый deployable self-hosted r
   approval/input continuation, interrupt, reconnect/resume, safe/unrestricted
   policy echo, Uprava-shaped MCP bearer boundary and process recovery;
 - каноническая модель разделяет Core-owned `SessionThread`/`RuntimeSession` и
-  Node-owned process-per-attempt `RuntimeAttempt`. Managed mode ещё не
-  реализован и не включён по умолчанию; `0.2.21` закрывает stages 0–1;
+  Node-owned process-per-attempt `RuntimeAttempt`. Node driver реализован, но
+  Managed mode ещё не включён по умолчанию; `0.2.22` закрывает stages 0–2;
 
 - Core хранит отдельный `TaskRun` и dispatch-ит его на capability-compatible
   Node без создания interactive session; Node создаёт linked Git worktree,

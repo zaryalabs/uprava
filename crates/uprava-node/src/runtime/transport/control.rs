@@ -7,12 +7,21 @@ pub(crate) async fn control_channel_loop(
     client: reqwest::Client,
     store: NodeStateStore,
     terminal_supervisor: TerminalSupervisor,
+    managed_supervisor: ManagedRuntimeSupervisor,
 ) {
     loop {
         if let Err(error) = store.persist_reconnect_attempt().await {
             tracing::warn!(error = %error, "failed to persist reconnect metric");
         }
-        match run_control_channel(&config, &client, &store, &terminal_supervisor).await {
+        match run_control_channel(
+            &config,
+            &client,
+            &store,
+            &terminal_supervisor,
+            &managed_supervisor,
+        )
+        .await
+        {
             Ok(()) => tracing::warn!("control channel closed"),
             Err(error) => tracing::warn!(error = %error, "control channel failed"),
         }
@@ -25,6 +34,7 @@ pub(crate) async fn run_control_channel(
     client: &reqwest::Client,
     store: &NodeStateStore,
     terminal_supervisor: &TerminalSupervisor,
+    managed_supervisor: &ManagedRuntimeSupervisor,
 ) -> anyhow::Result<()> {
     let local_state = store.snapshot().await?;
     let node_id = local_state
@@ -82,6 +92,7 @@ pub(crate) async fn run_control_channel(
         store.clone(),
         outbound_tx.clone(),
         terminal_supervisor.clone(),
+        managed_supervisor.clone(),
         priority_dispatch_rx,
         dispatch_rx,
     ));

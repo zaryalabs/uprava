@@ -588,9 +588,13 @@ Foundation `0.2.21` материализует эту границу в shared R
 Core SQLite migration 18. Execution profile, policy snapshot/hash,
 RuntimeAttempt identity, recovery и pending provider interactions входят в
 session read model; capability admission остаётся Core-owned. До появления
-Node-managed driver managed capabilities публикуются как unavailable, поэтому
-работающий Agent и internal Jobs продолжают явный Exec compatibility path без
-изменения Task Run contract.
+Node-managed driver baseline `0.2.22` реализует process-per-attempt supervisor,
+policy/hash gate, typed provider interactions, native interrupt/stop, bounded
+event normalization и explicit lost/stale reconciliation после Node restart.
+Managed capabilities публикуются при доступном Codex binary с распознанной
+совместимой версией, но Agent default и
+internal Jobs остаются на явном Exec compatibility path до Core/Web и rollout
+gates; Task Run contract не меняется.
 
 ### Client отвечает за
 

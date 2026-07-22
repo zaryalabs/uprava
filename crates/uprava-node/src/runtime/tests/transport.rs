@@ -1,4 +1,5 @@
 use super::*;
+use crate::runtime::config::parse_numeric_version;
 
 #[test]
 fn node_config_from_env_requires_workspace_roots() {
@@ -119,6 +120,39 @@ fn capabilities_report_codex_unavailable_when_binary_is_missing() {
             ..
         }
     ));
+}
+
+#[cfg(unix)]
+#[test]
+fn managed_capabilities_require_a_supported_version_probe() {
+    let codex_binary = fake_codex_success_binary();
+    let mut config = config_fixture_with_codex_binary(codex_binary.display().to_string());
+    config.codex_managed_unavailable_reason = Some("version_unsupported".to_owned());
+
+    let capabilities = capabilities(&config);
+    std::fs::remove_file(codex_binary).expect("fake Codex removes");
+
+    for required in ProviderRuntimeCapability::required_for_managed_codex() {
+        let capability = capabilities
+            .iter()
+            .find(|capability| capability.key == required.as_str())
+            .expect("managed capability is reported");
+        assert!(matches!(
+            &capability.value,
+            CapabilityValue::Provider {
+                available: false,
+                unavailable_reason: Some(reason),
+                ..
+            } if reason == "version_unsupported"
+        ));
+    }
+}
+
+#[test]
+fn codex_version_parser_accepts_pinned_and_prerelease_versions() {
+    assert_eq!(parse_numeric_version("0.144.1"), Some((0, 144, 1)));
+    assert_eq!(parse_numeric_version("v0.145.0-beta.1"), Some((0, 145, 0)));
+    assert_eq!(parse_numeric_version("unknown"), None);
 }
 
 #[test]

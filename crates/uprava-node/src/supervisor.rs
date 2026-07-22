@@ -1,6 +1,6 @@
 use super::{
-    config::NodeConfig, control_channel_loop, heartbeat_auth_rejected, NodeStateStore,
-    TerminalSupervisor,
+    config::NodeConfig, control_channel_loop, heartbeat_auth_rejected, ManagedRuntimeSupervisor,
+    NodeStateStore, TerminalSupervisor,
 };
 
 /// Owns long-lived Node tasks and joins their shutdown boundary.
@@ -9,6 +9,7 @@ pub(crate) struct NodeSupervisor {
     client: reqwest::Client,
     state_store: NodeStateStore,
     terminal_supervisor: TerminalSupervisor,
+    managed_supervisor: ManagedRuntimeSupervisor,
     control_task: Option<tokio::task::JoinHandle<()>>,
 }
 
@@ -23,6 +24,7 @@ impl NodeSupervisor {
             client,
             state_store,
             terminal_supervisor: TerminalSupervisor::default(),
+            managed_supervisor: ManagedRuntimeSupervisor::default(),
             control_task: None,
         }
     }
@@ -93,6 +95,7 @@ impl NodeSupervisor {
                             self.client.clone(),
                             self.state_store.clone(),
                             self.terminal_supervisor.clone(),
+                            self.managed_supervisor.clone(),
                         )));
                     }
                 }
@@ -146,6 +149,7 @@ impl NodeSupervisor {
             let _ = task.await;
         }
         self.terminal_supervisor.shutdown().await;
+        self.managed_supervisor.shutdown().await;
         self.state_store.shutdown().await
     }
 }

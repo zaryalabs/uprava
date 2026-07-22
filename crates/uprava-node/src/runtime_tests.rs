@@ -214,6 +214,8 @@ fn config_fixture_with_codex_binary(codex_binary: impl Into<String>) -> NodeConf
         state_path: std::env::temp_dir().join(format!("uprava-node-{}.json", Uuid::new_v4())),
         workspace_paths: vec![std::env::temp_dir()],
         codex_binary: codex_binary.into(),
+        codex_version: Some("codex-cli 0.144.1".to_owned()),
+        codex_managed_unavailable_reason: None,
         codex_ignore_user_config: false,
         codex_timeout: Duration::from_secs(5),
         opensandbox_url: None,

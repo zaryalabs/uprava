@@ -1,6 +1,6 @@
 # План реализации feature 16: Managed Agent Work Loop
 
-Статус: `in-progress` — этапы 0–1 поставлены в `0.2.20`–`0.2.21`
+Статус: `in-progress` — этапы 0–2 поставлены в `0.2.20`–`0.2.22`
 
 Целевой delivery range: после implementation baseline `0.2.19`; фича может
 занять несколько последовательных SemVer slices. Точные версии назначаются при
@@ -422,6 +422,14 @@ Core отклоняет managed start с typed unavailable/degraded reason, ес
 - Core, Node and Web не используют собственные строковые mode names.
 
 ## Этап 2. Node-managed Codex runtime
+
+Статус: `completed` в implementation baseline `0.2.22`.
+
+Node теперь владеет process-per-attempt Codex app-server v2 supervisor,
+provider socket/process lifetime, typed interaction continuation, native
+interrupt/stop, bounded normalization и secret-free durable recovery
+descriptor. Deterministic fake app-server покрывает two-turn live thread,
+approval, user input and stop. Managed остаётся opt-in до этапов 3–5.
 
 ### Цель
 

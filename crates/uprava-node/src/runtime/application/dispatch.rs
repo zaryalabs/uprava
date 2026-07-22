@@ -81,12 +81,17 @@ impl ExecutionCancellationGuard {
     }
 }
 
+#[expect(
+    clippy::too_many_arguments,
+    reason = "dispatcher composition passes independent process supervisors and bounded priority queues"
+)]
 pub(crate) async fn run_command_dispatcher(
     config: NodeConfig,
     client: reqwest::Client,
     shared_state: NodeStateStore,
     sender: ControlFrameSender,
     terminal_supervisor: TerminalSupervisor,
+    managed_supervisor: ManagedRuntimeSupervisor,
     mut priority_receiver: mpsc::Receiver<CommandDispatchJob>,
     mut receiver: mpsc::Receiver<CommandDispatchJob>,
 ) {
@@ -96,6 +101,7 @@ pub(crate) async fn run_command_dispatcher(
         shared_state,
         sender,
         terminal_supervisor,
+        managed_supervisor,
         locks: CommandExecutionLocks::default(),
         cancellations: ExecutionCancellationRegistry::default(),
         concurrency: Arc::new(Semaphore::new(NODE_COMMAND_DISPATCH_CONCURRENCY)),
@@ -134,6 +140,7 @@ pub(crate) struct CommandDispatcherShared {
     pub(crate) shared_state: NodeStateStore,
     pub(crate) sender: ControlFrameSender,
     pub(crate) terminal_supervisor: TerminalSupervisor,
+    pub(crate) managed_supervisor: ManagedRuntimeSupervisor,
     pub(crate) locks: CommandExecutionLocks,
     pub(crate) cancellations: ExecutionCancellationRegistry,
     pub(crate) concurrency: Arc<Semaphore>,
@@ -191,6 +198,7 @@ pub(crate) fn spawn_command_dispatch_task(
             client: &shared.client,
             sender: &shared.sender,
             terminal_supervisor: &shared.terminal_supervisor,
+            managed_supervisor: &shared.managed_supervisor,
             shared_state: &shared.shared_state,
             cancellation: cancellation_receiver,
         };
@@ -335,6 +343,7 @@ pub(crate) struct CommandDispatchContext<'a> {
     pub(crate) client: &'a reqwest::Client,
     pub(crate) sender: &'a ControlFrameSender,
     pub(crate) terminal_supervisor: &'a TerminalSupervisor,
+    pub(crate) managed_supervisor: &'a ManagedRuntimeSupervisor,
     pub(crate) shared_state: &'a NodeStateStore,
     pub(crate) cancellation: Option<watch::Receiver<bool>>,
 }
@@ -357,7 +366,17 @@ pub(crate) async fn handle_command_dispatch(
     )
     .await?;
 
-    let provider_mcp_access = if command.kind == CommandKind::SendTurn
+    let managed_process_start = matches!(
+        &command.payload,
+        CommandPayload::StartRuntime {
+            execution_profile: AgentExecutionProfile::Managed,
+            ..
+        } | CommandPayload::ResumeRuntime {
+            execution_profile: AgentExecutionProfile::Managed,
+            ..
+        }
+    );
+    let provider_mcp_access = if (command.kind == CommandKind::SendTurn || managed_process_start)
         && !local_state
             .command_status
             .contains_key(command.command_id.as_str())
@@ -407,6 +426,7 @@ pub(crate) async fn handle_command_dispatch(
             provider_mcp_access: provider_mcp_access.as_ref(),
             live_sender: Some(context.sender),
             terminal_supervisor: Some(context.terminal_supervisor),
+            managed_supervisor: Some(context.managed_supervisor),
             cancellation: context.cancellation,
             state_store: Some(context.shared_state),
         },

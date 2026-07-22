@@ -40,7 +40,7 @@ dependency, complexity, risk and value. Позиции могут двигать
 
 ## Обзор очереди
 
-Current release baseline: `0.2.21`. Закрытые пункты `0` through `14`, unified
+Current release baseline: `0.2.22`. Закрытые пункты `0` through `14`, unified
 audit hardening release и `5a` workspace renderer release соответствуют shipped
 versions, зафиксированным в [`releases.md`](../releases.md). Пункт `6` включает
 workbench alignment, первый стабильный self-hosted deployment path и
@@ -710,9 +710,11 @@ reconnect/resume, policy echo and MCP credential boundary, приняты
 process-per-`RuntimeAttempt` topology and typed degraded recovery. Production
 `0.2.21` закрыл stage 1 foundation: shared Rust/Web execution profiles,
 attempt/interaction identity, immutable effective policy/hash, migration 18 и
-profile-aware admission без silent fallback. Node driver, Core interaction loop
-и Web managed surface ещё не реализованы; Exec compatibility остаётся текущим
-Agent mode.
+profile-aware admission без silent fallback. `0.2.22` закрыл stage 2:
+Node-owned process-per-attempt app-server driver, semantic stream,
+approval/input continuation, interrupt/stop, resume descriptor и restart
+reconciliation. Core interaction loop и Web managed surface ещё не реализованы;
+Exec compatibility остаётся текущим Agent mode.
 
 **Target direction:** Provider-neutral managed runtime contract, richer
 TUI-equivalent interaction, runtime recovery, checkpoints and handoff. Agent

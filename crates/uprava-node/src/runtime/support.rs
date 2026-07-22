@@ -18,6 +18,9 @@ pub(crate) fn control_url(core_url: &Url) -> anyhow::Result<Url> {
 
 pub(crate) fn capabilities(config: &NodeConfig) -> Vec<CapabilitySummary> {
     let codex_available = command_available(&config.codex_binary);
+    let codex_managed_available = codex_available
+        && config.codex_managed_unavailable_reason.is_none()
+        && config.codex_version.is_some();
     vec![
         CapabilitySummary {
             key: "provider.codex".to_owned(),
@@ -42,11 +45,11 @@ pub(crate) fn capabilities(config: &NodeConfig) -> Vec<CapabilitySummary> {
         CapabilitySummary {
             key: ProviderRuntimeCapability::CodexManaged.as_str().to_owned(),
             value: CapabilityValue::Provider {
-                available: false,
-                configured: false,
+                available: codex_managed_available,
+                configured: true,
                 mode: "managed".to_owned(),
-                timeout_seconds: None,
-                unavailable_reason: Some("managed_driver_not_implemented".to_owned()),
+                timeout_seconds: Some(config.codex_timeout.as_secs()),
+                unavailable_reason: config.codex_managed_unavailable_reason.clone(),
             },
         },
         CapabilitySummary {
@@ -54,11 +57,11 @@ pub(crate) fn capabilities(config: &NodeConfig) -> Vec<CapabilitySummary> {
                 .as_str()
                 .to_owned(),
             value: CapabilityValue::Provider {
-                available: false,
-                configured: false,
+                available: codex_managed_available,
+                configured: true,
                 mode: "managed".to_owned(),
-                timeout_seconds: None,
-                unavailable_reason: Some("managed_driver_not_implemented".to_owned()),
+                timeout_seconds: Some(config.codex_timeout.as_secs()),
+                unavailable_reason: config.codex_managed_unavailable_reason.clone(),
             },
         },
         CapabilitySummary {
@@ -66,11 +69,11 @@ pub(crate) fn capabilities(config: &NodeConfig) -> Vec<CapabilitySummary> {
                 .as_str()
                 .to_owned(),
             value: CapabilityValue::Provider {
-                available: false,
-                configured: false,
+                available: codex_managed_available,
+                configured: true,
                 mode: "managed".to_owned(),
-                timeout_seconds: None,
-                unavailable_reason: Some("managed_driver_not_implemented".to_owned()),
+                timeout_seconds: Some(config.codex_timeout.as_secs()),
+                unavailable_reason: config.codex_managed_unavailable_reason.clone(),
             },
         },
         CapabilitySummary {
@@ -78,11 +81,11 @@ pub(crate) fn capabilities(config: &NodeConfig) -> Vec<CapabilitySummary> {
                 .as_str()
                 .to_owned(),
             value: CapabilityValue::Provider {
-                available: false,
-                configured: false,
+                available: codex_managed_available,
+                configured: true,
                 mode: "managed".to_owned(),
-                timeout_seconds: None,
-                unavailable_reason: Some("managed_driver_not_implemented".to_owned()),
+                timeout_seconds: Some(config.codex_timeout.as_secs()),
+                unavailable_reason: config.codex_managed_unavailable_reason.clone(),
             },
         },
         CapabilitySummary {
